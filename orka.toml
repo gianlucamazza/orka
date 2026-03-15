@@ -1,0 +1,13 @@
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[bus]
+backend = "redis"
+
+[redis]
+url = "redis://127.0.0.1:6379"
+
+[logging]
+level = "info"
+json = false

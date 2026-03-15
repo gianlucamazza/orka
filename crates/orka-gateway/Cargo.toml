@@ -1,0 +1,9 @@
+[package]
+name = "orka-gateway"
+description = "HA gateway for Orka"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orka-core.workspace = true

@@ -1,0 +1,9 @@
+[package]
+name = "orka-session"
+description = "Session store for Orka"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orka-core.workspace = true

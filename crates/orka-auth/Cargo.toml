@@ -1,0 +1,9 @@
+[package]
+name = "orka-auth"
+description = "Auth gateway for Orka"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orka-core.workspace = true

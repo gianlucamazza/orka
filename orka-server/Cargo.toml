@@ -1,0 +1,16 @@
+[package]
+name = "orka-server"
+description = "Orka server binary (composition root)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "orka-server"
+path = "src/main.rs"
+
+[dependencies]
+orka-core.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

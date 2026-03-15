@@ -1,0 +1,9 @@
+[package]
+name = "orka-adapter-slack"
+description = "Slack adapter for Orka"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orka-core.workspace = true

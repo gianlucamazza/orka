@@ -1,0 +1,13 @@
+[package]
+name = "orka-cli"
+description = "CLI dev/ops tool for Orka"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "orka"
+path = "src/main.rs"
+
+[dependencies]
+orka-core.workspace = true

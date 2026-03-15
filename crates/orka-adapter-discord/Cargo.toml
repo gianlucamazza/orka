@@ -1,0 +1,9 @@
+[package]
+name = "orka-adapter-discord"
+description = "Discord adapter for Orka"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orka-core.workspace = true

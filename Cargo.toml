@@ -1,0 +1,77 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/orka-core",
+  "crates/orka-bus",
+  "crates/orka-auth",
+  "crates/orka-session",
+  "crates/orka-queue",
+  "crates/orka-worker",
+  "crates/orka-sandbox",
+  "crates/orka-gateway",
+  "crates/orka-workspace",
+  "crates/orka-memory",
+  "crates/orka-secrets",
+  "crates/orka-observe",
+  "crates/orka-skills",
+  "crates/orka-adapter-telegram",
+  "crates/orka-adapter-discord",
+  "crates/orka-adapter-whatsapp",
+  "crates/orka-adapter-slack",
+  "crates/orka-adapter-custom",
+  "crates/orka-cli",
+  "orka-server",
+  "sdk/orka-plugin-sdk",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Time & IDs
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+
+# Config
+config = "0.14"
+
+# Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Internal crates
+orka-core = { path = "crates/orka-core" }
+orka-bus = { path = "crates/orka-bus" }
+orka-auth = { path = "crates/orka-auth" }
+orka-session = { path = "crates/orka-session" }
+orka-queue = { path = "crates/orka-queue" }
+orka-worker = { path = "crates/orka-worker" }
+orka-sandbox = { path = "crates/orka-sandbox" }
+orka-gateway = { path = "crates/orka-gateway" }
+orka-workspace = { path = "crates/orka-workspace" }
+orka-memory = { path = "crates/orka-memory" }
+orka-secrets = { path = "crates/orka-secrets" }
+orka-observe = { path = "crates/orka-observe" }
+orka-skills = { path = "crates/orka-skills" }
+orka-adapter-telegram = { path = "crates/orka-adapter-telegram" }
+orka-adapter-discord = { path = "crates/orka-adapter-discord" }
+orka-adapter-whatsapp = { path = "crates/orka-adapter-whatsapp" }
+orka-adapter-slack = { path = "crates/orka-adapter-slack" }
+orka-adapter-custom = { path = "crates/orka-adapter-custom" }
+orka-cli = { path = "crates/orka-cli" }
+orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }

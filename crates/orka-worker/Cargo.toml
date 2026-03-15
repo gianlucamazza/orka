@@ -1,0 +1,9 @@
+[package]
+name = "orka-worker"
+description = "Worker pool and agent supervisor for Orka"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orka-core.workspace = true
