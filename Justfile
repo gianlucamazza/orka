@@ -78,10 +78,10 @@ dev-rebuild:
 setup:
     ./scripts/setup-dev.sh
 
-# Install orka-server as a systemd service (requires sudo)
+# Install orka-server and orka CLI as a systemd service (requires sudo)
 install:
     sudo ./scripts/install.sh
 
-# Uninstall orka-server systemd service (requires sudo)
+# Uninstall orka-server and orka CLI (requires sudo)
 uninstall:
     sudo ./scripts/install.sh --uninstall

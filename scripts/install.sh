@@ -10,6 +10,7 @@ ok() { echo -e "${PREFIX} \033[1;32m$*\033[0m"; }
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 BIN_PATH="/usr/local/bin/orka-server"
+CLI_BIN_PATH="/usr/local/bin/orka"
 UNIT_DIR="/usr/lib/systemd/system"
 SYSUSERS_DIR="/usr/lib/sysusers.d"
 TMPFILES_DIR="/usr/lib/tmpfiles.d"
@@ -32,6 +33,7 @@ uninstall() {
 
 	info "Removing installed files..."
 	rm -f "${BIN_PATH}"
+	rm -f "${CLI_BIN_PATH}"
 	rm -f "${UNIT_DIR}/${SERVICE_NAME}.service"
 	rm -f "${SYSUSERS_DIR}/${SERVICE_NAME}.conf"
 	rm -f "${TMPFILES_DIR}/${SERVICE_NAME}.conf"
@@ -39,7 +41,7 @@ uninstall() {
 	systemctl daemon-reload
 
 	echo ""
-	ok "Uninstalled ${SERVICE_NAME}."
+	ok "Uninstalled orka-server and orka CLI."
 	warn "Config (${CONFIG_DIR}) and data (${DATA_DIR}) preserved."
 	warn "Remove manually if no longer needed."
 }
@@ -50,12 +52,15 @@ if [[ "${1:-}" == "--uninstall" ]]; then
 fi
 
 # ── Build ────────────────────────────────────────────────────────────
-info "Building orka-server (release)..."
-(cd "$REPO_ROOT" && cargo build --release --bin orka-server)
+info "Building orka-server and orka CLI (release)..."
+(cd "$REPO_ROOT" && cargo build --release --bin orka-server --bin orka)
 
 # ── Install binary ───────────────────────────────────────────────────
 info "Installing binary → ${BIN_PATH}"
 install -Dm755 "$REPO_ROOT/target/release/orka-server" "$BIN_PATH"
+
+info "Installing CLI binary → ${CLI_BIN_PATH}"
+install -Dm755 "$REPO_ROOT/target/release/orka" "$CLI_BIN_PATH"
 
 # ── Install systemd files ────────────────────────────────────────────
 info "Installing systemd unit → ${UNIT_DIR}/${SERVICE_NAME}.service"
@@ -95,7 +100,7 @@ systemctl daemon-reload
 
 # ── Done ─────────────────────────────────────────────────────────────
 echo ""
-ok "orka-server installed successfully!"
+ok "orka-server and orka CLI installed successfully!"
 echo ""
 info "Enable and start the service:"
 echo "  systemctl enable --now ${SERVICE_NAME}"
