@@ -6,3 +6,4 @@
 .env.*
 !.env.example
 dump.rdb
+.fastembed_cache/
