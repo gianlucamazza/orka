@@ -17,6 +17,7 @@ tokio-util.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 orka-llm.workspace = true

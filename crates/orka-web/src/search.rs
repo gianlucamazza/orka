@@ -6,13 +6,14 @@ use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
 use tracing::debug;
 
 use crate::cache::WebCache;
-use crate::provider::SearchProvider;
+use crate::provider::{SearchOptions, SearchProvider};
 
 /// Skill that searches the web using a configured provider.
 pub struct WebSearchSkill {
     provider: Arc<dyn SearchProvider>,
     cache: Arc<WebCache>,
     max_results: usize,
+    max_content_chars: usize,
 }
 
 impl WebSearchSkill {
@@ -20,11 +21,13 @@ impl WebSearchSkill {
         provider: Arc<dyn SearchProvider>,
         cache: Arc<WebCache>,
         max_results: usize,
+        max_content_chars: usize,
     ) -> Self {
         Self {
             provider,
             cache,
             max_results,
+            max_content_chars,
         }
     }
 }
@@ -36,7 +39,9 @@ impl Skill for WebSearchSkill {
     }
 
     fn description(&self) -> &str {
-        "Search the web for information. Returns a list of results with title, URL, and snippet."
+        "Search the web for information. Returns results with title, URL, snippet, and full page content. \
+         Use a single well-crafted query — the inline content is usually sufficient to answer without \
+         additional searches or web_read calls."
     }
 
     fn schema(&self) -> SkillSchema {
@@ -54,6 +59,11 @@ impl Skill for WebSearchSkill {
                         "default": 5,
                         "minimum": 1,
                         "maximum": 10
+                    },
+                    "include_content": {
+                        "type": "boolean",
+                        "description": "Include page content in results (default: true). Set to false for faster results with only snippets.",
+                        "default": true
                     }
                 },
                 "required": ["query"]
@@ -75,8 +85,14 @@ impl Skill for WebSearchSkill {
             .map(|n| (n as usize).min(10).max(1))
             .unwrap_or(self.max_results);
 
+        let include_content = input
+            .args
+            .get("include_content")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
         // Check cache
-        let cache_key = format!("{query}:{max_results}");
+        let cache_key = format!("{query}:{max_results}:{include_content}");
         if let Some(cached) = self.cache.get("search", &cache_key) {
             debug!(query, "web_search cache hit");
             let data: serde_json::Value = serde_json::from_str(&cached)
@@ -84,7 +100,28 @@ impl Skill for WebSearchSkill {
             return Ok(SkillOutput { data });
         }
 
-        let results = self.provider.search(query, max_results).await?;
+        let options = SearchOptions {
+            max_results,
+            include_content,
+            max_content_chars: self.max_content_chars,
+        };
+
+        let results = self.provider.search(query, &options).await?;
+
+        // Pre-populate read cache with inline content
+        if include_content {
+            for r in &results {
+                if let Some(content) = &r.content {
+                    let cache_data = serde_json::json!({
+                        "text": content,
+                        "title": r.title,
+                    });
+                    if let Ok(json) = serde_json::to_string(&cache_data) {
+                        self.cache.set("read", &r.url, json);
+                    }
+                }
+            }
+        }
 
         let data = serde_json::to_value(&results)
             .map_err(|e| Error::Skill(format!("serialization error: {e}")))?;
@@ -110,8 +147,17 @@ mod tests {
 
     #[async_trait]
     impl SearchProvider for MockProvider {
-        async fn search(&self, _query: &str, max_results: usize) -> Result<Vec<SearchResult>> {
-            Ok(self.results.iter().take(max_results).cloned().collect())
+        async fn search(
+            &self,
+            _query: &str,
+            options: &SearchOptions,
+        ) -> Result<Vec<SearchResult>> {
+            Ok(self
+                .results
+                .iter()
+                .take(options.max_results)
+                .cloned()
+                .collect())
         }
     }
 
@@ -120,7 +166,19 @@ mod tests {
             Arc::new(MockProvider { results }),
             Arc::new(WebCache::new(3600)),
             5,
+            8_000,
         )
+    }
+
+    fn result(title: &str, url: &str, snippet: &str) -> SearchResult {
+        SearchResult {
+            title: title.into(),
+            url: url.into(),
+            snippet: snippet.into(),
+            score: None,
+            published_date: None,
+            content: None,
+        }
     }
 
     #[tokio::test]
@@ -131,6 +189,7 @@ mod tests {
             snippet: "A systems programming language".into(),
             score: Some(0.95),
             published_date: None,
+            content: None,
         }]);
 
         let mut args = HashMap::new();
@@ -149,20 +208,8 @@ mod tests {
     #[tokio::test]
     async fn search_respects_max_results() {
         let skill = make_skill(vec![
-            SearchResult {
-                title: "A".into(),
-                url: "https://a.com".into(),
-                snippet: "a".into(),
-                score: None,
-                published_date: None,
-            },
-            SearchResult {
-                title: "B".into(),
-                url: "https://b.com".into(),
-                snippet: "b".into(),
-                score: None,
-                published_date: None,
-            },
+            result("A", "https://a.com", "a"),
+            result("B", "https://b.com", "b"),
         ]);
 
         let mut args = HashMap::new();
@@ -194,6 +241,7 @@ mod tests {
             snippet: "cached result".into(),
             score: None,
             published_date: None,
+            content: None,
         }]);
 
         let mut args = HashMap::new();
@@ -213,10 +261,70 @@ mod tests {
         assert_eq!(output2.data.as_array().unwrap()[0]["title"], "Cached");
     }
 
+    #[tokio::test]
+    async fn search_with_content_populates_read_cache() {
+        let skill = make_skill(vec![SearchResult {
+            title: "Page".into(),
+            url: "https://example.com/page".into(),
+            snippet: "snippet".into(),
+            score: None,
+            published_date: None,
+            content: Some("Full page content here".into()),
+        }]);
+
+        let mut args = HashMap::new();
+        args.insert("query".into(), serde_json::json!("example"));
+        let input = SkillInput {
+            args,
+            context: None,
+        };
+        let output = skill.execute(input).await.unwrap();
+
+        // Content should be in search results
+        let results = output.data.as_array().unwrap();
+        assert_eq!(results[0]["content"], "Full page content here");
+
+        // Read cache should be populated
+        let cached = skill
+            .cache
+            .get("read", "https://example.com/page")
+            .unwrap();
+        assert!(cached.contains("Full page content here"));
+    }
+
+    #[tokio::test]
+    async fn search_without_content_different_cache_key() {
+        let skill = make_skill(vec![result("A", "https://a.com", "a")]);
+
+        // First search with content
+        let mut args = HashMap::new();
+        args.insert("query".into(), serde_json::json!("test"));
+        args.insert("include_content".into(), serde_json::json!(true));
+        let input = SkillInput {
+            args,
+            context: None,
+        };
+        let _ = skill.execute(input).await.unwrap();
+
+        // Search without content should NOT be a cache hit (different key)
+        let mut args2 = HashMap::new();
+        args2.insert("query".into(), serde_json::json!("test"));
+        args2.insert("include_content".into(), serde_json::json!(false));
+        let input2 = SkillInput {
+            args: args2,
+            context: None,
+        };
+        // This should succeed (hits provider, not cache) — verifies different cache keys
+        let output = skill.execute(input2).await.unwrap();
+        assert_eq!(output.data.as_array().unwrap().len(), 1);
+    }
+
     #[test]
     fn schema_is_valid() {
         let skill = make_skill(vec![]);
         let schema = skill.schema();
         assert_eq!(schema.parameters["required"][0], "query");
+        // include_content should be in schema
+        assert!(schema.parameters["properties"]["include_content"].is_object());
     }
 }

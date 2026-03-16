@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use orka_core::config::OrkaConfig;
 use orka_core::traits::EventSink;
 use orka_core::{DomainEvent, DomainEventKind};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 pub mod metrics;
 pub mod otel_sink;
@@ -71,7 +71,7 @@ impl EventSink for LogEventSink {
                 warn!(source, message, "error occurred");
             }
             DomainEventKind::Heartbeat => {
-                info!("heartbeat");
+                debug!("heartbeat");
             }
         }
     }

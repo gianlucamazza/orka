@@ -18,6 +18,10 @@ pub struct SoulFrontmatter {
     pub max_tokens_per_session: Option<u64>,
     #[serde(default)]
     pub context_window_tokens: Option<u32>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
+    pub max_agent_iterations: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

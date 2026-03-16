@@ -222,6 +222,7 @@ async fn main() -> anyhow::Result<()> {
             searxng_base_url: config.web.searxng_base_url.clone(),
             max_results: config.web.max_results,
             max_read_chars: config.web.max_read_chars,
+            max_content_chars: config.web.max_content_chars,
             cache_ttl_secs: config.web.cache_ttl_secs,
             read_timeout_secs: config.web.read_timeout_secs,
             user_agent: config.web.user_agent.clone(),
@@ -294,9 +295,9 @@ async fn main() -> anyhow::Result<()> {
                         Arc::new(orka_llm::AnthropicClient::with_options(
                             k,
                             pc.model.clone(),
-                            pc.timeout_secs,
-                            pc.max_tokens,
-                            pc.max_retries,
+                            pc.timeout_secs.unwrap_or(30),
+                            pc.max_tokens.unwrap_or(8192),
+                            pc.max_retries.unwrap_or(2),
                             config.llm.api_version.clone(),
                         )) as Arc<dyn orka_llm::LlmClient>
                     })
@@ -355,9 +356,9 @@ async fn main() -> anyhow::Result<()> {
                         Arc::new(orka_llm::OpenAiClient::with_options(
                             k,
                             pc.model.clone(),
-                            pc.timeout_secs,
-                            pc.max_tokens,
-                            pc.max_retries,
+                            pc.timeout_secs.unwrap_or(30),
+                            pc.max_tokens.unwrap_or(8192),
+                            pc.max_retries.unwrap_or(2),
                             url,
                         )) as Arc<dyn orka_llm::LlmClient>
                     })
@@ -369,9 +370,9 @@ async fn main() -> anyhow::Result<()> {
                         .unwrap_or_else(|| "http://localhost:11434/v1".into());
                     Some(Arc::new(orka_llm::OllamaClient::with_options(
                         pc.model.clone(),
-                        pc.timeout_secs,
-                        pc.max_tokens,
-                        pc.max_retries,
+                        pc.timeout_secs.unwrap_or(30),
+                        pc.max_tokens.unwrap_or(8192),
+                        pc.max_retries.unwrap_or(2),
                         url,
                     )) as Arc<dyn orka_llm::LlmClient>)
                 }

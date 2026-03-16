@@ -10,6 +10,8 @@ pub struct SearchResult {
     pub score: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub published_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 
 /// Extracted readable content from a web page.
@@ -40,6 +42,8 @@ pub struct WebConfig {
     pub max_read_chars: usize,
     #[serde(default = "default_cache_ttl_secs")]
     pub cache_ttl_secs: u64,
+    #[serde(default = "default_max_content_chars")]
+    pub max_content_chars: usize,
     #[serde(default = "default_read_timeout_secs")]
     pub read_timeout_secs: u64,
     #[serde(default = "default_user_agent")]
@@ -55,6 +59,7 @@ impl Default for WebConfig {
             searxng_base_url: None,
             max_results: default_max_results(),
             max_read_chars: default_max_read_chars(),
+            max_content_chars: default_max_content_chars(),
             cache_ttl_secs: default_cache_ttl_secs(),
             read_timeout_secs: default_read_timeout_secs(),
             user_agent: default_user_agent(),
@@ -81,6 +86,10 @@ fn default_max_results() -> usize {
 
 fn default_max_read_chars() -> usize {
     20_000
+}
+
+fn default_max_content_chars() -> usize {
+    8_000
 }
 
 fn default_cache_ttl_secs() -> u64 {

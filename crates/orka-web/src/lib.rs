@@ -1,5 +1,5 @@
 mod cache;
-mod extract;
+pub(crate) mod extract;
 mod provider;
 mod read;
 mod search;
@@ -52,7 +52,7 @@ pub fn create_web_skills(config: &WebConfig) -> Result<Vec<Arc<dyn Skill>>> {
                     "web.api_key or TAVILY_API_KEY required for tavily provider".into(),
                 )
             })?;
-            Arc::new(TavilyProvider::new(key))
+            Arc::new(TavilyProvider::new(key, config.read_timeout_secs))
         }
         SearchProviderKind::Brave => {
             let key = api_key.ok_or_else(|| {
@@ -60,14 +60,14 @@ pub fn create_web_skills(config: &WebConfig) -> Result<Vec<Arc<dyn Skill>>> {
                     "web.api_key or BRAVE_API_KEY required for brave provider".into(),
                 )
             })?;
-            Arc::new(BraveProvider::new(key))
+            Arc::new(BraveProvider::new(key, config.read_timeout_secs, &config.user_agent))
         }
         SearchProviderKind::Searxng => {
             let base_url = config
                 .searxng_base_url
                 .clone()
                 .unwrap_or_else(|| "http://localhost:8080".into());
-            Arc::new(SearxngProvider::new(base_url))
+            Arc::new(SearxngProvider::new(base_url, config.read_timeout_secs, &config.user_agent))
         }
         SearchProviderKind::None => unreachable!(),
     };
@@ -76,6 +76,7 @@ pub fn create_web_skills(config: &WebConfig) -> Result<Vec<Arc<dyn Skill>>> {
         provider,
         cache.clone(),
         config.max_results,
+        config.max_content_chars,
     ));
 
     let read_skill: Arc<dyn Skill> = Arc::new(WebReadSkill::new(

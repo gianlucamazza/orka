@@ -20,6 +20,26 @@ use tracing::{debug, info, warn};
 
 use crate::handler::AgentHandler;
 
+fn format_current_datetime(timezone: Option<&str>) -> String {
+    use chrono::Utc;
+    if let Some(tz_name) = timezone {
+        if let Ok(tz) = tz_name.parse::<chrono_tz::Tz>() {
+            let now = Utc::now().with_timezone(&tz);
+            return format!(
+                "Current date and time: {} ({})",
+                now.format("%A, %B %-d, %Y, %H:%M %Z"),
+                tz_name
+            );
+        }
+        tracing::warn!(timezone = %tz_name, "invalid timezone in SOUL.md, falling back to UTC");
+    }
+    let now = Utc::now();
+    format!(
+        "Current date and time: {} (UTC)",
+        now.format("%A, %B %-d, %Y, %H:%M UTC")
+    )
+}
+
 const MAX_AGENT_ITERATIONS: usize = 10;
 
 pub struct WorkspaceHandler {
@@ -228,6 +248,15 @@ impl AgentHandler for WorkspaceHandler {
             .as_ref()
             .and_then(|doc| doc.frontmatter.context_window_tokens)
             .unwrap_or(self.default_context_window);
+        let soul_timezone = state
+            .soul
+            .as_ref()
+            .and_then(|doc| doc.frontmatter.timezone.clone());
+        let max_iterations = state
+            .soul
+            .as_ref()
+            .and_then(|doc| doc.frontmatter.max_agent_iterations)
+            .unwrap_or(MAX_AGENT_ITERATIONS);
 
         // Read tool definitions from TOOLS.md
         let tool_entries: Vec<ToolEntry> = state
@@ -329,6 +358,12 @@ impl AgentHandler for WorkspaceHandler {
             } else {
                 format!("You are {soul_name}.\n\n{soul_body}")
             };
+
+            // Inject current date/time context
+            let now_str = format_current_datetime(soul_timezone.as_deref());
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(&now_str);
+
             if !tools_body.is_empty() {
                 system_prompt.push_str("\n\n");
                 system_prompt.push_str(&tools_body);
@@ -350,7 +385,7 @@ impl AgentHandler for WorkspaceHandler {
             // Agent loop: call LLM, execute tool calls, feed results back
             let mut final_text = String::new();
             let llm_model = soul_model.as_deref().unwrap_or("default").to_string();
-            for iteration in 0..MAX_AGENT_ITERATIONS {
+            for iteration in 0..max_iterations {
                 // Pre-flight truncation: ensure messages fit context window
                 let output_budget = soul_max_tokens.unwrap_or(4096);
                 let budget =
@@ -557,8 +592,8 @@ impl AgentHandler for WorkspaceHandler {
                     content: ChatContent::Blocks(result_blocks),
                 });
 
-                if iteration == MAX_AGENT_ITERATIONS - 1 {
-                    warn!("agent loop reached max iterations ({MAX_AGENT_ITERATIONS})");
+                if iteration == max_iterations - 1 {
+                    warn!(max_iterations, "agent loop reached max iterations");
                     final_text =
                         "I reached the maximum number of reasoning steps. Here's what I have so far."
                             .to_string();
@@ -793,6 +828,25 @@ mod tests {
             Payload::Text(t) => assert!(t.contains("only process text")),
             other => panic!("expected text payload, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn format_datetime_utc_default() {
+        let result = format_current_datetime(None);
+        assert!(result.starts_with("Current date and time:"));
+        assert!(result.contains("UTC"));
+    }
+
+    #[test]
+    fn format_datetime_with_valid_timezone() {
+        let result = format_current_datetime(Some("Europe/Rome"));
+        assert!(result.contains("Europe/Rome"));
+    }
+
+    #[test]
+    fn format_datetime_invalid_falls_back_to_utc() {
+        let result = format_current_datetime(Some("Invalid/Tz"));
+        assert!(result.contains("UTC"));
     }
 
     #[test]

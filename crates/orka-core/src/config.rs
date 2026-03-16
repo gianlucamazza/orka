@@ -64,6 +64,8 @@ pub struct WebConfig {
     pub max_results: usize,
     #[serde(default = "default_web_max_read_chars")]
     pub max_read_chars: usize,
+    #[serde(default = "default_web_max_content_chars")]
+    pub max_content_chars: usize,
     #[serde(default = "default_web_cache_ttl_secs")]
     pub cache_ttl_secs: u64,
     #[serde(default = "default_web_read_timeout_secs")]
@@ -81,6 +83,7 @@ impl Default for WebConfig {
             searxng_base_url: None,
             max_results: default_web_max_results(),
             max_read_chars: default_web_max_read_chars(),
+            max_content_chars: default_web_max_content_chars(),
             cache_ttl_secs: default_web_cache_ttl_secs(),
             read_timeout_secs: default_web_read_timeout_secs(),
             user_agent: default_web_user_agent(),
@@ -98,6 +101,10 @@ fn default_web_max_results() -> usize {
 
 fn default_web_max_read_chars() -> usize {
     20_000
+}
+
+fn default_web_max_content_chars() -> usize {
+    8_000
 }
 
 fn default_web_cache_ttl_secs() -> u64 {
@@ -515,12 +522,27 @@ impl LlmConfig {
                 api_key: None,
                 api_key_env: None,
                 model: self.model.clone(),
-                timeout_secs: self.timeout_secs,
-                max_tokens: self.max_tokens,
-                max_retries: self.max_retries,
+                timeout_secs: Some(self.timeout_secs),
+                max_tokens: Some(self.max_tokens),
+                max_retries: Some(self.max_retries),
                 base_url: None,
                 prefixes: Vec::new(),
             });
+        }
+    }
+
+    /// Propagate top-level LLM defaults into providers that don't override them.
+    pub fn apply_defaults(&mut self) {
+        for p in &mut self.providers {
+            if p.timeout_secs.is_none() {
+                p.timeout_secs = Some(self.timeout_secs);
+            }
+            if p.max_tokens.is_none() {
+                p.max_tokens = Some(self.max_tokens);
+            }
+            if p.max_retries.is_none() {
+                p.max_retries = Some(self.max_retries);
+            }
         }
     }
 }
@@ -556,12 +578,12 @@ pub struct LlmProviderConfig {
     pub api_key_env: Option<String>,
     #[serde(default = "default_llm_model")]
     pub model: String,
-    #[serde(default = "default_llm_timeout_secs")]
-    pub timeout_secs: u64,
-    #[serde(default = "default_llm_max_tokens")]
-    pub max_tokens: u32,
-    #[serde(default = "default_llm_max_retries")]
-    pub max_retries: u32,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    #[serde(default)]
+    pub max_retries: Option<u32>,
     #[serde(default)]
     pub base_url: Option<String>,
     #[serde(default)]
@@ -742,6 +764,7 @@ impl OrkaConfig {
     /// into the canonical `providers` vec.
     pub fn validate(&mut self) -> crate::Result<()> {
         self.llm.normalize();
+        self.llm.apply_defaults();
 
         if self.server.port == 0 {
             return Err(crate::Error::Config(
@@ -960,9 +983,9 @@ mod tests {
                 api_key: None,
                 api_key_env: None,
                 model: "gpt-4".into(),
-                timeout_secs: 30,
-                max_tokens: 4096,
-                max_retries: 2,
+                timeout_secs: Some(30),
+                max_tokens: Some(4096),
+                max_retries: Some(2),
                 base_url: None,
                 prefixes: Vec::new(),
             }],
@@ -980,5 +1003,32 @@ mod tests {
         let mut llm = LlmConfig::default();
         llm.normalize();
         assert!(llm.providers.is_empty());
+    }
+
+    #[test]
+    fn apply_defaults_propagates_llm_timeout() {
+        let mut llm = LlmConfig {
+            timeout_secs: 120,
+            max_tokens: 4096,
+            max_retries: 5,
+            providers: vec![LlmProviderConfig {
+                name: "test".into(),
+                provider: "anthropic".into(),
+                api_key_secret: Some("k".into()),
+                api_key: None,
+                api_key_env: None,
+                model: "test-model".into(),
+                timeout_secs: None,
+                max_tokens: None,
+                max_retries: Some(1), // explicitly set
+                base_url: None,
+                prefixes: Vec::new(),
+            }],
+            ..LlmConfig::default()
+        };
+        llm.apply_defaults();
+        assert_eq!(llm.providers[0].timeout_secs, Some(120)); // inherited
+        assert_eq!(llm.providers[0].max_tokens, Some(4096)); // inherited
+        assert_eq!(llm.providers[0].max_retries, Some(1)); // NOT overwritten
     }
 }

@@ -9,7 +9,7 @@ use orka_core::{
     config::CustomAdapterConfig, traits::ChannelAdapter, MessageSink, OutboundMessage, Result,
 };
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::routes::app_router;
 use crate::ws::WsRegistry;
@@ -84,7 +84,7 @@ impl ChannelAdapter for CustomAdapter {
             .send_to_session(&msg.session_id, &text)
             .await;
         if count == 0 {
-            warn!(session_id = %msg.session_id, "no active WS connections, message dropped");
+            debug!(session_id = %msg.session_id, "no active WS connections, message dropped");
         }
         Ok(())
     }

@@ -84,7 +84,7 @@ ttl_secs = 86400
 max_retries = 3
 
 [llm]
-timeout_secs = 30
+timeout_secs = 120
 max_tokens = 8192
 # context_window_tokens = 1000000
 # max_retries = 2
