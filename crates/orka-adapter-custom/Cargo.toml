@@ -7,3 +7,22 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+orka-auth.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+futures-util = "0.3"
+governor.workspace = true
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { workspace = true, features = ["test-util"] }
+tokio-tungstenite = "0.26"
