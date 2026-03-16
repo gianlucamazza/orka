@@ -1,10 +1,10 @@
 [Unit]
 Description=Orka AI Agent Orchestration Server
 Documentation=https://github.com/gianlucamazza/orka
-After=network-online.target redis.service
+After=network-online.target valkey.service
 Wants=network-online.target
-# Assumes local Redis; comment Requires= and After=redis.service if using a remote instance
-Requires=redis.service
+# Assumes local Valkey/Redis; adjust service name if using a different package
+Requires=valkey.service
 
 [Service]
 Type=exec
