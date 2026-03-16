@@ -1,6 +1,6 @@
 # Orka
 
-[![CI](https://github.com/homen3/orka/actions/workflows/ci.yml/badge.svg)](https://github.com/homen3/orka/actions/workflows/ci.yml)
+[![CI](https://github.com/gianlucamazza/orka/actions/workflows/ci.yml/badge.svg)](https://github.com/gianlucamazza/orka/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 
@@ -82,6 +82,20 @@ docker run -d -p 6379:6379 redis:7-alpine
 # Build and run
 cargo build --release
 ./target/release/orka-server
+```
+
+### Native Installation (Arch Linux)
+
+```bash
+# Dev setup — installs deps, starts Redis, runs cargo check
+just setup
+
+# Production install — builds release binary, installs systemd service
+just install
+systemctl enable --now orka-server
+
+# Uninstall (preserves config and data)
+just uninstall
 ```
 
 The server starts two endpoints:

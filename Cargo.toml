@@ -40,8 +40,8 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 rust-version = "1.75"
-repository = "https://github.com/homen3/orka"
-homepage = "https://github.com/homen3/orka"
+repository = "https://github.com/gianlucamazza/orka"
+homepage = "https://github.com/gianlucamazza/orka"
 keywords = ["ai", "agent", "orchestration", "llm", "rust"]
 categories = ["command-line-utilities", "web-programming"]
 

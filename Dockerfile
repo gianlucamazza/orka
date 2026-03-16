@@ -59,7 +59,7 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.title="orka-server" \
-      org.opencontainers.image.source="https://github.com/homen3/orka"
+      org.opencontainers.image.source="https://github.com/gianlucamazza/orka"
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 libstdc++6 curl \
     && rm -rf /var/lib/apt/lists/* \

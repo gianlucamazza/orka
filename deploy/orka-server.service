@@ -1,0 +1,62 @@
+[Unit]
+Description=Orka AI Agent Orchestration Server
+Documentation=https://github.com/gianlucamazza/orka
+After=network-online.target redis.service
+Wants=network-online.target
+# Assumes local Redis; comment Requires= and After=redis.service if using a remote instance
+Requires=redis.service
+
+[Service]
+Type=exec
+User=orka
+Group=orka
+
+Environment=ORKA_CONFIG=/etc/orka/orka.toml
+EnvironmentFile=-/etc/orka/orka.env
+
+ExecStart=/usr/local/bin/orka-server
+
+Restart=on-failure
+RestartSec=5s
+RestartSteps=5
+RestartMaxDelaySec=60s
+
+TimeoutStopSec=35s
+KillMode=mixed
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=orka-server
+
+StateDirectory=orka
+ConfigurationDirectory=orka
+WorkingDirectory=/var/lib/orka
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+# ^ fastembed/ONNX may need JIT; set to yes if knowledge/RAG is disabled
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/orka
+
+[Install]
+WantedBy=multi-user.target

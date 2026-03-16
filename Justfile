@@ -73,3 +73,15 @@ dev:
 # Rebuild dev image from scratch
 dev-rebuild:
     docker compose build --no-cache orka-server
+
+# Bootstrap dev environment (Arch Linux)
+setup:
+    ./scripts/setup-dev.sh
+
+# Install orka-server as a systemd service (requires sudo)
+install:
+    sudo ./scripts/install.sh
+
+# Uninstall orka-server systemd service (requires sudo)
+uninstall:
+    sudo ./scripts/install.sh --uninstall

@@ -142,12 +142,45 @@ fn network_info() -> serde_json::Value {
     serde_json::json!(net_list)
 }
 
+/// Parse NAME and VERSION from os-release file content.
+fn parse_os_release(content: &str) -> Option<(String, String)> {
+    let mut name = None;
+    let mut version = None;
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(val) = line.strip_prefix("NAME=") {
+            name = Some(val.trim_matches('"').to_string());
+        } else if let Some(val) = line.strip_prefix("VERSION=") {
+            version = Some(val.trim_matches('"').to_string());
+        }
+    }
+    Some((name?, version.unwrap_or_default()))
+}
+
+/// Read host OS info from the bind-mounted `/host/os-release` file.
+fn host_os_release() -> Option<(String, String)> {
+    let content = std::fs::read_to_string("/host/os-release").ok()?;
+    parse_os_release(&content)
+}
+
 fn os_info() -> serde_json::Value {
+    let (os_name, os_version) = host_os_release().unwrap_or_else(|| {
+        (
+            System::name().unwrap_or_default(),
+            System::os_version().unwrap_or_default(),
+        )
+    });
+
+    let host_name = std::env::var("ORKA_HOST_HOSTNAME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| System::host_name().unwrap_or_default());
+
     serde_json::json!({
-        "name": System::name().unwrap_or_default(),
+        "name": os_name,
         "kernel_version": System::kernel_version().unwrap_or_default(),
-        "os_version": System::os_version().unwrap_or_default(),
-        "host_name": System::host_name().unwrap_or_default(),
+        "os_version": os_version,
+        "host_name": host_name,
         "uptime_secs": System::uptime(),
         "boot_time": System::boot_time(),
         "load_avg": {
@@ -200,6 +233,40 @@ mod tests {
         };
         let output = skill.execute(input).await.unwrap();
         assert!(output.data["count"].is_number());
+    }
+
+    #[test]
+    fn parse_os_release_arch() {
+        let content = r#"NAME="Arch Linux"
+PRETTY_NAME="Arch Linux"
+ID=arch
+BUILD_ID=rolling
+VERSION_ID=TEMPLATE_VERSION_ID
+ANSI_COLOR="38;2;23;147;209"
+HOME_URL="https://archlinux.org/"
+"#;
+        let (name, version) = parse_os_release(content).unwrap();
+        assert_eq!(name, "Arch Linux");
+        assert_eq!(version, ""); // Arch has no VERSION field
+    }
+
+    #[test]
+    fn parse_os_release_debian() {
+        let content = r#"PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+NAME="Debian GNU/Linux"
+VERSION_ID="12"
+VERSION="12 (bookworm)"
+ID=debian
+"#;
+        let (name, version) = parse_os_release(content).unwrap();
+        assert_eq!(name, "Debian GNU/Linux");
+        assert_eq!(version, "12 (bookworm)");
+    }
+
+    #[test]
+    fn parse_os_release_missing_name() {
+        let content = "VERSION=\"12\"\nID=debian\n";
+        assert!(parse_os_release(content).is_none());
     }
 
     #[tokio::test]

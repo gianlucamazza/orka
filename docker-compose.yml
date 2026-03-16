@@ -77,9 +77,11 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      ORKA_HOST_HOSTNAME: ${HOSTNAME}
     volumes:
       - ./workspaces:/workspaces
       - ./orka.toml:/etc/orka/orka.toml:ro
+      - /etc/os-release:/host/os-release:ro
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health/live"]
       interval: 30s

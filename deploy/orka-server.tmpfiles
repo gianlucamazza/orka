@@ -1,0 +1,3 @@
+d /var/lib/orka            0750 orka orka -
+d /var/lib/orka/workspaces 0750 orka orka -
+d /etc/orka                0755 root orka -
