@@ -7,3 +7,20 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+redis.workspace = true
+deadpool-redis.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+testcontainers.workspace = true
+testcontainers-modules.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+default = []
+bus-nats = []

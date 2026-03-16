@@ -7,3 +7,16 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+redis.workspace = true
+deadpool-redis.workspace = true
+tokio.workspace = true
+chrono.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
+tracing-opentelemetry.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true

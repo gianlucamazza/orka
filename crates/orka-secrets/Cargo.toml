@@ -7,3 +7,15 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+redis.workspace = true
+deadpool-redis.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+aes-gcm.workspace = true
+rand.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+testcontainers.workspace = true
+testcontainers-modules.workspace = true
