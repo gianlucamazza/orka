@@ -485,14 +485,8 @@ fn default_gateway_dedup_ttl_secs() -> u64 {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LlmConfig {
-    /// DEPRECATED: use [[llm.providers]] instead.
-    #[serde(default)]
-    pub provider: Option<String>,
     #[serde(default = "default_llm_model")]
     pub model: String,
-    /// DEPRECATED: use [[llm.providers]] instead.
-    #[serde(default)]
-    pub api_key_secret: Option<String>,
     #[serde(default = "default_llm_timeout_secs")]
     pub timeout_secs: u64,
     #[serde(default = "default_llm_max_tokens")]
@@ -508,29 +502,6 @@ pub struct LlmConfig {
 }
 
 impl LlmConfig {
-    /// Convert legacy flat fields (`provider`, `api_key_secret`, …) into a
-    /// single entry in `providers`. No-op when `providers` is already populated.
-    pub fn normalize(&mut self) {
-        if !self.providers.is_empty() {
-            return;
-        }
-        if let Some(provider) = self.provider.take() {
-            self.providers.push(LlmProviderConfig {
-                name: provider.clone(),
-                provider: provider.clone(),
-                api_key_secret: self.api_key_secret.take(),
-                api_key: None,
-                api_key_env: None,
-                model: self.model.clone(),
-                timeout_secs: Some(self.timeout_secs),
-                max_tokens: Some(self.max_tokens),
-                max_retries: Some(self.max_retries),
-                base_url: None,
-                prefixes: Vec::new(),
-            });
-        }
-    }
-
     /// Propagate top-level LLM defaults into providers that don't override them.
     pub fn apply_defaults(&mut self) {
         for p in &mut self.providers {
@@ -550,9 +521,7 @@ impl LlmConfig {
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
-            provider: None,
             model: default_llm_model(),
-            api_key_secret: None,
             timeout_secs: default_llm_timeout_secs(),
             max_tokens: default_llm_max_tokens(),
             max_retries: default_llm_max_retries(),
@@ -759,11 +728,7 @@ impl Default for A2aConfig {
 
 impl OrkaConfig {
     /// Validate the loaded configuration.
-    ///
-    /// Also normalizes the LLM config so that legacy flat fields are converted
-    /// into the canonical `providers` vec.
     pub fn validate(&mut self) -> crate::Result<()> {
-        self.llm.normalize();
         self.llm.apply_defaults();
 
         if self.server.port == 0 {
@@ -943,66 +908,6 @@ mod tests {
         let mut cfg = valid_config();
         cfg.workspace_dir = "/nonexistent/path".into();
         assert!(cfg.validate().is_err());
-    }
-
-    #[test]
-    fn llm_provider_without_key_rejected() {
-        let mut cfg = valid_config();
-        cfg.llm.provider = Some("anthropic".into());
-        cfg.llm.api_key_secret = None;
-        assert!(cfg.validate().is_err());
-    }
-
-    #[test]
-    fn normalize_legacy_to_providers() {
-        let mut llm = LlmConfig {
-            provider: Some("anthropic".into()),
-            api_key_secret: Some("my_key".into()),
-            model: "claude-sonnet-4-6".into(),
-            ..LlmConfig::default()
-        };
-        llm.normalize();
-        assert_eq!(llm.providers.len(), 1);
-        assert_eq!(llm.providers[0].name, "anthropic");
-        assert_eq!(llm.providers[0].provider, "anthropic");
-        assert_eq!(llm.providers[0].api_key_secret.as_deref(), Some("my_key"));
-        assert_eq!(llm.providers[0].model, "claude-sonnet-4-6");
-        // Legacy fields cleared
-        assert!(llm.provider.is_none());
-        assert!(llm.api_key_secret.is_none());
-    }
-
-    #[test]
-    fn normalize_noop_when_providers_set() {
-        let mut llm = LlmConfig {
-            provider: Some("should_be_ignored".into()),
-            providers: vec![LlmProviderConfig {
-                name: "existing".into(),
-                provider: "openai".into(),
-                api_key_secret: Some("k".into()),
-                api_key: None,
-                api_key_env: None,
-                model: "gpt-4".into(),
-                timeout_secs: Some(30),
-                max_tokens: Some(4096),
-                max_retries: Some(2),
-                base_url: None,
-                prefixes: Vec::new(),
-            }],
-            ..LlmConfig::default()
-        };
-        llm.normalize();
-        assert_eq!(llm.providers.len(), 1);
-        assert_eq!(llm.providers[0].name, "existing");
-        // Legacy field untouched (not consumed)
-        assert_eq!(llm.provider.as_deref(), Some("should_be_ignored"));
-    }
-
-    #[test]
-    fn normalize_empty() {
-        let mut llm = LlmConfig::default();
-        llm.normalize();
-        assert!(llm.providers.is_empty());
     }
 
     #[test]
