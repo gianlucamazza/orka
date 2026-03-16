@@ -164,21 +164,38 @@ impl OpenAiClient {
     }
 
     fn build_messages(messages: &[ChatMessageExt]) -> Vec<serde_json::Value> {
-        messages
-            .iter()
-            .map(|m| match &m.content {
-                ChatContent::Text(t) => json!({"role": m.role, "content": t}),
+        let mut out = Vec::new();
+        for m in messages {
+            match &m.content {
+                ChatContent::Text(t) => {
+                    out.push(json!({"role": m.role, "content": t}));
+                }
                 ChatContent::Blocks(blocks) => {
-                    // Convert tool results to OpenAI format
-                    let mut msgs = Vec::new();
+                    // Collect text and tool_use blocks into a single assistant message,
+                    // and tool_result blocks into separate tool messages.
+                    let mut text_parts = Vec::new();
+                    let mut tool_calls = Vec::new();
                     for block in blocks {
                         match block {
+                            crate::client::ContentBlockInput::Text { text } => {
+                                text_parts.push(text.clone());
+                            }
+                            crate::client::ContentBlockInput::ToolUse { id, name, input } => {
+                                tool_calls.push(json!({
+                                    "id": id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": name,
+                                        "arguments": serde_json::to_string(input).unwrap_or_default(),
+                                    }
+                                }));
+                            }
                             crate::client::ContentBlockInput::ToolResult {
                                 tool_use_id,
                                 content,
                                 ..
                             } => {
-                                msgs.push(json!({
+                                out.push(json!({
                                     "role": "tool",
                                     "tool_call_id": tool_use_id,
                                     "content": content,
@@ -186,13 +203,21 @@ impl OpenAiClient {
                             }
                         }
                     }
-                    // Return first or empty
-                    msgs.into_iter()
-                        .next()
-                        .unwrap_or(json!({"role": "user", "content": ""}))
+                    // Emit assistant message with text and/or tool_calls
+                    if !text_parts.is_empty() || !tool_calls.is_empty() {
+                        let mut msg = json!({"role": "assistant"});
+                        if !text_parts.is_empty() {
+                            msg["content"] = json!(text_parts.join("\n"));
+                        }
+                        if !tool_calls.is_empty() {
+                            msg["tool_calls"] = json!(tool_calls);
+                        }
+                        out.push(msg);
+                    }
                 }
-            })
-            .collect()
+            }
+        }
+        out
     }
 
     fn build_tools(tools: &[ToolDefinition]) -> Vec<serde_json::Value> {

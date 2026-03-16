@@ -113,7 +113,25 @@ impl WorkspaceHandler {
         for msg in messages {
             let text = match &msg.content {
                 ChatContent::Text(t) => t.clone(),
-                ChatContent::Blocks(_) => "[tool interaction]".to_string(),
+                ChatContent::Blocks(blocks) => {
+                    let mut parts = Vec::new();
+                    for b in blocks {
+                        match b {
+                            ContentBlockInput::Text { text } => parts.push(text.clone()),
+                            ContentBlockInput::ToolUse { name, .. } => {
+                                parts.push(format!("[called {name}]"))
+                            }
+                            ContentBlockInput::ToolResult { content, .. } => {
+                                parts.push(format!("[result: {content}]"))
+                            }
+                        }
+                    }
+                    if parts.is_empty() {
+                        "[tool interaction]".to_string()
+                    } else {
+                        parts.join(" ")
+                    }
+                }
             };
             transcript.push_str(&format!("{}: {}\n", msg.role, text));
         }
@@ -431,11 +449,22 @@ impl AgentHandler for WorkspaceHandler {
                     "agent loop: executing tool calls"
                 );
 
-                // Record assistant text if any
-                if !response_text.is_empty() {
+                // Record assistant message with text + tool_use blocks
+                {
+                    let mut blocks = Vec::new();
+                    if !response_text.is_empty() {
+                        blocks.push(ContentBlockInput::Text { text: response_text });
+                    }
+                    for call in &tool_calls {
+                        blocks.push(ContentBlockInput::ToolUse {
+                            id: call.id.clone(),
+                            name: call.name.clone(),
+                            input: call.input.clone(),
+                        });
+                    }
                     messages.push(ChatMessageExt {
                         role: "assistant".to_string(),
-                        content: ChatContent::Text(response_text),
+                        content: ChatContent::Blocks(blocks),
                     });
                 }
 

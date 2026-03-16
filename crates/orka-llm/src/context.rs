@@ -12,6 +12,10 @@ pub fn estimate_message_tokens(msg: &ChatMessageExt) -> u32 {
         ChatContent::Blocks(blocks) => blocks
             .iter()
             .map(|b| match b {
+                ContentBlockInput::Text { text } => estimate_tokens(text),
+                ContentBlockInput::ToolUse { input, .. } => {
+                    estimate_tokens(&serde_json::to_string(input).unwrap_or_default())
+                }
                 ContentBlockInput::ToolResult { content, .. } => estimate_tokens(content),
             })
             .sum(),

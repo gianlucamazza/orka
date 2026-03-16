@@ -79,10 +79,18 @@ pub enum ChatContent {
     Blocks(Vec<ContentBlockInput>),
 }
 
-/// Input content block for messages with tool results.
+/// Input content block for messages with tool use/results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ContentBlockInput {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
     #[serde(rename = "tool_result")]
     ToolResult {
         tool_use_id: String,
