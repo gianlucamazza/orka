@@ -5,7 +5,41 @@ use futures_util::StreamExt;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_tungstenite::connect_async;
 
+use orka_core::parse_slash_command;
+
 use crate::client::{OrkaClient, Result};
+
+fn print_help() {
+    println!("{}", "=== Available Commands ===".bold().cyan());
+    println!();
+    println!("{}", "Local:".bold());
+    println!("  {}    Exit the chat", "/quit, /exit".yellow());
+    println!("  {}           Show this help", "/help".yellow());
+    println!("  {}          Clear the screen", "/clear".yellow());
+    println!();
+    println!("{}", "Server:".bold());
+    println!(
+        "  {}   Invoke a skill directly",
+        "/skill <name> [k=v ...]".yellow()
+    );
+    println!(
+        "  {}                    List available skills",
+        "/skills".yellow()
+    );
+    println!(
+        "  {}                      Clear conversation history",
+        "/reset".yellow()
+    );
+    println!(
+        "  {}                     Show session info",
+        "/status".yellow()
+    );
+    println!(
+        "  {}                       Show available commands",
+        "/help".yellow()
+    );
+    println!();
+}
 
 pub async fn run(client: &OrkaClient, session_id: Option<&str>) -> Result<()> {
     let sid = OrkaClient::resolve_session_id(session_id);
@@ -16,7 +50,8 @@ pub async fn run(client: &OrkaClient, session_id: Option<&str>) -> Result<()> {
     println!("{}", "=== Orka Chat ===".bold().cyan());
     println!("Session: {}", sid.dimmed());
     println!(
-        "Type your messages below. Use {} or {} to exit.\n",
+        "Type your messages below. Use {} for commands, {} or {} to exit.\n",
+        "/help".yellow(),
         "/quit".yellow(),
         "Ctrl+C".yellow()
     );
@@ -85,8 +120,26 @@ pub async fn run(client: &OrkaClient, session_id: Option<&str>) -> Result<()> {
             std::io::stdout().flush()?;
             continue;
         }
-        if trimmed == "/quit" {
-            break;
+
+        if let Some(cmd) = parse_slash_command(trimmed) {
+            match cmd.name.as_str() {
+                "quit" | "exit" => break,
+                "help" => {
+                    print_help();
+                    print!("{} ", "You:".cyan().bold());
+                    std::io::stdout().flush()?;
+                    continue;
+                }
+                "clear" => {
+                    print!("\x1B[2J\x1B[1;1H");
+                    print!("{} ", "You:".cyan().bold());
+                    std::io::stdout().flush()?;
+                    continue;
+                }
+                _ => {
+                    // Server-side command: send as-is
+                }
+            }
         }
 
         match client.send_message(trimmed, &sid).await {

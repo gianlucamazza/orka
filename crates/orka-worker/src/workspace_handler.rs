@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -18,6 +18,7 @@ use orka_workspace::state::WorkspaceState;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use crate::commands::CommandRegistry;
 use crate::handler::AgentHandler;
 
 fn format_current_datetime(timezone: Option<&str>) -> String {
@@ -51,6 +52,7 @@ pub struct WorkspaceHandler {
     event_sink: Arc<dyn EventSink>,
     default_context_window: u32,
     guardrail: Option<Arc<dyn Guardrail>>,
+    commands: Arc<CommandRegistry>,
 }
 
 impl WorkspaceHandler {
@@ -64,6 +66,7 @@ impl WorkspaceHandler {
         event_sink: Arc<dyn EventSink>,
         default_context_window: u32,
         guardrail: Option<Arc<dyn Guardrail>>,
+        commands: Arc<CommandRegistry>,
     ) -> Self {
         Self {
             workspace_state,
@@ -74,6 +77,7 @@ impl WorkspaceHandler {
             event_sink,
             default_context_window,
             guardrail,
+            commands,
         }
     }
 
@@ -87,10 +91,14 @@ impl WorkspaceHandler {
         }
     }
 
-    /// Convert workspace TOOLS.md entries to LLM tool definitions,
-    /// filtering to only enabled tools that exist in the skill registry.
+    /// Convert workspace TOOLS.md entries to LLM tool definitions.
+    /// Skills explicitly listed in TOOLS.md respect their `enabled` flag.
+    /// Registered skills NOT listed in TOOLS.md are included by default.
     fn build_tool_definitions(&self, tool_entries: &[ToolEntry]) -> Vec<ToolDefinition> {
-        tool_entries
+        let listed_names: HashSet<&str> = tool_entries.iter().map(|t| t.name.as_str()).collect();
+
+        // 1. Tools explicitly listed in TOOLS.md (respect enabled flag)
+        let mut defs: Vec<ToolDefinition> = tool_entries
             .iter()
             .filter(|t| t.enabled)
             .filter(|t| self.skills.get(&t.name).is_some())
@@ -120,7 +128,22 @@ impl WorkspaceHandler {
                     input_schema: schema,
                 }
             })
-            .collect()
+            .collect();
+
+        // 2. Auto-include registered skills NOT listed in TOOLS.md
+        for name in self.skills.list() {
+            if !listed_names.contains(name) {
+                if let Some(skill) = self.skills.get(name) {
+                    defs.push(ToolDefinition {
+                        name: skill.name().to_string(),
+                        description: skill.description().to_string(),
+                        input_schema: skill.schema().parameters.clone(),
+                    });
+                }
+            }
+        }
+
+        defs
     }
     async fn summarize_messages(
         llm: &Arc<dyn LlmClient>,
@@ -287,50 +310,21 @@ impl AgentHandler for WorkspaceHandler {
             text
         };
 
-        // Check for direct skill invocation: !skill <name> key=val ...
-        if let Some(rest) = text.strip_prefix("!skill ") {
-            let parts: Vec<&str> = rest.split_whitespace().collect();
-            if parts.is_empty() {
-                let available = self.skills.list().join(", ");
-                return Ok(vec![self.make_reply(
-                    envelope,
-                    format!("Usage: !skill <name> key=val ...\nAvailable skills: {available}"),
-                )]);
+        // Check for slash commands: /command [args...]
+        if let Some(cmd) = orka_core::parse_slash_command(&text) {
+            if cmd.name == "help" {
+                // /help uses the registry to show all commands
+                return Ok(vec![self.make_reply(envelope, self.commands.help_text())]);
             }
-
-            let skill_name = parts[0];
-
-            if self.skills.get(skill_name).is_none() {
-                let available = self.skills.list().join(", ");
-                return Ok(vec![self.make_reply(
-                    envelope,
-                    format!("Unknown skill: {skill_name}\nAvailable skills: {available}"),
-                )]);
+            if let Some(handler) = self.commands.get(&cmd.name) {
+                return handler.execute(&cmd.args, envelope, session).await;
             }
-
-            let mut args = HashMap::new();
-            for part in &parts[1..] {
-                if let Some((k, v)) = part.split_once('=') {
-                    args.insert(k.to_string(), serde_json::Value::String(v.to_string()));
-                }
-            }
-
-            let input = SkillInput {
-                args,
-                context: Some(orka_core::SkillContext {
-                    secrets: self.secrets.clone(),
-                }),
-            };
-            match self.skills.invoke(skill_name, input).await {
-                Ok(output) => {
-                    return Ok(vec![
-                        self.make_reply(envelope, format!("[{skill_name}] {}", output.data))
-                    ]);
-                }
-                Err(e) => {
-                    return Ok(vec![self.make_reply(envelope, format!("Skill error: {e}"))]);
-                }
-            }
+            // Unknown slash command
+            let help = self.commands.help_text();
+            return Ok(vec![self.make_reply(
+                envelope,
+                format!("Unknown command: /{}\n\n{help}", cmd.name),
+            )]);
         }
 
         // If LLM is configured, run the agent loop
@@ -739,15 +733,32 @@ mod tests {
     }
 
     fn test_handler(state: Arc<RwLock<WorkspaceState>>) -> WorkspaceHandler {
+        let skills = test_registry();
+        let memory: Arc<dyn orka_core::traits::MemoryStore> =
+            Arc::new(InMemoryMemoryStore::new());
+        let secrets: Arc<dyn orka_core::traits::SecretManager> =
+            Arc::new(InMemorySecretManager::new());
+
+        let mut commands = CommandRegistry::new();
+        crate::commands::register_all(
+            &mut commands,
+            skills.clone(),
+            memory.clone(),
+            secrets.clone(),
+            state.clone(),
+        );
+        let commands = Arc::new(commands);
+
         WorkspaceHandler::new(
             state,
-            test_registry(),
-            Arc::new(InMemoryMemoryStore::new()),
-            Arc::new(InMemorySecretManager::new()),
+            skills,
+            memory,
+            secrets,
             None,
             Arc::new(InMemoryEventSink::new()),
             128_000,
             None,
+            commands,
         )
     }
 
@@ -777,7 +788,7 @@ mod tests {
         let handler = test_handler(state);
 
         let session = Session::new("custom", "user1");
-        let envelope = Envelope::text("custom", SessionId::new(), "!skill echo greeting=world");
+        let envelope = Envelope::text("custom", SessionId::new(), "/skill echo greeting=world");
 
         let replies = handler.handle(&envelope, &session).await.unwrap();
         assert_eq!(replies.len(), 1);
@@ -797,7 +808,7 @@ mod tests {
         let handler = test_handler(state);
 
         let session = Session::new("custom", "user1");
-        let envelope = Envelope::text("custom", SessionId::new(), "!skill nonexistent");
+        let envelope = Envelope::text("custom", SessionId::new(), "/skill nonexistent");
 
         let replies = handler.handle(&envelope, &session).await.unwrap();
         assert_eq!(replies.len(), 1);
@@ -877,8 +888,41 @@ mod tests {
 
         let defs = handler.build_tool_definitions(&tool_entries);
         // Only the first entry passes: enabled=true and "echo" exists in registry
+        // "echo" is listed in tool_entries so it won't be auto-included
         assert_eq!(defs.len(), 1);
         assert_eq!(defs[0].name, "echo");
         assert_eq!(defs[0].description, "Custom echo desc");
+    }
+
+    #[test]
+    fn build_tool_definitions_auto_includes_unlisted_skills() {
+        // No tool entries at all — registered skills should be auto-included
+        let tool_entries: Vec<ToolEntry> = vec![];
+
+        let state = test_workspace_state_with_tools(Some("Bot"), "", tool_entries.clone());
+        let handler = test_handler(state);
+
+        let defs = handler.build_tool_definitions(&tool_entries);
+        // "echo" is registered but not listed, so it should be auto-included
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].name, "echo");
+    }
+
+    #[test]
+    fn build_tool_definitions_disabled_listed_not_auto_included() {
+        // "echo" is explicitly listed as disabled — should NOT appear
+        let tool_entries = vec![ToolEntry {
+            name: "echo".to_string(),
+            enabled: false,
+            description: None,
+            config: HashMap::new(),
+        }];
+
+        let state = test_workspace_state_with_tools(Some("Bot"), "", tool_entries.clone());
+        let handler = test_handler(state);
+
+        let defs = handler.build_tool_definitions(&tool_entries);
+        // "echo" is listed (disabled), so auto-include won't add it
+        assert_eq!(defs.len(), 0);
     }
 }

@@ -7,7 +7,7 @@ use orka_core::traits::MemoryStore;
 use orka_core::{Envelope, Error, Payload, Session};
 use orka_llm::client::{ChatContent, ChatMessage, ChatMessageExt, LlmClient};
 use orka_skills::SkillRegistry;
-use orka_worker::{AgentHandler, WorkspaceHandler};
+use orka_worker::{AgentHandler, CommandRegistry, WorkspaceHandler};
 use orka_workspace::config::SoulFrontmatter;
 use orka_workspace::parse::Document;
 use orka_workspace::state::WorkspaceState;
@@ -77,6 +77,7 @@ fn make_handler(llm: Option<Arc<dyn LlmClient>>) -> WorkspaceHandler {
         Arc::new(InMemoryEventSink::new()),
         128_000,
         None,
+        Arc::new(CommandRegistry::new()),
     )
 }
 
@@ -132,6 +133,7 @@ async fn multi_turn_conversation_saves_history() {
         Arc::new(InMemoryEventSink::new()),
         128_000,
         None,
+        Arc::new(CommandRegistry::new()),
     );
 
     let session = Session::new("custom", "user1");

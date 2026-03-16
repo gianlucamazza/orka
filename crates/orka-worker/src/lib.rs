@@ -1,8 +1,10 @@
+pub mod commands;
 pub mod handler;
 pub mod stream;
 pub mod workspace_handler;
 
 // re-exports
+pub use commands::CommandRegistry;
 pub use handler::{AgentHandler, EchoHandler};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 pub use workspace_handler::WorkspaceHandler;
