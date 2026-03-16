@@ -126,6 +126,55 @@ impl orka_scheduler::SkillRegistry for SchedulerSkillRegistryAdapter {
     }
 }
 
+/// Resolve an API key for an LLM provider using a 4-step fallback:
+/// 1. Direct `api_key` field in config
+/// 2. Custom env var name from `api_key_env`
+/// 3. Default env var (e.g. `ANTHROPIC_API_KEY`)
+/// 4. Secret store via `api_key_secret`
+async fn resolve_api_key(
+    pc: &orka_core::config::LlmProviderConfig,
+    default_env: &str,
+    secrets: &Arc<dyn orka_core::traits::SecretManager>,
+) -> Option<String> {
+    // 1. Direct config field
+    let key = pc.api_key.clone().filter(|k| !k.is_empty());
+    // 2. api_key_env (explicit env var name from config)
+    let key = key.or_else(|| {
+        pc.api_key_env
+            .as_deref()
+            .and_then(|env| std::env::var(env).ok().filter(|k| !k.is_empty()))
+    });
+    // 3. Default env var
+    let key = key.or_else(|| std::env::var(default_env).ok().filter(|k| !k.is_empty()));
+    // 4. Secret store (last resort)
+    if key.is_some() {
+        return key;
+    }
+    if let Some(key_name) = pc.api_key_secret.as_deref() {
+        match secrets.get_secret(key_name).await {
+            Ok(s) => {
+                let k = s.expose_str().unwrap_or("").to_string();
+                if k.is_empty() {
+                    tracing::debug!(
+                        provider = %pc.provider,
+                        path = key_name,
+                        "secret exists but is empty"
+                    );
+                    None
+                } else {
+                    Some(k)
+                }
+            }
+            Err(e) => {
+                tracing::debug!(provider = %pc.provider, path = key_name, %e, "failed to read secret from store");
+                None
+            }
+        }
+    } else {
+        None
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // 1. Load config (doesn't need tracing)
@@ -314,45 +363,7 @@ async fn main() -> anyhow::Result<()> {
         for pc in &config.llm.providers {
             let client: Option<Arc<dyn orka_llm::LlmClient>> = match pc.provider.as_str() {
                 "anthropic" => {
-                    let key = pc.api_key.clone().filter(|k| !k.is_empty());
-                    // 2. api_key_env (explicit env var name from config)
-                    let key = key.or_else(|| {
-                        pc.api_key_env
-                            .as_deref()
-                            .and_then(|env| std::env::var(env).ok().filter(|k| !k.is_empty()))
-                    });
-                    // 3. Default env var
-                    let key = key.or_else(|| {
-                        std::env::var("ANTHROPIC_API_KEY")
-                            .ok()
-                            .filter(|k| !k.is_empty())
-                    });
-                    // 4. Secret store (last resort)
-                    let key = if key.is_some() {
-                        key
-                    } else if let Some(key_name) = pc.api_key_secret.as_deref() {
-                        match secrets.get_secret(key_name).await {
-                            Ok(s) => {
-                                let k = s.expose_str().unwrap_or("").to_string();
-                                if k.is_empty() {
-                                    tracing::debug!(
-                                        provider = "anthropic",
-                                        path = key_name,
-                                        "secret exists but is empty"
-                                    );
-                                    None
-                                } else {
-                                    Some(k)
-                                }
-                            }
-                            Err(e) => {
-                                tracing::debug!(provider = "anthropic", path = key_name, %e, "failed to read secret from store");
-                                None
-                            }
-                        }
-                    } else {
-                        None
-                    };
+                    let key = resolve_api_key(pc, "ANTHROPIC_API_KEY", &secrets).await;
                     if key.is_none() {
                         warn!(
                             provider = "anthropic",
@@ -371,45 +382,7 @@ async fn main() -> anyhow::Result<()> {
                     })
                 }
                 "openai" => {
-                    let key = pc.api_key.clone().filter(|k| !k.is_empty());
-                    // 2. api_key_env (explicit env var name from config)
-                    let key = key.or_else(|| {
-                        pc.api_key_env
-                            .as_deref()
-                            .and_then(|env| std::env::var(env).ok().filter(|k| !k.is_empty()))
-                    });
-                    // 3. Default env var
-                    let key = key.or_else(|| {
-                        std::env::var("OPENAI_API_KEY")
-                            .ok()
-                            .filter(|k| !k.is_empty())
-                    });
-                    // 4. Secret store (last resort)
-                    let key = if key.is_some() {
-                        key
-                    } else if let Some(key_name) = pc.api_key_secret.as_deref() {
-                        match secrets.get_secret(key_name).await {
-                            Ok(s) => {
-                                let k = s.expose_str().unwrap_or("").to_string();
-                                if k.is_empty() {
-                                    tracing::debug!(
-                                        provider = "openai",
-                                        path = key_name,
-                                        "secret exists but is empty"
-                                    );
-                                    None
-                                } else {
-                                    Some(k)
-                                }
-                            }
-                            Err(e) => {
-                                tracing::debug!(provider = "openai", path = key_name, %e, "failed to read secret from store");
-                                None
-                            }
-                        }
-                    } else {
-                        None
-                    };
+                    let key = resolve_api_key(pc, "OPENAI_API_KEY", &secrets).await;
                     if key.is_none() {
                         warn!(
                             provider = "openai",
