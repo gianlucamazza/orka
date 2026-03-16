@@ -5,5 +5,23 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+test-util = []
+
 [dependencies]
 orka-core.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+sha2 = { workspace = true }
+axum.workspace = true
+tower.workspace = true
+tower-layer.workspace = true
+tower-service.workspace = true
+http.workspace = true
+jsonwebtoken.workspace = true
+reqwest.workspace = true
+chrono.workspace = true

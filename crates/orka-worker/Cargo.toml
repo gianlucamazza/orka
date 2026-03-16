@@ -7,3 +7,26 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+orka-queue.workspace = true
+orka-session.workspace = true
+orka-bus.workspace = true
+orka-skills.workspace = true
+orka-workspace.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+orka-llm.workspace = true
+orka-guardrails.workspace = true
+
+[dev-dependencies]
+orka-core = { workspace = true, features = ["test-util"] }
+orka-llm.workspace = true
+orka-skills.workspace = true
+orka-workspace.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,89 @@
+use crate::state::WorkspaceState;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::sync::{broadcast, RwLock};
+use tracing::warn;
+
+#[derive(Debug, Clone)]
+pub enum WorkspaceEvent {
+    FileChanged(String),
+    Reloaded,
+}
+
+pub struct WorkspaceLoader {
+    root: PathBuf,
+    state: Arc<RwLock<WorkspaceState>>,
+    tx: broadcast::Sender<WorkspaceEvent>,
+}
+
+impl WorkspaceLoader {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        let (tx, _) = broadcast::channel(64);
+        Self {
+            root: root.into(),
+            state: Arc::new(RwLock::new(WorkspaceState::default())),
+            tx,
+        }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn state(&self) -> Arc<RwLock<WorkspaceState>> {
+        self.state.clone()
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<WorkspaceEvent> {
+        self.tx.subscribe()
+    }
+
+    /// Load all workspace files from disk.
+    pub async fn load_all(&self) -> orka_core::Result<()> {
+        self.load_file("SOUL.md").await;
+        self.load_file("TOOLS.md").await;
+        self.load_file("IDENTITY.md").await;
+        self.load_file("HEARTBEAT.md").await;
+        self.load_file("MEMORY.md").await;
+        let _ = self.tx.send(WorkspaceEvent::Reloaded);
+        Ok(())
+    }
+
+    /// Load a single file by name, updating state. Logs warnings on errors.
+    pub async fn load_file(&self, filename: &str) {
+        let path = self.root.join(filename);
+        let content = match tokio::fs::read_to_string(&path).await {
+            Ok(c) => c,
+            Err(e) => {
+                warn!(file = %filename, error = %e, "failed to read workspace file");
+                return;
+            }
+        };
+
+        let mut state = self.state.write().await;
+        match filename {
+            "SOUL.md" => match crate::parse::parse_document(&content) {
+                Ok(doc) => state.soul = Some(doc),
+                Err(e) => warn!(file = %filename, error = %e, "failed to parse"),
+            },
+            "TOOLS.md" => match crate::parse::parse_document(&content) {
+                Ok(doc) => state.tools = Some(doc),
+                Err(e) => warn!(file = %filename, error = %e, "failed to parse"),
+            },
+            "IDENTITY.md" => match crate::parse::parse_document(&content) {
+                Ok(doc) => state.identity = Some(doc),
+                Err(e) => warn!(file = %filename, error = %e, "failed to parse"),
+            },
+            "HEARTBEAT.md" => match crate::parse::parse_document(&content) {
+                Ok(doc) => state.heartbeat = Some(doc),
+                Err(e) => warn!(file = %filename, error = %e, "failed to parse"),
+            },
+            "MEMORY.md" => match crate::parse::parse_document(&content) {
+                Ok(doc) => state.memory = Some(doc),
+                Err(e) => warn!(file = %filename, error = %e, "failed to parse"),
+            },
+            other => warn!(file = %other, "unknown workspace file"),
+        }
+        let _ = self.tx.send(WorkspaceEvent::FileChanged(filename.to_string()));
+    }
+}
