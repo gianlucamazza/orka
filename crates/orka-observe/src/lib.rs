@@ -79,7 +79,11 @@ impl EventSink for LogEventSink {
 
 pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
     match config.observe.backend.as_str() {
-        "redis" => match redis_sink::RedisEventSink::new(&config.redis.url, config.observe.batch_size, config.observe.flush_interval_ms) {
+        "redis" => match redis_sink::RedisEventSink::new(
+            &config.redis.url,
+            config.observe.batch_size,
+            config.observe.flush_interval_ms,
+        ) {
             Ok(sink) => {
                 info!("event sink: Redis Streams");
                 Arc::new(sink)
@@ -89,16 +93,14 @@ pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
                 Arc::new(LogEventSink)
             }
         },
-        "otel" | "otlp" => {
-            match otel_sink::init_otel_tracer("orka") {
-                Ok(tracer) => {
-                    info!("event sink: OpenTelemetry (OTLP)");
-                    Arc::new(otel_sink::OtelEventSink::new(tracer))
-                }
-                Err(e) => {
-                    warn!(%e, "failed to initialize OTel, falling back to log");
-                    Arc::new(LogEventSink)
-                }
+        "otel" | "otlp" => match otel_sink::init_otel_tracer("orka") {
+            Ok(tracer) => {
+                info!("event sink: OpenTelemetry (OTLP)");
+                Arc::new(otel_sink::OtelEventSink::new(tracer))
+            }
+            Err(e) => {
+                warn!(%e, "failed to initialize OTel, falling back to log");
+                Arc::new(LogEventSink)
             }
         },
         _ => {

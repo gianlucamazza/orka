@@ -4,8 +4,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use orka_core::traits::{EventSink, Guardrail, MemoryStore, SecretManager};
 use orka_core::{
-    DomainEvent, DomainEventKind, Envelope, EventId, MemoryEntry, OutboundMessage, Payload,
-    Result, Session, SkillInput,
+    DomainEvent, DomainEventKind, Envelope, EventId, MemoryEntry, OutboundMessage, Payload, Result,
+    Session, SkillInput,
 };
 use orka_llm::client::{
     ChatContent, ChatMessageExt, CompletionOptions, ContentBlock, ContentBlockInput, LlmClient,
@@ -26,7 +26,6 @@ pub struct WorkspaceHandler {
     workspace_state: Arc<RwLock<WorkspaceState>>,
     skills: Arc<SkillRegistry>,
     memory: Arc<dyn MemoryStore>,
-    #[allow(dead_code)]
     secrets: Arc<dyn SecretManager>,
     llm: Option<Arc<dyn LlmClient>>,
     event_sink: Arc<dyn EventSink>,
@@ -89,7 +88,11 @@ impl WorkspaceHandler {
                 let description = t
                     .description
                     .clone()
-                    .or_else(|| self.skills.get(&t.name).map(|s| s.description().to_string()))
+                    .or_else(|| {
+                        self.skills
+                            .get(&t.name)
+                            .map(|s| s.description().to_string())
+                    })
                     .unwrap_or_default();
                 ToolDefinition {
                     name: t.name.clone(),
@@ -129,7 +132,14 @@ impl WorkspaceHandler {
             response_format: None,
         };
 
-        match llm.complete_with_options(summary_prompt, "You are a conversation summarizer. Be concise.", options).await {
+        match llm
+            .complete_with_options(
+                summary_prompt,
+                "You are a conversation summarizer. Be concise.",
+                options,
+            )
+            .await
+        {
             Ok(summary) => summary,
             Err(e) => {
                 tracing::warn!(%e, "failed to summarize conversation, using truncation");
@@ -141,11 +151,7 @@ impl WorkspaceHandler {
 
 #[async_trait]
 impl AgentHandler for WorkspaceHandler {
-    async fn handle(
-        &self,
-        envelope: &Envelope,
-        session: &Session,
-    ) -> Result<Vec<OutboundMessage>> {
+    async fn handle(&self, envelope: &Envelope, session: &Session) -> Result<Vec<OutboundMessage>> {
         let text = match &envelope.payload {
             Payload::Text(t) => t.clone(),
             _ => {
@@ -223,7 +229,10 @@ impl AgentHandler for WorkspaceHandler {
             match guardrail.check_input(&text, session).await? {
                 orka_core::traits::GuardrailDecision::Allow => text,
                 orka_core::traits::GuardrailDecision::Block(reason) => {
-                    return Ok(vec![self.make_reply(envelope, format!("I can't process that request: {reason}"))]);
+                    return Ok(vec![self.make_reply(
+                        envelope,
+                        format!("I can't process that request: {reason}"),
+                    )]);
                 }
                 orka_core::traits::GuardrailDecision::Modify(filtered) => filtered,
             }
@@ -259,19 +268,20 @@ impl AgentHandler for WorkspaceHandler {
                 }
             }
 
-            let input = SkillInput { args };
+            let input = SkillInput {
+                args,
+                context: Some(orka_core::SkillContext {
+                    secrets: self.secrets.clone(),
+                }),
+            };
             match self.skills.invoke(skill_name, input).await {
                 Ok(output) => {
-                    return Ok(vec![self.make_reply(
-                        envelope,
-                        format!("[{skill_name}] {}", output.data),
-                    )]);
+                    return Ok(vec![
+                        self.make_reply(envelope, format!("[{skill_name}] {}", output.data))
+                    ]);
                 }
                 Err(e) => {
-                    return Ok(vec![self.make_reply(
-                        envelope,
-                        format!("Skill error: {e}"),
-                    )]);
+                    return Ok(vec![self.make_reply(envelope, format!("Skill error: {e}"))]);
                 }
             }
         }
@@ -321,10 +331,7 @@ impl AgentHandler for WorkspaceHandler {
 
             // Agent loop: call LLM, execute tool calls, feed results back
             let mut final_text = String::new();
-            let llm_model = soul_model
-                .as_deref()
-                .unwrap_or("default")
-                .to_string();
+            let llm_model = soul_model.as_deref().unwrap_or("default").to_string();
             for iteration in 0..MAX_AGENT_ITERATIONS {
                 // Pre-flight truncation: ensure messages fit context window
                 let output_budget = soul_max_tokens.unwrap_or(4096);
@@ -343,12 +350,7 @@ impl AgentHandler for WorkspaceHandler {
 
                 let llm_start = std::time::Instant::now();
                 let completion = match llm
-                    .complete_with_tools(
-                        messages.clone(),
-                        &system_prompt,
-                        &tools,
-                        options.clone(),
-                    )
+                    .complete_with_tools(messages.clone(), &system_prompt, &tools, options.clone())
                     .await
                 {
                     Ok(resp) => resp,
@@ -383,17 +385,14 @@ impl AgentHandler for WorkspaceHandler {
                     .await;
 
                 // Accumulate token usage
-                let iteration_tokens = (completion.usage.input_tokens + completion.usage.output_tokens) as u64;
+                let iteration_tokens =
+                    (completion.usage.input_tokens + completion.usage.output_tokens) as u64;
                 session_tokens += iteration_tokens;
 
                 // Check token budget
                 if let Some(budget) = max_tokens_per_session {
                     if session_tokens > budget {
-                        warn!(
-                            session_tokens,
-                            budget,
-                            "token budget exceeded for session"
-                        );
+                        warn!(session_tokens, budget, "token budget exceeded for session");
                         final_text = format!(
                             "I've reached the token budget for this session ({budget} tokens). Please start a new conversation."
                         );
@@ -463,6 +462,7 @@ impl AgentHandler for WorkspaceHandler {
                     let skills = self.skills.clone();
                     let event_sink = self.event_sink.clone();
                     let message_id = envelope.id.clone();
+                    let secrets = self.secrets.clone();
 
                     join_set.spawn(async move {
                         let args: HashMap<String, serde_json::Value> = call_input
@@ -471,7 +471,10 @@ impl AgentHandler for WorkspaceHandler {
                             .unwrap_or_default();
 
                         let start = std::time::Instant::now();
-                        let skill_input = SkillInput { args };
+                        let skill_input = SkillInput {
+                            args,
+                            context: Some(orka_core::SkillContext { secrets }),
+                        };
                         let result = skills.invoke(&call_name, skill_input).await;
                         let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -536,15 +539,25 @@ impl AgentHandler for WorkspaceHandler {
             if !final_text.is_empty() {
                 // Save conversation history
                 let history_to_save = if messages.len() > max_entries {
-                    if let (Some(ref llm), true) = (&self.llm, messages.len() > summarization_threshold) {
+                    if let (Some(ref llm), true) =
+                        (&self.llm, messages.len() > summarization_threshold)
+                    {
                         // Summarize old messages
                         let split_point = messages.len() - max_entries;
                         let old_messages = &messages[..split_point];
 
-                        let summary_text = Self::summarize_messages(llm, old_messages, summarization_model.as_deref()).await;
+                        let summary_text = Self::summarize_messages(
+                            llm,
+                            old_messages,
+                            summarization_model.as_deref(),
+                        )
+                        .await;
                         let mut condensed = vec![ChatMessageExt {
                             role: "user".to_string(),
-                            content: ChatContent::Text(format!("[Previous conversation summary: {}]", summary_text)),
+                            content: ChatContent::Text(format!(
+                                "[Previous conversation summary: {}]",
+                                summary_text
+                            )),
                         }];
                         condensed.extend_from_slice(&messages[split_point..]);
                         condensed

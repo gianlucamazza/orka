@@ -31,6 +31,8 @@ orka-sandbox.workspace = true
 orka-llm.workspace = true
 orka-mcp.workspace = true
 orka-guardrails.workspace = true
+orka-web.workspace = true
+orka-a2a.workspace = true
 orka-router.workspace = true
 axum.workspace = true
 tower.workspace = true
@@ -45,6 +47,8 @@ serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 redis.workspace = true
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
 
 [dev-dependencies]
 orka-core = { workspace = true, features = ["test-util"] }

@@ -54,10 +54,7 @@ async fn process_sandbox_bash_stderr() {
     let sandbox = ProcessSandbox::new(&default_config());
     let req = bash_request("echo error_msg >&2");
     let result = sandbox.execute(req).await.unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(&result.stderr).trim(),
-        "error_msg"
-    );
+    assert_eq!(String::from_utf8_lossy(&result.stderr).trim(), "error_msg");
 }
 
 #[tokio::test]
@@ -92,10 +89,7 @@ async fn process_sandbox_bash_with_env_vars() {
     };
     let result = sandbox.execute(req).await.unwrap();
     assert_eq!(result.exit_code, 0);
-    assert_eq!(
-        String::from_utf8_lossy(&result.stdout).trim(),
-        "my_value"
-    );
+    assert_eq!(String::from_utf8_lossy(&result.stdout).trim(), "my_value");
 }
 
 #[tokio::test]
@@ -154,7 +148,10 @@ fn skill_input(args: Vec<(&str, serde_json::Value)>) -> SkillInput {
     for (k, v) in args {
         map.insert(k.to_string(), v);
     }
-    SkillInput { args: map }
+    SkillInput {
+        args: map,
+        context: None,
+    }
 }
 
 #[tokio::test]
@@ -169,7 +166,9 @@ async fn sandbox_skill_schema_has_required_fields() {
     let skill = make_skill();
     let schema = skill.schema();
     let params = &schema.parameters;
-    let props = params.get("properties").expect("schema must have properties");
+    let props = params
+        .get("properties")
+        .expect("schema must have properties");
     assert!(props.get("code").is_some(), "schema must have 'code'");
     assert!(
         props.get("language").is_some(),

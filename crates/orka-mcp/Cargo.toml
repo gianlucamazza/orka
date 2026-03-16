@@ -1,12 +1,13 @@
 [package]
 name = "orka-mcp"
-description = "MCP client for Orka — connects to MCP tool servers"
+description = "MCP client and server for Orka — connects to and serves MCP tool servers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+orka-skills.workspace = true
 async-trait.workspace = true
 tokio = { workspace = true, features = ["process", "io-util"] }
 serde.workspace = true
@@ -14,6 +15,9 @@ serde_json.workspace = true
 tracing.workspace = true
 reqwest.workspace = true
 futures-util.workspace = true
+axum.workspace = true
 
 [dev-dependencies]
+orka-core = { workspace = true, features = ["test-util"] }
+orka-skills.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros"] }

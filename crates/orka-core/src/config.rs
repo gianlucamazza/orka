@@ -43,6 +43,73 @@ pub struct OrkaConfig {
     pub mcp: McpConfig,
     #[serde(default)]
     pub guardrails: GuardrailsConfig,
+    #[serde(default)]
+    pub web: WebConfig,
+    #[serde(default)]
+    pub a2a: A2aConfig,
+}
+
+/// Web search and read configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WebConfig {
+    #[serde(default = "default_web_search_provider")]
+    pub search_provider: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+    #[serde(default)]
+    pub searxng_base_url: Option<String>,
+    #[serde(default = "default_web_max_results")]
+    pub max_results: usize,
+    #[serde(default = "default_web_max_read_chars")]
+    pub max_read_chars: usize,
+    #[serde(default = "default_web_cache_ttl_secs")]
+    pub cache_ttl_secs: u64,
+    #[serde(default = "default_web_read_timeout_secs")]
+    pub read_timeout_secs: u64,
+    #[serde(default = "default_web_user_agent")]
+    pub user_agent: String,
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            search_provider: default_web_search_provider(),
+            api_key: None,
+            api_key_env: None,
+            searxng_base_url: None,
+            max_results: default_web_max_results(),
+            max_read_chars: default_web_max_read_chars(),
+            cache_ttl_secs: default_web_cache_ttl_secs(),
+            read_timeout_secs: default_web_read_timeout_secs(),
+            user_agent: default_web_user_agent(),
+        }
+    }
+}
+
+fn default_web_search_provider() -> String {
+    "none".into()
+}
+
+fn default_web_max_results() -> usize {
+    5
+}
+
+fn default_web_max_read_chars() -> usize {
+    20_000
+}
+
+fn default_web_cache_ttl_secs() -> u64 {
+    3600
+}
+
+fn default_web_read_timeout_secs() -> u64 {
+    15
+}
+
+fn default_web_user_agent() -> String {
+    "Orka/0.1 (Web Agent)".into()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -446,6 +513,7 @@ impl LlmConfig {
                 provider: provider.clone(),
                 api_key_secret: self.api_key_secret.take(),
                 api_key: None,
+                api_key_env: None,
                 model: self.model.clone(),
                 timeout_secs: self.timeout_secs,
                 max_tokens: self.max_tokens,
@@ -482,6 +550,10 @@ pub struct LlmProviderConfig {
     /// Direct API key (not recommended for production — use secrets store instead).
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Environment variable name for the API key (e.g. "ANTHROPIC_API_KEY").
+    /// Checked before the secret store. If set and the env var exists, skip secret store lookup.
+    #[serde(default)]
+    pub api_key_env: Option<String>,
     #[serde(default = "default_llm_model")]
     pub model: String,
     #[serde(default = "default_llm_timeout_secs")]
@@ -586,6 +658,32 @@ impl Default for LoggingConfig {
 pub struct McpConfig {
     #[serde(default)]
     pub servers: Vec<McpServerEntry>,
+    #[serde(default)]
+    pub serve: Option<McpServeConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpServeConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_mcp_serve_transport")]
+    pub transport: String,
+    #[serde(default)]
+    pub sse_port: Option<u16>,
+}
+
+fn default_mcp_serve_transport() -> String {
+    "stdio".into()
+}
+
+impl Default for McpServeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            transport: default_mcp_serve_transport(),
+            sse_port: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -618,6 +716,23 @@ pub struct GuardrailsConfig {
 pub struct RedactPattern {
     pub pattern: String,
     pub replacement: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct A2aConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+impl Default for A2aConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: None,
+        }
+    }
 }
 
 impl OrkaConfig {
@@ -659,9 +774,10 @@ impl OrkaConfig {
             if matches!(p.provider.as_str(), "anthropic" | "openai")
                 && p.api_key_secret.is_none()
                 && p.api_key.is_none()
+                && p.api_key_env.is_none()
             {
                 return Err(crate::Error::Config(format!(
-                    "llm.providers[{}].api_key_secret or api_key required for provider '{}'",
+                    "llm.providers[{}].api_key_secret, api_key, or api_key_env required for provider '{}'",
                     p.name, p.provider,
                 )));
             }
@@ -737,6 +853,8 @@ mod tests {
             gateway: GatewayConfig::default(),
             mcp: McpConfig::default(),
             guardrails: GuardrailsConfig::default(),
+            web: WebConfig::default(),
+            a2a: A2aConfig::default(),
         });
         assert_eq!(cfg.server.port, 8080);
         assert_eq!(cfg.bus.backend, "redis");
@@ -765,6 +883,8 @@ mod tests {
             gateway: GatewayConfig::default(),
             mcp: McpConfig::default(),
             guardrails: GuardrailsConfig::default(),
+            web: WebConfig::default(),
+            a2a: A2aConfig::default(),
         }
     }
 
@@ -838,6 +958,7 @@ mod tests {
                 provider: "openai".into(),
                 api_key_secret: Some("k".into()),
                 api_key: None,
+                api_key_env: None,
                 model: "gpt-4".into(),
                 timeout_secs: 30,
                 max_tokens: 4096,

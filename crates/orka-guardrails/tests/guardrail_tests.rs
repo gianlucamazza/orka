@@ -167,10 +167,7 @@ async fn chain_multiple_modifiers_accumulate() {
         .add(Arc::new(redactor1))
         .add(Arc::new(redactor2));
 
-    let decision = chain
-        .check_input("foo and bar", &session())
-        .await
-        .unwrap();
+    let decision = chain.check_input("foo and bar", &session()).await.unwrap();
     match decision {
         GuardrailDecision::Modify(text) => {
             assert_eq!(text, "[X] and [Y]");

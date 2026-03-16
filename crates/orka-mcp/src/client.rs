@@ -6,7 +6,7 @@ use orka_core::{Error, Result};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{oneshot, Mutex};
 use tracing::{debug, warn};
 
 use crate::config::McpServerConfig;
@@ -58,12 +58,14 @@ impl McpClient {
             Error::Other(format!("failed to spawn MCP server '{}': {e}", config.name))
         })?;
 
-        let stdin = child.stdin.take().ok_or_else(|| {
-            Error::Other("failed to capture MCP server stdin".into())
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            Error::Other("failed to capture MCP server stdout".into())
-        })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| Error::Other("failed to capture MCP server stdin".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::Other("failed to capture MCP server stdout".into()))?;
 
         let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<serde_json::Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -140,34 +142,34 @@ impl McpClient {
         {
             let mut stdin_guard = self.stdin.lock().await;
             if let Some(ref mut stdin) = *stdin_guard {
-                stdin.write_all(line.as_bytes()).await.map_err(|e| {
-                    Error::Other(format!("failed to write to MCP server: {e}"))
-                })?;
-                stdin.flush().await.map_err(|e| {
-                    Error::Other(format!("failed to flush MCP server stdin: {e}"))
-                })?;
+                stdin
+                    .write_all(line.as_bytes())
+                    .await
+                    .map_err(|e| Error::Other(format!("failed to write to MCP server: {e}")))?;
+                stdin
+                    .flush()
+                    .await
+                    .map_err(|e| Error::Other(format!("failed to flush MCP server stdin: {e}")))?;
             } else {
                 return Err(Error::Other("MCP server stdin not available".into()));
             }
         }
 
-        let response = tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            rx,
-        )
-        .await
-        .map_err(|_| Error::Other(format!("MCP request '{}' timed out", method)))?
-        .map_err(|_| Error::Other(format!("MCP request '{}' channel closed", method)))?;
+        let response = tokio::time::timeout(std::time::Duration::from_secs(30), rx)
+            .await
+            .map_err(|_| Error::Other(format!("MCP request '{}' timed out", method)))?
+            .map_err(|_| Error::Other(format!("MCP request '{}' channel closed", method)))?;
 
         if let Some(error) = response.get("error") {
             let msg = error["message"].as_str().unwrap_or("unknown error");
             let code = error["code"].as_i64().unwrap_or(-1);
-            return Err(Error::Other(format!(
-                "MCP error {code}: {msg}"
-            )));
+            return Err(Error::Other(format!("MCP error {code}: {msg}")));
         }
 
-        Ok(response.get("result").cloned().unwrap_or(serde_json::Value::Null))
+        Ok(response
+            .get("result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null))
     }
 
     async fn initialize(&self) -> Result<()> {
@@ -200,7 +202,9 @@ impl McpClient {
     }
 
     pub async fn list_tools(&self) -> Result<Vec<McpToolInfo>> {
-        let result = self.send_request("tools/list", serde_json::json!({})).await?;
+        let result = self
+            .send_request("tools/list", serde_json::json!({}))
+            .await?;
         let tools: Vec<McpToolInfo> = result
             .get("tools")
             .and_then(|t| serde_json::from_value(t.clone()).ok())
@@ -224,9 +228,8 @@ impl McpClient {
             )
             .await?;
 
-        serde_json::from_value(result.clone()).map_err(|e| {
-            Error::Other(format!("failed to parse MCP tool result: {e}"))
-        })
+        serde_json::from_value(result.clone())
+            .map_err(|e| Error::Other(format!("failed to parse MCP tool result: {e}")))
     }
 
     pub fn server_name(&self) -> &str {

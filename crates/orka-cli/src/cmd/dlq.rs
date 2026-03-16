@@ -10,7 +10,10 @@ pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
             println!("{}", "DLQ is empty".green());
             return Ok(());
         }
-        println!("{}", format!("{} messages in DLQ:", messages.len()).yellow());
+        println!(
+            "{}",
+            format!("{} messages in DLQ:", messages.len()).yellow()
+        );
         for msg in messages {
             let id = msg["id"].as_str().unwrap_or("?");
             let channel = msg["channel"].as_str().unwrap_or("?");
@@ -31,7 +34,9 @@ pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
 }
 
 pub async fn replay(client: &OrkaClient, id: &str) -> crate::client::Result<()> {
-    let resp = client.post(&format!("/api/v1/dlq/{id}/replay"), None).await?;
+    let resp = client
+        .post(&format!("/api/v1/dlq/{id}/replay"), None)
+        .await?;
     if resp.status().is_success() {
         println!("{}", format!("Message {id} replayed successfully").green());
     } else {

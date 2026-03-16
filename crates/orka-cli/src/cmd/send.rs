@@ -4,14 +4,15 @@ use tokio_tungstenite::connect_async;
 
 use crate::client::{OrkaClient, Result};
 
-pub async fn run(client: &OrkaClient, text: &str, session_id: Option<&str>, timeout_secs: u64) -> Result<()> {
+pub async fn run(
+    client: &OrkaClient,
+    text: &str,
+    session_id: Option<&str>,
+    timeout_secs: u64,
+) -> Result<()> {
     let sid = OrkaClient::resolve_session_id(session_id);
 
-    println!(
-        "{} {}",
-        "Session:".bold(),
-        sid.dimmed()
-    );
+    println!("{} {}", "Session:".bold(), sid.dimmed());
     println!("{} {}", "Sending:".bold(), text);
 
     let resp = client.send_message(text, &sid).await?;

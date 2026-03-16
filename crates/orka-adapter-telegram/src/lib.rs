@@ -33,7 +33,6 @@ impl TelegramAdapter {
     fn api_url(&self, method: &str) -> String {
         format!("https://api.telegram.org/bot{}/{}", self.bot_token, method)
     }
-
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,6 +61,8 @@ struct TelegramMessage {
 #[derive(Debug, Deserialize)]
 struct Chat {
     id: i64,
+    #[serde(default)]
+    r#type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,16 +127,26 @@ impl ChannelAdapter for TelegramAdapter {
                                                         .clone()
                                                 };
 
-                                                let mut envelope = Envelope::text(
-                                                    "telegram",
-                                                    session_id,
-                                                    text,
-                                                );
+                                                let mut envelope =
+                                                    Envelope::text("telegram", session_id, text);
 
                                                 // Store chat_id in metadata for outbound routing
                                                 envelope.metadata.insert(
                                                     "telegram_chat_id".to_string(),
                                                     serde_json::json!(msg.chat.id),
+                                                );
+
+                                                // Propagate chat type for priority routing
+                                                let chat_type = match msg.chat.r#type.as_deref() {
+                                                    Some("private") => "direct",
+                                                    Some("group" | "supergroup" | "channel") => {
+                                                        "group"
+                                                    }
+                                                    _ => "group",
+                                                };
+                                                envelope.metadata.insert(
+                                                    "chat_type".to_string(),
+                                                    serde_json::json!(chat_type),
                                                 );
 
                                                 if send_sink.send(envelope).await.is_err() {
@@ -151,8 +162,7 @@ impl ChannelAdapter for TelegramAdapter {
                             }
                             Ok(resp) => {
                                 warn!(
-                                    description =
-                                        resp.description.as_deref().unwrap_or("unknown"),
+                                    description = resp.description.as_deref().unwrap_or("unknown"),
                                     "Telegram API error"
                                 );
                                 tokio::time::sleep(backoff_delay(error_count, 1, 60)).await;

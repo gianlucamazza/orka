@@ -1,10 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::traits::SecretManager;
+
 /// Unique identifier for a message flowing through the system.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MessageId(pub Uuid);
 
 impl MessageId {
@@ -26,7 +29,7 @@ impl std::fmt::Display for MessageId {
 }
 
 /// Unique identifier for a user session.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SessionId(pub Uuid);
 
 impl SessionId {
@@ -48,7 +51,7 @@ impl std::fmt::Display for SessionId {
 }
 
 /// Unique identifier for a domain event.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EventId(pub Uuid);
 
 impl EventId {
@@ -70,7 +73,7 @@ impl std::fmt::Display for EventId {
 }
 
 /// A domain-level event for observability.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DomainEvent {
     pub id: EventId,
     pub timestamp: DateTime<Utc>,
@@ -79,7 +82,7 @@ pub struct DomainEvent {
 }
 
 /// The kind of domain event that occurred.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "type")]
 pub enum DomainEventKind {
     MessageReceived {
@@ -125,27 +128,53 @@ pub enum DomainEventKind {
     Heartbeat,
 }
 
+/// Context available to skills during execution.
+#[derive(Clone)]
+pub struct SkillContext {
+    pub secrets: Arc<dyn SecretManager>,
+}
+
+impl std::fmt::Debug for SkillContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SkillContext").finish()
+    }
+}
+
 /// Input passed to a skill invocation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkillInput {
     pub args: HashMap<String, serde_json::Value>,
+    #[serde(skip)]
+    #[schema(ignore)]
+    pub context: Option<SkillContext>,
 }
 
 /// Output returned from a skill invocation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkillOutput {
     pub data: serde_json::Value,
 }
 
 /// JSON Schema describing a skill's parameters.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SkillSchema {
     pub parameters: serde_json::Value,
 }
 
 /// Message priority for queue routing.
 #[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    utoipa::ToSchema,
 )]
 pub enum Priority {
     Background = 0,
@@ -155,7 +184,7 @@ pub enum Priority {
 }
 
 /// Message payload variants.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "type", content = "data")]
 pub enum Payload {
     Text(String),
@@ -165,7 +194,7 @@ pub enum Payload {
 }
 
 /// Media attachment info.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MediaPayload {
     pub mime_type: String,
     pub url: String,
@@ -174,21 +203,21 @@ pub struct MediaPayload {
 }
 
 /// Structured command from a channel or internal system.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CommandPayload {
     pub name: String,
     pub args: HashMap<String, serde_json::Value>,
 }
 
 /// System or lifecycle event.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EventPayload {
     pub kind: String,
     pub data: serde_json::Value,
 }
 
 /// W3C Trace Context for distributed tracing propagation.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TraceContext {
     pub trace_id: Option<String>,
     pub span_id: Option<String>,
@@ -196,7 +225,7 @@ pub struct TraceContext {
 }
 
 /// Universal message envelope that flows through the entire system.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Envelope {
     pub id: MessageId,
     pub channel: String,
@@ -228,7 +257,7 @@ impl Envelope {
 }
 
 /// Outbound message sent back to a channel.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct OutboundMessage {
     pub channel: String,
     pub session_id: SessionId,
@@ -238,7 +267,7 @@ pub struct OutboundMessage {
 }
 
 /// A stored session with associated state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Session {
     pub id: SessionId,
     pub channel: String,
@@ -263,7 +292,7 @@ impl Session {
 }
 
 /// An entry in the memory store.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MemoryEntry {
     pub key: String,
     pub value: serde_json::Value,

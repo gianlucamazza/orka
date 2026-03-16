@@ -77,10 +77,7 @@ pub fn app_router(
 
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(Vec::<http::HeaderValue>::new()))
-        .allow_methods(AllowMethods::list([
-            http::Method::GET,
-            http::Method::POST,
-        ]))
+        .allow_methods(AllowMethods::list([http::Method::GET, http::Method::POST]))
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .max_age(std::time::Duration::from_secs(3600));
 
@@ -93,7 +90,17 @@ pub fn app_router(
         .with_state(state)
 }
 
-async fn handle_message(
+#[utoipa::path(
+    post,
+    path = "/api/v1/message",
+    request_body = InboundRequest,
+    responses(
+        (status = 200, description = "Message accepted", body = InboundResponse),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "messages"
+)]
+pub async fn handle_message(
     State(state): State<AppState>,
     Json(req): Json<InboundRequest>,
 ) -> impl IntoResponse {
@@ -129,7 +136,15 @@ async fn handle_message(
     }
 }
 
-async fn handle_health() -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/api/v1/health",
+    responses(
+        (status = 200, description = "Health check", body = serde_json::Value)
+    ),
+    tag = "health"
+)]
+pub async fn handle_health() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok" }))
 }
 

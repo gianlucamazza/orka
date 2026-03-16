@@ -51,6 +51,8 @@ struct SlackEvent {
     user: Option<String>,
     #[serde(default)]
     bot_id: Option<String>,
+    #[serde(default)]
+    channel_type: Option<String>,
 }
 
 #[derive(Clone)]
@@ -66,9 +68,9 @@ async fn handle_event(
     // URL verification challenge
     if payload.event_type == "url_verification" {
         if let Some(challenge) = payload.challenge {
-            return axum::response::IntoResponse::into_response(
-                Json(serde_json::json!({ "challenge": challenge })),
-            );
+            return axum::response::IntoResponse::into_response(Json(
+                serde_json::json!({ "challenge": challenge }),
+            ));
         }
     }
 
@@ -98,6 +100,15 @@ async fn handle_event(
                             .metadata
                             .insert("slack_user".to_string(), serde_json::json!(user));
                     }
+
+                    // "im" = DM, anything else = group
+                    let chat_type = match event.channel_type.as_deref() {
+                        Some("im") => "direct",
+                        _ => "group",
+                    };
+                    envelope
+                        .metadata
+                        .insert("chat_type".to_string(), serde_json::json!(chat_type));
 
                     let sink = state.sink.lock().await;
                     if let Some(ref tx) = *sink {
@@ -181,7 +192,10 @@ impl ChannelAdapter for SlackAdapter {
             }
         });
 
-        info!(port = self.listen_port, "Slack adapter started (Events API)");
+        info!(
+            port = self.listen_port,
+            "Slack adapter started (Events API)"
+        );
         Ok(())
     }
 

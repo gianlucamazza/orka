@@ -22,7 +22,10 @@ members = [
   "crates/orka-adapter-slack",
   "crates/orka-adapter-custom",
   "crates/orka-guardrails",
+  "crates/orka-circuit-breaker",
+  "crates/orka-a2a",
   "crates/orka-router",
+  "crates/orka-web",
   "crates/orka-cli",
   "orka-server",
   "sdk/orka-plugin-sdk",
@@ -91,6 +94,7 @@ zeroize = { version = "1", features = ["derive"] }
 aes-gcm = "0.10"
 rand = "0.8"
 hex = "0.4"
+scraper = "0.22"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
@@ -107,6 +111,10 @@ jsonwebtoken = "9"
 
 # Regex
 regex = "1"
+
+# OpenAPI
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 # JSON Schema validation
 jsonschema = "0.28"
@@ -150,9 +158,12 @@ orka-adapter-slack = { path = "crates/orka-adapter-slack" }
 orka-adapter-custom = { path = "crates/orka-adapter-custom" }
 orka-llm = { path = "crates/orka-llm" }
 orka-guardrails = { path = "crates/orka-guardrails" }
+orka-circuit-breaker = { path = "crates/orka-circuit-breaker" }
 orka-mcp = { path = "crates/orka-mcp" }
+orka-a2a = { path = "crates/orka-a2a" }
 orka-router = { path = "crates/orka-router" }
 orka-cli = { path = "crates/orka-cli" }
+orka-web = { path = "crates/orka-web" }
 orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
 
 [profile.release]

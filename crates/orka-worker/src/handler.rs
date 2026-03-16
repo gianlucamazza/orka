@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use orka_core::{Envelope, OutboundMessage, Payload, Session, Result};
+use orka_core::{Envelope, OutboundMessage, Payload, Result, Session};
 use std::collections::HashMap;
 
 #[async_trait]
@@ -12,7 +12,11 @@ pub struct EchoHandler;
 
 #[async_trait]
 impl AgentHandler for EchoHandler {
-    async fn handle(&self, envelope: &Envelope, _session: &Session) -> Result<Vec<OutboundMessage>> {
+    async fn handle(
+        &self,
+        envelope: &Envelope,
+        _session: &Session,
+    ) -> Result<Vec<OutboundMessage>> {
         let reply_text = match &envelope.payload {
             Payload::Text(t) => format!("echo: {t}"),
             _ => "echo: [non-text payload]".into(),

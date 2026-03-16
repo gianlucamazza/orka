@@ -30,17 +30,20 @@ impl RegexGuardrail {
 
     pub fn add_redact_pattern(mut self, pattern: &str, replacement: &str) -> Self {
         if let Ok(re) = Regex::new(pattern) {
-            self.patterns.push((re, RegexAction::Redact(replacement.to_string())));
+            self.patterns
+                .push((re, RegexAction::Redact(replacement.to_string())));
         }
         self
     }
 
     /// Pre-built PII filter: emails, phone numbers, SSNs.
     pub fn with_pii_filter(self) -> Self {
-        self
-            .add_redact_pattern(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "[EMAIL]")
-            .add_redact_pattern(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b", "[PHONE]")
-            .add_redact_pattern(r"\b\d{3}-\d{2}-\d{4}\b", "[SSN]")
+        self.add_redact_pattern(
+            r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+            "[EMAIL]",
+        )
+        .add_redact_pattern(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b", "[PHONE]")
+        .add_redact_pattern(r"\b\d{3}-\d{2}-\d{4}\b", "[SSN]")
     }
 
     fn apply(&self, text: &str) -> GuardrailDecision {
@@ -103,7 +106,10 @@ mod tests {
     async fn pii_redaction() {
         let guard = RegexGuardrail::new().with_pii_filter();
         let decision = guard
-            .check_output("Contact me at test@example.com or 555-123-4567", &test_session())
+            .check_output(
+                "Contact me at test@example.com or 555-123-4567",
+                &test_session(),
+            )
             .await
             .unwrap();
         match decision {

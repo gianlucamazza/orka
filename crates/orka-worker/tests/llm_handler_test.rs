@@ -1,11 +1,11 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager};
 use orka_core::traits::MemoryStore;
 use orka_core::{Envelope, Error, Payload, Session};
-use orka_llm::client::{ChatMessage, ChatContent, ChatMessageExt, LlmClient};
+use orka_llm::client::{ChatContent, ChatMessage, ChatMessageExt, LlmClient};
 use orka_skills::SkillRegistry;
 use orka_worker::{AgentHandler, WorkspaceHandler};
 use orka_workspace::config::SoulFrontmatter;
@@ -36,7 +36,11 @@ impl MockLlmClient {
 
 #[async_trait]
 impl LlmClient for MockLlmClient {
-    async fn complete(&self, _messages: Vec<ChatMessage>, _system: &str) -> orka_core::Result<String> {
+    async fn complete(
+        &self,
+        _messages: Vec<ChatMessage>,
+        _system: &str,
+    ) -> orka_core::Result<String> {
         if self.should_fail.load(Ordering::SeqCst) {
             Err(Error::Other("LLM mock failure".into()))
         } else {
@@ -64,7 +68,16 @@ fn make_handler(llm: Option<Arc<dyn LlmClient>>) -> WorkspaceHandler {
     let skills = Arc::new(SkillRegistry::new());
     let memory = Arc::new(InMemoryMemoryStore::new());
     let secrets = Arc::new(InMemorySecretManager::new());
-    WorkspaceHandler::new(state, skills, memory, secrets, llm, Arc::new(InMemoryEventSink::new()), 128_000, None)
+    WorkspaceHandler::new(
+        state,
+        skills,
+        memory,
+        secrets,
+        llm,
+        Arc::new(InMemoryEventSink::new()),
+        128_000,
+        None,
+    )
 }
 
 #[tokio::test]

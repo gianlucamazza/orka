@@ -1,8 +1,10 @@
 pub mod handler;
+pub mod stream;
 pub mod workspace_handler;
 
 // re-exports
 pub use handler::{AgentHandler, EchoHandler};
+pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 pub use workspace_handler::WorkspaceHandler;
 
 use std::sync::Arc;
@@ -35,7 +37,16 @@ impl WorkerPool {
         concurrency: usize,
         max_retries: u32,
     ) -> Self {
-        Self { queue, sessions, bus, handler, event_sink, concurrency, max_retries, retry_base_delay_ms: 5000 }
+        Self {
+            queue,
+            sessions,
+            bus,
+            handler,
+            event_sink,
+            concurrency,
+            max_retries,
+            retry_base_delay_ms: 5000,
+        }
     }
 
     /// Set the base delay for retry backoff (default: 5000ms).

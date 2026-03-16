@@ -47,7 +47,11 @@ impl ChannelAdapter for CustomAdapter {
 
     async fn start(&self, sink: MessageSink) -> Result<()> {
         let addr = format!("{}:{}", self.config.host, self.config.port);
-        let router = app_router(sink.clone(), self.ws_registry.clone(), self.auth_layer.clone());
+        let router = app_router(
+            sink.clone(),
+            self.ws_registry.clone(),
+            self.auth_layer.clone(),
+        );
 
         *self.sink.lock().await = Some(sink);
 
@@ -75,7 +79,10 @@ impl ChannelAdapter for CustomAdapter {
 
     async fn send(&self, msg: OutboundMessage) -> Result<()> {
         let text = serde_json::to_string(&msg).map_err(orka_core::Error::Serialization)?;
-        let count = self.ws_registry.send_to_session(&msg.session_id, &text).await;
+        let count = self
+            .ws_registry
+            .send_to_session(&msg.session_id, &text)
+            .await;
         if count == 0 {
             warn!(session_id = %msg.session_id, "no active WS connections, message dropped");
         }

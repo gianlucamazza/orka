@@ -8,8 +8,8 @@ pub mod router;
 pub use anthropic::AnthropicClient;
 pub use client::{
     ChatContent, ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
-    ContentBlockInput, LlmClient, LlmStream, StopReason, ToolCall, ToolDefinition, ToolResult,
-    Usage,
+    ContentBlockInput, LlmClient, LlmStream, LlmToolStream, StopReason, StreamEvent, ToolCall,
+    ToolDefinition, ToolResult, Usage,
 };
 pub use ollama::OllamaClient;
 pub use openai::OpenAiClient;

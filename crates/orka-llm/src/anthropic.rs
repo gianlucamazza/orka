@@ -8,7 +8,8 @@ use tracing::{debug, warn};
 
 use crate::client::{
     ChatContent, ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
-    LlmClient, LlmStream, StopReason, ToolCall, ToolDefinition, Usage,
+    LlmClient, LlmStream, LlmToolStream, StopReason, StreamEvent, ToolCall, ToolDefinition,
+    Usage,
 };
 use orka_core::{Error, Result};
 
@@ -52,15 +53,16 @@ impl AnthropicClient {
 
     /// Send a request with retry logic for 429/5xx and transient errors.
     /// Returns the raw successful HTTP response.
-    async fn send_request_with_retry(
-        &self,
-        body: &serde_json::Value,
-    ) -> Result<reqwest::Response> {
+    async fn send_request_with_retry(&self, body: &serde_json::Value) -> Result<reqwest::Response> {
         let mut last_err = None;
         for attempt in 0..=self.max_retries {
             if attempt > 0 {
                 let delay = Duration::from_millis(500 * 2u64.pow(attempt - 1));
-                warn!(attempt, delay_ms = delay.as_millis() as u64, "retrying Anthropic API call");
+                warn!(
+                    attempt,
+                    delay_ms = delay.as_millis() as u64,
+                    "retrying Anthropic API call"
+                );
                 tokio::time::sleep(delay).await;
             }
 
@@ -103,9 +105,9 @@ impl AnthropicClient {
             }
         }
 
-        Err(Error::Other(
-            last_err.unwrap_or_else(|| "Anthropic API request failed after retries".into()),
-        ))
+        Err(Error::Other(last_err.unwrap_or_else(|| {
+            "Anthropic API request failed after retries".into()
+        })))
     }
 
     /// Send a request with retry and parse the JSON response.
@@ -123,12 +125,9 @@ impl AnthropicClient {
         Usage {
             input_tokens: usage["input_tokens"].as_u64().unwrap_or(0) as u32,
             output_tokens: usage["output_tokens"].as_u64().unwrap_or(0) as u32,
-            cache_read_input_tokens: usage["cache_read_input_tokens"]
-                .as_u64()
-                .unwrap_or(0) as u32,
-            cache_creation_input_tokens: usage["cache_creation_input_tokens"]
-                .as_u64()
-                .unwrap_or(0) as u32,
+            cache_read_input_tokens: usage["cache_read_input_tokens"].as_u64().unwrap_or(0) as u32,
+            cache_creation_input_tokens: usage["cache_creation_input_tokens"].as_u64().unwrap_or(0)
+                as u32,
         }
     }
 
@@ -268,7 +267,8 @@ impl LlmClient for AnthropicClient {
         if let Some(ref format) = options.response_format {
             match format {
                 crate::client::ResponseFormat::Json => {
-                    let system_with_json = format!("{system}\n\nIMPORTANT: Respond ONLY with valid JSON.");
+                    let system_with_json =
+                        format!("{system}\n\nIMPORTANT: Respond ONLY with valid JSON.");
                     body["system"] = serde_json::Value::String(system_with_json);
                 }
                 crate::client::ResponseFormat::JsonSchema { name, schema } => {
@@ -281,7 +281,12 @@ impl LlmClient for AnthropicClient {
             }
         }
 
-        debug!(model, messages = messages.len(), tools = tools.len(), "calling Anthropic API with tools");
+        debug!(
+            model,
+            messages = messages.len(),
+            tools = tools.len(),
+            "calling Anthropic API with tools"
+        );
 
         let resp = self.send_with_retry(&body).await?;
         let blocks = Self::parse_content_blocks(&resp);
@@ -303,11 +308,7 @@ impl LlmClient for AnthropicClient {
         })
     }
 
-    async fn complete_stream(
-        &self,
-        messages: Vec<ChatMessage>,
-        system: &str,
-    ) -> Result<LlmStream> {
+    async fn complete_stream(&self, messages: Vec<ChatMessage>, system: &str) -> Result<LlmStream> {
         let api_messages = Self::build_simple_messages(&messages);
 
         let body = json!({
@@ -341,9 +342,7 @@ impl LlmClient for AnthropicClient {
                                 if data == "[DONE]" {
                                     continue;
                                 }
-                                if let Ok(event) =
-                                    serde_json::from_str::<serde_json::Value>(data)
-                                {
+                                if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
                                     if event["type"] == "content_block_delta" {
                                         if let Some(t) = event["delta"]["text"].as_str() {
                                             text.push_str(t);
@@ -363,6 +362,224 @@ impl LlmClient for AnthropicClient {
                     Err(_) => true,
                 };
                 async move { keep }
+            });
+
+        Ok(Box::pin(stream))
+    }
+
+    async fn complete_stream_with_tools(
+        &self,
+        messages: Vec<ChatMessageExt>,
+        system: &str,
+        tools: &[ToolDefinition],
+        options: CompletionOptions,
+    ) -> Result<LlmToolStream> {
+        let model = options.model.as_deref().unwrap_or(&self.model);
+        let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
+        let api_messages = Self::build_ext_messages(&messages);
+
+        let api_tools: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.input_schema,
+                })
+            })
+            .collect();
+
+        let mut body = json!({
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": api_messages,
+            "stream": true,
+        });
+        if !api_tools.is_empty() {
+            body["tools"] = json!(api_tools);
+        }
+
+        debug!(
+            model,
+            messages = messages.len(),
+            tools = tools.len(),
+            "calling Anthropic API with tools (streaming)"
+        );
+
+        let response = self.send_request_with_retry(&body).await?;
+        let byte_stream = response.bytes_stream();
+
+        struct SseState {
+            buffer: String,
+            active_tool_id: Option<String>,
+            active_tool_name: Option<String>,
+            tool_input_buffer: String,
+        }
+
+        let state = SseState {
+            buffer: String::new(),
+            active_tool_id: None,
+            active_tool_name: None,
+            tool_input_buffer: String::new(),
+        };
+
+        let stream = byte_stream
+            .scan(state, |state, chunk_result| {
+                let events: Result<Vec<StreamEvent>> = match chunk_result {
+                    Err(e) => Err(Error::Other(format!("stream read error: {e}"))),
+                    Ok(bytes) => {
+                        state.buffer.push_str(&String::from_utf8_lossy(&bytes));
+                        let mut events = Vec::new();
+                        while let Some(pos) = state.buffer.find('\n') {
+                            let line = state.buffer[..pos].trim_end_matches('\r').to_string();
+                            state.buffer.drain(..=pos);
+                            let data = match line.strip_prefix("data: ") {
+                                Some(d) if d != "[DONE]" => d,
+                                _ => continue,
+                            };
+                            let event: serde_json::Value = match serde_json::from_str(data) {
+                                Ok(v) => v,
+                                Err(_) => continue,
+                            };
+                            let event_type = event["type"].as_str().unwrap_or("");
+                            match event_type {
+                                "message_start" => {
+                                    // Extract initial usage if present
+                                    let msg = &event["message"];
+                                    if msg["usage"].is_object() {
+                                        let usage = Usage {
+                                            input_tokens: msg["usage"]["input_tokens"]
+                                                .as_u64()
+                                                .unwrap_or(0)
+                                                as u32,
+                                            output_tokens: msg["usage"]["output_tokens"]
+                                                .as_u64()
+                                                .unwrap_or(0)
+                                                as u32,
+                                            cache_read_input_tokens: msg["usage"]
+                                                ["cache_read_input_tokens"]
+                                                .as_u64()
+                                                .unwrap_or(0)
+                                                as u32,
+                                            cache_creation_input_tokens: msg["usage"]
+                                                ["cache_creation_input_tokens"]
+                                                .as_u64()
+                                                .unwrap_or(0)
+                                                as u32,
+                                        };
+                                        events.push(StreamEvent::Usage(usage));
+                                    }
+                                }
+                                "content_block_start" => {
+                                    let block = &event["content_block"];
+                                    match block["type"].as_str() {
+                                        Some("tool_use") => {
+                                            let id = block["id"]
+                                                .as_str()
+                                                .unwrap_or("")
+                                                .to_string();
+                                            let name = block["name"]
+                                                .as_str()
+                                                .unwrap_or("")
+                                                .to_string();
+                                            events.push(StreamEvent::ToolUseStart {
+                                                id: id.clone(),
+                                                name: name.clone(),
+                                            });
+                                            state.active_tool_id = Some(id);
+                                            state.active_tool_name = Some(name);
+                                            state.tool_input_buffer.clear();
+                                        }
+                                        _ => {
+                                            // text block start — deltas come next
+                                        }
+                                    }
+                                }
+                                "content_block_delta" => {
+                                    let delta = &event["delta"];
+                                    match delta["type"].as_str() {
+                                        Some("text_delta") => {
+                                            if let Some(text) = delta["text"].as_str() {
+                                                events.push(StreamEvent::TextDelta(
+                                                    text.to_string(),
+                                                ));
+                                            }
+                                        }
+                                        Some("input_json_delta") => {
+                                            if let Some(json_str) =
+                                                delta["partial_json"].as_str()
+                                            {
+                                                state.tool_input_buffer.push_str(json_str);
+                                                events.push(StreamEvent::ToolUseInputDelta(
+                                                    json_str.to_string(),
+                                                ));
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                "content_block_stop" => {
+                                    // If we were accumulating tool input, emit ToolUseEnd
+                                    if let Some(id) = state.active_tool_id.take() {
+                                        let input: serde_json::Value =
+                                            serde_json::from_str(&state.tool_input_buffer)
+                                                .unwrap_or(serde_json::Value::Object(
+                                                    Default::default(),
+                                                ));
+                                        events.push(StreamEvent::ToolUseEnd { id, input });
+                                        state.active_tool_name = None;
+                                        state.tool_input_buffer.clear();
+                                    }
+                                }
+                                "message_delta" => {
+                                    let delta = &event["delta"];
+                                    if let Some(reason) = delta["stop_reason"].as_str() {
+                                        let stop = match reason {
+                                            "end_turn" => Some(StopReason::EndTurn),
+                                            "max_tokens" => Some(StopReason::MaxTokens),
+                                            "tool_use" => Some(StopReason::ToolUse),
+                                            "stop_sequence" => Some(StopReason::StopSequence),
+                                            _ => None,
+                                        };
+                                        if let Some(s) = stop {
+                                            events.push(StreamEvent::Stop(s));
+                                        }
+                                    }
+                                    if let Some(usage) = event["usage"].as_object() {
+                                        events.push(StreamEvent::Usage(Usage {
+                                            input_tokens: usage
+                                                .get("input_tokens")
+                                                .and_then(|v| v.as_u64())
+                                                .unwrap_or(0)
+                                                as u32,
+                                            output_tokens: usage
+                                                .get("output_tokens")
+                                                .and_then(|v| v.as_u64())
+                                                .unwrap_or(0)
+                                                as u32,
+                                            cache_read_input_tokens: 0,
+                                            cache_creation_input_tokens: 0,
+                                        }));
+                                    }
+                                }
+                                "message_stop" => {
+                                    // Stream complete
+                                }
+                                _ => {}
+                            }
+                        }
+                        Ok(events)
+                    }
+                };
+                futures_util::future::ready(Some(events))
+            })
+            .flat_map(|result| {
+                let items: Vec<Result<StreamEvent>> = match result {
+                    Ok(events) => events.into_iter().map(Ok).collect(),
+                    Err(e) => vec![Err(e)],
+                };
+                futures_util::stream::iter(items)
             });
 
         Ok(Box::pin(stream))
@@ -430,10 +647,7 @@ mod tests {
             AnthropicClient::parse_stop_reason(&json!({"stop_reason": "unknown"})),
             None
         );
-        assert_eq!(
-            AnthropicClient::parse_stop_reason(&json!({})),
-            None
-        );
+        assert_eq!(AnthropicClient::parse_stop_reason(&json!({})), None);
     }
 
     #[test]

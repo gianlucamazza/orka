@@ -9,11 +9,21 @@ use tracing_subscriber::EnvFilter;
 #[command(name = "orka", version, about = "Orka AI platform CLI")]
 struct Cli {
     /// Main server URL
-    #[arg(long, default_value = "http://127.0.0.1:8080", env = "ORKA_SERVER_URL", global = true)]
+    #[arg(
+        long,
+        default_value = "http://127.0.0.1:8080",
+        env = "ORKA_SERVER_URL",
+        global = true
+    )]
     server: String,
 
     /// Custom adapter URL
-    #[arg(long, default_value = "http://127.0.0.1:8081", env = "ORKA_ADAPTER_URL", global = true)]
+    #[arg(
+        long,
+        default_value = "http://127.0.0.1:8081",
+        env = "ORKA_ADAPTER_URL",
+        global = true
+    )]
     adapter: String,
 
     /// API key for authentication
@@ -58,6 +68,12 @@ enum Commands {
     Secret {
         #[command(subcommand)]
         action: SecretAction,
+    },
+    /// Run as MCP server (stdio transport) for Claude Code/Cursor
+    McpServe {
+        /// Path to orka.toml config file
+        #[arg(long)]
+        config: Option<String>,
     },
 }
 
@@ -117,10 +133,14 @@ async fn main() {
         Commands::Health => cmd::health::run(&server_client).await,
         Commands::Status => cmd::status::run(&server_client).await,
         Commands::Ready => cmd::ready::run(&server_client).await,
-        Commands::Send { text, session_id, timeout } => {
-            cmd::send::run(&adapter_client, &text, session_id.as_deref(), timeout).await
+        Commands::Send {
+            text,
+            session_id,
+            timeout,
+        } => cmd::send::run(&adapter_client, &text, session_id.as_deref(), timeout).await,
+        Commands::Chat { session_id } => {
+            cmd::chat::run(&adapter_client, session_id.as_deref()).await
         }
-        Commands::Chat { session_id } => cmd::chat::run(&adapter_client, session_id.as_deref()).await,
         Commands::Dlq { action } => match action {
             DlqAction::List => cmd::dlq::list(&server_client).await,
             DlqAction::Replay { id } => cmd::dlq::replay(&server_client, &id).await,
@@ -132,6 +152,9 @@ async fn main() {
             SecretAction::List => cmd::secret::list().await,
             SecretAction::Delete { path } => cmd::secret::delete(&path).await,
         },
+        Commands::McpServe { config } => {
+            cmd::mcp_serve::run(config.as_deref()).await
+        }
     };
 
     if let Err(e) = result {

@@ -52,6 +52,7 @@ async fn register_and_invoke() {
         args: [("msg".to_string(), serde_json::json!("hi"))]
             .into_iter()
             .collect(),
+        context: None,
     };
     let output = registry.invoke("echo", input).await.unwrap();
     assert_eq!(output.data, serde_json::json!({"msg": "hi"}));
@@ -62,6 +63,7 @@ async fn invoke_unknown_returns_error() {
     let registry = SkillRegistry::new();
     let input = SkillInput {
         args: Default::default(),
+        context: None,
     };
     let result = registry.invoke("nonexistent", input).await;
     assert!(result.is_err());
@@ -89,6 +91,7 @@ async fn valid_input_passes_schema() {
 
     let input = SkillInput {
         args: HashMap::from([("name".to_string(), serde_json::json!("test"))]),
+        context: None,
     };
     let result = registry.invoke("strict", input).await;
     assert!(result.is_ok());
@@ -103,6 +106,7 @@ async fn invalid_input_fails_schema() {
     // Missing required "name" field
     let input = SkillInput {
         args: HashMap::new(),
+        context: None,
     };
     let result = registry.invoke("strict", input).await;
     assert!(result.is_err());
@@ -124,6 +128,7 @@ async fn permissive_schema_accepts_anything() {
             ("bar".to_string(), serde_json::json!([1, 2, 3])),
             ("baz".to_string(), serde_json::json!({"nested": true})),
         ]),
+        context: None,
     };
     let result = registry.invoke("echo", input).await;
     assert!(result.is_ok());

@@ -18,6 +18,22 @@ workspace_dir = "."
 host = "127.0.0.1"
 port = 8081
 
+# [adapters.telegram]
+# bot_token_secret = "adapters/telegram"
+
+# [adapters.discord]
+# bot_token_secret = "adapters/discord"
+
+# [adapters.slack]
+# bot_token_secret = "adapters/slack"
+# listen_port = 3000
+
+# [adapters.whatsapp]
+# access_token_secret = "adapters/whatsapp"
+# phone_number_id = "123456789"
+# verify_token_secret = "adapters/whatsapp-verify"
+# listen_port = 3001
+
 [gateway]
 rate_limit = 60       # max messages per 60s window per session
 dedup_ttl_secs = 3600 # duplicate message detection window
@@ -40,11 +56,18 @@ concurrency = 4
 max_entries = 10000
 
 [secrets]
+# encryption_key_env = "ORKA_ENCRYPTION_KEY"
 
 [auth]
 enabled = false
 api_key_header = "X-Api-Key"
 api_keys = []
+
+# [auth.jwt]
+# issuer = "https://auth.example.com"
+# audience = "orka"
+# jwks_uri = "https://auth.example.com/.well-known/jwks.json"
+# secret = "hs256-secret-for-dev-only"
 
 [sandbox]
 backend = "process"
@@ -63,11 +86,15 @@ max_retries = 3
 [llm]
 timeout_secs = 30
 max_tokens = 8192
+# context_window_tokens = 1000000
+# max_retries = 2
+# api_version = "2023-06-01"
 
 [[llm.providers]]
 name = "anthropic"
 provider = "anthropic"
 model = "claude-sonnet-4-6"
+api_key_env = "ANTHROPIC_API_KEY"
 api_key_secret = "llm/anthropic"
 
 # [[llm.providers]]
@@ -76,6 +103,22 @@ api_key_secret = "llm/anthropic"
 # model = "gpt-4o"
 # api_key_secret = "llm/openai"
 # base_url = "https://api.openai.com/v1"
+
+# [[llm.providers]]
+# name = "ollama"
+# provider = "openai"
+# model = "llama3"
+# base_url = "http://localhost:11434/v1"
+
+[web]
+search_provider = "tavily"
+api_key_env = "TAVILY_API_KEY"
+# max_results = 5
+# max_read_chars = 20000
+# cache_ttl_secs = 3600
+# read_timeout_secs = 15
+# user_agent = "Orka/0.1 (Web Agent)"
+# searxng_base_url = "http://localhost:8080"
 
 [plugins]
 # dir = "plugins"

@@ -218,7 +218,10 @@ impl MemoryStore for RedisMemoryStore {
         // Sort by updated_at descending (newest first)
         entries.sort_by(|a, b| b.1.cmp(&a.1));
 
-        let to_delete: Vec<String> = entries[MAX_ENTRIES..].iter().map(|(k, _)| k.clone()).collect();
+        let to_delete: Vec<String> = entries[MAX_ENTRIES..]
+            .iter()
+            .map(|(k, _)| k.clone())
+            .collect();
         let count = to_delete.len();
 
         for key in &to_delete {

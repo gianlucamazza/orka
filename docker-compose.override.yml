@@ -7,6 +7,10 @@ services:
     build:
       context: .
       target: dev
+    deploy:
+      resources:
+        limits:
+          memory: 4G
     volumes:
       - .:/app
       - cargo-registry:/usr/local/cargo/registry

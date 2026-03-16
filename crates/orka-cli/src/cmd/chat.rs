@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use colored::Colorize;
 use futures_util::StreamExt;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -7,6 +9,9 @@ use crate::client::{OrkaClient, Result};
 
 pub async fn run(client: &OrkaClient, session_id: Option<&str>) -> Result<()> {
     let sid = OrkaClient::resolve_session_id(session_id);
+
+    // Wait for server to be ready before attempting WebSocket connection
+    client.wait_for_ready(300, Duration::from_secs(1)).await?;
 
     println!("{}", "=== Orka Chat ===".bold().cyan());
     println!("Session: {}", sid.dimmed());
@@ -18,9 +23,9 @@ pub async fn run(client: &OrkaClient, session_id: Option<&str>) -> Result<()> {
 
     // Connect WebSocket
     let ws_url = client.ws_url(&sid);
-    let (ws, _) = connect_async(&ws_url).await.map_err(|e| {
-        format!("Failed to connect WebSocket to {ws_url}: {e}")
-    })?;
+    let (ws, _) = connect_async(&ws_url)
+        .await
+        .map_err(|e| format!("Failed to connect WebSocket to {ws_url}: {e}"))?;
     let (_write, mut ws_read) = ws.split();
 
     // WS reader task: print incoming messages

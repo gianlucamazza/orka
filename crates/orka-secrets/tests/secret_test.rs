@@ -2,7 +2,10 @@ use orka_core::traits::SecretManager;
 use orka_core::SecretValue;
 use orka_secrets::RedisSecretManager;
 
-async fn setup() -> (RedisSecretManager, testcontainers::ContainerAsync<testcontainers_modules::redis::Redis>) {
+async fn setup() -> (
+    RedisSecretManager,
+    testcontainers::ContainerAsync<testcontainers_modules::redis::Redis>,
+) {
     use testcontainers::runners::AsyncRunner;
     use testcontainers_modules::redis::Redis;
 

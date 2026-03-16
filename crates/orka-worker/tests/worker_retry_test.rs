@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -36,7 +36,11 @@ impl FailNTimesHandler {
 
 #[async_trait]
 impl AgentHandler for FailNTimesHandler {
-    async fn handle(&self, envelope: &Envelope, _: &Session) -> orka_core::Result<Vec<OutboundMessage>> {
+    async fn handle(
+        &self,
+        envelope: &Envelope,
+        _: &Session,
+    ) -> orka_core::Result<Vec<OutboundMessage>> {
         let n = self.calls.fetch_add(1, Ordering::SeqCst);
         if n < self.fail_count {
             Err(Error::Worker(format!("failure #{}", n + 1)))
@@ -101,8 +105,16 @@ async fn handler_failure_retries_then_dlq() {
     let max_retries = 3;
     let handler = Arc::new(AlwaysFailHandler);
     // Use 10ms base delay for fast tests (10ms, 30ms, 90ms)
-    let pool = WorkerPool::new(queue.clone(), sessions, bus, handler, event_sink, 1, max_retries)
-        .with_retry_delay(10);
+    let pool = WorkerPool::new(
+        queue.clone(),
+        sessions,
+        bus,
+        handler,
+        event_sink,
+        1,
+        max_retries,
+    )
+    .with_retry_delay(10);
     let cancel = CancellationToken::new();
     let c2 = cancel.clone();
     let h = tokio::spawn(async move { pool.run(c2).await });

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde_json::json;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -21,11 +23,7 @@ impl OrkaClient {
         &self.base_url
     }
 
-    pub async fn send_message(
-        &self,
-        text: &str,
-        session_id: &str,
-    ) -> Result<serde_json::Value> {
+    pub async fn send_message(&self, text: &str, session_id: &str) -> Result<serde_json::Value> {
         let url = format!("{}/api/v1/message", self.base_url);
         let payload = json!({
             "text": text,
@@ -98,6 +96,29 @@ impl OrkaClient {
         session_id
             .map(String::from)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+    }
+
+    /// Poll the health endpoint until the server responds 200.
+    pub async fn wait_for_ready(&self, retries: u32, interval: Duration) -> Result<()> {
+        let per_request_timeout = Duration::from_secs(3);
+        for attempt in 0..retries {
+            let result =
+                tokio::time::timeout(per_request_timeout, self.get("/api/v1/health")).await;
+            match result {
+                Ok(Ok(resp)) if resp.status().is_success() => return Ok(()),
+                _ => {
+                    if attempt == 0 {
+                        eprintln!("Waiting for server at {} ...", self.base_url);
+                    }
+                    tokio::time::sleep(interval).await;
+                }
+            }
+        }
+        Err(format!(
+            "Server at {} not ready after {} retries",
+            self.base_url, retries
+        )
+        .into())
     }
 
     pub fn ws_url(&self, session_id: &str) -> String {

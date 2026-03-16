@@ -12,7 +12,11 @@ pub struct RedisEventSink {
 }
 
 impl RedisEventSink {
-    pub fn new(redis_url: &str, batch_size: usize, flush_interval_ms: u64) -> orka_core::Result<Self> {
+    pub fn new(
+        redis_url: &str,
+        batch_size: usize,
+        flush_interval_ms: u64,
+    ) -> orka_core::Result<Self> {
         let cfg = DeadpoolConfig::from_url(redis_url);
         let pool = cfg
             .create_pool(Some(Runtime::Tokio1))
@@ -25,11 +29,15 @@ impl RedisEventSink {
         Ok(Self { tx })
     }
 
-    async fn batch_loop(pool: Pool, mut rx: mpsc::Receiver<DomainEvent>, batch_size: usize, flush_interval_ms: u64) {
+    async fn batch_loop(
+        pool: Pool,
+        mut rx: mpsc::Receiver<DomainEvent>,
+        batch_size: usize,
+        flush_interval_ms: u64,
+    ) {
         let mut buffer: Vec<String> = Vec::with_capacity(batch_size);
-        let mut interval = tokio::time::interval(
-            std::time::Duration::from_millis(flush_interval_ms),
-        );
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_millis(flush_interval_ms));
 
         loop {
             tokio::select! {

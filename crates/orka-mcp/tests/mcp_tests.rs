@@ -52,7 +52,10 @@ async fn connect_nonexistent_command_fails() {
         env: HashMap::new(),
     };
     let result = McpClient::connect(config).await;
-    assert!(result.is_err(), "connect with nonexistent binary should fail");
+    assert!(
+        result.is_err(),
+        "connect with nonexistent binary should fail"
+    );
     let err = match result {
         Err(e) => e.to_string(),
         Ok(_) => panic!("expected error"),

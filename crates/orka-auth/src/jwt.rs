@@ -83,7 +83,10 @@ impl Authenticator for JwtAuthenticator {
 
         // Extract scopes from either `scope` (space-separated string) or `scopes` (array)
         let scopes = if let Some(scope_str) = claims.scope {
-            scope_str.split_whitespace().map(|s| s.to_string()).collect()
+            scope_str
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect()
         } else {
             claims.scopes.unwrap_or_default()
         };
@@ -159,11 +162,8 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_credentials_type() {
-        let auth =
-            JwtAuthenticator::with_secret("test-issuer".into(), None, "secret");
-        let result = auth
-            .authenticate(&Credentials::ApiKey("key".into()))
-            .await;
+        let auth = JwtAuthenticator::with_secret("test-issuer".into(), None, "secret");
+        let result = auth.authenticate(&Credentials::ApiKey("key".into())).await;
         assert!(result.is_err());
     }
 }

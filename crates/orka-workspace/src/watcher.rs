@@ -3,7 +3,6 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-
 pub struct WorkspaceWatcher {
     _watcher: RecommendedWatcher,
     handle: tokio::task::JoinHandle<()>,

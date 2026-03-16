@@ -4,7 +4,7 @@ use tracing::debug;
 
 use crate::client::{
     ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, LlmClient, LlmStream,
-    ToolDefinition,
+    LlmToolStream, ToolDefinition,
 };
 use crate::openai::OpenAiClient;
 
@@ -56,11 +56,7 @@ impl LlmClient for OllamaClient {
             .await
     }
 
-    async fn complete_stream(
-        &self,
-        messages: Vec<ChatMessage>,
-        system: &str,
-    ) -> Result<LlmStream> {
+    async fn complete_stream(&self, messages: Vec<ChatMessage>, system: &str) -> Result<LlmStream> {
         self.inner.complete_stream(messages, system).await
     }
 
@@ -73,6 +69,18 @@ impl LlmClient for OllamaClient {
     ) -> Result<CompletionResponse> {
         self.inner
             .complete_with_tools(messages, system, tools, options)
+            .await
+    }
+
+    async fn complete_stream_with_tools(
+        &self,
+        messages: Vec<ChatMessageExt>,
+        system: &str,
+        tools: &[ToolDefinition],
+        options: CompletionOptions,
+    ) -> Result<LlmToolStream> {
+        self.inner
+            .complete_stream_with_tools(messages, system, tools, options)
             .await
     }
 }

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
-    pub role: String,   // "user" or "assistant"
+    pub role: String, // "user" or "assistant"
     pub content: String,
 }
 
@@ -123,6 +123,20 @@ pub struct CompletionResponse {
     pub stop_reason: Option<StopReason>,
 }
 
+/// A streaming event from an LLM response with tool support.
+#[derive(Debug, Clone)]
+pub enum StreamEvent {
+    TextDelta(String),
+    ToolUseStart { id: String, name: String },
+    ToolUseInputDelta(String),
+    ToolUseEnd { id: String, input: serde_json::Value },
+    Usage(Usage),
+    Stop(StopReason),
+}
+
+/// A stream of tool-aware events from an LLM response.
+pub type LlmToolStream = Pin<Box<dyn futures_util::Stream<Item = Result<StreamEvent>> + Send>>;
+
 #[async_trait]
 pub trait LlmClient: Send + Sync + 'static {
     async fn complete(&self, messages: Vec<ChatMessage>, system: &str) -> Result<String>;
@@ -140,11 +154,7 @@ pub trait LlmClient: Send + Sync + 'static {
 
     /// Streaming variant — yields text chunks as they arrive.
     /// Default implementation calls `complete()` and yields the full response.
-    async fn complete_stream(
-        &self,
-        messages: Vec<ChatMessage>,
-        system: &str,
-    ) -> Result<LlmStream> {
+    async fn complete_stream(&self, messages: Vec<ChatMessage>, system: &str) -> Result<LlmStream> {
         let result = self.complete(messages, system).await?;
         Ok(Box::pin(futures_util::stream::once(async { Ok(result) })))
     }
@@ -162,15 +172,55 @@ pub trait LlmClient: Send + Sync + 'static {
         let simple_messages: Vec<ChatMessage> = messages
             .into_iter()
             .filter_map(|m| match m.content {
-                ChatContent::Text(t) => Some(ChatMessage { role: m.role, content: t }),
+                ChatContent::Text(t) => Some(ChatMessage {
+                    role: m.role,
+                    content: t,
+                }),
                 _ => None,
             })
             .collect();
-        let text = self.complete_with_options(simple_messages, system, options).await?;
+        let text = self
+            .complete_with_options(simple_messages, system, options)
+            .await?;
         Ok(CompletionResponse {
             blocks: vec![ContentBlock::Text(text)],
             usage: Usage::default(),
             stop_reason: Some(StopReason::EndTurn),
         })
+    }
+
+    /// Streaming variant with tool support — yields StreamEvent as they arrive.
+    /// Default implementation calls `complete_with_tools()` and yields events from the full response.
+    async fn complete_stream_with_tools(
+        &self,
+        messages: Vec<ChatMessageExt>,
+        system: &str,
+        tools: &[ToolDefinition],
+        options: CompletionOptions,
+    ) -> Result<LlmToolStream> {
+        let resp = self
+            .complete_with_tools(messages, system, tools, options)
+            .await?;
+        let mut events: Vec<Result<StreamEvent>> = Vec::new();
+        for block in &resp.blocks {
+            match block {
+                ContentBlock::Text(t) => events.push(Ok(StreamEvent::TextDelta(t.clone()))),
+                ContentBlock::ToolUse(call) => {
+                    events.push(Ok(StreamEvent::ToolUseStart {
+                        id: call.id.clone(),
+                        name: call.name.clone(),
+                    }));
+                    events.push(Ok(StreamEvent::ToolUseEnd {
+                        id: call.id.clone(),
+                        input: call.input.clone(),
+                    }));
+                }
+            }
+        }
+        events.push(Ok(StreamEvent::Usage(resp.usage)));
+        if let Some(reason) = resp.stop_reason {
+            events.push(Ok(StreamEvent::Stop(reason)));
+        }
+        Ok(Box::pin(futures_util::stream::iter(events)))
     }
 }

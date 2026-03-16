@@ -2,7 +2,10 @@ use orka_core::traits::MemoryStore;
 use orka_core::MemoryEntry;
 use orka_memory::RedisMemoryStore;
 
-async fn setup() -> (RedisMemoryStore, testcontainers::ContainerAsync<testcontainers_modules::redis::Redis>) {
+async fn setup() -> (
+    RedisMemoryStore,
+    testcontainers::ContainerAsync<testcontainers_modules::redis::Redis>,
+) {
     use testcontainers::runners::AsyncRunner;
     use testcontainers_modules::redis::Redis;
 
@@ -62,9 +65,26 @@ async fn ttl_expiry() {
 async fn search_by_key_pattern() {
     let (store, _container) = setup().await;
 
-    store.store("user-alice", make_entry("user-alice", vec!["profile"]), None).await.unwrap();
-    store.store("user-bob", make_entry("user-bob", vec!["profile"]), None).await.unwrap();
-    store.store("system-config", make_entry("system-config", vec!["system"]), None).await.unwrap();
+    store
+        .store(
+            "user-alice",
+            make_entry("user-alice", vec!["profile"]),
+            None,
+        )
+        .await
+        .unwrap();
+    store
+        .store("user-bob", make_entry("user-bob", vec!["profile"]), None)
+        .await
+        .unwrap();
+    store
+        .store(
+            "system-config",
+            make_entry("system-config", vec!["system"]),
+            None,
+        )
+        .await
+        .unwrap();
 
     let results = store.search("user", 10).await.unwrap();
     assert_eq!(results.len(), 2);
@@ -76,8 +96,14 @@ async fn search_by_key_pattern() {
 async fn search_by_tag() {
     let (store, _container) = setup().await;
 
-    store.store("item-a", make_entry("item-a", vec!["important"]), None).await.unwrap();
-    store.store("item-b", make_entry("item-b", vec!["trivial"]), None).await.unwrap();
+    store
+        .store("item-a", make_entry("item-a", vec!["important"]), None)
+        .await
+        .unwrap();
+    store
+        .store("item-b", make_entry("item-b", vec!["trivial"]), None)
+        .await
+        .unwrap();
 
     let results = store.search("important", 10).await.unwrap();
     assert_eq!(results.len(), 1);

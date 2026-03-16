@@ -19,12 +19,7 @@ impl ApiKeyAuthenticator {
     pub fn new(entries: &[ApiKeyEntry]) -> Self {
         let keys = entries
             .iter()
-            .map(|e| {
-                (
-                    e.key_hash.clone(),
-                    (e.name.clone(), e.scopes.clone()),
-                )
-            })
+            .map(|e| (e.key_hash.clone(), (e.name.clone(), e.scopes.clone())))
             .collect();
         Self { keys }
     }

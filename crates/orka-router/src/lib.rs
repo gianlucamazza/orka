@@ -31,7 +31,12 @@ impl AgentRouter {
     }
 
     /// Add a route. Routes are evaluated in insertion order; first match wins.
-    pub fn route(mut self, prefix: impl Into<String>, handler: Arc<dyn AgentHandler>, strip_prefix: bool) -> Self {
+    pub fn route(
+        mut self,
+        prefix: impl Into<String>,
+        handler: Arc<dyn AgentHandler>,
+        strip_prefix: bool,
+    ) -> Self {
         self.routes.push(AgentRoute {
             prefix: prefix.into(),
             handler,
@@ -100,7 +105,7 @@ impl AgentHandler for DelegateHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orka_core::{SessionId, Payload};
+    use orka_core::{Payload, SessionId};
     use orka_worker::EchoHandler;
 
     #[tokio::test]
@@ -108,8 +113,7 @@ mod tests {
         let echo = Arc::new(EchoHandler);
         let delegate = Arc::new(DelegateHandler::new("code", echo.clone()));
 
-        let router = AgentRouter::new(echo.clone())
-            .route("/code ", delegate, true);
+        let router = AgentRouter::new(echo.clone()).route("/code ", delegate, true);
 
         let session = Session::new("custom", "user1");
 
@@ -132,8 +136,7 @@ mod tests {
         let echo = Arc::new(EchoHandler);
         let delegate = Arc::new(DelegateHandler::new("code", echo.clone()));
 
-        let router = AgentRouter::new(echo.clone())
-            .route("/code ", delegate, true);
+        let router = AgentRouter::new(echo.clone()).route("/code ", delegate, true);
 
         let session = Session::new("custom", "user1");
 

@@ -3,7 +3,7 @@
 # --- Base: shared stage with cargo-chef + build deps ---
 FROM rust:1.93-slim-bookworm AS chef
 RUN cargo install cargo-chef
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y pkg-config libssl-dev curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 # --- Planner: generate dependency recipe ---

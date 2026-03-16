@@ -44,9 +44,9 @@ impl Authenticator for InMemoryAuthenticator {
                 .get(key)
                 .cloned()
                 .ok_or_else(|| orka_core::Error::Auth("invalid API key".into())),
-            Credentials::Bearer(_) => {
-                Err(orka_core::Error::Auth("Bearer tokens not supported in test authenticator".into()))
-            }
+            Credentials::Bearer(_) => Err(orka_core::Error::Auth(
+                "Bearer tokens not supported in test authenticator".into(),
+            )),
             Credentials::None => Err(orka_core::Error::Auth("missing API key".into())),
         }
     }

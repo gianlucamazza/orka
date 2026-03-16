@@ -215,6 +215,17 @@ impl ChannelAdapter for DiscordAdapter {
                                                     serde_json::json!(channel_id),
                                                 );
 
+                                                // guild_id present = server (group), absent = DM
+                                                let chat_type = if d.get("guild_id").and_then(|v| v.as_str()).is_some() {
+                                                    "group"
+                                                } else {
+                                                    "direct"
+                                                };
+                                                envelope.metadata.insert(
+                                                    "chat_type".to_string(),
+                                                    serde_json::json!(chat_type),
+                                                );
+
                                                 if sink.send(envelope).await.is_err() {
                                                     debug!("sink closed, stopping Discord listener");
                                                     heartbeat_handle.abort();

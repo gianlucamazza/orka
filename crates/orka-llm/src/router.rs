@@ -7,7 +7,7 @@ use tracing::debug;
 
 use crate::client::{
     ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, LlmClient, LlmStream,
-    ToolDefinition,
+    LlmToolStream, ToolDefinition,
 };
 
 /// Routes LLM requests to the appropriate provider based on model name prefix.
@@ -49,7 +49,11 @@ impl LlmRouter {
             for (prefix, provider_name) in &self.prefix_map {
                 if model_name.starts_with(prefix) {
                     if let Some(client) = self.providers.get(provider_name) {
-                        debug!(model = model_name, provider = provider_name, "routing to provider");
+                        debug!(
+                            model = model_name,
+                            provider = provider_name,
+                            "routing to provider"
+                        );
                         return client.as_ref();
                     }
                 }
@@ -81,12 +85,10 @@ impl LlmClient for LlmRouter {
             .await
     }
 
-    async fn complete_stream(
-        &self,
-        messages: Vec<ChatMessage>,
-        system: &str,
-    ) -> Result<LlmStream> {
-        self.default_provider.complete_stream(messages, system).await
+    async fn complete_stream(&self, messages: Vec<ChatMessage>, system: &str) -> Result<LlmStream> {
+        self.default_provider
+            .complete_stream(messages, system)
+            .await
     }
 
     async fn complete_with_tools(
@@ -99,6 +101,19 @@ impl LlmClient for LlmRouter {
         let provider = self.resolve(options.model.as_deref());
         provider
             .complete_with_tools(messages, system, tools, options)
+            .await
+    }
+
+    async fn complete_stream_with_tools(
+        &self,
+        messages: Vec<ChatMessageExt>,
+        system: &str,
+        tools: &[ToolDefinition],
+        options: CompletionOptions,
+    ) -> Result<LlmToolStream> {
+        let provider = self.resolve(options.model.as_deref());
+        provider
+            .complete_stream_with_tools(messages, system, tools, options)
             .await
     }
 }

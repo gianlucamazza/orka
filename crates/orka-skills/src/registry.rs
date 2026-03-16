@@ -56,8 +56,9 @@ impl SkillRegistry {
         // If scopes are provided, check for authorization
         if !caller_scopes.is_empty() {
             let required = format!("skill:{name}");
-            let has_scope =
-                caller_scopes.iter().any(|s| s == &required || s == "skill:*" || s == "*");
+            let has_scope = caller_scopes
+                .iter()
+                .any(|s| s == &required || s == "skill:*" || s == "*");
             if !has_scope {
                 return Err(Error::Auth(format!(
                     "missing scope '{required}' to invoke skill '{name}'"

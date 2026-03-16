@@ -15,7 +15,6 @@ const PENDING_KEY: &str = "orka:queue:pending";
 const DATA_KEY_PREFIX: &str = "orka:queue:data:";
 const DLQ_KEY: &str = "orka:queue:dlq";
 
-
 /// Redis-backed priority queue using sorted sets.
 pub struct RedisPriorityQueue {
     pool: Pool,
@@ -128,7 +127,8 @@ impl PriorityQueue for RedisPriorityQueue {
                 // Check not_before: if message is not yet mature, re-enqueue it
                 if let Some(not_before_val) = envelope.metadata.get("not_before") {
                     if let Some(not_before_str) = not_before_val.as_str() {
-                        if let Ok(not_before) = chrono::DateTime::parse_from_rfc3339(not_before_str) {
+                        if let Ok(not_before) = chrono::DateTime::parse_from_rfc3339(not_before_str)
+                        {
                             if Utc::now() < not_before {
                                 debug!(id = %member, "message not yet mature, re-enqueuing");
                                 // Re-add to sorted set with original score and restore data
@@ -143,7 +143,9 @@ impl PriorityQueue for RedisPriorityQueue {
                                     .arg(&member)
                                     .exec_async(&mut *conn)
                                     .await
-                                    .map_err(|e| Error::queue(format!("re-enqueue not_before failed: {e}")))?;
+                                    .map_err(|e| {
+                                        Error::queue(format!("re-enqueue not_before failed: {e}"))
+                                    })?;
                                 return Ok(None);
                             }
                         }
@@ -289,8 +291,14 @@ mod tests {
         let normal = priority_score(&Priority::Normal, t);
         let background = priority_score(&Priority::Background, t);
 
-        assert!(urgent < normal, "Urgent should have lower score than Normal");
-        assert!(normal < background, "Normal should have lower score than Background");
+        assert!(
+            urgent < normal,
+            "Urgent should have lower score than Normal"
+        );
+        assert!(
+            normal < background,
+            "Normal should have lower score than Background"
+        );
     }
 
     #[test]

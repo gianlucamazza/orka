@@ -17,8 +17,10 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 reqwest.workspace = true
-orka-core.workspace = true
+orka-core = { workspace = true, features = ["test-util"] }
+orka-mcp.workspace = true
 orka-secrets.workspace = true
+orka-skills.workspace = true
 colored = "3"
 tokio-tungstenite = "0.26"
 futures-util = "0.3"

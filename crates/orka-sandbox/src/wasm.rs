@@ -58,9 +58,14 @@ impl SandboxExecutor for WasmSandbox {
         let stdin_data = req.stdin.clone();
         let env_vars: Vec<(String, String)> = req.env.into_iter().collect();
 
-        let result = tokio::time::timeout(timeout, tokio::task::spawn_blocking(move || {
-            run_wasm_sync(&engine, &code, max_memory, max_output, stdin_data, &env_vars)
-        }))
+        let result = tokio::time::timeout(
+            timeout,
+            tokio::task::spawn_blocking(move || {
+                run_wasm_sync(
+                    &engine, &code, max_memory, max_output, stdin_data, &env_vars,
+                )
+            }),
+        )
         .await
         .map_err(|_| Error::Sandbox("WASM execution timed out".into()))?
         .map_err(|e| Error::Sandbox(format!("WASM task failed: {e}")))?;
@@ -98,9 +103,7 @@ fn run_wasm_sync(
         wasi_builder.env(k, v);
     }
 
-    let store_limits = StoreLimitsBuilder::new()
-        .memory_size(max_memory)
-        .build();
+    let store_limits = StoreLimitsBuilder::new().memory_size(max_memory).build();
 
     let wasi = wasi_builder.build_p1();
 
@@ -111,7 +114,9 @@ fn run_wasm_sync(
 
     let mut store = Store::new(engine, state);
     store.limiter(|s| &mut s.limits);
-    store.set_fuel(1_000_000_000).map_err(|e| Error::Sandbox(format!("failed to set fuel: {e}")))?;
+    store
+        .set_fuel(1_000_000_000)
+        .map_err(|e| Error::Sandbox(format!("failed to set fuel: {e}")))?;
 
     let mut linker: Linker<WasmState> = Linker::new(engine);
     wasmtime_wasi::preview1::add_to_linker_sync(&mut linker, |s: &mut WasmState| &mut s.wasi)

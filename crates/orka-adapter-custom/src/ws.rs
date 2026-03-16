@@ -19,7 +19,10 @@ impl WsRegistry {
     pub async fn register(
         &self,
         session_id: SessionId,
-    ) -> (mpsc::UnboundedSender<String>, mpsc::UnboundedReceiver<String>) {
+    ) -> (
+        mpsc::UnboundedSender<String>,
+        mpsc::UnboundedReceiver<String>,
+    ) {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut map = self.inner.lock().await;
         map.entry(session_id).or_default().push(tx.clone());

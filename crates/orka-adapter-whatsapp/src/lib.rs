@@ -140,6 +140,10 @@ async fn webhook_receive(
                                         "whatsapp_from".to_string(),
                                         serde_json::json!(msg.from),
                                     );
+                                    envelope.metadata.insert(
+                                        "chat_type".to_string(),
+                                        serde_json::json!("direct"),
+                                    );
 
                                     let sink = state.sink.lock().await;
                                     if let Some(ref tx) = *sink {
@@ -228,7 +232,10 @@ impl ChannelAdapter for WhatsAppAdapter {
             }
         });
 
-        info!(port = self.listen_port, "WhatsApp adapter started (Cloud API webhook)");
+        info!(
+            port = self.listen_port,
+            "WhatsApp adapter started (Cloud API webhook)"
+        );
         Ok(())
     }
 

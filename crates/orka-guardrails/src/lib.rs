@@ -1,14 +1,14 @@
+pub mod chain;
 pub mod keyword;
 pub mod regex_filter;
-pub mod chain;
 
+pub use chain::GuardrailChain;
 pub use keyword::KeywordGuardrail;
 pub use regex_filter::RegexGuardrail;
-pub use chain::GuardrailChain;
 
-use std::sync::Arc;
 use orka_core::config::GuardrailsConfig;
 use orka_core::traits::Guardrail;
+use std::sync::Arc;
 
 /// Build a guardrail chain from config. Returns None if no rules configured.
 pub fn create_guardrail(config: &GuardrailsConfig) -> Option<Arc<dyn Guardrail>> {
@@ -36,7 +36,9 @@ pub fn create_guardrail(config: &GuardrailsConfig) -> Option<Arc<dyn Guardrail>>
 
     // Keyword blocklist
     if !config.blocked_keywords.is_empty() {
-        chain = chain.add(Arc::new(KeywordGuardrail::new(config.blocked_keywords.clone())));
+        chain = chain.add(Arc::new(KeywordGuardrail::new(
+            config.blocked_keywords.clone(),
+        )));
         has_rules = true;
     }
 

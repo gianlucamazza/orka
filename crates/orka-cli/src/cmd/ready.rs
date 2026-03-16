@@ -11,10 +11,7 @@ pub async fn run(client: &OrkaClient) -> Result<()> {
         }
     };
 
-    let ready = body
-        .get("ready")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let ready = body.get("ready").and_then(|v| v.as_bool()).unwrap_or(false);
 
     if ready {
         println!("{} {}", "Status:".bold(), "ready".green());

@@ -19,7 +19,11 @@ impl OtelEventSink {
 impl EventSink for OtelEventSink {
     async fn emit(&self, event: DomainEvent) {
         let (span_name, attributes) = match &event.kind {
-            DomainEventKind::MessageReceived { message_id, channel, session_id } => (
+            DomainEventKind::MessageReceived {
+                message_id,
+                channel,
+                session_id,
+            } => (
                 "message.received",
                 vec![
                     KeyValue::new("message_id", message_id.to_string()),
@@ -27,21 +31,32 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("session_id", session_id.to_string()),
                 ],
             ),
-            DomainEventKind::SessionCreated { session_id, channel } => (
+            DomainEventKind::SessionCreated {
+                session_id,
+                channel,
+            } => (
                 "session.created",
                 vec![
                     KeyValue::new("session_id", session_id.to_string()),
                     KeyValue::new("channel", channel.clone()),
                 ],
             ),
-            DomainEventKind::HandlerInvoked { message_id, session_id } => (
+            DomainEventKind::HandlerInvoked {
+                message_id,
+                session_id,
+            } => (
                 "handler.invoked",
                 vec![
                     KeyValue::new("message_id", message_id.to_string()),
                     KeyValue::new("session_id", session_id.to_string()),
                 ],
             ),
-            DomainEventKind::HandlerCompleted { message_id, session_id, duration_ms, reply_count } => (
+            DomainEventKind::HandlerCompleted {
+                message_id,
+                session_id,
+                duration_ms,
+                reply_count,
+            } => (
                 "handler.completed",
                 vec![
                     KeyValue::new("message_id", message_id.to_string()),
@@ -50,14 +65,22 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("reply_count", *reply_count as i64),
                 ],
             ),
-            DomainEventKind::SkillInvoked { skill_name, message_id } => (
+            DomainEventKind::SkillInvoked {
+                skill_name,
+                message_id,
+            } => (
                 "skill.invoked",
                 vec![
                     KeyValue::new("skill_name", skill_name.clone()),
                     KeyValue::new("message_id", message_id.to_string()),
                 ],
             ),
-            DomainEventKind::SkillCompleted { skill_name, message_id, duration_ms, success } => (
+            DomainEventKind::SkillCompleted {
+                skill_name,
+                message_id,
+                duration_ms,
+                success,
+            } => (
                 "skill.completed",
                 vec![
                     KeyValue::new("skill_name", skill_name.clone()),
@@ -66,7 +89,13 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("success", *success),
                 ],
             ),
-            DomainEventKind::LlmCompleted { message_id, model, input_tokens, output_tokens, duration_ms } => (
+            DomainEventKind::LlmCompleted {
+                message_id,
+                model,
+                input_tokens,
+                output_tokens,
+                duration_ms,
+            } => (
                 "llm.completed",
                 vec![
                     KeyValue::new("message_id", message_id.to_string()),
@@ -83,13 +112,12 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("error.message", message.clone()),
                 ],
             ),
-            DomainEventKind::Heartbeat => (
-                "heartbeat",
-                vec![],
-            ),
+            DomainEventKind::Heartbeat => ("heartbeat", vec![]),
         };
 
-        let mut span = self.tracer.span_builder(span_name.to_string())
+        let mut span = self
+            .tracer
+            .span_builder(span_name.to_string())
             .with_kind(SpanKind::Internal)
             .with_attributes(attributes)
             .start(&self.tracer);
@@ -104,14 +132,14 @@ impl EventSink for OtelEventSink {
 
 /// Initialize OpenTelemetry with OTLP exporter.
 /// Returns a tracer that can be used to create the OtelEventSink.
-pub fn init_otel_tracer(service_name: &str) -> Result<opentelemetry_sdk::trace::Tracer, Box<dyn std::error::Error>> {
-    use opentelemetry_sdk::trace::SdkTracerProvider;
-    use opentelemetry_otlp::SpanExporter;
+pub fn init_otel_tracer(
+    service_name: &str,
+) -> Result<opentelemetry_sdk::trace::Tracer, Box<dyn std::error::Error>> {
     use opentelemetry::trace::TracerProvider;
+    use opentelemetry_otlp::SpanExporter;
+    use opentelemetry_sdk::trace::SdkTracerProvider;
 
-    let exporter = SpanExporter::builder()
-        .with_tonic()
-        .build()?;
+    let exporter = SpanExporter::builder().with_tonic().build()?;
 
     let provider = SdkTracerProvider::builder()
         .with_batch_exporter(exporter)

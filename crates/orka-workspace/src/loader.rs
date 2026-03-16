@@ -84,6 +84,8 @@ impl WorkspaceLoader {
             },
             other => warn!(file = %other, "unknown workspace file"),
         }
-        let _ = self.tx.send(WorkspaceEvent::FileChanged(filename.to_string()));
+        let _ = self
+            .tx
+            .send(WorkspaceEvent::FileChanged(filename.to_string()));
     }
 }

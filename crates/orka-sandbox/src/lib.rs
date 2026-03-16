@@ -11,8 +11,8 @@ pub use process::ProcessSandbox;
 pub use skill::SandboxSkill;
 pub use wasm::WasmSandbox;
 
-use std::sync::Arc;
 use orka_core::config::SandboxConfig;
+use std::sync::Arc;
 
 pub fn create_sandbox(config: &SandboxConfig) -> Arc<dyn SandboxExecutor> {
     match config.backend.as_str() {

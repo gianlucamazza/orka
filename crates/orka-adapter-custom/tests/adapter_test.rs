@@ -1,5 +1,9 @@
-use orka_adapter_custom::{routes::app_router, types::InboundResponse, ws::WsRegistry, CustomAdapter};
-use orka_core::{config::CustomAdapterConfig, traits::ChannelAdapter, OutboundMessage, Payload, SessionId};
+use orka_adapter_custom::{
+    routes::app_router, types::InboundResponse, ws::WsRegistry, CustomAdapter,
+};
+use orka_core::{
+    config::CustomAdapterConfig, traits::ChannelAdapter, OutboundMessage, Payload, SessionId,
+};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
@@ -69,10 +73,13 @@ async fn health_endpoint_returns_ok() {
 
 #[tokio::test]
 async fn adapter_start_and_shutdown() {
-    let adapter = CustomAdapter::new(CustomAdapterConfig {
-        host: "127.0.0.1".into(),
-        port: 0,
-    }, None);
+    let adapter = CustomAdapter::new(
+        CustomAdapterConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        None,
+    );
 
     let (tx, _rx) = mpsc::channel(16);
     adapter.start(tx).await.unwrap();
@@ -81,10 +88,13 @@ async fn adapter_start_and_shutdown() {
 
 #[tokio::test]
 async fn ws_connect_and_receive_outbound() {
-    let adapter = CustomAdapter::new(CustomAdapterConfig {
-        host: "127.0.0.1".into(),
-        port: 0,
-    }, None);
+    let adapter = CustomAdapter::new(
+        CustomAdapterConfig {
+            host: "127.0.0.1".into(),
+            port: 0,
+        },
+        None,
+    );
 
     let (tx, _rx) = mpsc::channel(16);
     adapter.start(tx).await.unwrap();

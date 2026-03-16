@@ -97,24 +97,18 @@ async fn loader_load_all() {
     )
     .await
     .unwrap();
-    fs::write(
-        dir.path().join("IDENTITY.md"),
-        "---\nagent_id: a1\n---\n",
-    )
-    .await
-    .unwrap();
+    fs::write(dir.path().join("IDENTITY.md"), "---\nagent_id: a1\n---\n")
+        .await
+        .unwrap();
     fs::write(
         dir.path().join("HEARTBEAT.md"),
         "---\ninterval_secs: 10\n---\n",
     )
     .await
     .unwrap();
-    fs::write(
-        dir.path().join("MEMORY.md"),
-        "---\nbackend: sqlite\n---\n",
-    )
-    .await
-    .unwrap();
+    fs::write(dir.path().join("MEMORY.md"), "---\nbackend: sqlite\n---\n")
+        .await
+        .unwrap();
 
     let loader = WorkspaceLoader::new(dir.path());
     loader.load_all().await.unwrap();
@@ -173,16 +167,13 @@ async fn loader_malformed_file() {
 
 #[tokio::test]
 async fn watcher_detects_change() {
-    use orka_workspace::watcher::WorkspaceWatcher;
     use orka_workspace::loader::WorkspaceEvent;
+    use orka_workspace::watcher::WorkspaceWatcher;
 
     let dir = TempDir::new().unwrap();
-    fs::write(
-        dir.path().join("SOUL.md"),
-        "---\nname: Original\n---\nBody",
-    )
-    .await
-    .unwrap();
+    fs::write(dir.path().join("SOUL.md"), "---\nname: Original\n---\nBody")
+        .await
+        .unwrap();
 
     let loader = Arc::new(WorkspaceLoader::new(dir.path()));
     loader.load_all().await.unwrap();
@@ -211,7 +202,10 @@ async fn watcher_detects_change() {
     })
     .await;
 
-    assert!(result.is_ok(), "watcher should detect file change within 2s");
+    assert!(
+        result.is_ok(),
+        "watcher should detect file change within 2s"
+    );
 
     let binding = loader.state();
     let state = binding.read().await;

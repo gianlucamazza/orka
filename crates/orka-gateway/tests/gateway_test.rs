@@ -36,9 +36,7 @@ async fn gateway_creates_session_and_enqueues() {
     let env_id = env.id.clone();
 
     // Spawn gateway first so it subscribes before we publish
-    let handle = tokio::spawn(async move {
-        gateway.run(cancel2).await
-    });
+    let handle = tokio::spawn(async move { gateway.run(cancel2).await });
 
     // Small delay to ensure the gateway has subscribed
     tokio::time::sleep(Duration::from_millis(50)).await;

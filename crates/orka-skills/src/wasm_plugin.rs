@@ -46,10 +46,8 @@ impl WasmPluginSkill {
             .map_err(|e| Error::Skill(format!("compile wasm: {e}")))?;
 
         let mut linker: Linker<PluginState> = Linker::new(&engine);
-        wasmtime_wasi::preview1::add_to_linker_sync(&mut linker, |s: &mut PluginState| {
-            &mut s.wasi
-        })
-        .map_err(|e| Error::Skill(format!("link wasi: {e}")))?;
+        wasmtime_wasi::preview1::add_to_linker_sync(&mut linker, |s: &mut PluginState| &mut s.wasi)
+            .map_err(|e| Error::Skill(format!("link wasi: {e}")))?;
 
         let wasi = WasiCtxBuilder::new().build_p1();
         let mut store = Store::new(&engine, PluginState { wasi });
@@ -84,8 +82,8 @@ impl WasmPluginSkill {
         let info: PluginInfo = serde_json::from_slice(&data[start..end])
             .map_err(|e| Error::Skill(format!("parse plugin info: {e}")))?;
 
-        let schema: serde_json::Value = serde_json::from_str(&info.parameters_schema)
-            .unwrap_or_else(|_| serde_json::json!({}));
+        let schema: serde_json::Value =
+            serde_json::from_str(&info.parameters_schema).unwrap_or_else(|_| serde_json::json!({}));
 
         Ok(Self {
             name: info.name,
@@ -102,10 +100,8 @@ impl WasmPluginSkill {
             .map_err(|e| Error::Skill(format!("compile wasm: {e}")))?;
 
         let mut linker: Linker<PluginState> = Linker::new(&self.engine);
-        wasmtime_wasi::preview1::add_to_linker_sync(&mut linker, |s: &mut PluginState| {
-            &mut s.wasi
-        })
-        .map_err(|e| Error::Skill(format!("link wasi: {e}")))?;
+        wasmtime_wasi::preview1::add_to_linker_sync(&mut linker, |s: &mut PluginState| &mut s.wasi)
+            .map_err(|e| Error::Skill(format!("link wasi: {e}")))?;
 
         let wasi = WasiCtxBuilder::new().build_p1();
         let mut store = Store::new(&self.engine, PluginState { wasi });

@@ -5,7 +5,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
-use crate::traits::{EventSink, MemoryStore, MessageBus, PriorityQueue, SecretManager, SessionStore, Skill};
+use crate::traits::{
+    EventSink, MemoryStore, MessageBus, PriorityQueue, SecretManager, SessionStore, Skill,
+};
 use crate::{
     DomainEvent, Envelope, Error, MemoryEntry, MessageId, MessageStream, Priority, Result,
     SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
@@ -319,6 +321,19 @@ impl SecretManager for InMemorySecretManager {
         secrets.insert(path.to_string(), value.expose().to_vec());
         Ok(())
     }
+
+    async fn delete_secret(&self, path: &str) -> Result<()> {
+        let mut secrets = self.secrets.lock().await;
+        secrets
+            .remove(path)
+            .map(|_| ())
+            .ok_or_else(|| Error::secret(format!("not found: {path}")))
+    }
+
+    async fn list_secrets(&self) -> Result<Vec<String>> {
+        let secrets = self.secrets.lock().await;
+        Ok(secrets.keys().cloned().collect())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -522,6 +537,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn in_memory_secret_manager_delete() {
+        let mgr = InMemorySecretManager::new();
+        let secret = SecretValue::new(b"to-delete".to_vec());
+        mgr.set_secret("temp/key", &secret).await.unwrap();
+        assert!(mgr.get_secret("temp/key").await.is_ok());
+
+        mgr.delete_secret("temp/key").await.unwrap();
+        assert!(mgr.get_secret("temp/key").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn in_memory_secret_manager_delete_not_found() {
+        let mgr = InMemorySecretManager::new();
+        assert!(mgr.delete_secret("nonexistent").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn in_memory_secret_manager_list() {
+        let mgr = InMemorySecretManager::new();
+        assert!(mgr.list_secrets().await.unwrap().is_empty());
+
+        mgr.set_secret("a", &SecretValue::new(b"1".to_vec()))
+            .await
+            .unwrap();
+        mgr.set_secret("b", &SecretValue::new(b"2".to_vec()))
+            .await
+            .unwrap();
+
+        let mut keys = mgr.list_secrets().await.unwrap();
+        keys.sort();
+        assert_eq!(keys, vec!["a", "b"]);
+    }
+
+    #[tokio::test]
     async fn in_memory_event_sink_emit_and_retrieve() {
         use crate::{DomainEventKind, EventId};
 
@@ -555,6 +604,7 @@ mod tests {
             args: [("greeting".to_string(), serde_json::json!("hello"))]
                 .into_iter()
                 .collect(),
+            context: None,
         };
         let output = skill.execute(input).await.unwrap();
         assert_eq!(output.data, serde_json::json!({"greeting": "hello"}));

@@ -16,6 +16,7 @@ pub struct Gateway {
     bus: Arc<dyn MessageBus>,
     sessions: Arc<dyn SessionStore>,
     queue: Arc<dyn PriorityQueue>,
+    #[allow(dead_code)]
     workspace: Arc<WorkspaceLoader>,
     event_sink: Arc<dyn EventSink>,
     redis_pool: Option<Pool>,
@@ -89,7 +90,10 @@ impl Gateway {
         };
         let mut conn = match pool.get().await {
             Ok(c) => c,
-            Err(_) => return false,
+            Err(e) => {
+                warn!(error = %e, message_id = %message_id, "dedup: Redis pool error, accepting message");
+                return false;
+            }
         };
         let key = format!("{DEDUP_KEY_PREFIX}{message_id}");
         // SET NX EX - returns true if key was set (not duplicate), false if already exists
@@ -101,8 +105,13 @@ impl Gateway {
             .arg(self.dedup_ttl_secs)
             .query_async(&mut *conn)
             .await;
-        // If SET NX returns false (or errors), it's a duplicate
-        !result.unwrap_or(false)
+        match result {
+            Ok(was_set) => !was_set,
+            Err(e) => {
+                warn!(error = %e, message_id = %message_id, "dedup: Redis SET NX error, accepting message");
+                false
+            }
+        }
     }
 
     /// Check if session is within rate limit. Returns true if allowed.
@@ -116,24 +125,34 @@ impl Gateway {
 
         // Try Redis-based rate limit first
         if let Some(ref pool) = self.redis_pool {
-            if let Ok(mut conn) = pool.get().await {
-                let key = format!("orka:ratelimit:{session_id}");
-                let result: redis::RedisResult<i64> = redis::cmd("INCR")
-                    .arg(&key)
-                    .query_async(&mut *conn)
-                    .await;
-                if let Ok(count) = result {
-                    if count == 1 {
-                        // First request in window — set expiry
-                        let _: redis::RedisResult<()> = redis::cmd("EXPIRE")
-                            .arg(&key)
-                            .arg(60i64)
-                            .query_async(&mut *conn)
-                            .await;
+            match pool.get().await {
+                Ok(mut conn) => {
+                    let key = format!("orka:ratelimit:{session_id}");
+                    let result: redis::RedisResult<i64> =
+                        redis::cmd("INCR").arg(&key).query_async(&mut *conn).await;
+                    match result {
+                        Ok(count) => {
+                            if count == 1 {
+                                // First request in window — set expiry
+                                let expire_result: redis::RedisResult<()> = redis::cmd("EXPIRE")
+                                    .arg(&key)
+                                    .arg(60i64)
+                                    .query_async(&mut *conn)
+                                    .await;
+                                if let Err(e) = expire_result {
+                                    warn!(error = %e, %key, "rate_limit: failed to set EXPIRE, key may persist");
+                                }
+                            }
+                            return count <= self.rate_limit as i64;
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "rate_limit: Redis INCR error, falling back to in-memory");
+                        }
                     }
-                    return count <= self.rate_limit as i64;
                 }
-                // Redis error — fall through to in-memory
+                Err(e) => {
+                    warn!(error = %e, "rate_limit: Redis pool error, falling back to in-memory");
+                }
             }
         }
 
@@ -148,9 +167,7 @@ impl Gateway {
             });
         }
 
-        let entry = counters
-            .entry(session_id.to_string())
-            .or_insert((0, now));
+        let entry = counters.entry(session_id.to_string()).or_insert((0, now));
 
         // Reset window if more than 60 seconds have passed
         let elapsed = now.signed_duration_since(entry.1);
@@ -166,26 +183,21 @@ impl Gateway {
         true
     }
 
-    /// Read workspace state for routing hints (e.g. priority by channel).
+    /// Resolve priority based on chat type: DMs get Urgent, groups get Normal.
     async fn resolve_priority(&self, envelope: &Envelope) -> orka_core::Priority {
-        let state = self.workspace.state();
-        let state = state.read().await;
-        if let Some(ref soul) = state.soul {
-            // Check if soul frontmatter has channel-specific config
-            // For now, default routing: urgent for direct messages, normal for groups
-            if soul.frontmatter.name.is_some() {
-                // Workspace is configured — use normal priority
-                return orka_core::Priority::Normal;
-            }
+        match envelope.metadata.get("chat_type").and_then(|v| v.as_str()) {
+            Some("direct") => orka_core::Priority::Urgent,
+            Some("group") => orka_core::Priority::Normal,
+            _ => envelope.priority,
         }
-        envelope.priority
     }
 
     async fn process(&self, mut envelope: Envelope) -> orka_core::Result<()> {
         // Generate trace context if missing
         if envelope.trace_context.trace_id.is_none() {
             envelope.trace_context.trace_id = Some(uuid::Uuid::now_v7().to_string());
-            envelope.trace_context.span_id = Some(uuid::Uuid::now_v7().simple().to_string()[..16].to_string());
+            envelope.trace_context.span_id =
+                Some(uuid::Uuid::now_v7().simple().to_string()[..16].to_string());
             envelope.trace_context.trace_flags = Some(1);
         }
 

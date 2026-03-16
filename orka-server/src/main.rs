@@ -17,9 +17,42 @@ use tokio_util::sync::CancellationToken;
 use tower_http::limit::RequestBodyLimitLayer;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 /// Maximum request body size for server API endpoints: 1 MB.
 const MAX_BODY_SIZE: usize = 1024 * 1024;
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "Orka API",
+        description = "Orka AI Agent Orchestration Platform",
+        version = "0.1.0"
+    ),
+    paths(
+        orka_adapter_custom::routes::handle_message,
+        orka_adapter_custom::routes::handle_health,
+    ),
+    components(schemas(
+        orka_core::Envelope,
+        orka_core::Payload,
+        orka_core::Priority,
+        orka_core::OutboundMessage,
+        orka_core::Session,
+        orka_core::SessionId,
+        orka_core::MessageId,
+        orka_core::TraceContext,
+        orka_core::MediaPayload,
+        orka_core::CommandPayload,
+        orka_core::EventPayload,
+    )),
+    tags(
+        (name = "messages", description = "Message endpoints"),
+        (name = "health", description = "Health check endpoints")
+    )
+)]
+struct ApiDoc;
 
 /// Middleware that adds security headers to all responses.
 async fn security_headers(
@@ -83,13 +116,18 @@ async fn start_adapter(
 async fn main() -> anyhow::Result<()> {
     // 1. Load config (doesn't need tracing)
     let mut config = OrkaConfig::load(None).context("failed to load configuration")?;
-    config.validate().context("configuration validation failed")?;
+    config
+        .validate()
+        .context("configuration validation failed")?;
 
     // 2. Init tracing from config (RUST_LOG takes precedence)
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&config.logging.level));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.logging.level));
     if config.logging.json {
-        tracing_subscriber::fmt().with_env_filter(filter).json().init();
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .json()
+            .init();
     } else {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     }
@@ -100,9 +138,11 @@ async fn main() -> anyhow::Result<()> {
     let sessions = create_session_store(&config).context("failed to create session store")?;
     let queue = create_queue(&config);
 
-    let memory = orka_memory::create_memory_store(&config).context("failed to create memory store")?;
+    let memory =
+        orka_memory::create_memory_store(&config).context("failed to create memory store")?;
     info!("memory store ready");
-    let secrets = orka_secrets::create_secret_manager(&config).context("failed to create secret manager")?;
+    let secrets =
+        orka_secrets::create_secret_manager(&config).context("failed to create secret manager")?;
     info!("secret manager ready");
 
     let event_sink = orka_observe::create_event_sink(&config);
@@ -167,6 +207,34 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // 4e. Web skills (web_search + web_read)
+    if config.web.search_provider != "none" {
+        let web_config = orka_web::WebConfig {
+            search_provider: match config.web.search_provider.as_str() {
+                "tavily" => orka_web::SearchProviderKind::Tavily,
+                "brave" => orka_web::SearchProviderKind::Brave,
+                "searxng" => orka_web::SearchProviderKind::Searxng,
+                _ => orka_web::SearchProviderKind::None,
+            },
+            api_key: config.web.api_key.clone(),
+            api_key_env: config.web.api_key_env.clone(),
+            searxng_base_url: config.web.searxng_base_url.clone(),
+            max_results: config.web.max_results,
+            max_read_chars: config.web.max_read_chars,
+            cache_ttl_secs: config.web.cache_ttl_secs,
+            read_timeout_secs: config.web.read_timeout_secs,
+            user_agent: config.web.user_agent.clone(),
+        };
+        match orka_web::create_web_skills(&web_config) {
+            Ok(web_skills) => {
+                for skill in web_skills {
+                    skills.register(skill);
+                }
+            }
+            Err(e) => warn!(%e, "failed to initialize web skills"),
+        }
+    }
+
     let skills = Arc::new(skills);
     info!("skill registry ready ({} skills)", skills.list().len());
 
@@ -176,78 +244,140 @@ async fn main() -> anyhow::Result<()> {
         for pc in &config.llm.providers {
             let client: Option<Arc<dyn orka_llm::LlmClient>> = match pc.provider.as_str() {
                 "anthropic" => {
-                    let key_name = pc.api_key_secret.as_deref().unwrap_or("anthropic_api_key");
                     let key = pc.api_key.clone().filter(|k| !k.is_empty());
-                    let key = if key.is_some() { key } else {
+                    // 2. api_key_env (explicit env var name from config)
+                    let key = key.or_else(|| {
+                        pc.api_key_env.as_deref().and_then(|env| {
+                            std::env::var(env).ok().filter(|k| !k.is_empty())
+                        })
+                    });
+                    // 3. Default env var
+                    let key = key.or_else(|| {
+                        std::env::var("ANTHROPIC_API_KEY")
+                            .ok()
+                            .filter(|k| !k.is_empty())
+                    });
+                    // 4. Secret store (last resort)
+                    let key = if key.is_some() {
+                        key
+                    } else if let Some(key_name) = pc.api_key_secret.as_deref() {
                         match secrets.get_secret(key_name).await {
                             Ok(s) => {
                                 let k = s.expose_str().unwrap_or("").to_string();
                                 if k.is_empty() {
-                                    warn!(provider = "anthropic", path = key_name, "secret exists but is empty");
+                                    tracing::debug!(
+                                        provider = "anthropic",
+                                        path = key_name,
+                                        "secret exists but is empty"
+                                    );
                                     None
                                 } else {
                                     Some(k)
                                 }
                             }
                             Err(e) => {
-                                warn!(provider = "anthropic", path = key_name, %e, "failed to read secret from store");
+                                tracing::debug!(provider = "anthropic", path = key_name, %e, "failed to read secret from store");
                                 None
                             }
                         }
+                    } else {
+                        None
                     };
-                    let key = key.or_else(|| {
-                        std::env::var("ANTHROPIC_API_KEY").ok().filter(|k| !k.is_empty())
-                    });
                     if key.is_none() {
-                        warn!(provider = "anthropic", "API key not found in config, secrets, or ANTHROPIC_API_KEY env var");
+                        warn!(
+                            provider = "anthropic",
+                            "API key not found in config, secrets, or ANTHROPIC_API_KEY env var"
+                        );
                     }
                     key.map(|k| {
                         Arc::new(orka_llm::AnthropicClient::with_options(
-                            k, pc.model.clone(), pc.timeout_secs, pc.max_tokens, pc.max_retries,
+                            k,
+                            pc.model.clone(),
+                            pc.timeout_secs,
+                            pc.max_tokens,
+                            pc.max_retries,
                             config.llm.api_version.clone(),
                         )) as Arc<dyn orka_llm::LlmClient>
                     })
                 }
                 "openai" => {
-                    let key_name = pc.api_key_secret.as_deref().unwrap_or("openai_api_key");
                     let key = pc.api_key.clone().filter(|k| !k.is_empty());
-                    let key = if key.is_some() { key } else {
+                    // 2. api_key_env (explicit env var name from config)
+                    let key = key.or_else(|| {
+                        pc.api_key_env.as_deref().and_then(|env| {
+                            std::env::var(env).ok().filter(|k| !k.is_empty())
+                        })
+                    });
+                    // 3. Default env var
+                    let key = key.or_else(|| {
+                        std::env::var("OPENAI_API_KEY")
+                            .ok()
+                            .filter(|k| !k.is_empty())
+                    });
+                    // 4. Secret store (last resort)
+                    let key = if key.is_some() {
+                        key
+                    } else if let Some(key_name) = pc.api_key_secret.as_deref() {
                         match secrets.get_secret(key_name).await {
                             Ok(s) => {
                                 let k = s.expose_str().unwrap_or("").to_string();
                                 if k.is_empty() {
-                                    warn!(provider = "openai", path = key_name, "secret exists but is empty");
+                                    tracing::debug!(
+                                        provider = "openai",
+                                        path = key_name,
+                                        "secret exists but is empty"
+                                    );
                                     None
                                 } else {
                                     Some(k)
                                 }
                             }
                             Err(e) => {
-                                warn!(provider = "openai", path = key_name, %e, "failed to read secret from store");
+                                tracing::debug!(provider = "openai", path = key_name, %e, "failed to read secret from store");
                                 None
                             }
                         }
+                    } else {
+                        None
                     };
-                    let key = key.or_else(|| {
-                        std::env::var("OPENAI_API_KEY").ok().filter(|k| !k.is_empty())
-                    });
                     if key.is_none() {
-                        warn!(provider = "openai", "API key not found in config, secrets, or OPENAI_API_KEY env var");
+                        warn!(
+                            provider = "openai",
+                            "API key not found in config, secrets, or OPENAI_API_KEY env var"
+                        );
                     }
                     key.map(|k| {
-                        let url = pc.base_url.clone().unwrap_or_else(|| "https://api.openai.com/v1".into());
+                        let url = pc
+                            .base_url
+                            .clone()
+                            .unwrap_or_else(|| "https://api.openai.com/v1".into());
                         Arc::new(orka_llm::OpenAiClient::with_options(
-                            k, pc.model.clone(), pc.timeout_secs, pc.max_tokens, pc.max_retries, url,
+                            k,
+                            pc.model.clone(),
+                            pc.timeout_secs,
+                            pc.max_tokens,
+                            pc.max_retries,
+                            url,
                         )) as Arc<dyn orka_llm::LlmClient>
                     })
                 }
                 "ollama" => {
-                    let url = pc.base_url.clone().unwrap_or_else(|| "http://localhost:11434/v1".into());
+                    let url = pc
+                        .base_url
+                        .clone()
+                        .unwrap_or_else(|| "http://localhost:11434/v1".into());
                     Some(Arc::new(orka_llm::OllamaClient::with_options(
-                        pc.model.clone(), pc.timeout_secs, pc.max_tokens, pc.max_retries, url,
+                        pc.model.clone(),
+                        pc.timeout_secs,
+                        pc.max_tokens,
+                        pc.max_retries,
+                        url,
                     )) as Arc<dyn orka_llm::LlmClient>)
                 }
-                other => { warn!(provider = other, "unknown LLM provider"); None }
+                other => {
+                    warn!(provider = other, "unknown LLM provider");
+                    None
+                }
             };
             if let Some(c) = client {
                 info!(provider = %pc.name, model = %pc.model, "LLM provider initialized");
@@ -303,7 +433,8 @@ async fn main() -> anyhow::Result<()> {
             let event_sink_hb = event_sink.clone();
             let hb_shutdown = shutdown.clone();
             tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                let mut interval =
+                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
                 loop {
                     tokio::select! {
                         _ = hb_shutdown.cancelled() => break,
@@ -326,7 +457,10 @@ async fn main() -> anyhow::Result<()> {
     let auth_layer = if config.auth.enabled {
         use orka_auth::{ApiKeyAuthenticator, AuthLayer};
         let authenticator = ApiKeyAuthenticator::new(&config.auth.api_keys);
-        Some(AuthLayer::new(Arc::new(authenticator), Arc::new(config.auth.clone())))
+        Some(AuthLayer::new(
+            Arc::new(authenticator),
+            Arc::new(config.auth.clone()),
+        ))
     } else {
         None
     };
@@ -336,21 +470,24 @@ async fn main() -> anyhow::Result<()> {
 
     // 6a. Custom adapter (always started)
     let adapter_config = config.adapters.custom.clone().unwrap_or_default();
-    let custom_adapter: Arc<dyn ChannelAdapter> = Arc::new(CustomAdapter::new(adapter_config, auth_layer));
+    let custom_adapter: Arc<dyn ChannelAdapter> =
+        Arc::new(CustomAdapter::new(adapter_config, auth_layer));
     start_adapter(custom_adapter.clone(), bus.clone(), shutdown.clone()).await?;
     adapters.push(custom_adapter);
     info!("custom adapter started");
 
     // 6b. Telegram adapter (optional)
     if let Some(ref tg_config) = config.adapters.telegram {
-        let secret_name = tg_config.bot_token_secret.as_deref().unwrap_or("telegram_bot_token");
+        let secret_name = tg_config
+            .bot_token_secret
+            .as_deref()
+            .unwrap_or("telegram_bot_token");
         match secrets.get_secret(secret_name).await {
             Ok(secret) => {
                 let token = secret.expose_str().unwrap_or("").to_string();
                 if !token.is_empty() {
-                    let tg: Arc<dyn ChannelAdapter> = Arc::new(
-                        orka_adapter_telegram::TelegramAdapter::new(token),
-                    );
+                    let tg: Arc<dyn ChannelAdapter> =
+                        Arc::new(orka_adapter_telegram::TelegramAdapter::new(token));
                     start_adapter(tg.clone(), bus.clone(), shutdown.clone()).await?;
                     adapters.push(tg);
                     info!("telegram adapter started");
@@ -364,14 +501,16 @@ async fn main() -> anyhow::Result<()> {
 
     // 6c. Discord adapter (optional)
     if let Some(ref dc_config) = config.adapters.discord {
-        let secret_name = dc_config.bot_token_secret.as_deref().unwrap_or("discord_bot_token");
+        let secret_name = dc_config
+            .bot_token_secret
+            .as_deref()
+            .unwrap_or("discord_bot_token");
         match secrets.get_secret(secret_name).await {
             Ok(secret) => {
                 let token = secret.expose_str().unwrap_or("").to_string();
                 if !token.is_empty() {
-                    let dc: Arc<dyn ChannelAdapter> = Arc::new(
-                        orka_adapter_discord::DiscordAdapter::new(token),
-                    );
+                    let dc: Arc<dyn ChannelAdapter> =
+                        Arc::new(orka_adapter_discord::DiscordAdapter::new(token));
                     start_adapter(dc.clone(), bus.clone(), shutdown.clone()).await?;
                     adapters.push(dc);
                     info!("discord adapter started");
@@ -385,7 +524,10 @@ async fn main() -> anyhow::Result<()> {
 
     // 6d. Slack adapter (optional)
     if let Some(ref slack_config) = config.adapters.slack {
-        let secret_name = slack_config.bot_token_secret.as_deref().unwrap_or("slack_bot_token");
+        let secret_name = slack_config
+            .bot_token_secret
+            .as_deref()
+            .unwrap_or("slack_bot_token");
         match secrets.get_secret(secret_name).await {
             Ok(secret) => {
                 let token = secret.expose_str().unwrap_or("").to_string();
@@ -406,23 +548,31 @@ async fn main() -> anyhow::Result<()> {
 
     // 6e. WhatsApp adapter (optional)
     if let Some(ref wa_config) = config.adapters.whatsapp {
-        let access_secret = wa_config.access_token_secret.as_deref().unwrap_or("whatsapp_access_token");
-        let verify_secret = wa_config.verify_token_secret.as_deref().unwrap_or("whatsapp_verify_token");
+        let access_secret = wa_config
+            .access_token_secret
+            .as_deref()
+            .unwrap_or("whatsapp_access_token");
+        let verify_secret = wa_config
+            .verify_token_secret
+            .as_deref()
+            .unwrap_or("whatsapp_verify_token");
         let phone_id = wa_config.phone_number_id.clone().unwrap_or_default();
 
-        match (secrets.get_secret(access_secret).await, secrets.get_secret(verify_secret).await) {
+        match (
+            secrets.get_secret(access_secret).await,
+            secrets.get_secret(verify_secret).await,
+        ) {
             (Ok(access), Ok(verify)) => {
                 let access_token = access.expose_str().unwrap_or("").to_string();
                 let verify_token = verify.expose_str().unwrap_or("").to_string();
                 if !access_token.is_empty() && !phone_id.is_empty() {
-                    let wa: Arc<dyn ChannelAdapter> = Arc::new(
-                        orka_adapter_whatsapp::WhatsAppAdapter::new(
+                    let wa: Arc<dyn ChannelAdapter> =
+                        Arc::new(orka_adapter_whatsapp::WhatsAppAdapter::new(
                             access_token,
                             phone_id,
                             verify_token,
                             wa_config.listen_port,
-                        ),
-                    );
+                        ));
                     start_adapter(wa.clone(), bus.clone(), shutdown.clone()).await?;
                     adapters.push(wa);
                     info!(port = wa_config.listen_port, "whatsapp adapter started");
@@ -474,9 +624,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/health/live",
-            axum::routing::get(|| async {
-                axum::Json(serde_json::json!({"status": "ok"}))
-            }),
+            axum::routing::get(|| async { axum::Json(serde_json::json!({"status": "ok"})) }),
         )
         .route(
             "/health/ready",
@@ -492,34 +640,52 @@ async fn main() -> anyhow::Result<()> {
 
                         // Redis check
                         match redis::Client::open(redis_url.as_str()) {
-                            Ok(client) => {
-                                match client.get_multiplexed_async_connection().await {
-                                    Ok(mut conn) => {
-                                        match redis::cmd("PING").query_async::<String>(&mut conn).await {
-                                            Ok(_) => { checks.insert("redis".into(), serde_json::json!("ok")); }
-                                            Err(e) => {
-                                                checks.insert("redis".into(), serde_json::json!(format!("error: {e}")));
-                                                all_ok = false;
-                                            }
+                            Ok(client) => match client.get_multiplexed_async_connection().await {
+                                Ok(mut conn) => {
+                                    match redis::cmd("PING").query_async::<String>(&mut conn).await
+                                    {
+                                        Ok(_) => {
+                                            checks.insert("redis".into(), serde_json::json!("ok"));
+                                        }
+                                        Err(e) => {
+                                            checks.insert(
+                                                "redis".into(),
+                                                serde_json::json!(format!("error: {e}")),
+                                            );
+                                            all_ok = false;
                                         }
                                     }
-                                    Err(e) => {
-                                        checks.insert("redis".into(), serde_json::json!(format!("error: {e}")));
-                                        all_ok = false;
-                                    }
                                 }
-                            }
+                                Err(e) => {
+                                    checks.insert(
+                                        "redis".into(),
+                                        serde_json::json!(format!("error: {e}")),
+                                    );
+                                    all_ok = false;
+                                }
+                            },
                             Err(e) => {
-                                checks.insert("redis".into(), serde_json::json!(format!("error: {e}")));
+                                checks.insert(
+                                    "redis".into(),
+                                    serde_json::json!(format!("error: {e}")),
+                                );
                                 all_ok = false;
                             }
                         }
 
                         // Queue check
                         match queue.len().await {
-                            Ok(depth) => { checks.insert("queue".into(), serde_json::json!({"status": "ok", "depth": depth})); }
+                            Ok(depth) => {
+                                checks.insert(
+                                    "queue".into(),
+                                    serde_json::json!({"status": "ok", "depth": depth}),
+                                );
+                            }
                             Err(e) => {
-                                checks.insert("queue".into(), serde_json::json!(format!("error: {e}")));
+                                checks.insert(
+                                    "queue".into(),
+                                    serde_json::json!(format!("error: {e}")),
+                                );
                                 all_ok = false;
                             }
                         }
@@ -556,13 +722,15 @@ async fn main() -> anyhow::Result<()> {
                             Ok(items) => {
                                 let json: Vec<serde_json::Value> = items
                                     .iter()
-                                    .map(|e| serde_json::json!({
-                                        "id": e.id.to_string(),
-                                        "channel": e.channel,
-                                        "session_id": e.session_id.to_string(),
-                                        "timestamp": e.timestamp.to_rfc3339(),
-                                        "metadata": e.metadata,
-                                    }))
+                                    .map(|e| {
+                                        serde_json::json!({
+                                            "id": e.id.to_string(),
+                                            "channel": e.channel,
+                                            "session_id": e.session_id.to_string(),
+                                            "timestamp": e.timestamp.to_rfc3339(),
+                                            "metadata": e.metadata,
+                                        })
+                                    })
                                     .collect();
                                 axum::response::IntoResponse::into_response(axum::Json(json))
                             }
@@ -580,9 +748,9 @@ async fn main() -> anyhow::Result<()> {
                     let q = q.clone();
                     async move {
                         match q.purge_dlq().await {
-                            Ok(count) => axum::response::IntoResponse::into_response(
-                                axum::Json(serde_json::json!({ "purged": count })),
-                            ),
+                            Ok(count) => axum::response::IntoResponse::into_response(axum::Json(
+                                serde_json::json!({ "purged": count }),
+                            )),
                             Err(e) => axum::response::IntoResponse::into_response((
                                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                                 format!("DLQ purge failed: {e}"),
@@ -601,15 +769,17 @@ async fn main() -> anyhow::Result<()> {
                     async move {
                         let msg_id = match uuid::Uuid::parse_str(&id) {
                             Ok(uuid) => orka_core::MessageId(uuid),
-                            Err(_) => return axum::response::IntoResponse::into_response((
-                                axum::http::StatusCode::BAD_REQUEST,
-                                "invalid message ID",
-                            )),
+                            Err(_) => {
+                                return axum::response::IntoResponse::into_response((
+                                    axum::http::StatusCode::BAD_REQUEST,
+                                    "invalid message ID",
+                                ))
+                            }
                         };
                         match q.replay_dlq(&msg_id).await {
-                            Ok(true) => axum::response::IntoResponse::into_response(
-                                axum::Json(serde_json::json!({ "replayed": true })),
-                            ),
+                            Ok(true) => axum::response::IntoResponse::into_response(axum::Json(
+                                serde_json::json!({ "replayed": true }),
+                            )),
                             Ok(false) => axum::response::IntoResponse::into_response((
                                 axum::http::StatusCode::NOT_FOUND,
                                 "message not found in DLQ",
@@ -628,7 +798,10 @@ async fn main() -> anyhow::Result<()> {
     let api_auth_layer = if config.auth.enabled {
         use orka_auth::{ApiKeyAuthenticator, AuthLayer};
         let authenticator = ApiKeyAuthenticator::new(&config.auth.api_keys);
-        Some(AuthLayer::new(Arc::new(authenticator), Arc::new(config.auth.clone())))
+        Some(AuthLayer::new(
+            Arc::new(authenticator),
+            Arc::new(config.auth.clone()),
+        ))
     } else {
         None
     };
@@ -639,16 +812,43 @@ async fn main() -> anyhow::Result<()> {
         api_routes
     };
 
+    // A2A protocol routes (if enabled)
+    let public_routes = if config.a2a.enabled {
+        let base_url = config
+            .a2a
+            .url
+            .clone()
+            .unwrap_or_else(|| format!("http://{}:{}", config.server.host, config.server.port));
+        let agent_card = orka_a2a::build_agent_card(
+            "orka",
+            "Orka AI Agent Platform",
+            &base_url,
+            &skills,
+        );
+        let a2a_state = orka_a2a::A2aState {
+            agent_card,
+            skills: skills.clone(),
+            secrets: secrets.clone(),
+            tasks: Default::default(),
+        };
+        public_routes.merge(orka_a2a::a2a_router(a2a_state))
+    } else {
+        public_routes
+    };
+
     let health_app = public_routes
         .merge(api_routes)
+        .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi()))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE));
-    let listener = tokio::net::TcpListener::bind(
-        format!("{}:{}", config.server.host, config.server.port),
-    )
-    .await
-    .context("failed to bind health endpoint")?;
-    info!("health endpoint listening on {}:{}", config.server.host, config.server.port);
+    let listener =
+        tokio::net::TcpListener::bind(format!("{}:{}", config.server.host, config.server.port))
+            .await
+            .context("failed to bind health endpoint")?;
+    info!(
+        "health endpoint listening on {}:{}",
+        config.server.host, config.server.port
+    );
     tokio::spawn(axum::serve(listener, health_app).into_future());
 
     // 7. Start gateway (with config)
@@ -670,9 +870,16 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // 8. Start worker pool with WorkspaceHandler
-    let handler: Arc<dyn orka_worker::AgentHandler> = Arc::new(
-        WorkspaceHandler::new(workspace.state(), skills.clone(), memory, secrets, llm_client, event_sink.clone(), config.llm.context_window_tokens, guardrail),
-    );
+    let handler: Arc<dyn orka_worker::AgentHandler> = Arc::new(WorkspaceHandler::new(
+        workspace.state(),
+        skills.clone(),
+        memory,
+        secrets,
+        llm_client,
+        event_sink.clone(),
+        config.llm.context_window_tokens,
+        guardrail,
+    ));
     let worker_pool = WorkerPool::new(
         queue.clone(),
         sessions.clone(),
