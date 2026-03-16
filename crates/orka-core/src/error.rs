@@ -64,6 +64,15 @@ pub enum Error {
     #[error("gateway error: {0}")]
     Gateway(String),
 
+    #[error("knowledge error: {0}")]
+    Knowledge(String),
+
+    #[error("scheduler error: {0}")]
+    Scheduler(String),
+
+    #[error("http client error: {0}")]
+    HttpClient(String),
+
     #[error("adapter error: {context}")]
     Adapter {
         #[source]

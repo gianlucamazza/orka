@@ -46,7 +46,15 @@ pub struct OrkaConfig {
     #[serde(default)]
     pub web: WebConfig,
     #[serde(default)]
+    pub os: OsConfig,
+    #[serde(default)]
     pub a2a: A2aConfig,
+    #[serde(default)]
+    pub knowledge: KnowledgeConfig,
+    #[serde(default)]
+    pub scheduler: SchedulerConfig,
+    #[serde(default)]
+    pub http: HttpClientConfig,
 }
 
 /// Web search and read configuration.
@@ -717,6 +725,101 @@ pub struct A2aConfig {
     pub url: Option<String>,
 }
 
+/// Linux OS integration configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_os_permission_level")]
+    pub permission_level: String,
+    #[serde(default = "default_os_allowed_paths")]
+    pub allowed_paths: Vec<String>,
+    #[serde(default = "default_os_blocked_paths")]
+    pub blocked_paths: Vec<String>,
+    #[serde(default = "default_os_blocked_commands")]
+    pub blocked_commands: Vec<String>,
+    #[serde(default)]
+    pub allowed_commands: Vec<String>,
+    #[serde(default = "default_os_max_file_size_bytes")]
+    pub max_file_size_bytes: u64,
+    #[serde(default = "default_os_shell_timeout_secs")]
+    pub shell_timeout_secs: u64,
+    #[serde(default = "default_os_max_output_bytes")]
+    pub max_output_bytes: usize,
+    #[serde(default = "default_os_max_list_entries")]
+    pub max_list_entries: usize,
+    #[serde(default = "default_os_sensitive_env_patterns")]
+    pub sensitive_env_patterns: Vec<String>,
+}
+
+impl Default for OsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            permission_level: default_os_permission_level(),
+            allowed_paths: default_os_allowed_paths(),
+            blocked_paths: default_os_blocked_paths(),
+            blocked_commands: default_os_blocked_commands(),
+            allowed_commands: Vec::new(),
+            max_file_size_bytes: default_os_max_file_size_bytes(),
+            shell_timeout_secs: default_os_shell_timeout_secs(),
+            max_output_bytes: default_os_max_output_bytes(),
+            max_list_entries: default_os_max_list_entries(),
+            sensitive_env_patterns: default_os_sensitive_env_patterns(),
+        }
+    }
+}
+
+fn default_os_permission_level() -> String {
+    "read-only".into()
+}
+
+fn default_os_allowed_paths() -> Vec<String> {
+    vec!["/home".into(), "/tmp".into()]
+}
+
+fn default_os_blocked_paths() -> Vec<String> {
+    vec![
+        "/etc/shadow".into(),
+        "/etc/gshadow".into(),
+        "~/.ssh/id_*".into(),
+    ]
+}
+
+fn default_os_blocked_commands() -> Vec<String> {
+    vec![
+        "rm -rf /".into(),
+        "dd".into(),
+        "mkfs".into(),
+        "fdisk".into(),
+    ]
+}
+
+fn default_os_max_file_size_bytes() -> u64 {
+    10 * 1024 * 1024 // 10 MB
+}
+
+fn default_os_shell_timeout_secs() -> u64 {
+    30
+}
+
+fn default_os_max_output_bytes() -> usize {
+    1024 * 1024 // 1 MB
+}
+
+fn default_os_max_list_entries() -> usize {
+    1000
+}
+
+fn default_os_sensitive_env_patterns() -> Vec<String> {
+    vec![
+        "*_KEY".into(),
+        "*_SECRET".into(),
+        "*_TOKEN".into(),
+        "*_PASSWORD".into(),
+    ]
+}
+
 impl Default for A2aConfig {
     fn default() -> Self {
         Self {
@@ -726,8 +829,232 @@ impl Default for A2aConfig {
     }
 }
 
+/// Knowledge & RAG configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct KnowledgeConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub vector_store: VectorStoreConfig,
+    #[serde(default)]
+    pub embeddings: EmbeddingsConfig,
+    #[serde(default)]
+    pub chunking: ChunkingConfig,
+}
+
+impl Default for KnowledgeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            vector_store: VectorStoreConfig::default(),
+            embeddings: EmbeddingsConfig::default(),
+            chunking: ChunkingConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct VectorStoreConfig {
+    #[serde(default = "default_vector_store_provider")]
+    pub provider: String,
+    #[serde(default = "default_vector_store_url")]
+    pub url: String,
+    #[serde(default = "default_collection_prefix")]
+    pub collection_prefix: String,
+    #[serde(default = "default_collection_name")]
+    pub default_collection: String,
+}
+
+impl Default for VectorStoreConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_vector_store_provider(),
+            url: default_vector_store_url(),
+            collection_prefix: default_collection_prefix(),
+            default_collection: default_collection_name(),
+        }
+    }
+}
+
+fn default_vector_store_provider() -> String {
+    "qdrant".into()
+}
+
+fn default_vector_store_url() -> String {
+    "http://localhost:6334".into()
+}
+
+fn default_collection_prefix() -> String {
+    "orka_".into()
+}
+
+fn default_collection_name() -> String {
+    "default".into()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EmbeddingsConfig {
+    #[serde(default = "default_embedding_provider")]
+    pub provider: String,
+    #[serde(default = "default_embedding_model")]
+    pub model: String,
+    #[serde(default = "default_embedding_dimensions")]
+    pub dimensions: u32,
+}
+
+impl Default for EmbeddingsConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_embedding_provider(),
+            model: default_embedding_model(),
+            dimensions: default_embedding_dimensions(),
+        }
+    }
+}
+
+fn default_embedding_provider() -> String {
+    "local".into()
+}
+
+fn default_embedding_model() -> String {
+    "BAAI/bge-small-en-v1.5".into()
+}
+
+fn default_embedding_dimensions() -> u32 {
+    384
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChunkingConfig {
+    #[serde(default = "default_chunk_size")]
+    pub chunk_size: usize,
+    #[serde(default = "default_chunk_overlap")]
+    pub chunk_overlap: usize,
+}
+
+impl Default for ChunkingConfig {
+    fn default() -> Self {
+        Self {
+            chunk_size: default_chunk_size(),
+            chunk_overlap: default_chunk_overlap(),
+        }
+    }
+}
+
+fn default_chunk_size() -> usize {
+    1000
+}
+
+fn default_chunk_overlap() -> usize {
+    200
+}
+
+/// Scheduler configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SchedulerConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_poll_interval_secs")]
+    pub poll_interval_secs: u64,
+    #[serde(default = "default_scheduler_max_concurrent")]
+    pub max_concurrent: usize,
+}
+
+impl Default for SchedulerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            poll_interval_secs: default_poll_interval_secs(),
+            max_concurrent: default_scheduler_max_concurrent(),
+        }
+    }
+}
+
+fn default_poll_interval_secs() -> u64 {
+    5
+}
+
+fn default_scheduler_max_concurrent() -> usize {
+    4
+}
+
+/// HTTP client and webhook configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct HttpClientConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_http_max_response_bytes")]
+    pub max_response_bytes: usize,
+    #[serde(default = "default_http_timeout_secs")]
+    pub default_timeout_secs: u64,
+    #[serde(default = "default_http_blocked_domains")]
+    pub blocked_domains: Vec<String>,
+    #[serde(default = "default_http_user_agent")]
+    pub user_agent: String,
+    #[serde(default)]
+    pub webhooks: WebhookConfig,
+}
+
+impl Default for HttpClientConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_response_bytes: default_http_max_response_bytes(),
+            default_timeout_secs: default_http_timeout_secs(),
+            blocked_domains: default_http_blocked_domains(),
+            user_agent: default_http_user_agent(),
+            webhooks: WebhookConfig::default(),
+        }
+    }
+}
+
+fn default_http_max_response_bytes() -> usize {
+    1_048_576 // 1 MB
+}
+
+fn default_http_timeout_secs() -> u64 {
+    30
+}
+
+fn default_http_blocked_domains() -> Vec<String> {
+    vec!["169.254.169.254".into()]
+}
+
+fn default_http_user_agent() -> String {
+    "Orka/0.1".into()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WebhookConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_webhook_base_url")]
+    pub base_url: String,
+    #[serde(default = "default_webhook_path_prefix")]
+    pub path_prefix: String,
+}
+
+impl Default for WebhookConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: default_webhook_base_url(),
+            path_prefix: default_webhook_path_prefix(),
+        }
+    }
+}
+
+fn default_webhook_base_url() -> String {
+    "http://localhost:8080".into()
+}
+
+fn default_webhook_path_prefix() -> String {
+    "/webhooks".into()
+}
+
 impl OrkaConfig {
     /// Validate the loaded configuration.
+    ///
     pub fn validate(&mut self) -> crate::Result<()> {
         self.llm.apply_defaults();
 
@@ -842,7 +1169,11 @@ mod tests {
             mcp: McpConfig::default(),
             guardrails: GuardrailsConfig::default(),
             web: WebConfig::default(),
+            os: OsConfig::default(),
             a2a: A2aConfig::default(),
+            knowledge: KnowledgeConfig::default(),
+            scheduler: SchedulerConfig::default(),
+            http: HttpClientConfig::default(),
         });
         assert_eq!(cfg.server.port, 8080);
         assert_eq!(cfg.bus.backend, "redis");
@@ -872,7 +1203,11 @@ mod tests {
             mcp: McpConfig::default(),
             guardrails: GuardrailsConfig::default(),
             web: WebConfig::default(),
+            os: OsConfig::default(),
             a2a: A2aConfig::default(),
+            knowledge: KnowledgeConfig::default(),
+            scheduler: SchedulerConfig::default(),
+            http: HttpClientConfig::default(),
         }
     }
 

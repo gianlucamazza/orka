@@ -10,7 +10,7 @@ use orka_core::{Envelope, OutboundMessage, Payload};
 use orka_gateway::Gateway;
 use orka_queue::create_queue;
 use orka_session::create_session_store;
-use orka_worker::{WorkerPool, WorkspaceHandler};
+use orka_worker::{CommandRegistry, WorkerPool, WorkspaceHandler};
 use orka_workspace::WorkspaceLoader;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -110,6 +110,20 @@ async fn start_adapter(
         }
     });
     Ok(())
+}
+
+/// Adapter to bridge orka_skills::SkillRegistry with orka_scheduler::SkillRegistry trait.
+struct SchedulerSkillRegistryAdapter(Arc<orka_skills::SkillRegistry>);
+
+#[async_trait::async_trait]
+impl orka_scheduler::SkillRegistry for SchedulerSkillRegistryAdapter {
+    async fn invoke(
+        &self,
+        name: &str,
+        input: orka_core::SkillInput,
+    ) -> orka_core::Result<orka_core::SkillOutput> {
+        self.0.invoke(name, input).await
+    }
 }
 
 #[tokio::main]
@@ -234,6 +248,60 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             Err(e) => warn!(%e, "failed to initialize web skills"),
+        }
+    }
+
+    // 4f. HTTP skills
+    if config.http.enabled {
+        match orka_http::create_http_skills(&config.http) {
+            Ok(http_skills) => {
+                for skill in http_skills {
+                    skills.register(skill);
+                }
+            }
+            Err(e) => warn!(%e, "failed to initialize HTTP skills"),
+        }
+    }
+
+    // 4g. Knowledge/RAG skills
+    if config.knowledge.enabled {
+        match orka_knowledge::create_knowledge_skills(&config.knowledge) {
+            Ok(knowledge_skills) => {
+                for skill in knowledge_skills {
+                    skills.register(skill);
+                }
+            }
+            Err(e) => warn!(%e, "failed to initialize knowledge skills"),
+        }
+    }
+
+    // 4h. Scheduler skills
+    let scheduler_store = if config.scheduler.enabled {
+        match orka_scheduler::create_scheduler_skills(&config.scheduler, &config.redis.url) {
+            Ok((scheduler_skills, store)) => {
+                for skill in scheduler_skills {
+                    skills.register(skill);
+                }
+                Some(store)
+            }
+            Err(e) => {
+                warn!(%e, "failed to initialize scheduler skills");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // 4i. OS skills
+    if config.os.enabled {
+        match orka_os::create_os_skills(&config.os) {
+            Ok(os_skills) => {
+                for skill in os_skills {
+                    skills.register(skill);
+                }
+            }
+            Err(e) => warn!(%e, "failed to initialize OS skills"),
         }
     }
 
@@ -871,7 +939,17 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // 8. Start worker pool with WorkspaceHandler
+    // 8. Build command registry and start worker pool with WorkspaceHandler
+    let mut commands = CommandRegistry::new();
+    orka_worker::commands::register_all(
+        &mut commands,
+        skills.clone(),
+        memory.clone(),
+        secrets.clone(),
+        workspace.state(),
+    );
+    let commands = Arc::new(commands);
+
     let handler: Arc<dyn orka_worker::AgentHandler> = Arc::new(WorkspaceHandler::new(
         workspace.state(),
         skills.clone(),
@@ -881,6 +959,7 @@ async fn main() -> anyhow::Result<()> {
         event_sink.clone(),
         config.llm.context_window_tokens,
         guardrail,
+        commands,
     ));
     let worker_pool = WorkerPool::new(
         queue.clone(),
@@ -898,6 +977,22 @@ async fn main() -> anyhow::Result<()> {
             error!(%e, "worker pool error");
         }
     });
+
+    // 8b. Start scheduler loop (if enabled)
+    let _scheduler_handle = if let Some(store) = scheduler_store {
+        let scheduler = orka_scheduler::Scheduler::new(
+            store,
+            Arc::new(SchedulerSkillRegistryAdapter(skills.clone())),
+            config.scheduler.poll_interval_secs,
+            config.scheduler.max_concurrent,
+        );
+        let scheduler_cancel = shutdown.clone();
+        Some(tokio::spawn(async move {
+            scheduler.run(scheduler_cancel).await;
+        }))
+    } else {
+        None
+    };
 
     // 9. Outbound bridge: bus "outbound" → route to correct adapter by channel
     let mut outbound_rx = bus.subscribe("outbound").await?;

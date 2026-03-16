@@ -3,7 +3,7 @@
 # --- Base: shared stage with cargo-chef + build deps ---
 FROM rust:1.93-slim-bookworm AS chef
 RUN cargo install cargo-chef
-RUN apt-get update && apt-get install -y pkg-config libssl-dev curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y pkg-config libssl-dev curl g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 # --- Planner: generate dependency recipe ---
@@ -61,7 +61,7 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.title="orka-server" \
       org.opencontainers.image.source="https://github.com/homen3/orka"
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 curl \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 libstdc++6 curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -r -s /usr/sbin/nologin orka
 

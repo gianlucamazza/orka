@@ -3,6 +3,11 @@ services:
     ports:
       - "6379:6379"
 
+  qdrant:
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+
   orka-server:
     build:
       context: .

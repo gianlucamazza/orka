@@ -27,6 +27,28 @@ services:
         limits:
           memory: 256M
 
+  qdrant:
+    image: qdrant/qdrant:v1.14.0
+    networks:
+      - orka-net
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "bash", "-c", ":> /dev/tcp/127.0.0.1/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
   orka-server:
     build:
       context: .
@@ -40,6 +62,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      qdrant:
+        condition: service_healthy
     networks:
       - orka-net
     environment:
@@ -48,6 +72,7 @@ services:
       ORKA__ADAPTERS__CUSTOM__HOST: "0.0.0.0"
       ORKA_CONFIG: /etc/orka/orka.toml
       ORKA__WORKSPACE_DIR: /workspaces
+      ORKA__KNOWLEDGE__VECTOR_STORE__URL: http://qdrant:6334
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
@@ -83,3 +108,4 @@ networks:
 
 volumes:
   redis-data:
+  qdrant-data:

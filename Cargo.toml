@@ -26,6 +26,10 @@ members = [
   "crates/orka-a2a",
   "crates/orka-router",
   "crates/orka-web",
+  "crates/orka-os",
+  "crates/orka-http",
+  "crates/orka-knowledge",
+  "crates/orka-scheduler",
   "crates/orka-cli",
   "orka-server",
   "sdk/orka-plugin-sdk",
@@ -165,6 +169,27 @@ orka-a2a = { path = "crates/orka-a2a" }
 orka-router = { path = "crates/orka-router" }
 orka-cli = { path = "crates/orka-cli" }
 orka-web = { path = "crates/orka-web" }
+orka-os = { path = "crates/orka-os" }
+orka-http = { path = "crates/orka-http" }
+orka-knowledge = { path = "crates/orka-knowledge" }
+orka-scheduler = { path = "crates/orka-scheduler" }
+
+# Knowledge & RAG
+qdrant-client = "1"
+fastembed = "4"
+text-splitter = { version = "0.16", features = ["tiktoken-rs"] }
+pdf-extract = "0.7"
+
+# Scheduler
+cron = "0.13"
+
+# URL parsing
+url = "2"
+
+# OS integration
+sysinfo = "0.33"
+glob = "0.3"
+nix = { version = "0.29", features = ["signal"] }
 orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
 
 [profile.release]
