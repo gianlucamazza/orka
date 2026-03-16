@@ -15,14 +15,22 @@ pub enum Error {
     #[error("session not found: {0}")]
     SessionNotFound(crate::SessionId),
 
-    #[error("bus error: {0}")]
-    Bus(String),
+    #[error("bus error: {context}")]
+    Bus {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        context: String,
+    },
 
     #[error("auth error: {0}")]
     Auth(String),
 
-    #[error("queue error: {0}")]
-    Queue(String),
+    #[error("queue error: {context}")]
+    Queue {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        context: String,
+    },
 
     #[error("worker error: {0}")]
     Worker(String),
@@ -30,11 +38,25 @@ pub enum Error {
     #[error("sandbox error: {0}")]
     Sandbox(String),
 
-    #[error("memory error: {0}")]
-    Memory(String),
+    #[error("observe error: {0}")]
+    Observe(String),
 
-    #[error("secret error: {0}")]
-    Secret(String),
+    #[error("skill error: {0}")]
+    Skill(String),
+
+    #[error("memory error: {context}")]
+    Memory {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        context: String,
+    },
+
+    #[error("secret error: {context}")]
+    Secret {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        context: String,
+    },
 
     #[error("workspace error: {0}")]
     Workspace(String),
@@ -42,11 +64,72 @@ pub enum Error {
     #[error("gateway error: {0}")]
     Gateway(String),
 
+    #[error("adapter error: {context}")]
+    Adapter {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        context: String,
+    },
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
     #[error("{0}")]
     Other(String),
+}
+
+/// Simple string-based error for use as a boxed source.
+#[derive(Debug)]
+struct SimpleError(String);
+
+impl std::fmt::Display for SimpleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SimpleError {}
+
+impl Error {
+    pub fn bus(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Bus {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    pub fn queue(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Queue {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    pub fn memory(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Memory {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    pub fn secret(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Secret {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    pub fn adapter(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Adapter {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

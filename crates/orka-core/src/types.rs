@@ -47,6 +47,102 @@ impl std::fmt::Display for SessionId {
     }
 }
 
+/// Unique identifier for a domain event.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct EventId(pub Uuid);
+
+impl EventId {
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+}
+
+impl Default for EventId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for EventId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A domain-level event for observability.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DomainEvent {
+    pub id: EventId,
+    pub timestamp: DateTime<Utc>,
+    pub kind: DomainEventKind,
+    pub metadata: HashMap<String, serde_json::Value>,
+}
+
+/// The kind of domain event that occurred.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum DomainEventKind {
+    MessageReceived {
+        message_id: MessageId,
+        channel: String,
+        session_id: SessionId,
+    },
+    SessionCreated {
+        session_id: SessionId,
+        channel: String,
+    },
+    HandlerInvoked {
+        message_id: MessageId,
+        session_id: SessionId,
+    },
+    HandlerCompleted {
+        message_id: MessageId,
+        session_id: SessionId,
+        duration_ms: u64,
+        reply_count: usize,
+    },
+    SkillInvoked {
+        skill_name: String,
+        message_id: MessageId,
+    },
+    SkillCompleted {
+        skill_name: String,
+        message_id: MessageId,
+        duration_ms: u64,
+        success: bool,
+    },
+    LlmCompleted {
+        message_id: MessageId,
+        model: String,
+        input_tokens: u32,
+        output_tokens: u32,
+        duration_ms: u64,
+    },
+    ErrorOccurred {
+        source: String,
+        message: String,
+    },
+    Heartbeat,
+}
+
+/// Input passed to a skill invocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillInput {
+    pub args: HashMap<String, serde_json::Value>,
+}
+
+/// Output returned from a skill invocation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillOutput {
+    pub data: serde_json::Value,
+}
+
+/// JSON Schema describing a skill's parameters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillSchema {
+    pub parameters: serde_json::Value,
+}
+
 /// Message priority for queue routing.
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
@@ -176,13 +272,16 @@ pub struct MemoryEntry {
     pub tags: Vec<String>,
 }
 
-/// Opaque secret value, zeroized on drop.
-#[derive(Clone)]
-pub struct SecretValue(Vec<u8>);
+/// Opaque secret value, securely zeroized on drop.
+///
+/// Intentionally not `Clone` to prevent accidental copies of secrets
+/// scattered across the heap. Use [`SecretValue::to_owned_secret`] for
+/// explicit, deliberate copies.
+pub struct SecretValue(zeroize::Zeroizing<Vec<u8>>);
 
 impl SecretValue {
     pub fn new(value: impl Into<Vec<u8>>) -> Self {
-        Self(value.into())
+        Self(zeroize::Zeroizing::new(value.into()))
     }
 
     pub fn expose(&self) -> &[u8] {
@@ -192,11 +291,11 @@ impl SecretValue {
     pub fn expose_str(&self) -> Option<&str> {
         std::str::from_utf8(&self.0).ok()
     }
-}
 
-impl Drop for SecretValue {
-    fn drop(&mut self) {
-        self.0.iter_mut().for_each(|b| *b = 0);
+    /// Create an explicit copy of the secret. Prefer passing references
+    /// instead of cloning to minimize secret copies in memory.
+    pub fn to_owned_secret(&self) -> Self {
+        Self(zeroize::Zeroizing::new(self.0.to_vec()))
     }
 }
 
@@ -211,3 +310,10 @@ pub type MessageSink = tokio::sync::mpsc::Sender<Envelope>;
 
 /// Type alias for the message stream returned by the bus.
 pub type MessageStream = tokio::sync::mpsc::Receiver<Envelope>;
+
+/// Exponential backoff delay capped at `max_secs`.
+/// Returns `base_secs * 2^attempt`, clamped to `max_secs`.
+pub fn backoff_delay(attempt: u32, base_secs: u64, max_secs: u64) -> std::time::Duration {
+    let secs = base_secs.saturating_mul(1u64.checked_shl(attempt).unwrap_or(u64::MAX));
+    std::time::Duration::from_secs(secs.min(max_secs))
+}

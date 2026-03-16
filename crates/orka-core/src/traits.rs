@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use std::time::Duration;
 
 use crate::{
-    Envelope, MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage, Result,
-    SecretValue, Session, SessionId,
+    DomainEvent, Envelope, MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage,
+    Result, SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
 };
 
 /// Adapter for an external messaging channel (Telegram, Discord, etc.).
@@ -64,6 +64,61 @@ pub trait MemoryStore: Send + Sync + 'static {
     async fn compact(&self) -> Result<usize>;
 }
 
+/// Priority queue for ordered message processing.
+#[async_trait]
+pub trait PriorityQueue: Send + Sync + 'static {
+    /// Push an envelope into the queue.
+    async fn push(&self, envelope: &Envelope) -> Result<()>;
+
+    /// Pop the highest-priority envelope, blocking up to `timeout`.
+    async fn pop(&self, timeout: Duration) -> Result<Option<Envelope>>;
+
+    /// Return the number of envelopes currently in the queue.
+    async fn len(&self) -> Result<usize>;
+
+    /// Returns true if the queue is empty.
+    async fn is_empty(&self) -> Result<bool> {
+        Ok(self.len().await? == 0)
+    }
+
+    /// Push an envelope to the dead-letter queue.
+    async fn push_dlq(&self, envelope: &Envelope) -> Result<()>;
+
+    /// List all envelopes in the dead-letter queue.
+    async fn list_dlq(&self) -> Result<Vec<Envelope>>;
+
+    /// Remove all envelopes from the dead-letter queue. Returns the number removed.
+    async fn purge_dlq(&self) -> Result<usize>;
+
+    /// Remove a single envelope from the DLQ by ID and re-enqueue it.
+    async fn replay_dlq(&self, id: &MessageId) -> Result<bool>;
+}
+
+/// Fire-and-forget event sink for domain-level observability.
+#[async_trait]
+pub trait EventSink: Send + Sync + 'static {
+    async fn emit(&self, event: DomainEvent);
+}
+
+/// A named, schema-described skill that an agent can invoke.
+#[async_trait]
+pub trait Skill: Send + Sync + 'static {
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
+    fn schema(&self) -> SkillSchema;
+    async fn execute(&self, input: SkillInput) -> Result<SkillOutput>;
+
+    /// Called when the skill is registered. Default: no-op.
+    async fn init(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Called on shutdown. Default: no-op.
+    async fn cleanup(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// Secure secret retrieval and storage.
 #[async_trait]
 pub trait SecretManager: Send + Sync + 'static {
@@ -72,4 +127,35 @@ pub trait SecretManager: Send + Sync + 'static {
 
     /// Set a secret at a path.
     async fn set_secret(&self, path: &str, value: &SecretValue) -> Result<()>;
+
+    /// Delete a secret by path.
+    async fn delete_secret(&self, path: &str) -> Result<()> {
+        let _ = path;
+        Err(crate::Error::secret("delete not supported"))
+    }
+
+    /// List all secret paths.
+    async fn list_secrets(&self) -> Result<Vec<String>> {
+        Err(crate::Error::secret("list not supported"))
+    }
+}
+
+/// Decision from a guardrail check.
+#[derive(Debug, Clone)]
+pub enum GuardrailDecision {
+    /// Allow the content through unchanged.
+    Allow,
+    /// Block the content with a reason.
+    Block(String),
+    /// Modify the content (e.g., redact PII).
+    Modify(String),
+}
+
+/// Input/output guardrail for content safety filtering.
+#[async_trait]
+pub trait Guardrail: Send + Sync + 'static {
+    /// Check input content before sending to LLM.
+    async fn check_input(&self, input: &str, session: &Session) -> Result<GuardrailDecision>;
+    /// Check output content before returning to user.
+    async fn check_output(&self, output: &str, session: &Session) -> Result<GuardrailDecision>;
 }
