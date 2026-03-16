@@ -7,3 +7,15 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+serde = { workspace = true }
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+tokio.workspace = true
+jsonschema.workspace = true
+
+[dev-dependencies]
+orka-core = { workspace = true, features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util"] }
