@@ -1,0 +1,28 @@
+target/
+.git/
+dump.rdb
+*.md
+!README.md
+.env
+.env.*
+*.log
+
+# Docker files
+Dockerfile
+docker-compose.yml
+docker-compose.override.yml
+.dockerignore
+
+# CI/CD and tooling
+.github/
+Justfile
+examples/
+
+# Editor/IDE/OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

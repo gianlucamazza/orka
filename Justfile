@@ -23,6 +23,17 @@ fmt-check:
 fmt:
     cargo fmt --all
 
+# Start infra (Redis)
+infra:
+    docker-compose up -d
+
+# Stop infra
+infra-down:
+    docker-compose down
+
+# Run server with infra
+up: infra run
+
 # Run the server
 run:
     cargo run -p orka-server
@@ -35,6 +46,14 @@ run-debug:
 build-release:
     cargo build --workspace --release
 
+# Build Docker image with OCI labels
+docker-build:
+    docker build \
+        --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+        --build-arg VCS_REF=$(git rev-parse --short HEAD) \
+        --build-arg VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev) \
+        -t orka-server:dev .
+
 # Clean build artifacts
 clean:
     cargo clean
@@ -46,3 +65,11 @@ test-crate crate:
 # Watch and recompile on changes (requires cargo-watch)
 watch:
     cargo watch -x 'check --workspace'
+
+# Start dev environment with hot-reload
+dev:
+    docker compose up --build --watch
+
+# Rebuild dev image from scratch
+dev-rebuild:
+    docker compose build --no-cache orka-server

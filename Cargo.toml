@@ -14,11 +14,15 @@ members = [
   "crates/orka-secrets",
   "crates/orka-observe",
   "crates/orka-skills",
+  "crates/orka-llm",
+  "crates/orka-mcp",
   "crates/orka-adapter-telegram",
   "crates/orka-adapter-discord",
   "crates/orka-adapter-whatsapp",
   "crates/orka-adapter-slack",
   "crates/orka-adapter-custom",
+  "crates/orka-guardrails",
+  "crates/orka-router",
   "crates/orka-cli",
   "orka-server",
   "sdk/orka-plugin-sdk",
@@ -49,10 +53,81 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 # Config
 config = "0.14"
+serde_yaml = "0.9"
+
+# Filesystem
+notify = { version = "7", default-features = false, features = [
+  "macos_kqueue",
+] }
+tempfile = "3"
+
+# Redis
+redis = { version = "0.27", features = ["tokio-comp", "streams"] }
+deadpool-redis = "0.18"
+
+# Testing
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["redis"] }
+
+# HTTP
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = [
+  "cors",
+  "trace",
+  "limit",
+  "set-header",
+] }
+governor = "0.8"
+tower-layer = "0.3"
+tower-service = "0.3"
+http = "1"
+tokio-util = { version = "0.7", features = ["rt"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Crypto
+sha2 = "0.10"
+zeroize = { version = "1", features = ["derive"] }
+aes-gcm = "0.10"
+rand = "0.8"
+hex = "0.4"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+rustyline = "15"
+colored = "3"
+
+# WASM
+wasmtime = { version = "29", features = ["component-model"] }
+wasmtime-wasi = "29"
+wit-bindgen = "0.41"
+
+# JWT
+jsonwebtoken = "9"
+
+# Regex
+regex = "1"
+
+# JSON Schema validation
+jsonschema = "0.28"
+
+# WebSocket
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+
+# Metrics
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.16", default-features = false }
 
 # Tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# OpenTelemetry
+opentelemetry = "0.28"
+opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.28", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.29"
 
 # Internal crates
 orka-core = { path = "crates/orka-core" }
@@ -73,5 +148,14 @@ orka-adapter-discord = { path = "crates/orka-adapter-discord" }
 orka-adapter-whatsapp = { path = "crates/orka-adapter-whatsapp" }
 orka-adapter-slack = { path = "crates/orka-adapter-slack" }
 orka-adapter-custom = { path = "crates/orka-adapter-custom" }
+orka-llm = { path = "crates/orka-llm" }
+orka-guardrails = { path = "crates/orka-guardrails" }
+orka-mcp = { path = "crates/orka-mcp" }
+orka-router = { path = "crates/orka-router" }
 orka-cli = { path = "crates/orka-cli" }
 orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

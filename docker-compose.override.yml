@@ -1,0 +1,32 @@
+services:
+  redis:
+    ports:
+      - "6379:6379"
+
+  orka-server:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/app/target
+    environment:
+      RUST_LOG: debug
+      RUST_BACKTRACE: 1
+    read_only: false
+    develop:
+      watch:
+        - action: rebuild
+          path: ./crates
+        - action: rebuild
+          path: ./orka-server
+        - action: sync+restart
+          path: ./orka.toml
+          target: /etc/orka/orka.toml
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  target-cache:

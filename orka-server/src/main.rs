@@ -1,16 +1,777 @@
+use std::future::IntoFuture;
+use std::sync::Arc;
+
+use anyhow::Context;
+use orka_adapter_custom::CustomAdapter;
+use orka_bus::create_bus;
 use orka_core::config::OrkaConfig;
-use tracing::info;
+use orka_core::traits::ChannelAdapter;
+use orka_core::{Envelope, OutboundMessage, Payload};
+use orka_gateway::Gateway;
+use orka_queue::create_queue;
+use orka_session::create_session_store;
+use orka_worker::{WorkerPool, WorkspaceHandler};
+use orka_workspace::WorkspaceLoader;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+use tower_http::limit::RequestBodyLimitLayer;
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
+/// Maximum request body size for server API endpoints: 1 MB.
+const MAX_BODY_SIZE: usize = 1024 * 1024;
+
+/// Middleware that adds security headers to all responses.
+async fn security_headers(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        http::header::X_CONTENT_TYPE_OPTIONS,
+        http::HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        http::header::X_FRAME_OPTIONS,
+        http::HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        http::header::STRICT_TRANSPORT_SECURITY,
+        http::HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+    );
+    headers.insert(
+        http::HeaderName::from_static("x-content-security-policy"),
+        http::HeaderValue::from_static("default-src 'none'"),
+    );
+    response
+}
+
+/// Start an adapter: create inbound bridge (adapter sink → bus "inbound")
+/// and return the adapter Arc.
+async fn start_adapter(
+    adapter: Arc<dyn ChannelAdapter>,
+    bus: Arc<dyn orka_core::traits::MessageBus>,
+    shutdown: CancellationToken,
+) -> anyhow::Result<()> {
+    let (sink_tx, mut sink_rx) = mpsc::channel::<Envelope>(256);
+    adapter.start(sink_tx).await?;
+
+    let bus_for_bridge = bus.clone();
+    let cancel = shutdown.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                msg = sink_rx.recv() => {
+                    match msg {
+                        Some(envelope) => {
+                            if let Err(e) = bus_for_bridge.publish("inbound", &envelope).await {
+                                error!(%e, "failed to publish inbound envelope to bus");
+                            }
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
 #[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+async fn main() -> anyhow::Result<()> {
+    // 1. Load config (doesn't need tracing)
+    let mut config = OrkaConfig::load(None).context("failed to load configuration")?;
+    config.validate().context("configuration validation failed")?;
 
-    let config = OrkaConfig::load(None).expect("failed to load configuration");
-
+    // 2. Init tracing from config (RUST_LOG takes precedence)
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(&config.logging.level));
+    if config.logging.json {
+        tracing_subscriber::fmt().with_env_filter(filter).json().init();
+    } else {
+        tracing_subscriber::fmt().with_env_filter(filter).init();
+    }
     info!(?config, "Orka server starting");
+
+    // 3. Create infra
+    let bus = create_bus(&config).context("failed to create message bus")?;
+    let sessions = create_session_store(&config).context("failed to create session store")?;
+    let queue = create_queue(&config);
+
+    let memory = orka_memory::create_memory_store(&config).context("failed to create memory store")?;
+    info!("memory store ready");
+    let secrets = orka_secrets::create_secret_manager(&config).context("failed to create secret manager")?;
+    info!("secret manager ready");
+
+    let event_sink = orka_observe::create_event_sink(&config);
+    info!("event sink ready");
+
+    // 3b. Install Prometheus metrics recorder
+    let metrics_handle = orka_observe::metrics::install_prometheus_recorder();
+    if metrics_handle.is_some() {
+        info!("prometheus metrics recorder installed");
+    }
+
+    // 4. Skill registry
+    let mut skills = orka_skills::create_skill_registry();
+    skills.register(Arc::new(orka_skills::EchoSkill));
+
+    // 4b. Sandbox + SandboxSkill
+    let sandbox = orka_sandbox::create_sandbox(&config.sandbox);
+    skills.register(Arc::new(orka_sandbox::SandboxSkill::new(sandbox)));
+
+    // 4c. Load WASM plugins
+    if let Some(ref plugin_dir) = config.plugins.dir {
+        match orka_skills::load_plugins(std::path::Path::new(plugin_dir)) {
+            Ok(plugins) => {
+                for plugin in plugins {
+                    skills.register(plugin);
+                }
+            }
+            Err(e) => {
+                warn!(%e, "failed to load plugins");
+            }
+        }
+    }
+
+    // 4d. MCP servers
+    for server_config in &config.mcp.servers {
+        let mcp_config = orka_mcp::McpServerConfig {
+            name: server_config.name.clone(),
+            command: server_config.command.clone(),
+            args: server_config.args.clone(),
+            env: server_config.env.clone(),
+        };
+        match orka_mcp::McpClient::connect(mcp_config).await {
+            Ok(client) => {
+                let client = Arc::new(client);
+                match client.list_tools().await {
+                    Ok(tools) => {
+                        for tool in tools {
+                            let bridge = orka_mcp::McpToolBridge::new(
+                                client.clone(),
+                                tool.name.clone(),
+                                tool.description.unwrap_or_default(),
+                                tool.input_schema,
+                            );
+                            skills.register(Arc::new(bridge));
+                            info!(tool = %tool.name, server = %server_config.name, "registered MCP tool");
+                        }
+                    }
+                    Err(e) => warn!(%e, server = %server_config.name, "failed to list MCP tools"),
+                }
+            }
+            Err(e) => warn!(%e, server = %server_config.name, "failed to connect to MCP server"),
+        }
+    }
+
+    let skills = Arc::new(skills);
+    info!("skill registry ready ({} skills)", skills.list().len());
+
+    // LLM client (optional) — after validate(), config.llm.providers is canonical
+    let llm_client: Option<Arc<dyn orka_llm::LlmClient>> = if !config.llm.providers.is_empty() {
+        let mut clients: Vec<(String, Arc<dyn orka_llm::LlmClient>, Vec<String>)> = Vec::new();
+        for pc in &config.llm.providers {
+            let client: Option<Arc<dyn orka_llm::LlmClient>> = match pc.provider.as_str() {
+                "anthropic" => {
+                    let key_name = pc.api_key_secret.as_deref().unwrap_or("anthropic_api_key");
+                    let key = pc.api_key.clone().filter(|k| !k.is_empty());
+                    let key = if key.is_some() { key } else {
+                        match secrets.get_secret(key_name).await {
+                            Ok(s) => {
+                                let k = s.expose_str().unwrap_or("").to_string();
+                                if k.is_empty() {
+                                    warn!(provider = "anthropic", path = key_name, "secret exists but is empty");
+                                    None
+                                } else {
+                                    Some(k)
+                                }
+                            }
+                            Err(e) => {
+                                warn!(provider = "anthropic", path = key_name, %e, "failed to read secret from store");
+                                None
+                            }
+                        }
+                    };
+                    let key = key.or_else(|| {
+                        std::env::var("ANTHROPIC_API_KEY").ok().filter(|k| !k.is_empty())
+                    });
+                    if key.is_none() {
+                        warn!(provider = "anthropic", "API key not found in config, secrets, or ANTHROPIC_API_KEY env var");
+                    }
+                    key.map(|k| {
+                        Arc::new(orka_llm::AnthropicClient::with_options(
+                            k, pc.model.clone(), pc.timeout_secs, pc.max_tokens, pc.max_retries,
+                            config.llm.api_version.clone(),
+                        )) as Arc<dyn orka_llm::LlmClient>
+                    })
+                }
+                "openai" => {
+                    let key_name = pc.api_key_secret.as_deref().unwrap_or("openai_api_key");
+                    let key = pc.api_key.clone().filter(|k| !k.is_empty());
+                    let key = if key.is_some() { key } else {
+                        match secrets.get_secret(key_name).await {
+                            Ok(s) => {
+                                let k = s.expose_str().unwrap_or("").to_string();
+                                if k.is_empty() {
+                                    warn!(provider = "openai", path = key_name, "secret exists but is empty");
+                                    None
+                                } else {
+                                    Some(k)
+                                }
+                            }
+                            Err(e) => {
+                                warn!(provider = "openai", path = key_name, %e, "failed to read secret from store");
+                                None
+                            }
+                        }
+                    };
+                    let key = key.or_else(|| {
+                        std::env::var("OPENAI_API_KEY").ok().filter(|k| !k.is_empty())
+                    });
+                    if key.is_none() {
+                        warn!(provider = "openai", "API key not found in config, secrets, or OPENAI_API_KEY env var");
+                    }
+                    key.map(|k| {
+                        let url = pc.base_url.clone().unwrap_or_else(|| "https://api.openai.com/v1".into());
+                        Arc::new(orka_llm::OpenAiClient::with_options(
+                            k, pc.model.clone(), pc.timeout_secs, pc.max_tokens, pc.max_retries, url,
+                        )) as Arc<dyn orka_llm::LlmClient>
+                    })
+                }
+                "ollama" => {
+                    let url = pc.base_url.clone().unwrap_or_else(|| "http://localhost:11434/v1".into());
+                    Some(Arc::new(orka_llm::OllamaClient::with_options(
+                        pc.model.clone(), pc.timeout_secs, pc.max_tokens, pc.max_retries, url,
+                    )) as Arc<dyn orka_llm::LlmClient>)
+                }
+                other => { warn!(provider = other, "unknown LLM provider"); None }
+            };
+            if let Some(c) = client {
+                info!(provider = %pc.name, model = %pc.model, "LLM provider initialized");
+                clients.push((pc.name.clone(), c, pc.prefixes.clone()));
+            }
+        }
+        if clients.is_empty() {
+            None
+        } else if clients.len() == 1 {
+            Some(clients.remove(0).1)
+        } else {
+            let (_, default_client, _) = clients.remove(0);
+            let mut router = orka_llm::LlmRouter::new(default_client);
+            for (name, client, prefixes) in clients {
+                router = router.add_provider(name, client, prefixes);
+            }
+            Some(Arc::new(router) as Arc<dyn orka_llm::LlmClient>)
+        }
+    } else {
+        None
+    };
+
+    if llm_client.is_some() {
+        info!("LLM client ready");
+    } else {
+        error!("no LLM providers initialized — set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable AI responses");
+    }
+
+    // Guardrails
+    let guardrail = orka_guardrails::create_guardrail(&config.guardrails);
+    if guardrail.is_some() {
+        info!("guardrails enabled");
+    }
+
+    // 5. Load workspace
+    let workspace = Arc::new(WorkspaceLoader::new(&config.workspace_dir));
+    workspace.load_all().await?;
+    info!("workspace loaded");
+
+    // 5a. Start workspace watcher
+    let _watcher = orka_workspace::WorkspaceWatcher::start(workspace.clone())?;
+    info!("workspace watcher started");
+
+    // Shutdown token (created early so heartbeat can use it)
+    let shutdown = CancellationToken::new();
+
+    // 5b. Heartbeat task (if configured in workspace)
+    {
+        let ws_state = workspace.state();
+        let ws = ws_state.read().await;
+        if let Some(ref hb_doc) = ws.heartbeat {
+            let interval_secs = hb_doc.frontmatter.interval_secs;
+            let event_sink_hb = event_sink.clone();
+            let hb_shutdown = shutdown.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                loop {
+                    tokio::select! {
+                        _ = hb_shutdown.cancelled() => break,
+                        _ = interval.tick() => {
+                            event_sink_hb.emit(orka_core::DomainEvent {
+                                id: orka_core::EventId::new(),
+                                timestamp: chrono::Utc::now(),
+                                kind: orka_core::DomainEventKind::Heartbeat,
+                                metadata: Default::default(),
+                            }).await;
+                        }
+                    }
+                }
+            });
+            info!(interval_secs, "heartbeat task started");
+        }
+    }
+
+    // 5c. Auth
+    let auth_layer = if config.auth.enabled {
+        use orka_auth::{ApiKeyAuthenticator, AuthLayer};
+        let authenticator = ApiKeyAuthenticator::new(&config.auth.api_keys);
+        Some(AuthLayer::new(Arc::new(authenticator), Arc::new(config.auth.clone())))
+    } else {
+        None
+    };
+
+    // 6. Create + start adapters
+    let mut adapters: Vec<Arc<dyn ChannelAdapter>> = Vec::new();
+
+    // 6a. Custom adapter (always started)
+    let adapter_config = config.adapters.custom.clone().unwrap_or_default();
+    let custom_adapter: Arc<dyn ChannelAdapter> = Arc::new(CustomAdapter::new(adapter_config, auth_layer));
+    start_adapter(custom_adapter.clone(), bus.clone(), shutdown.clone()).await?;
+    adapters.push(custom_adapter);
+    info!("custom adapter started");
+
+    // 6b. Telegram adapter (optional)
+    if let Some(ref tg_config) = config.adapters.telegram {
+        let secret_name = tg_config.bot_token_secret.as_deref().unwrap_or("telegram_bot_token");
+        match secrets.get_secret(secret_name).await {
+            Ok(secret) => {
+                let token = secret.expose_str().unwrap_or("").to_string();
+                if !token.is_empty() {
+                    let tg: Arc<dyn ChannelAdapter> = Arc::new(
+                        orka_adapter_telegram::TelegramAdapter::new(token),
+                    );
+                    start_adapter(tg.clone(), bus.clone(), shutdown.clone()).await?;
+                    adapters.push(tg);
+                    info!("telegram adapter started");
+                } else {
+                    warn!("telegram bot token is empty, adapter disabled");
+                }
+            }
+            Err(e) => warn!(%e, "failed to load telegram bot token, adapter disabled"),
+        }
+    }
+
+    // 6c. Discord adapter (optional)
+    if let Some(ref dc_config) = config.adapters.discord {
+        let secret_name = dc_config.bot_token_secret.as_deref().unwrap_or("discord_bot_token");
+        match secrets.get_secret(secret_name).await {
+            Ok(secret) => {
+                let token = secret.expose_str().unwrap_or("").to_string();
+                if !token.is_empty() {
+                    let dc: Arc<dyn ChannelAdapter> = Arc::new(
+                        orka_adapter_discord::DiscordAdapter::new(token),
+                    );
+                    start_adapter(dc.clone(), bus.clone(), shutdown.clone()).await?;
+                    adapters.push(dc);
+                    info!("discord adapter started");
+                } else {
+                    warn!("discord bot token is empty, adapter disabled");
+                }
+            }
+            Err(e) => warn!(%e, "failed to load discord bot token, adapter disabled"),
+        }
+    }
+
+    // 6d. Slack adapter (optional)
+    if let Some(ref slack_config) = config.adapters.slack {
+        let secret_name = slack_config.bot_token_secret.as_deref().unwrap_or("slack_bot_token");
+        match secrets.get_secret(secret_name).await {
+            Ok(secret) => {
+                let token = secret.expose_str().unwrap_or("").to_string();
+                if !token.is_empty() {
+                    let slack: Arc<dyn ChannelAdapter> = Arc::new(
+                        orka_adapter_slack::SlackAdapter::new(token, slack_config.listen_port),
+                    );
+                    start_adapter(slack.clone(), bus.clone(), shutdown.clone()).await?;
+                    adapters.push(slack);
+                    info!(port = slack_config.listen_port, "slack adapter started");
+                } else {
+                    warn!("slack bot token is empty, adapter disabled");
+                }
+            }
+            Err(e) => warn!(%e, "failed to load slack bot token, adapter disabled"),
+        }
+    }
+
+    // 6e. WhatsApp adapter (optional)
+    if let Some(ref wa_config) = config.adapters.whatsapp {
+        let access_secret = wa_config.access_token_secret.as_deref().unwrap_or("whatsapp_access_token");
+        let verify_secret = wa_config.verify_token_secret.as_deref().unwrap_or("whatsapp_verify_token");
+        let phone_id = wa_config.phone_number_id.clone().unwrap_or_default();
+
+        match (secrets.get_secret(access_secret).await, secrets.get_secret(verify_secret).await) {
+            (Ok(access), Ok(verify)) => {
+                let access_token = access.expose_str().unwrap_or("").to_string();
+                let verify_token = verify.expose_str().unwrap_or("").to_string();
+                if !access_token.is_empty() && !phone_id.is_empty() {
+                    let wa: Arc<dyn ChannelAdapter> = Arc::new(
+                        orka_adapter_whatsapp::WhatsAppAdapter::new(
+                            access_token,
+                            phone_id,
+                            verify_token,
+                            wa_config.listen_port,
+                        ),
+                    );
+                    start_adapter(wa.clone(), bus.clone(), shutdown.clone()).await?;
+                    adapters.push(wa);
+                    info!(port = wa_config.listen_port, "whatsapp adapter started");
+                } else {
+                    warn!("whatsapp access token or phone_number_id is empty, adapter disabled");
+                }
+            }
+            _ => warn!("failed to load whatsapp secrets, adapter disabled"),
+        }
+    }
+
+    // 6f. Health + API endpoints on server port
+    let start_time = std::time::Instant::now();
+    let queue_for_health = queue.clone();
+    let config_concurrency = config.worker.concurrency;
+
+    let queue_for_dlq = queue.clone();
+    let mut public_routes = axum::Router::new();
+
+    // /metrics endpoint (Prometheus)
+    if let Some(handle) = metrics_handle {
+        let handle = Arc::new(handle);
+        public_routes = public_routes.route(
+            "/metrics",
+            axum::routing::get(move || {
+                let h = handle.clone();
+                async move { h.render() }
+            }),
+        );
+    }
+
+    let public_routes = public_routes
+        .route(
+            "/health",
+            axum::routing::get(move || {
+                let queue = queue_for_health.clone();
+                async move {
+                    let uptime_secs = start_time.elapsed().as_secs();
+                    let queue_depth = queue.len().await.unwrap_or(0);
+
+                    axum::Json(serde_json::json!({
+                        "status": "ok",
+                        "uptime_secs": uptime_secs,
+                        "workers": config_concurrency,
+                        "queue_depth": queue_depth,
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/health/live",
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({"status": "ok"}))
+            }),
+        )
+        .route(
+            "/health/ready",
+            axum::routing::get({
+                let queue = queue.clone();
+                let redis_url = config.redis.url.clone();
+                move || {
+                    let queue = queue.clone();
+                    let redis_url = redis_url.clone();
+                    async move {
+                        let mut checks = serde_json::Map::new();
+                        let mut all_ok = true;
+
+                        // Redis check
+                        match redis::Client::open(redis_url.as_str()) {
+                            Ok(client) => {
+                                match client.get_multiplexed_async_connection().await {
+                                    Ok(mut conn) => {
+                                        match redis::cmd("PING").query_async::<String>(&mut conn).await {
+                                            Ok(_) => { checks.insert("redis".into(), serde_json::json!("ok")); }
+                                            Err(e) => {
+                                                checks.insert("redis".into(), serde_json::json!(format!("error: {e}")));
+                                                all_ok = false;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        checks.insert("redis".into(), serde_json::json!(format!("error: {e}")));
+                                        all_ok = false;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                checks.insert("redis".into(), serde_json::json!(format!("error: {e}")));
+                                all_ok = false;
+                            }
+                        }
+
+                        // Queue check
+                        match queue.len().await {
+                            Ok(depth) => { checks.insert("queue".into(), serde_json::json!({"status": "ok", "depth": depth})); }
+                            Err(e) => {
+                                checks.insert("queue".into(), serde_json::json!(format!("error: {e}")));
+                                all_ok = false;
+                            }
+                        }
+
+                        let status = if all_ok { "ready" } else { "not_ready" };
+                        let code = if all_ok {
+                            axum::http::StatusCode::OK
+                        } else {
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE
+                        };
+
+                        (
+                            code,
+                            axum::Json(serde_json::json!({
+                                "status": status,
+                                "checks": checks,
+                            })),
+                        )
+                    }
+                }
+            }),
+        );
+
+    // Protected API routes — auth middleware applied when enabled
+    let api_routes = axum::Router::new()
+        .route(
+            "/api/v1/dlq",
+            axum::routing::get({
+                let q = queue_for_dlq.clone();
+                move || {
+                    let q = q.clone();
+                    async move {
+                        match q.list_dlq().await {
+                            Ok(items) => {
+                                let json: Vec<serde_json::Value> = items
+                                    .iter()
+                                    .map(|e| serde_json::json!({
+                                        "id": e.id.to_string(),
+                                        "channel": e.channel,
+                                        "session_id": e.session_id.to_string(),
+                                        "timestamp": e.timestamp.to_rfc3339(),
+                                        "metadata": e.metadata,
+                                    }))
+                                    .collect();
+                                axum::response::IntoResponse::into_response(axum::Json(json))
+                            }
+                            Err(e) => axum::response::IntoResponse::into_response((
+                                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                format!("DLQ list failed: {e}"),
+                            )),
+                        }
+                    }
+                }
+            })
+            .delete({
+                let q = queue_for_dlq.clone();
+                move || {
+                    let q = q.clone();
+                    async move {
+                        match q.purge_dlq().await {
+                            Ok(count) => axum::response::IntoResponse::into_response(
+                                axum::Json(serde_json::json!({ "purged": count })),
+                            ),
+                            Err(e) => axum::response::IntoResponse::into_response((
+                                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                format!("DLQ purge failed: {e}"),
+                            )),
+                        }
+                    }
+                }
+            }),
+        )
+        .route(
+            "/api/v1/dlq/{id}/replay",
+            axum::routing::post({
+                let q = queue_for_dlq.clone();
+                move |axum::extract::Path(id): axum::extract::Path<String>| {
+                    let q = q.clone();
+                    async move {
+                        let msg_id = match uuid::Uuid::parse_str(&id) {
+                            Ok(uuid) => orka_core::MessageId(uuid),
+                            Err(_) => return axum::response::IntoResponse::into_response((
+                                axum::http::StatusCode::BAD_REQUEST,
+                                "invalid message ID",
+                            )),
+                        };
+                        match q.replay_dlq(&msg_id).await {
+                            Ok(true) => axum::response::IntoResponse::into_response(
+                                axum::Json(serde_json::json!({ "replayed": true })),
+                            ),
+                            Ok(false) => axum::response::IntoResponse::into_response((
+                                axum::http::StatusCode::NOT_FOUND,
+                                "message not found in DLQ",
+                            )),
+                            Err(e) => axum::response::IntoResponse::into_response((
+                                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                format!("DLQ replay failed: {e}"),
+                            )),
+                        }
+                    }
+                }
+            }),
+        );
+
+    // Build auth layer for API routes
+    let api_auth_layer = if config.auth.enabled {
+        use orka_auth::{ApiKeyAuthenticator, AuthLayer};
+        let authenticator = ApiKeyAuthenticator::new(&config.auth.api_keys);
+        Some(AuthLayer::new(Arc::new(authenticator), Arc::new(config.auth.clone())))
+    } else {
+        None
+    };
+
+    let api_routes = if let Some(layer) = api_auth_layer {
+        axum::Router::new().merge(api_routes.layer(layer))
+    } else {
+        api_routes
+    };
+
+    let health_app = public_routes
+        .merge(api_routes)
+        .layer(axum::middleware::from_fn(security_headers))
+        .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE));
+    let listener = tokio::net::TcpListener::bind(
+        format!("{}:{}", config.server.host, config.server.port),
+    )
+    .await
+    .context("failed to bind health endpoint")?;
+    info!("health endpoint listening on {}:{}", config.server.host, config.server.port);
+    tokio::spawn(axum::serve(listener, health_app).into_future());
+
+    // 7. Start gateway (with config)
+    let gateway = Gateway::new(
+        bus.clone(),
+        sessions.clone(),
+        queue.clone(),
+        workspace.clone(),
+        event_sink.clone(),
+        Some(&config.redis.url),
+        config.gateway.rate_limit,
+        config.gateway.dedup_ttl_secs,
+    );
+    let gateway_cancel = shutdown.clone();
+    let gateway_handle = tokio::spawn(async move {
+        if let Err(e) = gateway.run(gateway_cancel).await {
+            error!(%e, "gateway error");
+        }
+    });
+
+    // 8. Start worker pool with WorkspaceHandler
+    let handler: Arc<dyn orka_worker::AgentHandler> = Arc::new(
+        WorkspaceHandler::new(workspace.state(), skills.clone(), memory, secrets, llm_client, event_sink.clone(), config.llm.context_window_tokens, guardrail),
+    );
+    let worker_pool = WorkerPool::new(
+        queue.clone(),
+        sessions.clone(),
+        bus.clone(),
+        handler,
+        event_sink.clone(),
+        config.worker.concurrency,
+        config.queue.max_retries,
+    )
+    .with_retry_delay(config.worker.retry_base_delay_ms);
+    let worker_cancel = shutdown.clone();
+    let worker_handle = tokio::spawn(async move {
+        if let Err(e) = worker_pool.run(worker_cancel).await {
+            error!(%e, "worker pool error");
+        }
+    });
+
+    // 9. Outbound bridge: bus "outbound" → route to correct adapter by channel
+    let mut outbound_rx = bus.subscribe("outbound").await?;
+    let adapters_out = adapters.clone();
+    let outbound_cancel = shutdown.clone();
+    let outbound_handle = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = outbound_cancel.cancelled() => break,
+                msg = outbound_rx.recv() => {
+                    match msg {
+                        Some(envelope) => {
+                            let text = match &envelope.payload {
+                                Payload::Text(t) => t.clone(),
+                                _ => "[non-text]".into(),
+                            };
+                            let outbound = OutboundMessage {
+                                channel: envelope.channel.clone(),
+                                session_id: envelope.session_id.clone(),
+                                payload: Payload::Text(text),
+                                reply_to: None,
+                                metadata: envelope.metadata.clone(),
+                            };
+                            // Route to the adapter whose channel_id matches
+                            let target = adapters_out.iter().find(|a| a.channel_id() == envelope.channel.as_str());
+                            if let Some(adapter) = target {
+                                if let Err(e) = adapter.send(outbound).await {
+                                    error!(%e, channel = %envelope.channel, "failed to send outbound message via adapter");
+                                }
+                            } else {
+                                warn!(channel = %envelope.channel, "no adapter found for outbound channel");
+                            }
+                        }
+                        None => {
+                            warn!("outbound bus channel closed");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // 10. Await ctrl-c or SIGTERM → graceful shutdown
+    info!("Orka server ready — press Ctrl+C to stop");
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .context("failed to register SIGTERM handler")?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => info!("received SIGINT"),
+        _ = sigterm.recv() => info!("received SIGTERM"),
+    }
+
+    info!("shutting down...");
+    for adapter in &adapters {
+        if let Err(e) = adapter.shutdown().await {
+            error!(%e, "adapter shutdown error");
+        }
+    }
+
+    // Graceful drain: wait for queue to empty (with timeout)
+    let drain_timeout = std::time::Duration::from_secs(30);
+    let drain_start = std::time::Instant::now();
+    loop {
+        match queue.len().await {
+            Ok(0) => {
+                info!("queue drained");
+                break;
+            }
+            Ok(n) => {
+                if drain_start.elapsed() >= drain_timeout {
+                    warn!(remaining = n, "drain timeout reached, forcing shutdown");
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            Err(_) => break,
+        }
+    }
+
+    shutdown.cancel();
+
+    let _ = tokio::join!(gateway_handle, worker_handle, outbound_handle);
+    info!("Orka server stopped");
+
+    Ok(())
 }

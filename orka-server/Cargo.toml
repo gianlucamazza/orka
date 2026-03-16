@@ -11,6 +11,42 @@ path = "src/main.rs"
 
 [dependencies]
 orka-core.workspace = true
+orka-bus.workspace = true
+orka-session.workspace = true
+orka-queue.workspace = true
+orka-gateway.workspace = true
+orka-worker.workspace = true
+orka-workspace.workspace = true
+orka-auth.workspace = true
+orka-adapter-custom.workspace = true
+orka-adapter-telegram.workspace = true
+orka-adapter-discord.workspace = true
+orka-adapter-slack.workspace = true
+orka-adapter-whatsapp.workspace = true
+orka-memory.workspace = true
+orka-secrets.workspace = true
+orka-observe.workspace = true
+orka-skills.workspace = true
+orka-sandbox.workspace = true
+orka-llm.workspace = true
+orka-mcp.workspace = true
+orka-guardrails.workspace = true
+orka-router.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+http.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+redis.workspace = true
+
+[dev-dependencies]
+orka-core = { workspace = true, features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util", "macros"] }
+async-trait.workspace = true

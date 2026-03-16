@@ -11,3 +11,79 @@ url = "redis://127.0.0.1:6379"
 [logging]
 level = "info"
 json = false
+
+workspace_dir = "."
+
+[adapters.custom]
+host = "127.0.0.1"
+port = 8081
+
+[gateway]
+rate_limit = 60       # max messages per 60s window per session
+dedup_ttl_secs = 3600 # duplicate message detection window
+
+[observe]
+backend = "log" # "log" | "redis" | "otel"
+# batch_size = 50
+# flush_interval_ms = 100
+
+# [[mcp.servers]]
+# name = "example"
+# command = "npx"
+# args = ["-y", "@example/mcp-server"]
+
+[worker]
+concurrency = 4
+# retry_base_delay_ms = 5000
+
+[memory]
+max_entries = 10000
+
+[secrets]
+
+[auth]
+enabled = false
+api_key_header = "X-Api-Key"
+api_keys = []
+
+[sandbox]
+backend = "process"
+
+[sandbox.limits]
+timeout_secs = 30
+max_memory_bytes = 67108864
+max_output_bytes = 1048576
+
+[session]
+ttl_secs = 86400
+
+[queue]
+max_retries = 3
+
+[llm]
+timeout_secs = 30
+max_tokens = 8192
+
+[[llm.providers]]
+name = "anthropic"
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+api_key_secret = "llm/anthropic"
+
+# [[llm.providers]]
+# name = "openai"
+# provider = "openai"
+# model = "gpt-4o"
+# api_key_secret = "llm/openai"
+# base_url = "https://api.openai.com/v1"
+
+[plugins]
+# dir = "plugins"
+
+# [guardrails]
+# blocked_keywords = ["password", "secret"]
+# block_patterns = ["(?i)password\\s*[:=]"]
+# pii_filter = true
+# [[guardrails.redact_patterns]]
+# pattern = "\\b[A-Z]{2}\\d{6,}\\b"
+# replacement = "[REDACTED_ID]"

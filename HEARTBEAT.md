@@ -1,5 +1,5 @@
 ---
-interval_seconds: 30
+interval_secs: 30
 version: "0.1"
 ---
 
