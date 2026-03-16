@@ -39,10 +39,7 @@ impl Scheduler {
     }
 
     pub async fn run(&self, cancel: CancellationToken) {
-        info!(
-            poll_interval = self.poll_interval_secs,
-            "scheduler started"
-        );
+        info!(poll_interval = self.poll_interval_secs, "scheduler started");
 
         let mut interval =
             tokio::time::interval(std::time::Duration::from_secs(self.poll_interval_secs));
@@ -125,8 +122,7 @@ impl Scheduler {
                             if let Some(next) = cron_schedule.upcoming(Utc).next() {
                                 let mut updated = schedule.clone();
                                 updated.next_run = next.timestamp();
-                                if let Err(e) =
-                                    store.update_next_run(&schedule.id, &updated).await
+                                if let Err(e) = store.update_next_run(&schedule.id, &updated).await
                                 {
                                     error!(%e, "failed to update next run");
                                 }

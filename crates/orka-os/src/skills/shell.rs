@@ -76,10 +76,7 @@ impl Skill for ShellExecSkill {
             .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
         let cwd = input.args.get("cwd").and_then(|v| v.as_str());
-        let env_vars = input
-            .args
-            .get("env")
-            .and_then(|v| v.as_object());
+        let env_vars = input.args.get("env").and_then(|v| v.as_object());
         let timeout = input
             .args
             .get("timeout_secs")
@@ -118,9 +115,9 @@ impl Skill for ShellExecSkill {
 
         let start = std::time::Instant::now();
 
-        let mut child = cmd.spawn().map_err(|e| {
-            Error::Skill(format!("failed to spawn '{}': {}", command, e))
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| Error::Skill(format!("failed to spawn '{}': {}", command, e)))?;
 
         // Write stdin if provided
         if let Some(data) = stdin_data {
@@ -209,7 +206,10 @@ mod tests {
         args.insert("command".into(), serde_json::json!("echo"));
         args.insert("args".into(), serde_json::json!(["hello", "world"]));
         let output = skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
             .await
             .unwrap();
         assert_eq!(output.data["exit_code"], 0);
@@ -230,7 +230,10 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("echo"));
         assert!(skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None
+            })
             .await
             .is_err());
     }
@@ -248,7 +251,10 @@ mod tests {
         args.insert("command".into(), serde_json::json!("rm"));
         args.insert("args".into(), serde_json::json!(["-rf", "/"]));
         assert!(skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None
+            })
             .await
             .is_err());
     }

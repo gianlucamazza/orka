@@ -97,14 +97,14 @@ impl Skill for DocIngestSkill {
 
         // Read document data
         let (data, source) = if let Some(path) = input.args.get("path").and_then(|v| v.as_str()) {
-            let data = tokio::fs::read(path)
-                .await
-                .map_err(|e| orka_core::Error::Knowledge(format!("failed to read file '{path}': {e}")))?;
+            let data = tokio::fs::read(path).await.map_err(|e| {
+                orka_core::Error::Knowledge(format!("failed to read file '{path}': {e}"))
+            })?;
             (data, path.to_string())
         } else if let Some(url) = input.args.get("url").and_then(|v| v.as_str()) {
-            let resp = reqwest::get(url)
-                .await
-                .map_err(|e| orka_core::Error::Knowledge(format!("failed to fetch URL '{url}': {e}")))?;
+            let resp = reqwest::get(url).await.map_err(|e| {
+                orka_core::Error::Knowledge(format!("failed to fetch URL '{url}': {e}"))
+            })?;
             let data = resp
                 .bytes()
                 .await
@@ -161,10 +161,7 @@ impl Skill for DocIngestSkill {
                     m.insert("document_id".into(), document_id.clone());
                     m.insert("source".into(), source.clone());
                     m.insert("chunk_index".into(), (total_stored + i).to_string());
-                    m.insert(
-                        "ingested_at".into(),
-                        chrono::Utc::now().to_rfc3339(),
-                    );
+                    m.insert("ingested_at".into(), chrono::Utc::now().to_rfc3339());
                     m
                 })
                 .collect();

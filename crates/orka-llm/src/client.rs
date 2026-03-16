@@ -135,9 +135,15 @@ pub struct CompletionResponse {
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
     TextDelta(String),
-    ToolUseStart { id: String, name: String },
+    ToolUseStart {
+        id: String,
+        name: String,
+    },
     ToolUseInputDelta(String),
-    ToolUseEnd { id: String, input: serde_json::Value },
+    ToolUseEnd {
+        id: String,
+        input: serde_json::Value,
+    },
     Usage(Usage),
     Stop(StopReason),
 }

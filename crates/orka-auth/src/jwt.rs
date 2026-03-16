@@ -21,10 +21,8 @@ struct Claims {
 }
 
 pub struct JwtAuthenticator {
-    #[allow(dead_code)]
-    issuer: String,
-    #[allow(dead_code)]
-    audience: Option<String>,
+    _issuer: String,
+    _audience: Option<String>,
     decoding_key: DecodingKey,
     validation: Validation,
 }
@@ -42,8 +40,8 @@ impl JwtAuthenticator {
         validation.leeway = 10; // 10 seconds clock skew tolerance
 
         Self {
-            issuer,
-            audience,
+            _issuer: issuer,
+            _audience: audience,
             decoding_key,
             validation,
         }
@@ -62,8 +60,8 @@ impl JwtAuthenticator {
         validation.leeway = 10; // 10 seconds clock skew tolerance
 
         Ok(Self {
-            issuer,
-            audience,
+            _issuer: issuer,
+            _audience: audience,
             decoding_key,
             validation,
         })

@@ -78,10 +78,7 @@ pub fn register_all(
     secrets: Arc<dyn SecretManager>,
     workspace_state: Arc<RwLock<WorkspaceState>>,
 ) {
-    registry.register(Arc::new(skill::SkillCommand::new(
-        skills.clone(),
-        secrets,
-    )));
+    registry.register(Arc::new(skill::SkillCommand::new(skills.clone(), secrets)));
     registry.register(Arc::new(skills::SkillsCommand::new(skills)));
     registry.register(Arc::new(reset::ResetCommand::new(memory)));
     registry.register(Arc::new(status::StatusCommand::new(workspace_state)));

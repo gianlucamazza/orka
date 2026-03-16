@@ -61,7 +61,9 @@ impl EmbeddingProvider for OpenAiEmbeddingProvider {
             .json(&request)
             .send()
             .await
-            .map_err(|e| orka_core::Error::Knowledge(format!("OpenAI embedding request failed: {e}")))?;
+            .map_err(|e| {
+                orka_core::Error::Knowledge(format!("OpenAI embedding request failed: {e}"))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -71,10 +73,9 @@ impl EmbeddingProvider for OpenAiEmbeddingProvider {
             )));
         }
 
-        let resp: EmbeddingResponse = response
-            .json()
-            .await
-            .map_err(|e| orka_core::Error::Knowledge(format!("failed to parse embedding response: {e}")))?;
+        let resp: EmbeddingResponse = response.json().await.map_err(|e| {
+            orka_core::Error::Knowledge(format!("failed to parse embedding response: {e}"))
+        })?;
 
         Ok(resp.data.into_iter().map(|d| d.embedding).collect())
     }

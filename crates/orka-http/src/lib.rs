@@ -19,7 +19,7 @@ pub fn create_http_skills(config: &HttpClientConfig) -> Result<Vec<Arc<dyn Skill
         config.max_response_bytes,
         config.default_timeout_secs,
         &config.user_agent,
-    ));
+    )?);
 
     info!("HTTP skills initialized (http_request)");
     Ok(vec![request_skill])

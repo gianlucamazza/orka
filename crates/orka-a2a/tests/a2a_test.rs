@@ -17,9 +17,13 @@ fn test_state() -> A2aState {
     skills.register(Arc::new(EchoSkill));
     let skills = Arc::new(skills);
 
-    let agent_card = build_agent_card("test-agent", "A test agent", "http://localhost:8080", &skills);
-    let secrets: Arc<dyn orka_core::traits::SecretManager> =
-        Arc::new(InMemorySecretManager::new());
+    let agent_card = build_agent_card(
+        "test-agent",
+        "A test agent",
+        "http://localhost:8080",
+        &skills,
+    );
+    let secrets: Arc<dyn orka_core::traits::SecretManager> = Arc::new(InMemorySecretManager::new());
 
     A2aState {
         agent_card,

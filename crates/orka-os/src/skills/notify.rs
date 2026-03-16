@@ -79,9 +79,10 @@ impl Skill for NotifySendSkill {
             cmd.arg(body);
         }
 
-        let output = cmd.output().await.map_err(|e| {
-            Error::Skill(format!("notify-send failed: {}", e))
-        })?;
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| Error::Skill(format!("notify-send failed: {}", e)))?;
 
         Ok(SkillOutput {
             data: serde_json::json!({
@@ -122,7 +123,10 @@ mod tests {
         let mut args = std::collections::HashMap::new();
         args.insert("title".into(), serde_json::json!("test"));
         assert!(skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None
+            })
             .await
             .is_err());
     }

@@ -80,13 +80,13 @@ impl ServerCommand for SkillCommand {
         };
 
         match self.skills.invoke(skill_name, input).await {
-            Ok(output) => Ok(vec![
-                self.make_reply(envelope, format!("[{skill_name}] {}", output.data))
-            ]),
-            Err(e) => Ok(vec![self.make_reply(
-                envelope,
-                format!("Skill error: {e}"),
-            )]),
+            Ok(output) => {
+                Ok(vec![self.make_reply(
+                    envelope,
+                    format!("[{skill_name}] {}", output.data),
+                )])
+            }
+            Err(e) => Ok(vec![self.make_reply(envelope, format!("Skill error: {e}"))]),
         }
     }
 }

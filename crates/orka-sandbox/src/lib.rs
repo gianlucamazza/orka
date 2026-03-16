@@ -12,9 +12,10 @@ pub use skill::SandboxSkill;
 pub use wasm::WasmSandbox;
 
 use orka_core::config::SandboxConfig;
+use orka_core::Result;
 use std::sync::Arc;
 
-pub fn create_sandbox(config: &SandboxConfig) -> orka_core::Result<Arc<dyn SandboxExecutor>> {
+pub fn create_sandbox(config: &SandboxConfig) -> Result<Arc<dyn SandboxExecutor>> {
     match config.backend.as_str() {
         "wasm" => Ok(Arc::new(WasmSandbox::new(config)?)),
         _ => Ok(Arc::new(ProcessSandbox::new(config))),

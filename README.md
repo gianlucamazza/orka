@@ -1,5 +1,9 @@
 # Orka
 
+[![CI](https://github.com/homen3/orka/actions/workflows/ci.yml/badge.svg)](https://github.com/homen3/orka/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+
 An agent orchestration platform built in Rust. Orka routes messages from external channels through a priority queue to AI-powered agent handlers, with support for skills, sandboxed code execution, and workspace-based configuration.
 
 ## Architecture
@@ -35,6 +39,25 @@ External Clients
  │  Bridge    │
  └─────┘
 ```
+
+## Features
+
+- **Multi-channel messaging** — Telegram, Discord, Slack, WhatsApp, custom HTTP/WebSocket
+- **Priority queue** — Redis Sorted Sets with Urgent / Normal / Background lanes
+- **LLM integration** — Anthropic Claude and OpenAI with streaming support
+- **Skill system** — Pluggable skills with schema validation and WASM plugin support
+- **MCP server** — Model Context Protocol over JSON-RPC 2.0
+- **A2A protocol** — Agent-to-Agent communication
+- **Agent router** — Prefix-based routing with delegation
+- **Workspace config** — Hot-reloadable agent configuration (SOUL.md, IDENTITY.md)
+- **Knowledge base** — RAG with Qdrant vector store and document ingestion
+- **Sandboxed execution** — Process isolation and WASM sandboxing
+- **Guardrails** — Input/output validation and content filtering
+- **Circuit breaker** — Resilience pattern for external services
+- **Observability** — OpenTelemetry tracing, Prometheus metrics, Swagger UI
+- **Security** — JWT/API key auth, AES-256-GCM secret encryption, SSRF protection
+- **Scheduler** — Cron-based recurring tasks
+- **CLI** — Workspace management tool
 
 ## Quick Start
 
@@ -120,30 +143,50 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets
 ```
 
+## CLI
+
+Orka includes a CLI tool for workspace management:
+
+```bash
+cargo run --bin orka-cli -- --help
+```
+
 ## Project Structure
 
 ```
 orka/
-├── orka-server/          # Binary composition root
+├── orka-server/              # Binary composition root
 ├── crates/
-│   ├── orka-core/        # Shared types, traits, errors
-│   ├── orka-bus/         # Message bus (Redis Streams)
-│   ├── orka-session/     # Session store
-│   ├── orka-queue/       # Priority queue
-│   ├── orka-worker/      # Worker pool & handlers
-│   ├── orka-gateway/     # Inbound message gateway
-│   ├── orka-observe/     # Domain event observability
-│   ├── orka-skills/      # Skill registry & WASM plugins
-│   ├── orka-sandbox/     # Code execution sandbox
-│   ├── orka-memory/      # Key-value memory store
-│   ├── orka-secrets/     # Secret management
-│   ├── orka-auth/        # Authentication
-│   ├── orka-workspace/   # Workspace loader & watcher
-│   └── orka-adapter-*/   # Channel adapters
+│   ├── orka-core/            # Shared types, traits, errors
+│   ├── orka-bus/             # Message bus (Redis Streams)
+│   ├── orka-auth/            # JWT and API key authentication
+│   ├── orka-session/         # Session store
+│   ├── orka-queue/           # Priority queue
+│   ├── orka-worker/          # Worker pool & handlers
+│   ├── orka-gateway/         # Inbound message gateway
+│   ├── orka-observe/         # Domain event observability
+│   ├── orka-skills/          # Skill registry & execution
+│   ├── orka-sandbox/         # Code execution sandbox (process + WASM)
+│   ├── orka-memory/          # Key-value memory store
+│   ├── orka-secrets/         # Secret management (AES-256-GCM)
+│   ├── orka-workspace/       # Workspace loader & watcher
+│   ├── orka-llm/             # LLM providers (Anthropic, OpenAI)
+│   ├── orka-mcp/             # Model Context Protocol server
+│   ├── orka-a2a/             # Agent-to-Agent protocol
+│   ├── orka-router/          # Agent routing & delegation
+│   ├── orka-guardrails/      # Input/output guardrails
+│   ├── orka-circuit-breaker/ # Circuit breaker pattern
+│   ├── orka-web/             # Web content extraction
+│   ├── orka-os/              # OS integration skills
+│   ├── orka-http/            # HTTP request skill
+│   ├── orka-knowledge/       # RAG & vector knowledge base
+│   ├── orka-scheduler/       # Cron-based task scheduler
+│   ├── orka-cli/             # CLI tool
+│   └── orka-adapter-*/       # Channel adapters
 ├── sdk/
-│   └── orka-plugin-sdk/  # WASM plugin SDK
+│   └── orka-plugin-sdk/      # WASM plugin SDK
 └── examples/
-    └── hello-plugin/     # Example WASM plugin
+    └── hello-plugin/         # Example WASM plugin
 ```
 
 ## License

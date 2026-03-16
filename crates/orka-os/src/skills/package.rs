@@ -308,7 +308,10 @@ mod tests {
         let mut args = std::collections::HashMap::new();
         args.insert("query".into(), serde_json::json!("test"));
         assert!(skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None
+            })
             .await
             .is_err());
     }

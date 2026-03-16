@@ -18,9 +18,9 @@ pub struct QdrantStore {
 
 impl QdrantStore {
     pub fn new(url: &str) -> Result<Self> {
-        let client = Qdrant::from_url(url)
-            .build()
-            .map_err(|e| orka_core::Error::Knowledge(format!("failed to connect to Qdrant: {e}")))?;
+        let client = Qdrant::from_url(url).build().map_err(|e| {
+            orka_core::Error::Knowledge(format!("failed to connect to Qdrant: {e}"))
+        })?;
 
         Ok(Self {
             client: Arc::new(client),
@@ -31,21 +31,20 @@ impl QdrantStore {
 #[async_trait]
 impl VectorStore for QdrantStore {
     async fn ensure_collection(&self, name: &str, dimensions: usize) -> Result<()> {
-        let exists = self
-            .client
-            .collection_exists(name)
-            .await
-            .map_err(|e| orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}")))?;
+        let exists = self.client.collection_exists(name).await.map_err(|e| {
+            orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}"))
+        })?;
 
         if !exists {
             self.client
-                .create_collection(
-                    CreateCollectionBuilder::new(name)
-                        .vectors_config(VectorParamsBuilder::new(dimensions as u64, Distance::Cosine)),
-                )
+                .create_collection(CreateCollectionBuilder::new(name).vectors_config(
+                    VectorParamsBuilder::new(dimensions as u64, Distance::Cosine),
+                ))
                 .await
                 .map_err(|e| {
-                    orka_core::Error::Knowledge(format!("failed to create collection '{name}': {e}"))
+                    orka_core::Error::Knowledge(format!(
+                        "failed to create collection '{name}': {e}"
+                    ))
                 })?;
         }
 
@@ -98,8 +97,8 @@ impl VectorStore for QdrantStore {
         score_threshold: Option<f32>,
         _filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<SearchResult>> {
-        let mut search = SearchPointsBuilder::new(collection, vector.to_vec(), limit as u64)
-            .with_payload(true);
+        let mut search =
+            SearchPointsBuilder::new(collection, vector.to_vec(), limit as u64).with_payload(true);
 
         if let Some(threshold) = score_threshold {
             search = search.score_threshold(threshold);
@@ -153,7 +152,9 @@ impl VectorStore for QdrantStore {
             .client
             .collection_exists(collection)
             .await
-            .map_err(|e| orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}")))?;
+            .map_err(|e| {
+                orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}"))
+            })?;
 
         if !exists {
             return Ok(Vec::new());

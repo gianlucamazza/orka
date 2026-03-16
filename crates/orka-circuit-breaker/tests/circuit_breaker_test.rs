@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use orka_circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitState};
+use orka_circuit_breaker::{
+    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitState,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 struct TestError(String);
@@ -54,8 +56,7 @@ async fn open_state_rejects_immediately() {
 
     assert_eq!(cb.state(), CircuitState::Open);
 
-    let result: Result<i32, CircuitBreakerError<TestError>> =
-        cb.call(|| async { Ok(1) }).await;
+    let result: Result<i32, CircuitBreakerError<TestError>> = cb.call(|| async { Ok(1) }).await;
     assert!(matches!(result, Err(CircuitBreakerError::Open)));
 }
 

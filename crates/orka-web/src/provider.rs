@@ -112,8 +112,7 @@ impl SearchProvider for TavilyProvider {
                     .map(|r| {
                         let content = if options.include_content {
                             r["raw_content"].as_str().map(|raw| {
-                                let (t, _) =
-                                    extract::truncate(raw, options.max_content_chars);
+                                let (t, _) = extract::truncate(raw, options.max_content_chars);
                                 t
                             })
                         } else {
@@ -315,7 +314,10 @@ impl SearchProvider for SearxngProvider {
             .unwrap_or_default();
 
         if options.include_content && !results.is_empty() {
-            debug!(count = results.len(), "searxng: fetching page content inline");
+            debug!(
+                count = results.len(),
+                "searxng: fetching page content inline"
+            );
             let mut set = tokio::task::JoinSet::new();
             for (i, r) in results.iter().enumerate() {
                 let client = self.fetch_client.clone();

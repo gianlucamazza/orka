@@ -2,8 +2,15 @@
 **/*.rs.bk
 *.swp
 *.swo
+*.bak
+*~
 .env
 .env.*
 !.env.example
 dump.rdb
 .fastembed_cache/
+
+# IDEs
+.idea/
+.vscode/
+*.iml

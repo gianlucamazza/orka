@@ -85,9 +85,8 @@ impl Skill for ScheduleCreateSkill {
         }
 
         let next_run = if let Some(cron_str) = cron_expr {
-            let schedule = cron::Schedule::from_str(cron_str).map_err(|e| {
-                orka_core::Error::Skill(format!("invalid cron expression: {e}"))
-            })?;
+            let schedule = cron::Schedule::from_str(cron_str)
+                .map_err(|e| orka_core::Error::Skill(format!("invalid cron expression: {e}")))?;
             schedule
                 .upcoming(Utc)
                 .next()
@@ -96,9 +95,7 @@ impl Skill for ScheduleCreateSkill {
         } else if let Some(run_at_str) = run_at {
             chrono::DateTime::parse_from_rfc3339(run_at_str)
                 .map(|dt| dt.timestamp())
-                .map_err(|e| {
-                    orka_core::Error::Skill(format!("invalid run_at datetime: {e}"))
-                })?
+                .map_err(|e| orka_core::Error::Skill(format!("invalid run_at datetime: {e}")))?
         } else {
             unreachable!()
         };
@@ -113,11 +110,7 @@ impl Skill for ScheduleCreateSkill {
             .args
             .get("args")
             .and_then(|v| v.as_object())
-            .map(|m| {
-                m.iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect()
-            });
+            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
 
         let message = input
             .args

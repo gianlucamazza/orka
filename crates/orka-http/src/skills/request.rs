@@ -20,19 +20,21 @@ impl HttpRequestSkill {
         max_response_bytes: usize,
         default_timeout_secs: u64,
         user_agent: &str,
-    ) -> Self {
+    ) -> Result<Self> {
         let client = reqwest::Client::builder()
             .user_agent(user_agent)
             .redirect(reqwest::redirect::Policy::limited(5))
             .build()
-            .expect("failed to build HTTP client");
+            .map_err(|e| {
+                orka_core::Error::HttpClient(format!("failed to build HTTP client: {e}"))
+            })?;
 
-        Self {
+        Ok(Self {
             client,
             guard,
             max_response_bytes,
             default_timeout_secs,
-        }
+        })
     }
 }
 
@@ -84,18 +86,26 @@ impl Skill for HttpRequestSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        let url = input.args.get("url")
+        let url = input
+            .args
+            .get("url")
             .and_then(|v| v.as_str())
             .ok_or_else(|| orka_core::Error::Skill("url is required".into()))?;
 
         // SSRF check
-        self.guard.check(url).map_err(|e| orka_core::Error::Skill(e))?;
+        self.guard
+            .check(url)
+            .map_err(|e| orka_core::Error::Skill(e))?;
 
-        let method = input.args.get("method")
+        let method = input
+            .args
+            .get("method")
             .and_then(|v| v.as_str())
             .unwrap_or("GET");
 
-        let timeout_secs = input.args.get("timeout_secs")
+        let timeout_secs = input
+            .args
+            .get("timeout_secs")
             .and_then(|v| v.as_u64())
             .unwrap_or(self.default_timeout_secs);
 
@@ -108,7 +118,11 @@ impl Skill for HttpRequestSkill {
             "PATCH" => self.client.patch(url),
             "DELETE" => self.client.delete(url),
             "HEAD" => self.client.head(url),
-            other => return Err(orka_core::Error::Skill(format!("unsupported method: {other}"))),
+            other => {
+                return Err(orka_core::Error::Skill(format!(
+                    "unsupported method: {other}"
+                )))
+            }
         };
 
         req = req.timeout(Duration::from_secs(timeout_secs));
@@ -123,7 +137,11 @@ impl Skill for HttpRequestSkill {
         }
 
         // Bearer auth from secret
-        if let Some(secret_name) = input.args.get("auth_bearer_secret").and_then(|v| v.as_str()) {
+        if let Some(secret_name) = input
+            .args
+            .get("auth_bearer_secret")
+            .and_then(|v| v.as_str())
+        {
             if let Some(ref ctx) = input.context {
                 match ctx.secrets.get_secret(secret_name).await {
                     Ok(secret) => {
@@ -150,9 +168,10 @@ impl Skill for HttpRequestSkill {
             }
         }
 
-        let response = req.send().await.map_err(|e| {
-            orka_core::Error::HttpClient(format!("request failed: {e}"))
-        })?;
+        let response = req
+            .send()
+            .await
+            .map_err(|e| orka_core::Error::HttpClient(format!("request failed: {e}")))?;
 
         let status = response.status().as_u16();
         let headers: serde_json::Map<String, serde_json::Value> = response
@@ -172,7 +191,10 @@ impl Skill for HttpRequestSkill {
 
         let body = if body_bytes.len() > self.max_response_bytes {
             let truncated = String::from_utf8_lossy(&body_bytes[..self.max_response_bytes]);
-            format!("{truncated}... [truncated at {} bytes]", self.max_response_bytes)
+            format!(
+                "{truncated}... [truncated at {} bytes]",
+                self.max_response_bytes
+            )
         } else {
             String::from_utf8_lossy(&body_bytes).to_string()
         };
@@ -198,7 +220,7 @@ mod tests {
     #[test]
     fn schema_is_valid() {
         let guard = Arc::new(SsrfGuard::new(vec![]));
-        let skill = HttpRequestSkill::new(guard, 1024, 30, "test");
+        let skill = HttpRequestSkill::new(guard, 1024, 30, "test").unwrap();
         let schema = skill.schema();
         assert!(schema.parameters.get("properties").is_some());
     }

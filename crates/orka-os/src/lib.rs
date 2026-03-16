@@ -19,17 +19,36 @@ pub fn create_os_skills(config: &OsConfig) -> Result<Vec<Arc<dyn Skill>>> {
     let mut result: Vec<Arc<dyn Skill>> = Vec::new();
 
     // Read-only skills (always included)
-    result.push(Arc::new(skills::system_info::SystemInfoSkill::new(guard.clone())));
-    result.push(Arc::new(skills::fs::FsReadSkill::new(guard.clone(), config)));
-    result.push(Arc::new(skills::fs::FsListSkill::new(guard.clone(), config)));
+    result.push(Arc::new(skills::system_info::SystemInfoSkill::new(
+        guard.clone(),
+    )));
+    result.push(Arc::new(skills::fs::FsReadSkill::new(
+        guard.clone(),
+        config,
+    )));
+    result.push(Arc::new(skills::fs::FsListSkill::new(
+        guard.clone(),
+        config,
+    )));
     result.push(Arc::new(skills::fs::FsInfoSkill::new(guard.clone())));
-    result.push(Arc::new(skills::fs::FsSearchSkill::new(guard.clone(), config)));
-    result.push(Arc::new(skills::process::ProcessListSkill::new(guard.clone())));
-    result.push(Arc::new(skills::process::ProcessInfoSkill::new(guard.clone())));
+    result.push(Arc::new(skills::fs::FsSearchSkill::new(
+        guard.clone(),
+        config,
+    )));
+    result.push(Arc::new(skills::process::ProcessListSkill::new(
+        guard.clone(),
+    )));
+    result.push(Arc::new(skills::process::ProcessInfoSkill::new(
+        guard.clone(),
+    )));
     result.push(Arc::new(skills::env::EnvGetSkill::new(guard.clone())));
     result.push(Arc::new(skills::env::EnvListSkill::new(guard.clone())));
-    result.push(Arc::new(skills::network::NetworkInfoSkill::new(guard.clone())));
-    result.push(Arc::new(skills::network::NetworkCheckSkill::new(guard.clone())));
+    result.push(Arc::new(skills::network::NetworkInfoSkill::new(
+        guard.clone(),
+    )));
+    result.push(Arc::new(skills::network::NetworkCheckSkill::new(
+        guard.clone(),
+    )));
 
     // Write skills
     if level >= PermissionLevel::Write {
@@ -37,40 +56,67 @@ pub fn create_os_skills(config: &OsConfig) -> Result<Vec<Arc<dyn Skill>>> {
 
         #[cfg(feature = "clipboard")]
         {
-            result.push(Arc::new(skills::clipboard::ClipboardReadSkill::new(guard.clone())));
-            result.push(Arc::new(skills::clipboard::ClipboardWriteSkill::new(guard.clone())));
+            result.push(Arc::new(skills::clipboard::ClipboardReadSkill::new(
+                guard.clone(),
+            )));
+            result.push(Arc::new(skills::clipboard::ClipboardWriteSkill::new(
+                guard.clone(),
+            )));
         }
 
         #[cfg(feature = "desktop")]
         {
-            result.push(Arc::new(skills::notify::NotifySendSkill::new(guard.clone())));
+            result.push(Arc::new(skills::notify::NotifySendSkill::new(
+                guard.clone(),
+            )));
         }
     }
 
     // Execute skills
     if level >= PermissionLevel::Execute {
-        result.push(Arc::new(skills::shell::ShellExecSkill::new(guard.clone(), config)));
-        result.push(Arc::new(skills::process::ProcessSignalSkill::new(guard.clone())));
+        result.push(Arc::new(skills::shell::ShellExecSkill::new(
+            guard.clone(),
+            config,
+        )));
+        result.push(Arc::new(skills::process::ProcessSignalSkill::new(
+            guard.clone(),
+        )));
         result.push(Arc::new(skills::fs::FsWatchSkill::new(guard.clone())));
 
         #[cfg(feature = "desktop")]
         {
-            result.push(Arc::new(skills::desktop::DesktopOpenSkill::new(guard.clone())));
-            result.push(Arc::new(skills::desktop::DesktopScreenshotSkill::new(guard.clone())));
+            result.push(Arc::new(skills::desktop::DesktopOpenSkill::new(
+                guard.clone(),
+            )));
+            result.push(Arc::new(skills::desktop::DesktopScreenshotSkill::new(
+                guard.clone(),
+            )));
         }
     }
 
     // Admin skills
     if level >= PermissionLevel::Admin {
-        result.push(Arc::new(skills::package::PackageSearchSkill::new(guard.clone())));
-        result.push(Arc::new(skills::package::PackageInfoSkill::new(guard.clone())));
-        result.push(Arc::new(skills::package::PackageListSkill::new(guard.clone())));
+        result.push(Arc::new(skills::package::PackageSearchSkill::new(
+            guard.clone(),
+        )));
+        result.push(Arc::new(skills::package::PackageInfoSkill::new(
+            guard.clone(),
+        )));
+        result.push(Arc::new(skills::package::PackageListSkill::new(
+            guard.clone(),
+        )));
 
         #[cfg(feature = "systemd")]
         {
-            result.push(Arc::new(skills::systemd::ServiceStatusSkill::new(guard.clone())));
-            result.push(Arc::new(skills::systemd::ServiceListSkill::new(guard.clone())));
-            result.push(Arc::new(skills::systemd::JournalReadSkill::new(guard.clone())));
+            result.push(Arc::new(skills::systemd::ServiceStatusSkill::new(
+                guard.clone(),
+            )));
+            result.push(Arc::new(skills::systemd::ServiceListSkill::new(
+                guard.clone(),
+            )));
+            result.push(Arc::new(skills::systemd::JournalReadSkill::new(
+                guard.clone(),
+            )));
         }
     }
 
@@ -147,7 +193,11 @@ mod tests {
         let skills = create_os_skills(&config).unwrap();
         for skill in &skills {
             let schema = skill.schema();
-            assert!(schema.parameters["type"] == "object", "skill '{}' has invalid schema", skill.name());
+            assert!(
+                schema.parameters["type"] == "object",
+                "skill '{}' has invalid schema",
+                skill.name()
+            );
         }
     }
 

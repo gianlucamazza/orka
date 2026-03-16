@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
-#[allow(unused_imports)]
 use tracing::debug;
 
 use crate::config::PermissionLevel;
@@ -78,9 +77,9 @@ impl Skill for FsReadSkill {
         let path = Path::new(path_str);
         let canonical = self.guard.check_path(path)?;
 
-        let metadata = tokio::fs::metadata(&canonical).await.map_err(|e| {
-            Error::Skill(format!("cannot read '{}': {}", canonical.display(), e))
-        })?;
+        let metadata = tokio::fs::metadata(&canonical)
+            .await
+            .map_err(|e| Error::Skill(format!("cannot read '{}': {}", canonical.display(), e)))?;
         self.guard.check_file_size(metadata.len())?;
 
         let bytes = tokio::fs::read(&canonical).await.map_err(|e| {
@@ -200,16 +199,21 @@ impl Skill for FsListSkill {
             .get("show_hidden")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let pattern = input
-            .args
-            .get("pattern")
-            .and_then(|v| v.as_str());
+        let pattern = input.args.get("pattern").and_then(|v| v.as_str());
 
         let path = Path::new(path_str);
         let canonical = self.guard.check_path(path)?;
 
         let mut entries = Vec::new();
-        list_dir(&canonical, recursive, show_hidden, pattern, &mut entries, self.max_list_entries).await?;
+        list_dir(
+            &canonical,
+            recursive,
+            show_hidden,
+            pattern,
+            &mut entries,
+            self.max_list_entries,
+        )
+        .await?;
 
         Ok(SkillOutput {
             data: serde_json::json!({
@@ -229,13 +233,15 @@ async fn list_dir(
     entries: &mut Vec<serde_json::Value>,
     max: usize,
 ) -> Result<()> {
-    let mut read_dir = tokio::fs::read_dir(path).await.map_err(|e| {
-        Error::Skill(format!("cannot list '{}': {}", path.display(), e))
-    })?;
+    let mut read_dir = tokio::fs::read_dir(path)
+        .await
+        .map_err(|e| Error::Skill(format!("cannot list '{}': {}", path.display(), e)))?;
 
-    while let Some(entry) = read_dir.next_entry().await.map_err(|e| {
-        Error::Skill(format!("error reading directory entry: {}", e))
-    })? {
+    while let Some(entry) = read_dir
+        .next_entry()
+        .await
+        .map_err(|e| Error::Skill(format!("error reading directory entry: {}", e)))?
+    {
         if entries.len() >= max {
             break;
         }
@@ -270,7 +276,15 @@ async fn list_dir(
         }));
 
         if recursive && is_dir && entries.len() < max {
-            Box::pin(list_dir(&entry.path(), true, show_hidden, pattern, entries, max)).await?;
+            Box::pin(list_dir(
+                &entry.path(),
+                true,
+                show_hidden,
+                pattern,
+                entries,
+                max,
+            ))
+            .await?;
         }
     }
     Ok(())
@@ -320,9 +334,9 @@ impl Skill for FsInfoSkill {
         let path = Path::new(path_str);
         let canonical = self.guard.check_path(path)?;
 
-        let metadata = tokio::fs::metadata(&canonical).await.map_err(|e| {
-            Error::Skill(format!("cannot stat '{}': {}", canonical.display(), e))
-        })?;
+        let metadata = tokio::fs::metadata(&canonical)
+            .await
+            .map_err(|e| Error::Skill(format!("cannot stat '{}': {}", canonical.display(), e)))?;
         let symlink_meta = tokio::fs::symlink_metadata(&canonical).await.ok();
 
         let file_type = if metadata.is_dir() {
@@ -438,9 +452,9 @@ impl Skill for FsSearchSkill {
             "glob" => {
                 let glob_pattern = format!("{}/{}", canonical.display(), pattern);
                 let mut results = Vec::new();
-                for entry in glob::glob(&glob_pattern).map_err(|e| {
-                    Error::Skill(format!("invalid glob pattern: {}", e))
-                })? {
+                for entry in glob::glob(&glob_pattern)
+                    .map_err(|e| Error::Skill(format!("invalid glob pattern: {}", e)))?
+                {
                     if results.len() >= max {
                         break;
                     }
@@ -489,14 +503,16 @@ async fn search_by_name(
     results: &mut Vec<serde_json::Value>,
     max: usize,
 ) -> Result<()> {
-    let mut read_dir = tokio::fs::read_dir(dir).await.map_err(|e| {
-        Error::Skill(format!("cannot read '{}': {}", dir.display(), e))
-    })?;
+    let mut read_dir = tokio::fs::read_dir(dir)
+        .await
+        .map_err(|e| Error::Skill(format!("cannot read '{}': {}", dir.display(), e)))?;
 
     let pat_lower = pattern.to_lowercase();
-    while let Some(entry) = read_dir.next_entry().await.map_err(|e| {
-        Error::Skill(format!("error reading entry: {}", e))
-    })? {
+    while let Some(entry) = read_dir
+        .next_entry()
+        .await
+        .map_err(|e| Error::Skill(format!("error reading entry: {}", e)))?
+    {
         if results.len() >= max {
             break;
         }
@@ -517,13 +533,15 @@ async fn search_by_content(
     results: &mut Vec<serde_json::Value>,
     max: usize,
 ) -> Result<()> {
-    let mut read_dir = tokio::fs::read_dir(dir).await.map_err(|e| {
-        Error::Skill(format!("cannot read '{}': {}", dir.display(), e))
-    })?;
+    let mut read_dir = tokio::fs::read_dir(dir)
+        .await
+        .map_err(|e| Error::Skill(format!("cannot read '{}': {}", dir.display(), e)))?;
 
-    while let Some(entry) = read_dir.next_entry().await.map_err(|e| {
-        Error::Skill(format!("error reading entry: {}", e))
-    })? {
+    while let Some(entry) = read_dir
+        .next_entry()
+        .await
+        .map_err(|e| Error::Skill(format!("error reading entry: {}", e)))?
+    {
         if results.len() >= max {
             break;
         }
@@ -622,17 +640,16 @@ impl Skill for FsWriteSkill {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        self.guard
-            .check_file_size(content.len() as u64)?;
+        self.guard.check_file_size(content.len() as u64)?;
 
         let path = Path::new(path_str);
         let canonical = self.guard.check_write_path(path)?;
 
         if create_dirs {
             if let Some(parent) = canonical.parent() {
-                tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                    Error::Skill(format!("cannot create directories: {}", e))
-                })?;
+                tokio::fs::create_dir_all(parent)
+                    .await
+                    .map_err(|e| Error::Skill(format!("cannot create directories: {}", e)))?;
             }
         }
 
@@ -645,15 +662,17 @@ impl Skill for FsWriteSkill {
                     .create(true)
                     .open(&canonical)
                     .await
-                    .map_err(|e| Error::Skill(format!("cannot open '{}': {}", canonical.display(), e)))?;
-                file.write_all(content.as_bytes()).await.map_err(|e| {
-                    Error::Skill(format!("write failed: {}", e))
-                })?;
+                    .map_err(|e| {
+                        Error::Skill(format!("cannot open '{}': {}", canonical.display(), e))
+                    })?;
+                file.write_all(content.as_bytes())
+                    .await
+                    .map_err(|e| Error::Skill(format!("write failed: {}", e)))?;
             }
             _ => {
-                tokio::fs::write(&canonical, content.as_bytes()).await.map_err(|e| {
-                    Error::Skill(format!("write failed: {}", e))
-                })?;
+                tokio::fs::write(&canonical, content.as_bytes())
+                    .await
+                    .map_err(|e| Error::Skill(format!("write failed: {}", e)))?;
             }
         }
 
@@ -729,11 +748,13 @@ impl Skill for FsWatchSkill {
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(256);
 
-        let mut watcher = notify::recommended_watcher(move |res: std::result::Result<notify::Event, notify::Error>| {
-            if let Ok(event) = res {
-                let _ = tx.blocking_send(event);
-            }
-        })
+        let mut watcher = notify::recommended_watcher(
+            move |res: std::result::Result<notify::Event, notify::Error>| {
+                if let Ok(event) = res {
+                    let _ = tx.blocking_send(event);
+                }
+            },
+        )
         .map_err(|e| Error::Skill(format!("cannot create watcher: {}", e)))?;
 
         use notify::Watcher;
@@ -742,9 +763,9 @@ impl Skill for FsWatchSkill {
         } else {
             notify::RecursiveMode::NonRecursive
         };
-        watcher.watch(&canonical, mode).map_err(|e| {
-            Error::Skill(format!("cannot watch '{}': {}", canonical.display(), e))
-        })?;
+        watcher
+            .watch(&canonical, mode)
+            .map_err(|e| Error::Skill(format!("cannot watch '{}': {}", canonical.display(), e)))?;
 
         let mut events = Vec::new();
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(duration_secs);
@@ -821,7 +842,10 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("path".into(), serde_json::json!(file.to_string_lossy()));
         let output = skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
             .await
             .unwrap();
         assert_eq!(output.data["content"], "hello world");
@@ -852,9 +876,15 @@ mod tests {
         let skill = FsListSkill::new(guard, &config);
 
         let mut args = HashMap::new();
-        args.insert("path".into(), serde_json::json!(dir.path().to_string_lossy()));
+        args.insert(
+            "path".into(),
+            serde_json::json!(dir.path().to_string_lossy()),
+        );
         let output = skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
             .await
             .unwrap();
         assert_eq!(output.data["total"], 2);
@@ -868,7 +898,12 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("path".into(), serde_json::json!("/tmp/test_write.txt"));
         args.insert("content".into(), serde_json::json!("data"));
-        let result = skill.execute(SkillInput { args, context: None }).await;
+        let result = skill
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
+            .await;
         assert!(result.is_err());
     }
 
@@ -889,7 +924,10 @@ mod tests {
         args.insert("path".into(), serde_json::json!(file.to_string_lossy()));
         args.insert("content".into(), serde_json::json!("hello"));
         let output = skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
             .await
             .unwrap();
         assert_eq!(output.data["bytes_written"], 5);

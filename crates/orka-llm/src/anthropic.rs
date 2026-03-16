@@ -8,8 +8,7 @@ use tracing::{debug, warn};
 
 use crate::client::{
     ChatContent, ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
-    LlmClient, LlmStream, LlmToolStream, StopReason, StreamEvent, ToolCall, ToolDefinition,
-    Usage,
+    LlmClient, LlmStream, LlmToolStream, StopReason, StreamEvent, ToolCall, ToolDefinition, Usage,
 };
 use orka_core::{Error, Result};
 
@@ -475,14 +474,9 @@ impl LlmClient for AnthropicClient {
                                     let block = &event["content_block"];
                                     match block["type"].as_str() {
                                         Some("tool_use") => {
-                                            let id = block["id"]
-                                                .as_str()
-                                                .unwrap_or("")
-                                                .to_string();
-                                            let name = block["name"]
-                                                .as_str()
-                                                .unwrap_or("")
-                                                .to_string();
+                                            let id = block["id"].as_str().unwrap_or("").to_string();
+                                            let name =
+                                                block["name"].as_str().unwrap_or("").to_string();
                                             events.push(StreamEvent::ToolUseStart {
                                                 id: id.clone(),
                                                 name: name.clone(),
@@ -501,15 +495,12 @@ impl LlmClient for AnthropicClient {
                                     match delta["type"].as_str() {
                                         Some("text_delta") => {
                                             if let Some(text) = delta["text"].as_str() {
-                                                events.push(StreamEvent::TextDelta(
-                                                    text.to_string(),
-                                                ));
+                                                events
+                                                    .push(StreamEvent::TextDelta(text.to_string()));
                                             }
                                         }
                                         Some("input_json_delta") => {
-                                            if let Some(json_str) =
-                                                delta["partial_json"].as_str()
-                                            {
+                                            if let Some(json_str) = delta["partial_json"].as_str() {
                                                 state.tool_input_buffer.push_str(json_str);
                                                 events.push(StreamEvent::ToolUseInputDelta(
                                                     json_str.to_string(),

@@ -44,13 +44,13 @@ impl McpServer {
                     .skills
                     .list()
                     .iter()
-                    .map(|name| {
-                        let skill = self.skills.get(name).unwrap();
-                        json!({
+                    .filter_map(|name| {
+                        let skill = self.skills.get(name)?;
+                        Some(json!({
                             "name": skill.name(),
                             "description": skill.description(),
                             "inputSchema": skill.schema().parameters
-                        })
+                        }))
                     })
                     .collect();
                 Some(self.make_response(id, json!({ "tools": tools })))

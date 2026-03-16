@@ -147,11 +147,7 @@ mod tests {
 
     #[async_trait]
     impl SearchProvider for MockProvider {
-        async fn search(
-            &self,
-            _query: &str,
-            options: &SearchOptions,
-        ) -> Result<Vec<SearchResult>> {
+        async fn search(&self, _query: &str, options: &SearchOptions) -> Result<Vec<SearchResult>> {
             Ok(self
                 .results
                 .iter()
@@ -285,10 +281,7 @@ mod tests {
         assert_eq!(results[0]["content"], "Full page content here");
 
         // Read cache should be populated
-        let cached = skill
-            .cache
-            .get("read", "https://example.com/page")
-            .unwrap();
+        let cached = skill.cache.get("read", "https://example.com/page").unwrap();
         assert!(cached.contains("Full page content here"));
     }
 

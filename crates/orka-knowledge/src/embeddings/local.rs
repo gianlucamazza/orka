@@ -21,8 +21,10 @@ impl LocalEmbeddingProvider {
             _ => EmbeddingModel::BGESmallENV15,
         };
 
-        let model = TextEmbedding::try_new(InitOptions::new(embedding_model).with_show_download_progress(true))
-            .map_err(|e| orka_core::Error::Knowledge(format!("failed to init embedding model: {e}")))?;
+        let model = TextEmbedding::try_new(
+            InitOptions::new(embedding_model).with_show_download_progress(true),
+        )
+        .map_err(|e| orka_core::Error::Knowledge(format!("failed to init embedding model: {e}")))?;
 
         Ok(Self {
             model: Arc::new(Mutex::new(model)),

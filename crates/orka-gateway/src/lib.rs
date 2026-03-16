@@ -16,8 +16,7 @@ pub struct Gateway {
     bus: Arc<dyn MessageBus>,
     sessions: Arc<dyn SessionStore>,
     queue: Arc<dyn PriorityQueue>,
-    #[allow(dead_code)]
-    workspace: Arc<WorkspaceLoader>,
+    _workspace: Arc<WorkspaceLoader>,
     event_sink: Arc<dyn EventSink>,
     redis_pool: Option<Pool>,
     rate_limit: u32,
@@ -46,7 +45,7 @@ impl Gateway {
             bus,
             sessions,
             queue,
-            workspace,
+            _workspace: workspace,
             event_sink,
             redis_pool,
             rate_limit,

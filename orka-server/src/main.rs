@@ -150,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
     // 3. Create infra
     let bus = create_bus(&config).context("failed to create message bus")?;
     let sessions = create_session_store(&config).context("failed to create session store")?;
-    let queue = create_queue(&config);
+    let queue = create_queue(&config).context("failed to create priority queue")?;
 
     let memory =
         orka_memory::create_memory_store(&config).context("failed to create memory store")?;
@@ -173,8 +173,8 @@ async fn main() -> anyhow::Result<()> {
     skills.register(Arc::new(orka_skills::EchoSkill));
 
     // 4b. Sandbox + SandboxSkill
-    let sandbox = orka_sandbox::create_sandbox(&config.sandbox)
-        .context("failed to create sandbox")?;
+    let sandbox =
+        orka_sandbox::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
     skills.register(Arc::new(orka_sandbox::SandboxSkill::new(sandbox)));
 
     // 4c. Load WASM plugins
@@ -317,9 +317,9 @@ async fn main() -> anyhow::Result<()> {
                     let key = pc.api_key.clone().filter(|k| !k.is_empty());
                     // 2. api_key_env (explicit env var name from config)
                     let key = key.or_else(|| {
-                        pc.api_key_env.as_deref().and_then(|env| {
-                            std::env::var(env).ok().filter(|k| !k.is_empty())
-                        })
+                        pc.api_key_env
+                            .as_deref()
+                            .and_then(|env| std::env::var(env).ok().filter(|k| !k.is_empty()))
                     });
                     // 3. Default env var
                     let key = key.or_else(|| {
@@ -374,9 +374,9 @@ async fn main() -> anyhow::Result<()> {
                     let key = pc.api_key.clone().filter(|k| !k.is_empty());
                     // 2. api_key_env (explicit env var name from config)
                     let key = key.or_else(|| {
-                        pc.api_key_env.as_deref().and_then(|env| {
-                            std::env::var(env).ok().filter(|k| !k.is_empty())
-                        })
+                        pc.api_key_env
+                            .as_deref()
+                            .and_then(|env| std::env::var(env).ok().filter(|k| !k.is_empty()))
                     });
                     // 3. Default env var
                     let key = key.or_else(|| {
@@ -889,12 +889,8 @@ async fn main() -> anyhow::Result<()> {
             .url
             .clone()
             .unwrap_or_else(|| format!("http://{}:{}", config.server.host, config.server.port));
-        let agent_card = orka_a2a::build_agent_card(
-            "orka",
-            "Orka AI Agent Platform",
-            &base_url,
-            &skills,
-        );
+        let agent_card =
+            orka_a2a::build_agent_card("orka", "Orka AI Agent Platform", &base_url, &skills);
         let a2a_state = orka_a2a::A2aState {
             agent_card,
             skills: skills.clone(),

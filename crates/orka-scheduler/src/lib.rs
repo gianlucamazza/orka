@@ -22,12 +22,14 @@ pub fn create_scheduler_skills(
 ) -> Result<(Vec<Arc<dyn Skill>>, Arc<RedisScheduleStore>)> {
     let store = Arc::new(RedisScheduleStore::new(redis_url)?);
 
-    let create: Arc<dyn Skill> =
-        Arc::new(skills::schedule_create::ScheduleCreateSkill::new(store.clone()));
+    let create: Arc<dyn Skill> = Arc::new(skills::schedule_create::ScheduleCreateSkill::new(
+        store.clone(),
+    ));
     let list: Arc<dyn Skill> =
         Arc::new(skills::schedule_list::ScheduleListSkill::new(store.clone()));
-    let delete: Arc<dyn Skill> =
-        Arc::new(skills::schedule_delete::ScheduleDeleteSkill::new(store.clone()));
+    let delete: Arc<dyn Skill> = Arc::new(skills::schedule_delete::ScheduleDeleteSkill::new(
+        store.clone(),
+    ));
 
     info!("scheduler skills initialized (schedule_create, schedule_list, schedule_delete)");
 

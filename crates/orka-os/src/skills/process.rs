@@ -307,7 +307,10 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("pid".into(), serde_json::json!(pid));
         let output = skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
             .await
             .unwrap();
         assert_eq!(output.data["pid"], pid);
@@ -325,7 +328,12 @@ mod tests {
         let skill = ProcessSignalSkill::new(guard);
         let mut args = HashMap::new();
         args.insert("pid".into(), serde_json::json!(1));
-        let result = skill.execute(SkillInput { args, context: None }).await;
+        let result = skill
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
+            .await;
         assert!(result.is_err());
     }
 

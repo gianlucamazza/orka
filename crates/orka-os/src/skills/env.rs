@@ -159,7 +159,10 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("name".into(), serde_json::json!("HOME"));
         let output = skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
             .await
             .unwrap();
         assert!(output.data["exists"].as_bool().unwrap());
@@ -170,7 +173,12 @@ mod tests {
         let skill = EnvGetSkill::new(make_guard());
         let mut args = HashMap::new();
         args.insert("name".into(), serde_json::json!("API_KEY"));
-        let result = skill.execute(SkillInput { args, context: None }).await;
+        let result = skill
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
+            .await;
         assert!(result.is_err());
     }
 
@@ -191,7 +199,10 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("filter".into(), serde_json::json!("HOME"));
         let output = skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
             .await
             .unwrap();
         assert!(output.data["count"].as_u64().unwrap() >= 1);
@@ -205,7 +216,10 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("filter".into(), serde_json::json!("TEST_API_KEY"));
         let output = skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
             .await
             .unwrap();
         let vars = output.data["variables"].as_array().unwrap();

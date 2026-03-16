@@ -106,10 +106,7 @@ impl Skill for MemorySearchSkill {
             });
 
         // Generate query embedding
-        let embeddings = self
-            .embeddings
-            .embed(&[query.to_string()])
-            .await?;
+        let embeddings = self.embeddings.embed(&[query.to_string()]).await?;
 
         let vector = embeddings
             .into_iter()

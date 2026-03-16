@@ -62,8 +62,7 @@ impl Skill for DesktopOpenSkill {
 
         if !is_url {
             // Validate as file path
-            self.guard
-                .check_path(std::path::Path::new(target))?;
+            self.guard.check_path(std::path::Path::new(target))?;
         }
 
         let output = tokio::process::Command::new("xdg-open")
@@ -161,9 +160,7 @@ impl Skill for DesktopScreenshotSkill {
             cmd.output().await
         };
 
-        let output = output.map_err(|e| {
-            Error::Skill(format!("screenshot failed: {}", e))
-        })?;
+        let output = output.map_err(|e| Error::Skill(format!("screenshot failed: {}", e)))?;
 
         Ok(SkillOutput {
             data: serde_json::json!({
@@ -213,7 +210,10 @@ mod tests {
         let mut args = std::collections::HashMap::new();
         args.insert("target".into(), serde_json::json!("https://example.com"));
         assert!(skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None
+            })
             .await
             .is_err());
     }

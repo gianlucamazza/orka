@@ -126,14 +126,16 @@ impl Skill for ClipboardWriteSkill {
 
         if let Some(mut stdin) = child.stdin.take() {
             use tokio::io::AsyncWriteExt;
-            stdin.write_all(content.as_bytes()).await.map_err(|e| {
-                Error::Skill(format!("failed to write to clipboard: {}", e))
-            })?;
+            stdin
+                .write_all(content.as_bytes())
+                .await
+                .map_err(|e| Error::Skill(format!("failed to write to clipboard: {}", e)))?;
         }
 
-        let status = child.wait().await.map_err(|e| {
-            Error::Skill(format!("clipboard command failed: {}", e))
-        })?;
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| Error::Skill(format!("clipboard command failed: {}", e)))?;
 
         Ok(SkillOutput {
             data: serde_json::json!({

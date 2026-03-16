@@ -152,9 +152,7 @@ async fn main() {
             SecretAction::List => cmd::secret::list().await,
             SecretAction::Delete { path } => cmd::secret::delete(&path).await,
         },
-        Commands::McpServe { config } => {
-            cmd::mcp_serve::run(config.as_deref()).await
-        }
+        Commands::McpServe { config } => cmd::mcp_serve::run(config.as_deref()).await,
     };
 
     if let Err(e) = result {

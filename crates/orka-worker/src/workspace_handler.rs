@@ -482,7 +482,9 @@ impl AgentHandler for WorkspaceHandler {
                 {
                     let mut blocks = Vec::new();
                     if !response_text.is_empty() {
-                        blocks.push(ContentBlockInput::Text { text: response_text });
+                        blocks.push(ContentBlockInput::Text {
+                            text: response_text,
+                        });
                     }
                     for call in &tool_calls {
                         blocks.push(ContentBlockInput::ToolUse {
@@ -734,8 +736,7 @@ mod tests {
 
     fn test_handler(state: Arc<RwLock<WorkspaceState>>) -> WorkspaceHandler {
         let skills = test_registry();
-        let memory: Arc<dyn orka_core::traits::MemoryStore> =
-            Arc::new(InMemoryMemoryStore::new());
+        let memory: Arc<dyn orka_core::traits::MemoryStore> = Arc::new(InMemoryMemoryStore::new());
         let secrets: Arc<dyn orka_core::traits::SecretManager> =
             Arc::new(InMemorySecretManager::new());
 

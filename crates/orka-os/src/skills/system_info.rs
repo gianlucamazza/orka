@@ -63,9 +63,7 @@ impl Skill for SystemInfoSkill {
                 memory_info(&sys)
             }
             "disk" => disk_info(),
-            "network" => {
-                network_info()
-            }
+            "network" => network_info(),
             "os" => os_info(),
             "processes" => {
                 sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);

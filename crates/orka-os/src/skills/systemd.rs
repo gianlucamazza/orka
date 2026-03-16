@@ -116,9 +116,10 @@ impl Skill for ServiceListSkill {
             cmd.arg(format!("--state={}", s));
         }
 
-        let output = cmd.output().await.map_err(|e| {
-            Error::Skill(format!("systemctl failed: {}", e))
-        })?;
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| Error::Skill(format!("systemctl failed: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
@@ -197,9 +198,10 @@ impl Skill for JournalReadSkill {
             cmd.arg("-p").arg(p);
         }
 
-        let output = cmd.output().await.map_err(|e| {
-            Error::Skill(format!("journalctl failed: {}", e))
-        })?;
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| Error::Skill(format!("journalctl failed: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
@@ -248,7 +250,10 @@ mod tests {
         let mut args = std::collections::HashMap::new();
         args.insert("unit".into(), serde_json::json!("sshd.service"));
         assert!(skill
-            .execute(SkillInput { args, context: None })
+            .execute(SkillInput {
+                args,
+                context: None
+            })
             .await
             .is_err());
     }

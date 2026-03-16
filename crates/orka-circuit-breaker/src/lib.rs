@@ -210,8 +210,7 @@ impl CircuitBreaker {
     }
 
     fn transition_to_open(&self) {
-        self.state
-            .store(CircuitState::Open as u8, Ordering::SeqCst);
+        self.state.store(CircuitState::Open as u8, Ordering::SeqCst);
         self.failure_count.store(0, Ordering::SeqCst);
         self.success_count.store(0, Ordering::SeqCst);
         self.half_open_probes.store(0, Ordering::SeqCst);

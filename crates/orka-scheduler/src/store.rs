@@ -17,7 +17,9 @@ impl RedisScheduleStore {
         let cfg = deadpool_redis::Config::from_url(redis_url);
         let pool = cfg
             .create_pool(Some(deadpool_redis::Runtime::Tokio1))
-            .map_err(|e| orka_core::Error::Scheduler(format!("failed to create Redis pool: {e}")))?;
+            .map_err(|e| {
+                orka_core::Error::Scheduler(format!("failed to create Redis pool: {e}"))
+            })?;
 
         Ok(Self {
             pool: Arc::new(pool),
@@ -25,9 +27,10 @@ impl RedisScheduleStore {
     }
 
     pub async fn add(&self, schedule: &Schedule) -> Result<()> {
-        let mut conn = self.pool.get().await.map_err(|e| {
-            orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
-        })?;
+        let mut conn =
+            self.pool.get().await.map_err(|e| {
+                orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
+            })?;
 
         let data = serde_json::to_string(schedule)
             .map_err(|e| orka_core::Error::Scheduler(format!("serialization failed: {e}")))?;
@@ -50,9 +53,10 @@ impl RedisScheduleStore {
     }
 
     pub async fn remove(&self, id: &str) -> Result<bool> {
-        let mut conn = self.pool.get().await.map_err(|e| {
-            orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
-        })?;
+        let mut conn =
+            self.pool.get().await.map_err(|e| {
+                orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
+            })?;
 
         let removed: i64 = conn.zrem(SCHEDULE_KEY, id).await.map_err(|e| {
             orka_core::Error::Scheduler(format!("failed to remove from sorted set: {e}"))
@@ -67,17 +71,16 @@ impl RedisScheduleStore {
     }
 
     pub async fn get_due(&self, now: i64) -> Result<Vec<Schedule>> {
-        let mut conn = self.pool.get().await.map_err(|e| {
-            orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
-        })?;
+        let mut conn =
+            self.pool.get().await.map_err(|e| {
+                orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
+            })?;
 
         // Get all schedule IDs with score <= now
         let ids: Vec<String> = conn
             .zrangebyscore(SCHEDULE_KEY, "-inf", now as f64)
             .await
-            .map_err(|e| {
-                orka_core::Error::Scheduler(format!("failed to query sorted set: {e}"))
-            })?;
+            .map_err(|e| orka_core::Error::Scheduler(format!("failed to query sorted set: {e}")))?;
 
         let mut schedules = Vec::new();
         for id in ids {
@@ -97,16 +100,15 @@ impl RedisScheduleStore {
     }
 
     pub async fn list(&self, include_completed: bool) -> Result<Vec<Schedule>> {
-        let mut conn = self.pool.get().await.map_err(|e| {
-            orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
-        })?;
+        let mut conn =
+            self.pool.get().await.map_err(|e| {
+                orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
+            })?;
 
         let ids: Vec<String> = conn
             .zrangebyscore(SCHEDULE_KEY, "-inf", "+inf")
             .await
-            .map_err(|e| {
-                orka_core::Error::Scheduler(format!("failed to list schedules: {e}"))
-            })?;
+            .map_err(|e| orka_core::Error::Scheduler(format!("failed to list schedules: {e}")))?;
 
         let mut schedules = Vec::new();
         for id in ids {

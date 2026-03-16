@@ -8,8 +8,7 @@ use tracing::{debug, warn};
 
 use crate::client::{
     ChatContent, ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
-    LlmClient, LlmStream, LlmToolStream, StopReason, StreamEvent, ToolCall, ToolDefinition,
-    Usage,
+    LlmClient, LlmStream, LlmToolStream, StopReason, StreamEvent, ToolCall, ToolDefinition, Usage,
 };
 use orka_core::{Error, Result};
 
@@ -425,8 +424,7 @@ impl LlmClient for OpenAiClient {
         /// Tracks accumulated state for an in-progress tool call.
         struct ToolAccum {
             id: String,
-            #[allow(dead_code)]
-            name: String,
+            _name: String,
             arguments: String,
         }
 
@@ -478,8 +476,7 @@ impl LlmClient for OpenAiClient {
 
                                     if let Some(name) = func["name"].as_str() {
                                         // First chunk for this tool call
-                                        let id =
-                                            tc["id"].as_str().unwrap_or("").to_string();
+                                        let id = tc["id"].as_str().unwrap_or("").to_string();
                                         events.push(StreamEvent::ToolUseStart {
                                             id: id.clone(),
                                             name: name.to_string(),
@@ -488,7 +485,7 @@ impl LlmClient for OpenAiClient {
                                             index,
                                             ToolAccum {
                                                 id,
-                                                name: name.to_string(),
+                                                _name: name.to_string(),
                                                 arguments: String::new(),
                                             },
                                         );
@@ -516,10 +513,9 @@ impl LlmClient for OpenAiClient {
                                     for idx in indices {
                                         if let Some(accum) = state.tool_calls.remove(&idx) {
                                             let input: serde_json::Value =
-                                                serde_json::from_str(&accum.arguments)
-                                                    .unwrap_or(serde_json::Value::Object(
-                                                        Default::default(),
-                                                    ));
+                                                serde_json::from_str(&accum.arguments).unwrap_or(
+                                                    serde_json::Value::Object(Default::default()),
+                                                );
                                             events.push(StreamEvent::ToolUseEnd {
                                                 id: accum.id,
                                                 input,
