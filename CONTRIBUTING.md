@@ -15,6 +15,11 @@ Thank you for your interest in contributing to Orka!
 ```bash
 git clone https://github.com/gianlucamazza/orka.git
 cd orka
+
+# Arch Linux: automated setup (installs deps, starts Redis, verifies build)
+just setup
+
+# Or manually:
 cargo build --workspace
 ```
 

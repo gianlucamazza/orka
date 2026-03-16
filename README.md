@@ -84,6 +84,20 @@ cargo build --release
 ./target/release/orka-server
 ```
 
+### Native Installation (Arch Linux)
+
+```bash
+# Dev setup — installs deps, starts Redis, runs cargo check
+just setup
+
+# Production install — builds release binary, installs systemd service
+just install
+systemctl enable --now orka-server
+
+# Uninstall (preserves config and data)
+just uninstall
+```
+
 The server starts two endpoints:
 
 - `http://localhost:8080` — Health endpoint

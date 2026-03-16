@@ -21,7 +21,9 @@ services:
       - cargo-registry:/usr/local/cargo/registry
       - cargo-git:/usr/local/cargo/git
       - target-cache:/app/target
+      - /etc/os-release:/host/os-release:ro
     environment:
+      ORKA_HOST_HOSTNAME: ${HOSTNAME}
       RUST_LOG: info,orka_server=debug,orka_core=debug,orka_worker=debug,orka_llm=debug,orka_adapter_custom=debug,orka_bus=debug,orka_memory=debug,orka_observe=debug,orka_auth=debug,orka_skills=debug,orka_web=debug,orka_mcp=debug,orka_router=debug,orka_session=debug,orka_workspace=debug
       RUST_BACKTRACE: 1
     read_only: false
