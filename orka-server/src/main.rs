@@ -159,7 +159,8 @@ async fn main() -> anyhow::Result<()> {
     skills.register(Arc::new(orka_skills::EchoSkill));
 
     // 4b. Sandbox + SandboxSkill
-    let sandbox = orka_sandbox::create_sandbox(&config.sandbox);
+    let sandbox = orka_sandbox::create_sandbox(&config.sandbox)
+        .context("failed to create sandbox")?;
     skills.register(Arc::new(orka_sandbox::SandboxSkill::new(sandbox)));
 
     // 4c. Load WASM plugins

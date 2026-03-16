@@ -703,7 +703,7 @@ mod tests {
                 assert!(t.contains("No LLM provider is configured"));
                 assert!(t.contains("hello"));
             }
-            _ => panic!("expected text"),
+            other => panic!("expected text payload, got {other:?}"),
         }
     }
 
@@ -723,7 +723,7 @@ mod tests {
                 assert!(t.contains("greeting"));
                 assert!(t.contains("world"));
             }
-            _ => panic!("expected text"),
+            other => panic!("expected text payload, got {other:?}"),
         }
     }
 
@@ -742,7 +742,7 @@ mod tests {
                 assert!(t.contains("Unknown skill: nonexistent"));
                 assert!(t.contains("echo")); // available skills listed
             }
-            _ => panic!("expected text"),
+            other => panic!("expected text payload, got {other:?}"),
         }
     }
 
@@ -762,7 +762,7 @@ mod tests {
         assert_eq!(replies.len(), 1);
         match &replies[0].payload {
             Payload::Text(t) => assert!(t.contains("only process text")),
-            _ => panic!("expected text"),
+            other => panic!("expected text payload, got {other:?}"),
         }
     }
 

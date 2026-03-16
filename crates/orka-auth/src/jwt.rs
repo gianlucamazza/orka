@@ -38,6 +38,8 @@ impl JwtAuthenticator {
         if let Some(ref aud) = audience {
             validation.set_audience(&[aud]);
         }
+        validation.validate_exp = true;
+        validation.leeway = 10; // 10 seconds clock skew tolerance
 
         Self {
             issuer,
@@ -56,6 +58,8 @@ impl JwtAuthenticator {
         if let Some(ref aud) = audience {
             validation.set_audience(&[aud]);
         }
+        validation.validate_exp = true;
+        validation.leeway = 10; // 10 seconds clock skew tolerance
 
         Ok(Self {
             issuer,
@@ -165,5 +169,27 @@ mod tests {
         let auth = JwtAuthenticator::with_secret("test-issuer".into(), None, "secret");
         let result = auth.authenticate(&Credentials::ApiKey("key".into())).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn expired_jwt_rejected() {
+        let secret = "test-secret-key-at-least-32-bytes-long!";
+        let auth = JwtAuthenticator::with_secret("test-issuer".into(), None, secret);
+        let claims = TestClaims {
+            sub: "user123".into(),
+            scope: "read".into(),
+            iss: "test-issuer".into(),
+            exp: 1_000_000, // far in the past
+        };
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+        let result = auth
+            .authenticate(&Credentials::Bearer(token))
+            .await;
+        assert!(result.is_err(), "expired JWT should be rejected");
     }
 }

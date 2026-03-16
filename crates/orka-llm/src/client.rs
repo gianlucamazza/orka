@@ -149,6 +149,9 @@ pub trait LlmClient: Send + Sync + 'static {
         system: &str,
         _options: CompletionOptions,
     ) -> Result<String> {
+        if _options.model.is_some() || _options.max_tokens.is_some() {
+            tracing::warn!("complete_with_options called with options but default impl ignores them — override this method");
+        }
         self.complete(messages, system).await
     }
 

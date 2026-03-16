@@ -5,7 +5,7 @@ pub use crate::redis_secret::RedisSecretManager;
 use std::sync::Arc;
 
 use orka_core::traits::SecretManager;
-use tracing::{info, warn};
+use tracing::warn;
 
 pub fn create_secret_manager(
     config: &orka_core::config::OrkaConfig,
@@ -41,7 +41,15 @@ pub fn create_secret_manager(
     let store = match &encryption_key {
         Some(key) => RedisSecretManager::with_encryption(&config.redis.url, Some(key))?,
         None => {
-            info!("secret encryption key not configured — secrets stored in plaintext");
+            let env = std::env::var("ORKA_ENV")
+                .or_else(|_| std::env::var("APP_ENV"))
+                .unwrap_or_default();
+            if env.eq_ignore_ascii_case("production") {
+                return Err(orka_core::Error::secret(
+                    "ORKA_SECRET_ENCRYPTION_KEY must be set in production",
+                ));
+            }
+            warn!("ORKA_SECRET_ENCRYPTION_KEY not set — secrets stored in PLAINTEXT. Do NOT use in production.");
             RedisSecretManager::new(&config.redis.url)?
         }
     };

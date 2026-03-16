@@ -21,20 +21,21 @@ struct WasmState {
 }
 
 impl WasmSandbox {
-    pub fn new(config: &SandboxConfig) -> Self {
+    pub fn new(config: &SandboxConfig) -> Result<Self> {
         let mut wasm_config = wasmtime::Config::new();
         wasm_config.consume_fuel(true);
 
-        let engine = Engine::new(&wasm_config).expect("failed to create wasmtime engine");
+        let engine = Engine::new(&wasm_config)
+            .map_err(|e| Error::Sandbox(format!("failed to create wasmtime engine: {e}")))?;
 
-        Self {
+        Ok(Self {
             engine,
             _default_limits: SandboxLimits {
                 timeout: std::time::Duration::from_secs(config.limits.timeout_secs),
                 max_memory_bytes: config.limits.max_memory_bytes,
                 max_output_bytes: config.limits.max_output_bytes,
             },
-        }
+        })
     }
 }
 
@@ -169,7 +170,7 @@ mod tests {
     #[tokio::test]
     async fn test_wasm_hello() {
         let config = SandboxConfig::default();
-        let sandbox = WasmSandbox::new(&config);
+        let sandbox = WasmSandbox::new(&config).unwrap();
 
         let wat = r#"(module
             (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))

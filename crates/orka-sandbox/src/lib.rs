@@ -14,9 +14,9 @@ pub use wasm::WasmSandbox;
 use orka_core::config::SandboxConfig;
 use std::sync::Arc;
 
-pub fn create_sandbox(config: &SandboxConfig) -> Arc<dyn SandboxExecutor> {
+pub fn create_sandbox(config: &SandboxConfig) -> orka_core::Result<Arc<dyn SandboxExecutor>> {
     match config.backend.as_str() {
-        "wasm" => Arc::new(WasmSandbox::new(config)),
-        _ => Arc::new(ProcessSandbox::new(config)),
+        "wasm" => Ok(Arc::new(WasmSandbox::new(config)?)),
+        _ => Ok(Arc::new(ProcessSandbox::new(config))),
     }
 }
