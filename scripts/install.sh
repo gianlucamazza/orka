@@ -207,12 +207,11 @@ if [[ ! -f "${CONFIG_DIR}/orka.toml" ]]; then
 	fi
 else
 	info "Config ${CONFIG_DIR}/orka.toml already exists, skipping."
-	# Migrate existing config to current version
-	info "Checking config version..."
-	if "${CLI_BIN_PATH}" config check --config "${CONFIG_DIR}/orka.toml" 2>&1 | grep -q "Migration available"; then
-		info "Migrating config to current version..."
-		"${CLI_BIN_PATH}" config migrate --config "${CONFIG_DIR}/orka.toml"
-		ok "Config migrated."
+	info "Checking config migration..."
+	if "${CLI_BIN_PATH}" config migrate --config "${CONFIG_DIR}/orka.toml"; then
+		ok "Config up to date."
+	else
+		warn "Config migration failed. Check manually: orka config check --config ${CONFIG_DIR}/orka.toml"
 	fi
 fi
 
