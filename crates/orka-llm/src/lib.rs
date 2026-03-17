@@ -4,6 +4,7 @@ pub mod context;
 pub mod ollama;
 pub mod openai;
 pub mod router;
+pub mod swappable;
 
 pub use anthropic::AnthropicClient;
 pub use client::{
@@ -14,3 +15,4 @@ pub use client::{
 pub use ollama::OllamaClient;
 pub use openai::OpenAiClient;
 pub use router::LlmRouter;
+pub use swappable::SwappableLlmClient;

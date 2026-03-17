@@ -14,3 +14,4 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 futures-util.workspace = true
+arc-swap.workspace = true

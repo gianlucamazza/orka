@@ -1,13 +1,17 @@
+mod env_watcher;
+
+use std::collections::HashMap;
 use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::Context;
 use orka_adapter_custom::CustomAdapter;
 use orka_bus::create_bus;
-use orka_core::config::OrkaConfig;
-use orka_core::traits::ChannelAdapter;
+use orka_core::config::{LlmProviderConfig, OrkaConfig};
+use orka_core::traits::{ChannelAdapter, SecretManager};
 use orka_core::{Envelope, OutboundMessage, Payload};
 use orka_gateway::Gateway;
+use orka_llm::SwappableLlmClient;
 use orka_queue::create_queue;
 use orka_session::create_session_store;
 use orka_worker::{CommandRegistry, WorkerPool, WorkspaceHandler};
@@ -126,57 +130,83 @@ impl orka_scheduler::SkillRegistry for SchedulerSkillRegistryAdapter {
     }
 }
 
-/// Resolve an API key for an LLM provider using a 4-step fallback:
-/// 1. Direct `api_key` field in config
-/// 2. Custom env var name from `api_key_env`
-/// 3. Default env var (e.g. `ANTHROPIC_API_KEY`)
-/// 4. Secret store via `api_key_secret`
-async fn resolve_api_key(
-    pc: &orka_core::config::LlmProviderConfig,
-    default_env: &str,
-    secrets: &Arc<dyn orka_core::traits::SecretManager>,
+/// Default environment variable name for a provider's API key.
+fn default_env_var(provider: &str) -> &str {
+    match provider {
+        "anthropic" => "ANTHROPIC_API_KEY",
+        "openai" => "OPENAI_API_KEY",
+        _ => "",
+    }
+}
+
+/// Resolve an API key for a provider using a 4-level fallback:
+///   1. `api_key` in config (direct)
+///   2. `api_key_env` (explicit env var name from config)
+///   3. Default env var (e.g. `ANTHROPIC_API_KEY`)
+///   4. Secret store (`api_key_secret`)
+pub(crate) async fn resolve_api_key(
+    provider: &str,
+    config: &LlmProviderConfig,
+    secrets: &dyn SecretManager,
 ) -> Option<String> {
-    // 1. Direct config field
-    let key = pc.api_key.clone().filter(|k| !k.is_empty());
-    // 2. api_key_env (explicit env var name from config)
+    // 1. Direct API key in config
+    let key = config.api_key.clone().filter(|k| !k.is_empty());
+    // 2. Explicit env var name
     let key = key.or_else(|| {
-        pc.api_key_env
+        config
+            .api_key_env
             .as_deref()
             .and_then(|env| std::env::var(env).ok().filter(|k| !k.is_empty()))
     });
     // 3. Default env var
-    let key = key.or_else(|| std::env::var(default_env).ok().filter(|k| !k.is_empty()));
-    // 4. Secret store (last resort)
-    if key.is_some() {
-        return key;
-    }
-    if let Some(key_name) = pc.api_key_secret.as_deref() {
+    let default_env = default_env_var(provider);
+    let key = key.or_else(|| {
+        if default_env.is_empty() {
+            return None;
+        }
+        std::env::var(default_env).ok().filter(|k| !k.is_empty())
+    });
+    // 4. Secret store
+    let key = if key.is_some() {
+        key
+    } else if let Some(key_name) = config.api_key_secret.as_deref() {
         match secrets.get_secret(key_name).await {
             Ok(s) => {
                 let k = s.expose_str().unwrap_or("").to_string();
                 if k.is_empty() {
-                    tracing::debug!(
-                        provider = %pc.provider,
-                        path = key_name,
-                        "secret exists but is empty"
-                    );
+                    tracing::debug!(provider, path = key_name, "secret exists but is empty");
                     None
                 } else {
                     Some(k)
                 }
             }
             Err(e) => {
-                tracing::debug!(provider = %pc.provider, path = key_name, %e, "failed to read secret from store");
+                tracing::debug!(provider, path = key_name, %e, "failed to read secret from store");
                 None
             }
         }
     } else {
         None
-    }
-}
+    };
 
+    if key.is_none() {
+        let env_name = if !default_env.is_empty() {
+            default_env
+        } else {
+            "N/A"
+        };
+        warn!(
+            provider,
+            "API key not found in config, secrets, or {env_name} env var"
+        );
+    }
+    key
+}
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // 0. Load .env file (no-op if missing — production uses systemd EnvironmentFile)
+    let _ = dotenvy::dotenv();
+
     // 1. Load config (doesn't need tracing)
     let mut config = OrkaConfig::load(None).context("failed to load configuration")?;
     config
@@ -358,18 +388,14 @@ async fn main() -> anyhow::Result<()> {
     info!("skill registry ready ({} skills)", skills.list().len());
 
     // LLM client (optional) — after validate(), config.llm.providers is canonical
+    // Track swappable clients for hot-reload
+    let mut swappable_clients: HashMap<String, Arc<SwappableLlmClient>> = HashMap::new();
     let llm_client: Option<Arc<dyn orka_llm::LlmClient>> = if !config.llm.providers.is_empty() {
         let mut clients: Vec<(String, Arc<dyn orka_llm::LlmClient>, Vec<String>)> = Vec::new();
         for pc in &config.llm.providers {
             let client: Option<Arc<dyn orka_llm::LlmClient>> = match pc.provider.as_str() {
                 "anthropic" => {
-                    let key = resolve_api_key(pc, "ANTHROPIC_API_KEY", &secrets).await;
-                    if key.is_none() {
-                        warn!(
-                            provider = "anthropic",
-                            "API key not found in config, secrets, or ANTHROPIC_API_KEY env var"
-                        );
-                    }
+                    let key = resolve_api_key("anthropic", pc, &*secrets).await;
                     key.map(|k| {
                         Arc::new(orka_llm::AnthropicClient::with_options(
                             k,
@@ -382,13 +408,7 @@ async fn main() -> anyhow::Result<()> {
                     })
                 }
                 "openai" => {
-                    let key = resolve_api_key(pc, "OPENAI_API_KEY", &secrets).await;
-                    if key.is_none() {
-                        warn!(
-                            provider = "openai",
-                            "API key not found in config, secrets, or OPENAI_API_KEY env var"
-                        );
-                    }
+                    let key = resolve_api_key("openai", pc, &*secrets).await;
                     key.map(|k| {
                         let url = pc
                             .base_url
@@ -424,7 +444,14 @@ async fn main() -> anyhow::Result<()> {
             };
             if let Some(c) = client {
                 info!(provider = %pc.name, model = %pc.model, "LLM provider initialized");
-                clients.push((pc.name.clone(), c, pc.prefixes.clone()));
+                // Wrap in SwappableLlmClient for hot-reload support
+                let swappable = Arc::new(SwappableLlmClient::new(c));
+                swappable_clients.insert(pc.name.clone(), swappable.clone());
+                clients.push((
+                    pc.name.clone(),
+                    swappable as Arc<dyn orka_llm::LlmClient>,
+                    pc.prefixes.clone(),
+                ));
             }
         }
         if clients.is_empty() {
@@ -448,6 +475,14 @@ async fn main() -> anyhow::Result<()> {
     } else {
         error!("no LLM providers initialized — set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable AI responses");
     }
+
+    // Start env file watcher for API key hot-reload
+    let _env_watcher = env_watcher::EnvWatcher::start(
+        config.llm.providers.clone(),
+        swappable_clients,
+        secrets.clone(),
+        config.llm.api_version.clone(),
+    );
 
     // Guardrails
     let guardrail = orka_guardrails::create_guardrail(&config.guardrails);

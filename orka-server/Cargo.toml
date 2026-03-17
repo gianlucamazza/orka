@@ -54,6 +54,9 @@ redis.workspace = true
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
 async-trait.workspace = true
+dotenvy.workspace = true
+notify.workspace = true
+arc-swap.workspace = true
 
 [dev-dependencies]
 orka-core = { workspace = true, features = ["test-util"] }

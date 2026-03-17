@@ -39,6 +39,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+publish = false
 rust-version = "1.75"
 repository = "https://github.com/gianlucamazza/orka"
 homepage = "https://github.com/gianlucamazza/orka"
@@ -66,6 +67,10 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 # Config
 config = "0.14"
 serde_yml = "0.0.12"
+dotenvy = "0.15"
+
+# Concurrency
+arc-swap = "1"
 
 # Filesystem
 notify = { version = "7", default-features = false, features = [
