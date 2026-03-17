@@ -4,12 +4,14 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde_json::json;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::client::{
     ChatContent, ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
-    LlmClient, LlmStream, LlmToolStream, StopReason, StreamEvent, ToolCall, ToolDefinition, Usage,
+    LlmClient, LlmStream, LlmToolStream, RetryableError, StopReason, StreamEvent, ToolCall,
+    ToolDefinition, Usage,
 };
+use orka_core::retry::retry_with_backoff;
 use orka_core::{Error, Result};
 
 /// OpenAI Chat Completions API client with retry and streaming support.
@@ -62,55 +64,53 @@ impl OpenAiClient {
     /// Returns the raw successful HTTP response.
     async fn send_request_with_retry(&self, body: &serde_json::Value) -> Result<reqwest::Response> {
         let url = format!("{}/chat/completions", self.base_url);
-        let mut last_err = None;
-        for attempt in 0..=self.max_retries {
-            if attempt > 0 {
-                let delay = Duration::from_millis(500 * 2u64.pow(attempt - 1));
-                warn!(
-                    attempt,
-                    delay_ms = delay.as_millis() as u64,
-                    "retrying OpenAI API call"
-                );
-                tokio::time::sleep(delay).await;
-            }
+        retry_with_backoff(
+            self.max_retries,
+            500,
+            30_000,
+            || async {
+                let result = self
+                    .client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .header("Content-Type", "application/json")
+                    .json(body)
+                    .send()
+                    .await;
 
-            let result = self
-                .client
-                .post(&url)
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("Content-Type", "application/json")
-                .json(body)
-                .send()
-                .await;
-
-            match result {
-                Ok(response) => {
-                    let status = response.status();
-                    if status == 429 || status.is_server_error() {
-                        let body_text = response.text().await.unwrap_or_default();
-                        last_err = Some(format!("OpenAI API error {status}: {body_text}"));
-                        continue;
+                match result {
+                    Ok(response) => {
+                        let status = response.status();
+                        if status == 429 || status.is_server_error() {
+                            let text = response.text().await.unwrap_or_default();
+                            Err(RetryableError::Transient(format!(
+                                "OpenAI API error {status}: {text}"
+                            )))
+                        } else if !status.is_success() {
+                            let text = response.text().await.unwrap_or_default();
+                            Err(RetryableError::Fatal(format!(
+                                "OpenAI API error {status}: {text}"
+                            )))
+                        } else {
+                            Ok(response)
+                        }
                     }
-                    if !status.is_success() {
-                        let body_text = response.text().await.unwrap_or_default();
-                        return Err(Error::Other(format!(
-                            "OpenAI API error {status}: {body_text}"
-                        )));
+                    Err(e) if e.is_timeout() || e.is_connect() => {
+                        Err(RetryableError::Transient(format!(
+                            "OpenAI API request failed: {e}"
+                        )))
                     }
-                    return Ok(response);
+                    Err(e) => Err(RetryableError::Fatal(format!(
+                        "OpenAI API request failed: {e}"
+                    ))),
                 }
-                Err(e) => {
-                    if e.is_timeout() || e.is_connect() {
-                        last_err = Some(format!("OpenAI API request failed: {e}"));
-                        continue;
-                    }
-                    return Err(Error::Other(format!("OpenAI API request failed: {e}")));
-                }
-            }
-        }
-        Err(Error::Other(last_err.unwrap_or_else(|| {
-            "OpenAI API request failed after retries".into()
-        })))
+            },
+            |e| matches!(e, RetryableError::Transient(_)),
+        )
+        .await
+        .map_err(|e| match e {
+            RetryableError::Transient(msg) | RetryableError::Fatal(msg) => Error::Other(msg),
+        })
     }
 
     /// Send a request with retry and parse the JSON response.

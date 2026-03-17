@@ -4,6 +4,13 @@ use async_trait::async_trait;
 use orka_core::Result;
 use serde::{Deserialize, Serialize};
 
+/// Internal error type used by LLM provider retry logic to distinguish
+/// transient (retryable) from fatal (non-retryable) errors.
+pub(crate) enum RetryableError {
+    Transient(String),
+    Fatal(String),
+}
+
 /// A simple chat message with a role and text content.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
