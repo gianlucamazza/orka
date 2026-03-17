@@ -176,7 +176,27 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("reason", reason.clone()),
                 ],
             ),
+            DomainEventKind::PrinciplesInjected { session_id, count } => (
+                "experience.principles_injected",
+                vec![
+                    KeyValue::new("session_id", session_id.to_string()),
+                    KeyValue::new("count", *count as i64),
+                ],
+            ),
+            DomainEventKind::ReflectionCompleted {
+                session_id,
+                principles_created,
+                trajectory_id,
+            } => (
+                "experience.reflection_completed",
+                vec![
+                    KeyValue::new("session_id", session_id.to_string()),
+                    KeyValue::new("principles_created", *principles_created as i64),
+                    KeyValue::new("trajectory_id", trajectory_id.clone()),
+                ],
+            ),
             DomainEventKind::Heartbeat => ("heartbeat", vec![]),
+            _ => ("unknown", vec![]),
         };
 
         let mut span = self

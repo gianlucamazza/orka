@@ -1,3 +1,11 @@
+//! Observability infrastructure: event sinks, metrics, and OpenTelemetry integration.
+//!
+//! - [`create_event_sink`] — factory that selects the appropriate [`EventSink`] backend
+//! - [`metrics`] — Prometheus-compatible metrics collection
+//! - [`otel_sink`] — OpenTelemetry trace/span export
+
+#![warn(missing_docs)]
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -6,8 +14,11 @@ use orka_core::traits::EventSink;
 use orka_core::{DomainEvent, DomainEventKind};
 use tracing::{debug, info, warn};
 
+#[allow(missing_docs)]
 pub mod metrics;
+#[allow(missing_docs)]
 pub mod otel_sink;
+#[allow(missing_docs)]
 pub mod redis_sink;
 
 struct LogEventSink;
@@ -119,13 +130,27 @@ impl EventSink for LogEventSink {
                     "privileged command denied"
                 );
             }
+            DomainEventKind::PrinciplesInjected { session_id, count } => {
+                info!(%session_id, count, "principles injected into prompt");
+            }
+            DomainEventKind::ReflectionCompleted {
+                session_id,
+                principles_created,
+                trajectory_id,
+            } => {
+                info!(%session_id, principles_created, trajectory_id, "reflection completed");
+            }
             DomainEventKind::Heartbeat => {
                 debug!("heartbeat");
+            }
+            _ => {
+                debug!(kind = ?event.kind, "unhandled domain event");
             }
         }
     }
 }
 
+/// Create an [`EventSink`] from the given configuration.
 pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
     match config.observe.backend.as_str() {
         "redis" => match redis_sink::RedisEventSink::new(
@@ -163,8 +188,7 @@ pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
 mod tests {
     use super::*;
     use orka_core::config::*;
-    use orka_core::types::{EventId, MessageId, SessionId};
-    use std::collections::HashMap;
+    use orka_core::types::{MessageId, SessionId};
 
     fn test_config() -> OrkaConfig {
         OrkaConfig {
@@ -198,16 +222,12 @@ mod tests {
             knowledge: KnowledgeConfig::default(),
             scheduler: SchedulerConfig::default(),
             http: HttpClientConfig::default(),
+            experience: ExperienceConfig::default(),
         }
     }
 
     fn make_event(kind: DomainEventKind) -> DomainEvent {
-        DomainEvent {
-            id: EventId::new(),
-            timestamp: chrono::Utc::now(),
-            kind,
-            metadata: HashMap::new(),
-        }
+        DomainEvent::new(kind)
     }
 
     fn all_event_kinds() -> Vec<DomainEventKind> {
@@ -215,36 +235,36 @@ mod tests {
         let sid = SessionId::new();
         vec![
             DomainEventKind::MessageReceived {
-                message_id: mid.clone(),
+                message_id: mid,
                 channel: "test".into(),
-                session_id: sid.clone(),
+                session_id: sid,
             },
             DomainEventKind::SessionCreated {
-                session_id: sid.clone(),
+                session_id: sid,
                 channel: "test".into(),
             },
             DomainEventKind::HandlerInvoked {
-                message_id: mid.clone(),
-                session_id: sid.clone(),
+                message_id: mid,
+                session_id: sid,
             },
             DomainEventKind::HandlerCompleted {
-                message_id: mid.clone(),
-                session_id: sid.clone(),
+                message_id: mid,
+                session_id: sid,
                 duration_ms: 42,
                 reply_count: 1,
             },
             DomainEventKind::SkillInvoked {
                 skill_name: "echo".into(),
-                message_id: mid.clone(),
+                message_id: mid,
             },
             DomainEventKind::SkillCompleted {
                 skill_name: "echo".into(),
-                message_id: mid.clone(),
+                message_id: mid,
                 duration_ms: 10,
                 success: true,
             },
             DomainEventKind::LlmCompleted {
-                message_id: mid.clone(),
+                message_id: mid,
                 model: "gpt-test".into(),
                 input_tokens: 100,
                 output_tokens: 50,
@@ -256,20 +276,20 @@ mod tests {
                 message: "boom".into(),
             },
             DomainEventKind::AgentReasoning {
-                message_id: mid.clone(),
+                message_id: mid,
                 iteration: 0,
                 reasoning_text: "Let me think...".into(),
             },
             DomainEventKind::AgentIteration {
-                message_id: mid.clone(),
+                message_id: mid,
                 iteration: 0,
                 tool_count: 2,
                 tokens_used: 500,
                 elapsed_ms: 1200,
             },
             DomainEventKind::PrivilegedCommandExecuted {
-                message_id: mid.clone(),
-                session_id: sid.clone(),
+                message_id: mid,
+                session_id: sid,
                 command: "systemctl".into(),
                 args: vec!["restart".into(), "nginx".into()],
                 approval_id: None,
@@ -279,11 +299,20 @@ mod tests {
                 duration_ms: 150,
             },
             DomainEventKind::PrivilegedCommandDenied {
-                message_id: mid.clone(),
-                session_id: sid.clone(),
+                message_id: mid,
+                session_id: sid,
                 command: "rm".into(),
                 args: vec!["-rf".into(), "/".into()],
                 reason: "blocked".into(),
+            },
+            DomainEventKind::PrinciplesInjected {
+                session_id: sid,
+                count: 3,
+            },
+            DomainEventKind::ReflectionCompleted {
+                session_id: sid,
+                principles_created: 2,
+                trajectory_id: "traj-1".into(),
             },
             DomainEventKind::Heartbeat,
         ]

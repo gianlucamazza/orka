@@ -105,25 +105,29 @@ pub fn record_event(event: &DomainEvent) {
             counter!("orka_privileged_commands_denied_total", "command" => command.clone())
                 .increment(1);
         }
+        DomainEventKind::PrinciplesInjected { count, .. } => {
+            counter!("orka_principles_injected_total").increment(*count as u64);
+        }
+        DomainEventKind::ReflectionCompleted {
+            principles_created, ..
+        } => {
+            counter!("orka_reflections_completed_total").increment(1);
+            counter!("orka_principles_created_total").increment(*principles_created as u64);
+        }
         DomainEventKind::Heartbeat => {
             counter!("orka_heartbeats_total").increment(1);
         }
+        _ => {}
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orka_core::types::{EventId, MessageId, SessionId};
-    use std::collections::HashMap;
+    use orka_core::types::{MessageId, SessionId};
 
     fn make_event(kind: DomainEventKind) -> DomainEvent {
-        DomainEvent {
-            id: EventId::new(),
-            timestamp: chrono::Utc::now(),
-            kind,
-            metadata: HashMap::new(),
-        }
+        DomainEvent::new(kind)
     }
 
     fn all_event_kinds() -> Vec<DomainEventKind> {
@@ -131,42 +135,42 @@ mod tests {
         let sid = SessionId::new();
         vec![
             DomainEventKind::MessageReceived {
-                message_id: mid.clone(),
+                message_id: mid,
                 channel: "telegram".into(),
-                session_id: sid.clone(),
+                session_id: sid,
             },
             DomainEventKind::SessionCreated {
-                session_id: sid.clone(),
+                session_id: sid,
                 channel: "discord".into(),
             },
             DomainEventKind::HandlerInvoked {
-                message_id: mid.clone(),
-                session_id: sid.clone(),
+                message_id: mid,
+                session_id: sid,
             },
             DomainEventKind::HandlerCompleted {
-                message_id: mid.clone(),
-                session_id: sid.clone(),
+                message_id: mid,
+                session_id: sid,
                 duration_ms: 150,
                 reply_count: 2,
             },
             DomainEventKind::SkillInvoked {
                 skill_name: "weather".into(),
-                message_id: mid.clone(),
+                message_id: mid,
             },
             DomainEventKind::SkillCompleted {
                 skill_name: "weather".into(),
-                message_id: mid.clone(),
+                message_id: mid,
                 duration_ms: 80,
                 success: true,
             },
             DomainEventKind::SkillCompleted {
                 skill_name: "weather".into(),
-                message_id: mid.clone(),
+                message_id: mid,
                 duration_ms: 30,
                 success: false,
             },
             DomainEventKind::LlmCompleted {
-                message_id: mid.clone(),
+                message_id: mid,
                 model: "gpt-4".into(),
                 input_tokens: 500,
                 output_tokens: 200,
@@ -178,20 +182,20 @@ mod tests {
                 message: "connection lost".into(),
             },
             DomainEventKind::AgentReasoning {
-                message_id: mid.clone(),
+                message_id: mid,
                 iteration: 1,
                 reasoning_text: "Thinking...".into(),
             },
             DomainEventKind::AgentIteration {
-                message_id: mid.clone(),
+                message_id: mid,
                 iteration: 1,
                 tool_count: 3,
                 tokens_used: 1000,
                 elapsed_ms: 2000,
             },
             DomainEventKind::PrivilegedCommandExecuted {
-                message_id: mid.clone(),
-                session_id: sid.clone(),
+                message_id: mid,
+                session_id: sid,
                 command: "systemctl".into(),
                 args: vec!["restart".into(), "nginx".into()],
                 approval_id: None,
@@ -201,11 +205,20 @@ mod tests {
                 duration_ms: 100,
             },
             DomainEventKind::PrivilegedCommandDenied {
-                message_id: mid.clone(),
-                session_id: sid.clone(),
+                message_id: mid,
+                session_id: sid,
                 command: "rm".into(),
                 args: vec!["-rf".into()],
                 reason: "blocked".into(),
+            },
+            DomainEventKind::PrinciplesInjected {
+                session_id: sid,
+                count: 3,
+            },
+            DomainEventKind::ReflectionCompleted {
+                session_id: sid,
+                principles_created: 2,
+                trajectory_id: "traj-1".into(),
             },
             DomainEventKind::Heartbeat,
         ]
@@ -227,19 +240,19 @@ mod tests {
 
         let edge_cases = vec![
             DomainEventKind::HandlerCompleted {
-                message_id: mid.clone(),
-                session_id: sid.clone(),
+                message_id: mid,
+                session_id: sid,
                 duration_ms: 0,
                 reply_count: 0,
             },
             DomainEventKind::SkillCompleted {
                 skill_name: "test".into(),
-                message_id: mid.clone(),
+                message_id: mid,
                 duration_ms: 0,
                 success: true,
             },
             DomainEventKind::LlmCompleted {
-                message_id: mid.clone(),
+                message_id: mid,
                 model: "m".into(),
                 input_tokens: 0,
                 output_tokens: 0,
