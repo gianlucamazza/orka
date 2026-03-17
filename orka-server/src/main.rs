@@ -13,6 +13,7 @@ use orka_bus::create_bus;
 use orka_core::config::{LlmProviderConfig, OrkaConfig};
 use orka_core::traits::{ChannelAdapter, SecretManager};
 use orka_core::{Envelope, OutboundMessage, Payload};
+use orka_experience::ExperienceService;
 use orka_gateway::Gateway;
 use orka_llm::SwappableLlmClient;
 use orka_queue::create_queue;
@@ -150,6 +151,103 @@ fn default_env_var(provider: &str) -> &str {
     }
 }
 
+/// Create the experience / self-learning service from config.
+///
+/// Reuses the knowledge config for embedding provider and vector store settings.
+/// Returns `None` if experience is disabled or initialization fails.
+fn create_experience_service(
+    config: &OrkaConfig,
+) -> anyhow::Result<Option<Arc<ExperienceService>>> {
+    use orka_knowledge::embeddings::EmbeddingProvider;
+    use orka_knowledge::vector_store::VectorStore;
+
+    // We need an LLM client for reflection — create a lightweight one from the first provider
+    let first_provider = config
+        .llm
+        .providers
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("experience requires at least one LLM provider"))?;
+
+    let api_key = first_provider
+        .api_key
+        .clone()
+        .or_else(|| {
+            first_provider
+                .api_key_env
+                .as_ref()
+                .and_then(|env| std::env::var(env).ok())
+        })
+        .or_else(|| std::env::var(default_env_var(&first_provider.provider)).ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "experience reflection requires an API key for provider '{}'",
+                first_provider.name
+            )
+        })?;
+
+    let model = config
+        .experience
+        .reflection_model
+        .clone()
+        .unwrap_or_else(|| first_provider.model.clone());
+
+    let reflection_llm: Arc<dyn orka_llm::LlmClient> = match first_provider.provider.as_str() {
+        "openai" => Arc::new(orka_llm::OpenAiClient::new(api_key, model)),
+        "ollama" => Arc::new(orka_llm::OllamaClient::new(model)),
+        _ => Arc::new(orka_llm::AnthropicClient::with_options(
+            api_key,
+            model,
+            first_provider
+                .timeout_secs
+                .unwrap_or(config.llm.timeout_secs),
+            first_provider.max_tokens.unwrap_or(config.llm.max_tokens),
+            first_provider.max_retries.unwrap_or(config.llm.max_retries),
+            config.llm.api_version.clone(),
+            first_provider.base_url.clone(),
+        )),
+    };
+
+    // Create embedding provider (reusing knowledge config)
+    let embedding_provider: Arc<dyn EmbeddingProvider> =
+        match config.knowledge.embeddings.provider.as_str() {
+            "openai" => {
+                let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+                    anyhow::anyhow!("OPENAI_API_KEY required for openai embedding provider")
+                })?;
+                Arc::new(
+                    orka_knowledge::embeddings::openai::OpenAiEmbeddingProvider::new(
+                        api_key,
+                        config.knowledge.embeddings.model.clone(),
+                        config.knowledge.embeddings.dimensions,
+                    ),
+                )
+            }
+            _ => Arc::new(
+                orka_knowledge::embeddings::local::LocalEmbeddingProvider::new(
+                    &config.knowledge.embeddings.model,
+                    config.knowledge.embeddings.dimensions,
+                )
+                .map_err(|e| anyhow::anyhow!("failed to create local embedding provider: {e}"))?,
+            ),
+        };
+
+    // Create vector store
+    let vector_store: Arc<dyn VectorStore> = Arc::new(
+        orka_knowledge::vector_store::qdrant::QdrantStore::new(&config.knowledge.vector_store.url)
+            .map_err(|e| anyhow::anyhow!("failed to create Qdrant store: {e}"))?,
+    );
+
+    let service = orka_experience::create_experience_service(
+        &config.experience,
+        embedding_provider,
+        vector_store,
+        reflection_llm,
+    )
+    .map_err(|e| anyhow::anyhow!("failed to create experience service: {e}"))?;
+
+    Ok(service)
+}
+
 /// Resolve an API key for a provider using a 4-level fallback:
 ///   1. `api_key` in config (direct)
 ///   2. `api_key_env` (explicit env var name from config)
@@ -281,34 +379,41 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // 4d. MCP servers
-    for server_config in &config.mcp.servers {
-        let mcp_config = orka_mcp::McpServerConfig {
-            name: server_config.name.clone(),
-            command: server_config.command.clone(),
-            args: server_config.args.clone(),
-            env: server_config.env.clone(),
-        };
-        match orka_mcp::McpClient::connect(mcp_config).await {
-            Ok(client) => {
+    // 4d. MCP servers (connect in parallel)
+    {
+        let mut mcp_set = tokio::task::JoinSet::new();
+        for server_config in &config.mcp.servers {
+            let mcp_config = orka_mcp::McpServerConfig {
+                name: server_config.name.clone(),
+                command: server_config.command.clone(),
+                args: server_config.args.clone(),
+                env: server_config.env.clone(),
+            };
+            let server_name = server_config.name.clone();
+            mcp_set.spawn(async move {
+                let client = orka_mcp::McpClient::connect(mcp_config).await?;
                 let client = Arc::new(client);
-                match client.list_tools().await {
-                    Ok(tools) => {
-                        for tool in tools {
-                            let bridge = orka_mcp::McpToolBridge::new(
-                                client.clone(),
-                                tool.name.clone(),
-                                tool.description.unwrap_or_default(),
-                                tool.input_schema,
-                            );
-                            skills.register(Arc::new(bridge));
-                            info!(tool = %tool.name, server = %server_config.name, "registered MCP tool");
-                        }
+                let tools = client.list_tools().await?;
+                Ok::<_, orka_core::Error>((server_name, client, tools))
+            });
+        }
+        while let Some(result) = mcp_set.join_next().await {
+            match result {
+                Ok(Ok((server_name, client, tools))) => {
+                    for tool in tools {
+                        let bridge = orka_mcp::McpToolBridge::new(
+                            client.clone(),
+                            tool.name.clone(),
+                            tool.description.unwrap_or_default(),
+                            tool.input_schema,
+                        );
+                        skills.register(Arc::new(bridge));
+                        info!(tool = %tool.name, server = %server_name, "registered MCP tool");
                     }
-                    Err(e) => warn!(%e, server = %server_config.name, "failed to list MCP tools"),
                 }
+                Ok(Err(e)) => warn!(%e, "failed to connect/list MCP server tools"),
+                Err(e) => warn!(%e, "MCP connection task panicked"),
             }
-            Err(e) => warn!(%e, server = %server_config.name, "failed to connect to MCP server"),
         }
     }
 
@@ -424,6 +529,7 @@ async fn main() -> anyhow::Result<()> {
                             pc.max_tokens.unwrap_or(8192),
                             pc.max_retries.unwrap_or(2),
                             config.llm.api_version.clone(),
+                            pc.base_url.clone(),
                         )) as Arc<dyn orka_llm::LlmClient>
                     })
                 }
@@ -527,11 +633,25 @@ async fn main() -> anyhow::Result<()> {
             .clone()
             .unwrap_or_else(|| config.workspaces[0].name.clone());
         let mut reg = WorkspaceRegistry::new(default_name);
-        for entry in &config.workspaces {
+        // Load workspaces in parallel
+        let mut load_set = tokio::task::JoinSet::new();
+        let entries = config.workspaces.to_vec();
+        for entry in &entries {
             let loader = Arc::new(WorkspaceLoader::new(&entry.dir));
-            loader.load_all().await?;
-            info!(workspace = %entry.name, dir = %entry.dir, "workspace loaded");
-            reg.register(entry.name.clone(), loader);
+            let name = entry.name.clone();
+            let dir = entry.dir.clone();
+            load_set.spawn({
+                let loader = loader.clone();
+                async move {
+                    loader.load_all().await?;
+                    Ok::<_, anyhow::Error>((name, dir, loader))
+                }
+            });
+        }
+        while let Some(result) = load_set.join_next().await {
+            let (name, dir, loader) = result.context("workspace load task panicked")??;
+            info!(workspace = %name, dir = %dir, "workspace loaded");
+            reg.register(name, loader);
         }
         reg
     };
@@ -562,12 +682,9 @@ async fn main() -> anyhow::Result<()> {
                 tokio::select! {
                     _ = hb_shutdown.cancelled() => break,
                     _ = interval.tick() => {
-                        event_sink_hb.emit(orka_core::DomainEvent {
-                            id: orka_core::EventId::new(),
-                            timestamp: chrono::Utc::now(),
-                            kind: orka_core::DomainEventKind::Heartbeat,
-                            metadata: Default::default(),
-                        }).await;
+                        event_sink_hb.emit(orka_core::DomainEvent::new(
+                            orka_core::DomainEventKind::Heartbeat,
+                        )).await;
                     }
                 }
             }
@@ -615,114 +732,149 @@ async fn main() -> anyhow::Result<()> {
     adapters.push(custom_adapter);
     info!("custom adapter started");
 
-    // 6b. Telegram adapter (optional)
-    if let Some(ref tg_config) = config.adapters.telegram {
-        let secret_name = tg_config
-            .bot_token_secret
-            .as_deref()
-            .unwrap_or("telegram_bot_token");
-        match secrets.get_secret(secret_name).await {
-            Ok(secret) => {
-                let token = secret.expose_str().unwrap_or("").to_string();
-                if !token.is_empty() {
+    // 6b–6e. Optional adapters (started in parallel)
+    let tg_fut = {
+        let secrets = secrets.clone();
+        let bus = bus.clone();
+        let shutdown = shutdown.clone();
+        let tg_config = config.adapters.telegram.clone();
+        async move {
+            let tg_config = tg_config.as_ref()?;
+            let secret_name = tg_config
+                .bot_token_secret
+                .as_deref()
+                .unwrap_or("telegram_bot_token");
+            match secrets.get_secret(secret_name).await {
+                Ok(secret) => {
+                    let token = secret.expose_str().unwrap_or("").to_string();
+                    if token.is_empty() {
+                        warn!("telegram bot token is empty, adapter disabled");
+                        return None;
+                    }
                     let tg: Arc<dyn ChannelAdapter> =
                         Arc::new(orka_adapter_telegram::TelegramAdapter::new(token));
-                    start_adapter(
-                        tg.clone(),
-                        bus.clone(),
-                        shutdown.clone(),
-                        tg_config.workspace.clone(),
-                    )
-                    .await?;
-                    adapters.push(tg);
+                    if let Err(e) =
+                        start_adapter(tg.clone(), bus, shutdown, tg_config.workspace.clone()).await
+                    {
+                        warn!(%e, "failed to start telegram adapter");
+                        return None;
+                    }
                     info!("telegram adapter started");
-                } else {
-                    warn!("telegram bot token is empty, adapter disabled");
+                    Some(tg)
+                }
+                Err(e) => {
+                    warn!(%e, "failed to load telegram bot token, adapter disabled");
+                    None
                 }
             }
-            Err(e) => warn!(%e, "failed to load telegram bot token, adapter disabled"),
         }
-    }
+    };
 
-    // 6c. Discord adapter (optional)
-    if let Some(ref dc_config) = config.adapters.discord {
-        let secret_name = dc_config
-            .bot_token_secret
-            .as_deref()
-            .unwrap_or("discord_bot_token");
-        match secrets.get_secret(secret_name).await {
-            Ok(secret) => {
-                let token = secret.expose_str().unwrap_or("").to_string();
-                if !token.is_empty() {
+    let dc_fut = {
+        let secrets = secrets.clone();
+        let bus = bus.clone();
+        let shutdown = shutdown.clone();
+        let dc_config = config.adapters.discord.clone();
+        async move {
+            let dc_config = dc_config.as_ref()?;
+            let secret_name = dc_config
+                .bot_token_secret
+                .as_deref()
+                .unwrap_or("discord_bot_token");
+            match secrets.get_secret(secret_name).await {
+                Ok(secret) => {
+                    let token = secret.expose_str().unwrap_or("").to_string();
+                    if token.is_empty() {
+                        warn!("discord bot token is empty, adapter disabled");
+                        return None;
+                    }
                     let dc: Arc<dyn ChannelAdapter> =
                         Arc::new(orka_adapter_discord::DiscordAdapter::new(token));
-                    start_adapter(
-                        dc.clone(),
-                        bus.clone(),
-                        shutdown.clone(),
-                        dc_config.workspace.clone(),
-                    )
-                    .await?;
-                    adapters.push(dc);
+                    if let Err(e) =
+                        start_adapter(dc.clone(), bus, shutdown, dc_config.workspace.clone()).await
+                    {
+                        warn!(%e, "failed to start discord adapter");
+                        return None;
+                    }
                     info!("discord adapter started");
-                } else {
-                    warn!("discord bot token is empty, adapter disabled");
+                    Some(dc)
+                }
+                Err(e) => {
+                    warn!(%e, "failed to load discord bot token, adapter disabled");
+                    None
                 }
             }
-            Err(e) => warn!(%e, "failed to load discord bot token, adapter disabled"),
         }
-    }
+    };
 
-    // 6d. Slack adapter (optional)
-    if let Some(ref slack_config) = config.adapters.slack {
-        let secret_name = slack_config
-            .bot_token_secret
-            .as_deref()
-            .unwrap_or("slack_bot_token");
-        match secrets.get_secret(secret_name).await {
-            Ok(secret) => {
-                let token = secret.expose_str().unwrap_or("").to_string();
-                if !token.is_empty() {
+    let slack_fut = {
+        let secrets = secrets.clone();
+        let bus = bus.clone();
+        let shutdown = shutdown.clone();
+        let slack_config = config.adapters.slack.clone();
+        async move {
+            let slack_config = slack_config.as_ref()?;
+            let secret_name = slack_config
+                .bot_token_secret
+                .as_deref()
+                .unwrap_or("slack_bot_token");
+            match secrets.get_secret(secret_name).await {
+                Ok(secret) => {
+                    let token = secret.expose_str().unwrap_or("").to_string();
+                    if token.is_empty() {
+                        warn!("slack bot token is empty, adapter disabled");
+                        return None;
+                    }
                     let slack: Arc<dyn ChannelAdapter> = Arc::new(
                         orka_adapter_slack::SlackAdapter::new(token, slack_config.listen_port),
                     );
-                    start_adapter(
-                        slack.clone(),
-                        bus.clone(),
-                        shutdown.clone(),
-                        slack_config.workspace.clone(),
-                    )
-                    .await?;
-                    adapters.push(slack);
+                    if let Err(e) =
+                        start_adapter(slack.clone(), bus, shutdown, slack_config.workspace.clone())
+                            .await
+                    {
+                        warn!(%e, "failed to start slack adapter");
+                        return None;
+                    }
                     info!(port = slack_config.listen_port, "slack adapter started");
-                } else {
-                    warn!("slack bot token is empty, adapter disabled");
+                    Some(slack)
+                }
+                Err(e) => {
+                    warn!(%e, "failed to load slack bot token, adapter disabled");
+                    None
                 }
             }
-            Err(e) => warn!(%e, "failed to load slack bot token, adapter disabled"),
         }
-    }
+    };
 
-    // 6e. WhatsApp adapter (optional)
-    if let Some(ref wa_config) = config.adapters.whatsapp {
-        let access_secret = wa_config
-            .access_token_secret
-            .as_deref()
-            .unwrap_or("whatsapp_access_token");
-        let verify_secret = wa_config
-            .verify_token_secret
-            .as_deref()
-            .unwrap_or("whatsapp_verify_token");
-        let phone_id = wa_config.phone_number_id.clone().unwrap_or_default();
-
-        match (
-            secrets.get_secret(access_secret).await,
-            secrets.get_secret(verify_secret).await,
-        ) {
-            (Ok(access), Ok(verify)) => {
-                let access_token = access.expose_str().unwrap_or("").to_string();
-                let verify_token = verify.expose_str().unwrap_or("").to_string();
-                if !access_token.is_empty() && !phone_id.is_empty() {
+    let wa_fut = {
+        let secrets = secrets.clone();
+        let bus = bus.clone();
+        let shutdown = shutdown.clone();
+        let wa_config = config.adapters.whatsapp.clone();
+        async move {
+            let wa_config = wa_config.as_ref()?;
+            let access_secret = wa_config
+                .access_token_secret
+                .as_deref()
+                .unwrap_or("whatsapp_access_token");
+            let verify_secret = wa_config
+                .verify_token_secret
+                .as_deref()
+                .unwrap_or("whatsapp_verify_token");
+            let phone_id = wa_config.phone_number_id.clone().unwrap_or_default();
+            match (
+                secrets.get_secret(access_secret).await,
+                secrets.get_secret(verify_secret).await,
+            ) {
+                (Ok(access), Ok(verify)) => {
+                    let access_token = access.expose_str().unwrap_or("").to_string();
+                    let verify_token = verify.expose_str().unwrap_or("").to_string();
+                    if access_token.is_empty() || phone_id.is_empty() {
+                        warn!(
+                            "whatsapp access token or phone_number_id is empty, adapter disabled"
+                        );
+                        return None;
+                    }
                     let wa: Arc<dyn ChannelAdapter> =
                         Arc::new(orka_adapter_whatsapp::WhatsAppAdapter::new(
                             access_token,
@@ -730,22 +882,28 @@ async fn main() -> anyhow::Result<()> {
                             verify_token,
                             wa_config.listen_port,
                         ));
-                    start_adapter(
-                        wa.clone(),
-                        bus.clone(),
-                        shutdown.clone(),
-                        wa_config.workspace.clone(),
-                    )
-                    .await?;
-                    adapters.push(wa);
+                    if let Err(e) =
+                        start_adapter(wa.clone(), bus, shutdown, wa_config.workspace.clone()).await
+                    {
+                        warn!(%e, "failed to start whatsapp adapter");
+                        return None;
+                    }
                     info!(port = wa_config.listen_port, "whatsapp adapter started");
-                } else {
-                    warn!("whatsapp access token or phone_number_id is empty, adapter disabled");
+                    Some(wa)
+                }
+                _ => {
+                    warn!("failed to load whatsapp secrets, adapter disabled");
+                    None
                 }
             }
-            _ => warn!("failed to load whatsapp secrets, adapter disabled"),
         }
-    }
+    };
+
+    let (tg, dc, slack, wa) = tokio::join!(tg_fut, dc_fut, slack_fut, wa_fut);
+    adapters.extend(tg);
+    adapters.extend(dc);
+    adapters.extend(slack);
+    adapters.extend(wa);
 
     // 6f. Health + API endpoints on server port
     let start_time = std::time::Instant::now();
@@ -1043,6 +1201,19 @@ async fn main() -> anyhow::Result<()> {
     let disabled_tools: std::collections::HashSet<String> =
         config.tools.disabled.iter().cloned().collect();
 
+    // Experience / self-learning service
+    let experience_service = if config.experience.enabled {
+        match create_experience_service(&config) {
+            Ok(svc) => svc,
+            Err(e) => {
+                warn!(%e, "failed to initialize experience service");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let handler: Arc<dyn orka_worker::AgentHandler> = Arc::new(WorkspaceHandler::new(
         workspace_registry.clone(),
         skills.clone(),
@@ -1058,6 +1229,7 @@ async fn main() -> anyhow::Result<()> {
         guardrail,
         commands,
         stream_registry.clone(),
+        experience_service.clone(),
     ));
     let worker_pool = WorkerPool::new(
         queue.clone(),
@@ -1092,6 +1264,50 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // 8c. Distillation loop (if experience enabled and interval > 0)
+    let _distillation_handle = if let Some(ref exp) = experience_service {
+        let interval_secs = config.experience.distillation_interval_secs;
+        if interval_secs > 0 {
+            let exp = exp.clone();
+            let workspace_names: Vec<String> =
+                workspace_registry.list_names().into_iter().map(|s| s.to_string()).collect();
+            let distill_event_sink = event_sink.clone();
+            let distill_cancel = shutdown.clone();
+            Some(tokio::spawn(async move {
+                let mut interval =
+                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                // Skip the immediate first tick so distillation runs after some data is collected
+                interval.tick().await;
+                loop {
+                    tokio::select! {
+                        _ = distill_cancel.cancelled() => break,
+                        _ = interval.tick() => {
+                            for ws in &workspace_names {
+                                match exp.distill(ws).await {
+                                    Ok(count) if count > 0 => {
+                                        info!(workspace = %ws, principles_created = count, "distillation completed");
+                                        distill_event_sink.emit(orka_core::DomainEvent::new(
+                                            orka_core::DomainEventKind::DistillationCompleted {
+                                                workspace: ws.clone(),
+                                                principles_created: count,
+                                            },
+                                        )).await;
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => warn!(workspace = %ws, %e, "distillation failed"),
+                                }
+                            }
+                        }
+                    }
+                }
+            }))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // 9. Outbound bridge: bus "outbound" → route to correct adapter by channel
     let mut outbound_rx = bus.subscribe("outbound").await?;
     let adapters_out = adapters.clone();
@@ -1107,13 +1323,13 @@ async fn main() -> anyhow::Result<()> {
                                 Payload::Text(t) => t.clone(),
                                 _ => "[non-text]".into(),
                             };
-                            let outbound = OutboundMessage {
-                                channel: envelope.channel.clone(),
-                                session_id: envelope.session_id.clone(),
-                                payload: Payload::Text(text),
-                                reply_to: None,
-                                metadata: envelope.metadata.clone(),
-                            };
+                            let mut outbound = OutboundMessage::text(
+                                envelope.channel.clone(),
+                                envelope.session_id,
+                                text,
+                                None,
+                            );
+                            outbound.metadata = envelope.metadata.clone();
                             // Route to the adapter whose channel_id matches
                             let target = adapters_out.iter().find(|a| a.channel_id() == envelope.channel.as_str());
                             if let Some(adapter) = target {

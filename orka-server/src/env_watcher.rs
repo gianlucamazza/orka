@@ -105,6 +105,7 @@ impl EnvWatcher {
                             pc.max_tokens.unwrap_or(8192),
                             pc.max_retries.unwrap_or(2),
                             api_version.clone(),
+                            pc.base_url.clone(),
                         )),
                         "openai" => {
                             let url = pc

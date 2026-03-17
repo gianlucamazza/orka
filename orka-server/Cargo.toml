@@ -37,6 +37,7 @@ orka-a2a.workspace = true
 orka-router.workspace = true
 orka-http.workspace = true
 orka-knowledge.workspace = true
+orka-experience.workspace = true
 orka-scheduler.workspace = true
 axum.workspace = true
 tower.workspace = true

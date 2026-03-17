@@ -65,7 +65,7 @@ async fn full_message_flow_echo() {
 
     // 6. Simulate adapter: publish inbound message
     let session_id = SessionId::new();
-    let inbound = Envelope::text("custom", session_id.clone(), "hello orka");
+    let inbound = Envelope::text("custom", session_id, "hello orka");
     bus.publish("inbound", &inbound).await.unwrap();
 
     // 7. Wait for outbound message (the echo reply)
@@ -156,7 +156,7 @@ async fn rate_limited_messages_are_dropped() {
 
     // Send 4 messages — only 2 should be enqueued
     for i in 0..4 {
-        let msg = Envelope::text("custom", session_id.clone(), format!("msg {i}"));
+        let msg = Envelope::text("custom", session_id, format!("msg {i}"));
         bus.publish("inbound", &msg).await.unwrap();
     }
 
