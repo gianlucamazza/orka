@@ -46,7 +46,7 @@ impl SkillRegistry {
     }
 
     /// Invoke a skill, checking that the caller has the required scope.
-    /// Scope format: "skill:<name>" or "skill:*".
+    /// Scope format: `skill:<name>` or `skill:*`.
     pub async fn invoke_with_scopes(
         &self,
         name: &str,

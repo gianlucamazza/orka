@@ -97,15 +97,20 @@ pub trait PriorityQueue: Send + Sync + 'static {
 /// Fire-and-forget event sink for domain-level observability.
 #[async_trait]
 pub trait EventSink: Send + Sync + 'static {
+    /// Emit a domain event for observability.
     async fn emit(&self, event: DomainEvent);
 }
 
 /// A named, schema-described skill that an agent can invoke.
 #[async_trait]
 pub trait Skill: Send + Sync + 'static {
+    /// The unique name of this skill (e.g. "web_search").
     fn name(&self) -> &str;
+    /// A human-readable description for LLM tool-use prompts.
     fn description(&self) -> &str;
+    /// JSON Schema describing the skill's input parameters.
     fn schema(&self) -> SkillSchema;
+    /// Execute the skill with the given input.
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput>;
 
     /// Called when the skill is registered. Default: no-op.

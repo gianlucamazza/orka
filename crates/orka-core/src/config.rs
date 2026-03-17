@@ -717,7 +717,7 @@ pub struct RedactPattern {
     pub replacement: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct A2aConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -820,17 +820,8 @@ fn default_os_sensitive_env_patterns() -> Vec<String> {
     ]
 }
 
-impl Default for A2aConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            url: None,
-        }
-    }
-}
-
 /// Knowledge & RAG configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct KnowledgeConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -840,17 +831,6 @@ pub struct KnowledgeConfig {
     pub embeddings: EmbeddingsConfig,
     #[serde(default)]
     pub chunking: ChunkingConfig,
-}
-
-impl Default for KnowledgeConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            vector_store: VectorStoreConfig::default(),
-            embeddings: EmbeddingsConfig::default(),
-            chunking: ChunkingConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

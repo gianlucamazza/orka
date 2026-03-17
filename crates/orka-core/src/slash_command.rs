@@ -1,8 +1,11 @@
 /// Parsed representation of a slash command like `/skill echo greeting=hello`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedCommand {
+    /// The command name (e.g. "skill").
     pub name: String,
+    /// Positional and key=value arguments after the command name.
     pub args: Vec<String>,
+    /// The original trimmed input string.
     pub raw: String,
 }
 

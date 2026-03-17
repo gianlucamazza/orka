@@ -1,7 +1,11 @@
 use thiserror::Error;
 
 /// Unified error type for the Orka platform.
+///
+/// Each variant corresponds to a subsystem; structured variants carry
+/// a boxed source error for chaining and a human-readable context string.
 #[derive(Debug, Error)]
+#[allow(missing_docs)]
 pub enum Error {
     #[error("configuration error: {0}")]
     Config(String),
@@ -99,7 +103,9 @@ impl std::fmt::Display for SimpleError {
 
 impl std::error::Error for SimpleError {}
 
+#[allow(missing_docs)]
 impl Error {
+    /// Create a bus error from a message string.
     pub fn bus(msg: impl Into<String>) -> Self {
         let s = msg.into();
         Self::Bus {
@@ -141,4 +147,5 @@ impl Error {
     }
 }
 
+/// Convenience alias used throughout the Orka crate ecosystem.
 pub type Result<T> = std::result::Result<T, Error>;
