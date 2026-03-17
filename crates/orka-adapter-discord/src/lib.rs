@@ -311,3 +311,69 @@ impl ChannelAdapter for DiscordAdapter {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orka_core::types::{OutboundMessage, Payload, SessionId};
+
+    #[test]
+    fn channel_id_returns_discord() {
+        let adapter = DiscordAdapter::new("test-token".into());
+        assert_eq!(adapter.channel_id(), "discord");
+    }
+
+    #[test]
+    fn api_url_constructs_correct_url() {
+        let url = DiscordAdapter::api_url("/gateway/bot");
+        assert_eq!(url, "https://discord.com/api/v10/gateway/bot");
+
+        let url = DiscordAdapter::api_url("/channels/123/messages");
+        assert_eq!(url, "https://discord.com/api/v10/channels/123/messages");
+    }
+
+    #[tokio::test]
+    async fn send_errors_when_discord_channel_id_missing() {
+        let adapter = DiscordAdapter::new("test-token".into());
+        let msg = OutboundMessage {
+            channel: "discord".into(),
+            session_id: SessionId::new(),
+            payload: Payload::Text("hello".into()),
+            reply_to: None,
+            metadata: HashMap::new(),
+        };
+        let err = adapter.send(msg).await.unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("discord_channel_id"),
+            "expected error about missing discord_channel_id, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn deserialize_gateway_response() {
+        let json = r#"{"url": "wss://gateway.discord.gg"}"#;
+        let resp: GatewayResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.url, "wss://gateway.discord.gg");
+    }
+
+    #[test]
+    fn deserialize_gateway_event() {
+        let json = r#"{"_op": 10, "t": "READY", "s": 1, "d": {"heartbeat_interval": 41250}}"#;
+        let event: GatewayEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event._op, 10);
+        assert_eq!(event.t.as_deref(), Some("READY"));
+        assert_eq!(event.s, Some(1));
+        assert!(event.d.is_some());
+    }
+
+    #[test]
+    fn deserialize_gateway_event_minimal() {
+        let json = r#"{"_op": 0}"#;
+        let event: GatewayEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event._op, 0);
+        assert!(event.t.is_none());
+        assert!(event.s.is_none());
+        assert!(event.d.is_none());
+    }
+}

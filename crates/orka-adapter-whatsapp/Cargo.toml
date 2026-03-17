@@ -16,5 +16,5 @@ tracing.workspace = true
 axum.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
 serde_json.workspace = true

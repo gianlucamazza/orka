@@ -109,3 +109,123 @@ pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orka_core::config::*;
+    use orka_core::types::{EventId, MessageId, SessionId};
+    use std::collections::HashMap;
+
+    fn test_config() -> OrkaConfig {
+        OrkaConfig {
+            server: ServerConfig::default(),
+            bus: BusConfig::default(),
+            redis: RedisConfig::default(),
+            logging: LoggingConfig::default(),
+            workspace_dir: ".".into(),
+            adapters: AdapterConfig::default(),
+            worker: WorkerConfig::default(),
+            memory: MemoryConfig::default(),
+            secrets: SecretConfig::default(),
+            auth: AuthConfig::default(),
+            sandbox: SandboxConfig::default(),
+            plugins: PluginConfig::default(),
+            session: SessionConfig::default(),
+            queue: QueueConfig::default(),
+            llm: LlmConfig::default(),
+            observe: ObserveConfig::default(),
+            gateway: GatewayConfig::default(),
+            mcp: McpConfig::default(),
+            guardrails: GuardrailsConfig::default(),
+            web: WebConfig::default(),
+            os: OsConfig::default(),
+            a2a: A2aConfig::default(),
+            knowledge: KnowledgeConfig::default(),
+            scheduler: SchedulerConfig::default(),
+            http: HttpClientConfig::default(),
+        }
+    }
+
+    fn make_event(kind: DomainEventKind) -> DomainEvent {
+        DomainEvent {
+            id: EventId::new(),
+            timestamp: chrono::Utc::now(),
+            kind,
+            metadata: HashMap::new(),
+        }
+    }
+
+    fn all_event_kinds() -> Vec<DomainEventKind> {
+        let mid = MessageId::new();
+        let sid = SessionId::new();
+        vec![
+            DomainEventKind::MessageReceived {
+                message_id: mid.clone(),
+                channel: "test".into(),
+                session_id: sid.clone(),
+            },
+            DomainEventKind::SessionCreated {
+                session_id: sid.clone(),
+                channel: "test".into(),
+            },
+            DomainEventKind::HandlerInvoked {
+                message_id: mid.clone(),
+                session_id: sid.clone(),
+            },
+            DomainEventKind::HandlerCompleted {
+                message_id: mid.clone(),
+                session_id: sid.clone(),
+                duration_ms: 42,
+                reply_count: 1,
+            },
+            DomainEventKind::SkillInvoked {
+                skill_name: "echo".into(),
+                message_id: mid.clone(),
+            },
+            DomainEventKind::SkillCompleted {
+                skill_name: "echo".into(),
+                message_id: mid.clone(),
+                duration_ms: 10,
+                success: true,
+            },
+            DomainEventKind::LlmCompleted {
+                message_id: mid.clone(),
+                model: "gpt-test".into(),
+                input_tokens: 100,
+                output_tokens: 50,
+                duration_ms: 200,
+            },
+            DomainEventKind::ErrorOccurred {
+                source: "test".into(),
+                message: "boom".into(),
+            },
+            DomainEventKind::Heartbeat,
+        ]
+    }
+
+    #[tokio::test]
+    async fn log_event_sink_emits_all_variants_without_panic() {
+        let sink = LogEventSink;
+        for kind in all_event_kinds() {
+            sink.emit(make_event(kind)).await;
+        }
+    }
+
+    #[test]
+    fn create_event_sink_returns_log_for_unknown_backend() {
+        let mut config = test_config();
+        config.observe.backend = "unknown".into();
+        // Should return a sink (the log fallback) without error.
+        let _sink = create_event_sink(&config);
+    }
+
+    #[test]
+    fn create_event_sink_falls_back_to_log_for_invalid_redis_url() {
+        let mut config = test_config();
+        config.observe.backend = "redis".into();
+        config.redis.url = "not-a-valid-url".into();
+        // Should fall back to log sink instead of panicking.
+        let _sink = create_event_sink(&config);
+    }
+}

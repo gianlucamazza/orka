@@ -252,3 +252,106 @@ impl ChannelAdapter for SlackAdapter {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orka_core::types::Payload;
+    use serde_json::json;
+
+    fn make_adapter() -> SlackAdapter {
+        SlackAdapter::new("xoxb-test-token".into(), 3000)
+    }
+
+    #[test]
+    fn channel_id_returns_slack() {
+        let adapter = make_adapter();
+        assert_eq!(adapter.channel_id(), "slack");
+    }
+
+    #[tokio::test]
+    async fn send_errors_when_slack_channel_missing() {
+        let adapter = make_adapter();
+        let msg = OutboundMessage {
+            channel: "slack".into(),
+            session_id: SessionId::new(),
+            payload: Payload::Text("hello".into()),
+            reply_to: None,
+            metadata: HashMap::new(),
+        };
+        let err = adapter.send(msg).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("slack_channel"),
+            "expected error about missing slack_channel, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn deserialize_url_verification() {
+        let raw = json!({
+            "type": "url_verification",
+            "challenge": "abc123",
+        });
+        let payload: SlackEventPayload = serde_json::from_value(raw).unwrap();
+        assert_eq!(payload.event_type, "url_verification");
+        assert_eq!(payload.challenge.as_deref(), Some("abc123"));
+        assert!(payload.event.is_none());
+    }
+
+    #[test]
+    fn deserialize_event_callback_message() {
+        let raw = json!({
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "channel": "C123",
+                "text": "hello bot",
+                "user": "U456",
+            }
+        });
+        let payload: SlackEventPayload = serde_json::from_value(raw).unwrap();
+        assert_eq!(payload.event_type, "event_callback");
+        assert!(payload.challenge.is_none());
+
+        let event = payload.event.unwrap();
+        assert_eq!(event.event_type, "message");
+        assert_eq!(event.channel.as_deref(), Some("C123"));
+        assert_eq!(event.text.as_deref(), Some("hello bot"));
+        assert_eq!(event.user.as_deref(), Some("U456"));
+        assert!(event.bot_id.is_none());
+    }
+
+    #[test]
+    fn deserialize_event_callback_with_bot_id() {
+        let raw = json!({
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "channel": "C123",
+                "text": "bot echo",
+                "bot_id": "B789",
+            }
+        });
+        let payload: SlackEventPayload = serde_json::from_value(raw).unwrap();
+        let event = payload.event.unwrap();
+        assert_eq!(event.bot_id.as_deref(), Some("B789"));
+    }
+
+    #[test]
+    fn deserialize_event_with_channel_type() {
+        let raw = json!({
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "channel": "D999",
+                "text": "dm text",
+                "user": "U111",
+                "channel_type": "im",
+            }
+        });
+        let payload: SlackEventPayload = serde_json::from_value(raw).unwrap();
+        let event = payload.event.unwrap();
+        assert_eq!(event.channel_type.as_deref(), Some("im"));
+    }
+}

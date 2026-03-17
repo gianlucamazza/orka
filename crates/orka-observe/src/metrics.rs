@@ -76,3 +76,114 @@ pub fn record_event(event: &DomainEvent) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orka_core::types::{EventId, MessageId, SessionId};
+    use std::collections::HashMap;
+
+    fn make_event(kind: DomainEventKind) -> DomainEvent {
+        DomainEvent {
+            id: EventId::new(),
+            timestamp: chrono::Utc::now(),
+            kind,
+            metadata: HashMap::new(),
+        }
+    }
+
+    fn all_event_kinds() -> Vec<DomainEventKind> {
+        let mid = MessageId::new();
+        let sid = SessionId::new();
+        vec![
+            DomainEventKind::MessageReceived {
+                message_id: mid.clone(),
+                channel: "telegram".into(),
+                session_id: sid.clone(),
+            },
+            DomainEventKind::SessionCreated {
+                session_id: sid.clone(),
+                channel: "discord".into(),
+            },
+            DomainEventKind::HandlerInvoked {
+                message_id: mid.clone(),
+                session_id: sid.clone(),
+            },
+            DomainEventKind::HandlerCompleted {
+                message_id: mid.clone(),
+                session_id: sid.clone(),
+                duration_ms: 150,
+                reply_count: 2,
+            },
+            DomainEventKind::SkillInvoked {
+                skill_name: "weather".into(),
+                message_id: mid.clone(),
+            },
+            DomainEventKind::SkillCompleted {
+                skill_name: "weather".into(),
+                message_id: mid.clone(),
+                duration_ms: 80,
+                success: true,
+            },
+            DomainEventKind::SkillCompleted {
+                skill_name: "weather".into(),
+                message_id: mid.clone(),
+                duration_ms: 30,
+                success: false,
+            },
+            DomainEventKind::LlmCompleted {
+                message_id: mid.clone(),
+                model: "gpt-4".into(),
+                input_tokens: 500,
+                output_tokens: 200,
+                duration_ms: 1200,
+            },
+            DomainEventKind::ErrorOccurred {
+                source: "adapter".into(),
+                message: "connection lost".into(),
+            },
+            DomainEventKind::Heartbeat,
+        ]
+    }
+
+    #[test]
+    fn record_event_does_not_panic_for_all_variants() {
+        // The metrics crate uses a NoopRecorder by default when no recorder
+        // is installed, so all counter/histogram calls are safe no-ops.
+        for kind in all_event_kinds() {
+            record_event(&make_event(kind));
+        }
+    }
+
+    #[test]
+    fn record_event_handles_zero_duration_and_tokens() {
+        let mid = MessageId::new();
+        let sid = SessionId::new();
+
+        let edge_cases = vec![
+            DomainEventKind::HandlerCompleted {
+                message_id: mid.clone(),
+                session_id: sid.clone(),
+                duration_ms: 0,
+                reply_count: 0,
+            },
+            DomainEventKind::SkillCompleted {
+                skill_name: "test".into(),
+                message_id: mid.clone(),
+                duration_ms: 0,
+                success: true,
+            },
+            DomainEventKind::LlmCompleted {
+                message_id: mid.clone(),
+                model: "m".into(),
+                input_tokens: 0,
+                output_tokens: 0,
+                duration_ms: 0,
+            },
+        ];
+
+        for kind in edge_cases {
+            record_event(&make_event(kind));
+        }
+    }
+}

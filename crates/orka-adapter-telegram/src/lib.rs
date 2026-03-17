@@ -239,3 +239,118 @@ impl ChannelAdapter for TelegramAdapter {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_adapter() -> TelegramAdapter {
+        TelegramAdapter::new("TEST_TOKEN".into())
+    }
+
+    #[test]
+    fn channel_id_returns_telegram() {
+        let adapter = make_adapter();
+        assert_eq!(adapter.channel_id(), "telegram");
+    }
+
+    #[test]
+    fn api_url_constructs_correct_url() {
+        let adapter = make_adapter();
+        assert_eq!(
+            adapter.api_url("sendMessage"),
+            "https://api.telegram.org/botTEST_TOKEN/sendMessage"
+        );
+        assert_eq!(
+            adapter.api_url("getUpdates"),
+            "https://api.telegram.org/botTEST_TOKEN/getUpdates"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_errors_when_chat_id_missing() {
+        let adapter = make_adapter();
+        let msg = OutboundMessage {
+            channel: "telegram".into(),
+            session_id: SessionId::new(),
+            payload: Payload::Text("hello".into()),
+            reply_to: None,
+            metadata: HashMap::new(),
+        };
+        let err = adapter.send(msg).await.unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("telegram_chat_id"),
+            "expected error about missing telegram_chat_id, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn deserialize_telegram_response_ok() {
+        let data = json!({
+            "ok": true,
+            "result": [{"update_id": 1, "message": null}],
+            "description": null
+        });
+        let resp: TelegramResponse<Vec<Update>> = serde_json::from_value(data).unwrap();
+        assert!(resp.ok);
+        assert_eq!(resp.result.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn deserialize_telegram_response_error() {
+        let data = json!({
+            "ok": false,
+            "description": "Unauthorized"
+        });
+        let resp: TelegramResponse<Vec<Update>> = serde_json::from_value(data).unwrap();
+        assert!(!resp.ok);
+        assert!(resp.result.is_none());
+        assert_eq!(resp.description.unwrap(), "Unauthorized");
+    }
+
+    #[test]
+    fn deserialize_update_with_message() {
+        let data = json!({
+            "update_id": 42,
+            "message": {
+                "message_id": 100,
+                "chat": {"id": 7, "type": "private"},
+                "text": "ping",
+                "from": {"id": 1, "first_name": "Alice"}
+            }
+        });
+        let update: Update = serde_json::from_value(data).unwrap();
+        assert_eq!(update.update_id, 42);
+        let msg = update.message.unwrap();
+        assert_eq!(msg.message_id, 100);
+        assert_eq!(msg.chat.id, 7);
+        assert_eq!(msg.text.as_deref(), Some("ping"));
+        let user = msg.from.unwrap();
+        assert_eq!(user.id, 1);
+        assert_eq!(user.first_name, "Alice");
+    }
+
+    #[test]
+    fn deserialize_update_without_message() {
+        let data = json!({"update_id": 99});
+        let update: Update = serde_json::from_value(data).unwrap();
+        assert_eq!(update.update_id, 99);
+        assert!(update.message.is_none());
+    }
+
+    #[test]
+    fn deserialize_telegram_message_minimal() {
+        let data = json!({
+            "message_id": 5,
+            "chat": {"id": 10}
+        });
+        let msg: TelegramMessage = serde_json::from_value(data).unwrap();
+        assert_eq!(msg.message_id, 5);
+        assert_eq!(msg.chat.id, 10);
+        assert!(msg.text.is_none());
+        assert!(msg.from.is_none());
+        assert!(msg.chat.r#type.is_none());
+    }
+}

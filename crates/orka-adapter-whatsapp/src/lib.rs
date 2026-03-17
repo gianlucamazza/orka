@@ -298,3 +298,141 @@ impl ChannelAdapter for WhatsAppAdapter {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orka_core::types::{OutboundMessage, Payload, SessionId};
+    use std::collections::HashMap;
+
+    fn make_adapter() -> WhatsAppAdapter {
+        WhatsAppAdapter::new(
+            "test-token".into(),
+            "123456".into(),
+            "verify-secret".into(),
+            8080,
+        )
+    }
+
+    #[test]
+    fn channel_id_returns_whatsapp() {
+        let adapter = make_adapter();
+        assert_eq!(adapter.channel_id(), "whatsapp");
+    }
+
+    #[tokio::test]
+    async fn send_errors_when_whatsapp_from_missing() {
+        let adapter = make_adapter();
+        let msg = OutboundMessage {
+            channel: "whatsapp".into(),
+            session_id: SessionId::new(),
+            payload: Payload::Text("hello".into()),
+            reply_to: None,
+            metadata: HashMap::new(),
+        };
+        let err = adapter.send(msg).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("whatsapp_from"),
+            "expected error about whatsapp_from, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn deserialize_webhook_payload_empty_entry() {
+        let json = r#"{"entry": []}"#;
+        let payload: WebhookPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.entry.unwrap().is_empty());
+    }
+
+    #[test]
+    fn deserialize_webhook_payload_none_entry() {
+        let json = r#"{}"#;
+        let payload: WebhookPayload = serde_json::from_str(json).unwrap();
+        assert!(payload.entry.is_none());
+    }
+
+    #[test]
+    fn deserialize_webhook_entry() {
+        let json = r#"{"changes": []}"#;
+        let entry: WebhookEntry = serde_json::from_str(json).unwrap();
+        assert!(entry.changes.unwrap().is_empty());
+    }
+
+    #[test]
+    fn deserialize_webhook_change() {
+        let json = r#"{"value": {"messages": []}}"#;
+        let change: WebhookChange = serde_json::from_str(json).unwrap();
+        assert!(change.value.unwrap().messages.unwrap().is_empty());
+    }
+
+    #[test]
+    fn deserialize_webhook_value_with_messages() {
+        let json =
+            r#"{"messages": [{"from": "15551234567", "type": "text", "text": {"body": "hi"}}]}"#;
+        let value: WebhookValue = serde_json::from_str(json).unwrap();
+        let msgs = value.messages.unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].from, "15551234567");
+        assert_eq!(msgs[0].msg_type, "text");
+        assert_eq!(msgs[0].text.as_ref().unwrap().body, "hi");
+    }
+
+    #[test]
+    fn deserialize_whatsapp_message_without_text() {
+        let json = r#"{"from": "15551234567", "type": "image"}"#;
+        let msg: WhatsAppMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.from, "15551234567");
+        assert_eq!(msg.msg_type, "image");
+        assert!(msg.text.is_none());
+    }
+
+    #[test]
+    fn deserialize_whatsapp_text() {
+        let json = r#"{"body": "hello world"}"#;
+        let text: WhatsAppText = serde_json::from_str(json).unwrap();
+        assert_eq!(text.body, "hello world");
+    }
+
+    #[test]
+    fn deserialize_webhook_verify_params() {
+        let json = r#"{"hub.mode": "subscribe", "hub.verify_token": "secret", "hub.challenge": "challenge123"}"#;
+        let params: WebhookVerifyParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.mode.as_deref(), Some("subscribe"));
+        assert_eq!(params.token.as_deref(), Some("secret"));
+        assert_eq!(params.challenge.as_deref(), Some("challenge123"));
+    }
+
+    #[test]
+    fn deserialize_webhook_verify_params_partial() {
+        let json = r#"{"hub.mode": "subscribe"}"#;
+        let params: WebhookVerifyParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.mode.as_deref(), Some("subscribe"));
+        assert!(params.token.is_none());
+        assert!(params.challenge.is_none());
+    }
+
+    #[test]
+    fn deserialize_full_webhook_payload() {
+        let json = r#"{
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "15551234567",
+                            "type": "text",
+                            "text": {"body": "Hello from WhatsApp"}
+                        }]
+                    }
+                }]
+            }]
+        }"#;
+        let payload: WebhookPayload = serde_json::from_str(json).unwrap();
+        let entry = &payload.entry.unwrap()[0];
+        let change = &entry.changes.as_ref().unwrap()[0];
+        let value = change.value.as_ref().unwrap();
+        let msg = &value.messages.as_ref().unwrap()[0];
+        assert_eq!(msg.from, "15551234567");
+        assert_eq!(msg.text.as_ref().unwrap().body, "Hello from WhatsApp");
+    }
+}
