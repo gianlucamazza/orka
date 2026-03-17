@@ -1,4 +1,5 @@
 /target
+option_try
 **/*.rs.bk
 *.swp
 *.swo

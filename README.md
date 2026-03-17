@@ -3,7 +3,7 @@
 [![CI](https://github.com/gianlucamazza/orka/actions/workflows/ci.yml/badge.svg)](https://github.com/gianlucamazza/orka/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE-APACHE)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 
 An agent orchestration platform built in Rust. Orka routes messages from external channels through a priority queue to AI-powered agent handlers, with support for skills, sandboxed code execution, and workspace-based configuration.
 
@@ -58,13 +58,14 @@ External Clients
 - **Observability** — OpenTelemetry tracing, Prometheus metrics, Swagger UI
 - **Security** — JWT/API key auth, AES-256-GCM secret encryption, SSRF protection
 - **Scheduler** — Cron-based recurring tasks
+- **Self-learning** — Trajectory recording, principle reflection, and offline distillation
 - **CLI** — Workspace management tool
 
 ## Quick Start
 
 ### Prerequisites
 
-- Rust 1.75+
+- Rust 1.85+
 - Redis 7+
 - Docker (optional)
 
@@ -198,6 +199,7 @@ orka/
 │   ├── orka-http/            # HTTP request skill
 │   ├── orka-knowledge/       # RAG & vector knowledge base
 │   ├── orka-scheduler/       # Cron-based task scheduler
+│   ├── orka-experience/      # Self-learning experience system
 │   ├── orka-cli/             # CLI tool
 │   └── orka-adapter-*/       # Channel adapters
 ├── sdk/
