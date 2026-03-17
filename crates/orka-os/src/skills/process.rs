@@ -31,21 +31,19 @@ impl Skill for ProcessListSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "filter": { "type": "string", "description": "Filter by process name (substring match)" },
-                    "sort_by": {
-                        "type": "string",
-                        "enum": ["cpu", "memory", "pid", "name"],
-                        "default": "memory"
-                    },
-                    "limit": { "type": "integer", "default": 20, "maximum": 100 }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "filter": { "type": "string", "description": "Filter by process name (substring match)" },
+                "sort_by": {
+                    "type": "string",
+                    "enum": ["cpu", "memory", "pid", "name"],
+                    "default": "memory"
                 },
-                "required": []
-            }),
-        }
+                "limit": { "type": "integer", "default": 20, "maximum": 100 }
+            },
+            "required": []
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -116,13 +114,11 @@ impl Skill for ProcessListSkill {
 
         procs.truncate(limit.min(100));
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "processes": procs,
-                "total": sys.processes().len(),
-                "shown": procs.len(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "processes": procs,
+            "total": sys.processes().len(),
+            "shown": procs.len(),
+        })))
     }
 }
 
@@ -149,15 +145,13 @@ impl Skill for ProcessInfoSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "pid": { "type": "integer", "description": "Process ID" }
-                },
-                "required": ["pid"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "pid": { "type": "integer", "description": "Process ID" }
+            },
+            "required": ["pid"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -174,22 +168,20 @@ impl Skill for ProcessInfoSkill {
             .process(sysinfo::Pid::from_u32(pid))
             .ok_or_else(|| Error::Skill(format!("process {} not found", pid)))?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "pid": process.pid().as_u32(),
-                "name": process.name().to_string_lossy(),
-                "cpu_percent": process.cpu_usage(),
-                "memory_bytes": process.memory(),
-                "virtual_memory_bytes": process.virtual_memory(),
-                "status": format!("{:?}", process.status()),
-                "command": process.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect::<Vec<_>>(),
-                "cwd": process.cwd().map(|p| p.to_string_lossy().to_string()),
-                "root": process.root().map(|p| p.to_string_lossy().to_string()),
-                "parent_pid": process.parent().map(|p| p.as_u32()),
-                "start_time": process.start_time(),
-                "run_time": process.run_time(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "pid": process.pid().as_u32(),
+            "name": process.name().to_string_lossy(),
+            "cpu_percent": process.cpu_usage(),
+            "memory_bytes": process.memory(),
+            "virtual_memory_bytes": process.virtual_memory(),
+            "status": format!("{:?}", process.status()),
+            "command": process.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect::<Vec<_>>(),
+            "cwd": process.cwd().map(|p| p.to_string_lossy().to_string()),
+            "root": process.root().map(|p| p.to_string_lossy().to_string()),
+            "parent_pid": process.parent().map(|p| p.as_u32()),
+            "start_time": process.start_time(),
+            "run_time": process.run_time(),
+        })))
     }
 }
 
@@ -216,20 +208,18 @@ impl Skill for ProcessSignalSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "pid": { "type": "integer", "description": "Process ID" },
-                    "signal": {
-                        "type": "string",
-                        "enum": ["SIGTERM", "SIGKILL", "SIGHUP", "SIGUSR1", "SIGUSR2"],
-                        "default": "SIGTERM"
-                    }
-                },
-                "required": ["pid"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "pid": { "type": "integer", "description": "Process ID" },
+                "signal": {
+                    "type": "string",
+                    "enum": ["SIGTERM", "SIGKILL", "SIGHUP", "SIGUSR1", "SIGUSR2"],
+                    "default": "SIGTERM"
+                }
+            },
+            "required": ["pid"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -262,13 +252,11 @@ impl Skill for ProcessSignalSkill {
             ))
         })?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "pid": pid,
-                "signal": signal_name,
-                "success": true,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "pid": pid,
+            "signal": signal_name,
+            "success": true,
+        })))
     }
 }
 
@@ -292,10 +280,7 @@ mod tests {
     #[tokio::test]
     async fn process_list_returns_data() {
         let skill = ProcessListSkill::new(make_guard());
-        let input = SkillInput {
-            args: HashMap::new(),
-            context: None,
-        };
+        let input = SkillInput::new(HashMap::new());
         let output = skill.execute(input).await.unwrap();
         assert!(output.data["total"].as_u64().unwrap() > 0);
     }
@@ -306,13 +291,7 @@ mod tests {
         let pid = std::process::id();
         let mut args = HashMap::new();
         args.insert("pid".into(), serde_json::json!(pid));
-        let output = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await
-            .unwrap();
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
         assert_eq!(output.data["pid"], pid);
     }
 
@@ -328,12 +307,7 @@ mod tests {
         let skill = ProcessSignalSkill::new(guard);
         let mut args = HashMap::new();
         args.insert("pid".into(), serde_json::json!(1));
-        let result = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await;
+        let result = skill.execute(SkillInput::new(args)).await;
         assert!(result.is_err());
     }
 

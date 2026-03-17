@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -6,7 +5,7 @@ use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use orka_core::{
-    DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema,
+    DomainEvent, DomainEventKind, Error, Result, SkillInput, SkillOutput, SkillSchema,
 };
 use uuid::Uuid;
 
@@ -56,15 +55,13 @@ impl Skill for PackageSearchSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "Package name to search for" }
-                },
-                "required": ["query"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Package name to search for" }
+            },
+            "required": ["query"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -103,13 +100,11 @@ impl Skill for PackageSearchSkill {
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "results": stdout,
-                "package_manager": format!("{:?}", pm).to_lowercase(),
-                "success": output.status.success(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "results": stdout,
+            "package_manager": format!("{:?}", pm).to_lowercase(),
+            "success": output.status.success(),
+        })))
     }
 }
 
@@ -136,15 +131,13 @@ impl Skill for PackageInfoSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string", "description": "Package name" }
-                },
-                "required": ["name"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Package name" }
+            },
+            "required": ["name"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -183,13 +176,11 @@ impl Skill for PackageInfoSkill {
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "info": stdout,
-                "package_manager": format!("{:?}", pm).to_lowercase(),
-                "success": output.status.success(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "info": stdout,
+            "package_manager": format!("{:?}", pm).to_lowercase(),
+            "success": output.status.success(),
+        })))
     }
 }
 
@@ -216,15 +207,13 @@ impl Skill for PackageListSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "filter": { "type": "string", "description": "Filter by name (grep)" }
-                },
-                "required": []
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "filter": { "type": "string", "description": "Filter by name (grep)" }
+            },
+            "required": []
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -268,13 +257,11 @@ impl Skill for PackageListSkill {
             stdout.lines().collect()
         };
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "packages": lines,
-                "count": lines.len(),
-                "package_manager": format!("{:?}", pm).to_lowercase(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "packages": lines,
+            "count": lines.len(),
+            "package_manager": format!("{:?}", pm).to_lowercase(),
+        })))
     }
 }
 
@@ -313,15 +300,13 @@ impl Skill for PackageInstallSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string", "description": "Package name to install" }
-                },
-                "required": ["name"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Package name to install" }
+            },
+            "required": ["name"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -406,15 +391,13 @@ impl Skill for PackageInstallSkill {
         )
         .await;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "stdout": stdout,
-                "stderr": stderr,
-                "exit_code": output.status.code(),
-                "package_manager": format!("{:?}", pm).to_lowercase(),
-                "success": output.status.success(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": output.status.code(),
+            "package_manager": format!("{:?}", pm).to_lowercase(),
+            "success": output.status.success(),
+        })))
     }
 }
 
@@ -427,10 +410,8 @@ async fn emit_executed(
     duration_ms: u64,
 ) {
     if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent {
-            id: EventId::new(),
-            timestamp: Utc::now(),
-            kind: DomainEventKind::PrivilegedCommandExecuted {
+        sink.emit(DomainEvent::new(
+            DomainEventKind::PrivilegedCommandExecuted {
                 message_id: orka_core::types::MessageId::new(),
                 session_id: orka_core::types::SessionId::new(),
                 command: command.to_string(),
@@ -441,26 +422,20 @@ async fn emit_executed(
                 success,
                 duration_ms,
             },
-            metadata: HashMap::new(),
-        })
+        ))
         .await;
     }
 }
 
 async fn emit_denied(input: &SkillInput, command: &str, args: &[&str], reason: &str) {
     if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent {
-            id: EventId::new(),
-            timestamp: Utc::now(),
-            kind: DomainEventKind::PrivilegedCommandDenied {
-                message_id: orka_core::types::MessageId::new(),
-                session_id: orka_core::types::SessionId::new(),
-                command: command.to_string(),
-                args: args.iter().map(|s| s.to_string()).collect(),
-                reason: reason.to_string(),
-            },
-            metadata: HashMap::new(),
-        })
+        sink.emit(DomainEvent::new(DomainEventKind::PrivilegedCommandDenied {
+            message_id: orka_core::types::MessageId::new(),
+            session_id: orka_core::types::SessionId::new(),
+            command: command.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            reason: reason.to_string(),
+        }))
         .await;
     }
 }
@@ -501,14 +476,6 @@ mod tests {
         let skill = PackageSearchSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("query".into(), serde_json::json!("test"));
-        assert!(
-            skill
-                .execute(SkillInput {
-                    args,
-                    context: None
-                })
-                .await
-                .is_err()
-        );
+        assert!(skill.execute(SkillInput::new(args)).await.is_err());
     }
 }

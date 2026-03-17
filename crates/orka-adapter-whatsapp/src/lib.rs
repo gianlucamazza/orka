@@ -1,3 +1,7 @@
+//! WhatsApp Cloud API adapter for receiving and sending messages.
+
+#![warn(missing_docs)]
+
 use std::collections::HashMap;
 use std::future::IntoFuture;
 use std::sync::Arc;
@@ -16,6 +20,7 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+/// WhatsApp Cloud API [`ChannelAdapter`] using webhook verification.
 pub struct WhatsAppAdapter {
     access_token: String,
     phone_number_id: String,
@@ -28,6 +33,7 @@ pub struct WhatsAppAdapter {
 }
 
 impl WhatsAppAdapter {
+    /// Create an adapter with the given Cloud API credentials and webhook port.
     pub fn new(
         access_token: String,
         phone_number_id: String,
@@ -128,10 +134,9 @@ async fn webhook_receive(
                             if let Some(text) = msg.text {
                                 let session_id = {
                                     let mut sessions = state.sessions.lock().await;
-                                    sessions
+                                    *sessions
                                         .entry(msg.from.clone())
                                         .or_insert_with(SessionId::new)
-                                        .clone()
                                 };
 
                                 let mut envelope =
@@ -300,8 +305,7 @@ impl ChannelAdapter for WhatsAppAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orka_core::types::{OutboundMessage, Payload, SessionId};
-    use std::collections::HashMap;
+    use orka_core::types::{OutboundMessage, SessionId};
 
     fn make_adapter() -> WhatsAppAdapter {
         WhatsAppAdapter::new(
@@ -321,13 +325,7 @@ mod tests {
     #[tokio::test]
     async fn send_errors_when_whatsapp_from_missing() {
         let adapter = make_adapter();
-        let msg = OutboundMessage {
-            channel: "whatsapp".into(),
-            session_id: SessionId::new(),
-            payload: Payload::Text("hello".into()),
-            reply_to: None,
-            metadata: HashMap::new(),
-        };
+        let msg = OutboundMessage::text("whatsapp", SessionId::new(), "hello", None);
         let err = adapter.send(msg).await.unwrap_err();
         let msg = err.to_string();
         assert!(

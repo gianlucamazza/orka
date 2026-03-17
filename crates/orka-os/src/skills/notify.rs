@@ -28,23 +28,21 @@ impl Skill for NotifySendSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "title": { "type": "string", "description": "Notification title" },
-                    "body": { "type": "string", "description": "Notification body text" },
-                    "urgency": {
-                        "type": "string",
-                        "enum": ["low", "normal", "critical"],
-                        "default": "normal"
-                    },
-                    "icon": { "type": "string", "description": "Icon name or path" },
-                    "timeout_ms": { "type": "integer", "description": "Display duration in milliseconds" }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "description": "Notification title" },
+                "body": { "type": "string", "description": "Notification body text" },
+                "urgency": {
+                    "type": "string",
+                    "enum": ["low", "normal", "critical"],
+                    "default": "normal"
                 },
-                "required": ["title"]
-            }),
-        }
+                "icon": { "type": "string", "description": "Icon name or path" },
+                "timeout_ms": { "type": "integer", "description": "Display duration in milliseconds" }
+            },
+            "required": ["title"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -86,12 +84,10 @@ impl Skill for NotifySendSkill {
             .await
             .map_err(|e| Error::Skill(format!("notify-send failed: {}", e)))?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "success": output.status.success(),
-                "title": title,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "success": output.status.success(),
+            "title": title,
+        })))
     }
 }
 
@@ -124,14 +120,6 @@ mod tests {
         let skill = NotifySendSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("title".into(), serde_json::json!("test"));
-        assert!(
-            skill
-                .execute(SkillInput {
-                    args,
-                    context: None
-                })
-                .await
-                .is_err()
-        );
+        assert!(skill.execute(SkillInput::new(args)).await.is_err());
     }
 }

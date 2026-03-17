@@ -5,7 +5,6 @@ use orka_core::{
     OutboundMessage, Payload, SessionId, StreamRegistry, config::CustomAdapterConfig,
     traits::ChannelAdapter,
 };
-use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 #[tokio::test]
@@ -128,13 +127,7 @@ async fn ws_connect_and_receive_outbound() {
     let (mut ws_stream, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
 
     // Send an outbound message via the registry
-    let outbound = OutboundMessage {
-        channel: "custom".into(),
-        session_id: session_id.clone(),
-        payload: Payload::Text("hello from server".into()),
-        reply_to: None,
-        metadata: HashMap::new(),
-    };
+    let outbound = OutboundMessage::text("custom", session_id, "hello from server", None);
 
     let text = serde_json::to_string(&outbound).unwrap();
     let count = registry_clone.send_to_session(&session_id, &text).await;

@@ -1,8 +1,16 @@
+//! Web search and content reading skills.
+//!
+//! Provides `web_search` and `web_read` skills with configurable search providers
+//! and HTML-to-markdown extraction.
+
+#![warn(missing_docs)]
+
 mod cache;
 pub(crate) mod extract;
 mod provider;
 mod read;
 mod search;
+#[allow(missing_docs)]
 pub mod types;
 
 use std::sync::Arc;

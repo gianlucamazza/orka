@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -6,7 +5,7 @@ use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use orka_core::{
-    DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema,
+    DomainEvent, DomainEventKind, Error, Result, SkillInput, SkillOutput, SkillSchema,
 };
 use uuid::Uuid;
 
@@ -37,15 +36,13 @@ impl Skill for ServiceStatusSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "unit": { "type": "string", "description": "Service unit name (e.g. 'sshd.service')" }
-                },
-                "required": ["unit"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "unit": { "type": "string", "description": "Service unit name (e.g. 'sshd.service')" }
+            },
+            "required": ["unit"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -65,13 +62,11 @@ impl Skill for ServiceStatusSkill {
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "unit": unit,
-                "status": stdout,
-                "exit_code": output.status.code(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "unit": unit,
+            "status": stdout,
+            "exit_code": output.status.code(),
+        })))
     }
 }
 
@@ -98,18 +93,16 @@ impl Skill for ServiceListSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "state": {
-                        "type": "string",
-                        "description": "Filter by state (running, failed, etc.)"
-                    }
-                },
-                "required": []
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "state": {
+                    "type": "string",
+                    "description": "Filter by state (running, failed, etc.)"
+                }
+            },
+            "required": []
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -130,12 +123,10 @@ impl Skill for ServiceListSkill {
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "services": stdout,
-                "success": output.status.success(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "services": stdout,
+            "success": output.status.success(),
+        })))
     }
 }
 
@@ -162,21 +153,19 @@ impl Skill for JournalReadSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "unit": { "type": "string", "description": "Filter by unit name" },
-                    "since": { "type": "string", "description": "Show entries since (e.g. '1 hour ago', '2024-01-01')" },
-                    "lines": { "type": "integer", "default": 100, "maximum": 500 },
-                    "priority": {
-                        "type": "string",
-                        "description": "Filter by priority (emerg, alert, crit, err, warning, notice, info, debug)"
-                    }
-                },
-                "required": []
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "unit": { "type": "string", "description": "Filter by unit name" },
+                "since": { "type": "string", "description": "Show entries since (e.g. '1 hour ago', '2024-01-01')" },
+                "lines": { "type": "integer", "default": 100, "maximum": 500 },
+                "priority": {
+                    "type": "string",
+                    "description": "Filter by priority (emerg, alert, crit, err, warning, notice, info, debug)"
+                }
+            },
+            "required": []
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -212,12 +201,10 @@ impl Skill for JournalReadSkill {
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "logs": stdout,
-                "success": output.status.success(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "logs": stdout,
+            "success": output.status.success(),
+        })))
     }
 }
 
@@ -256,20 +243,18 @@ impl Skill for ServiceControlSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "unit": { "type": "string", "description": "Service unit name (e.g. 'nginx.service')" },
-                    "action": {
-                        "type": "string",
-                        "enum": ["start", "stop", "restart"],
-                        "description": "Action to perform on the service"
-                    }
-                },
-                "required": ["unit", "action"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "unit": { "type": "string", "description": "Service unit name (e.g. 'nginx.service')" },
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop", "restart"],
+                    "description": "Action to perform on the service"
+                }
+            },
+            "required": ["unit", "action"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -358,16 +343,14 @@ impl Skill for ServiceControlSkill {
         )
         .await;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "unit": unit,
-                "action": action,
-                "stdout": stdout,
-                "stderr": stderr,
-                "exit_code": output.status.code(),
-                "success": output.status.success(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "unit": unit,
+            "action": action,
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": output.status.code(),
+            "success": output.status.success(),
+        })))
     }
 }
 
@@ -380,10 +363,8 @@ async fn emit_executed(
     duration_ms: u64,
 ) {
     if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent {
-            id: EventId::new(),
-            timestamp: Utc::now(),
-            kind: DomainEventKind::PrivilegedCommandExecuted {
+        sink.emit(DomainEvent::new(
+            DomainEventKind::PrivilegedCommandExecuted {
                 message_id: orka_core::types::MessageId::new(),
                 session_id: orka_core::types::SessionId::new(),
                 command: command.to_string(),
@@ -394,26 +375,20 @@ async fn emit_executed(
                 success,
                 duration_ms,
             },
-            metadata: HashMap::new(),
-        })
+        ))
         .await;
     }
 }
 
 async fn emit_denied(input: &SkillInput, command: &str, args: &[&str], reason: &str) {
     if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent {
-            id: EventId::new(),
-            timestamp: Utc::now(),
-            kind: DomainEventKind::PrivilegedCommandDenied {
-                message_id: orka_core::types::MessageId::new(),
-                session_id: orka_core::types::SessionId::new(),
-                command: command.to_string(),
-                args: args.iter().map(|s| s.to_string()).collect(),
-                reason: reason.to_string(),
-            },
-            metadata: HashMap::new(),
-        })
+        sink.emit(DomainEvent::new(DomainEventKind::PrivilegedCommandDenied {
+            message_id: orka_core::types::MessageId::new(),
+            session_id: orka_core::types::SessionId::new(),
+            command: command.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            reason: reason.to_string(),
+        }))
         .await;
     }
 }
@@ -485,15 +460,7 @@ mod tests {
         let mut args = std::collections::HashMap::new();
         args.insert("unit".into(), serde_json::json!("nginx.service"));
         args.insert("action".into(), serde_json::json!("restart"));
-        assert!(
-            skill
-                .execute(SkillInput {
-                    args,
-                    context: None
-                })
-                .await
-                .is_err()
-        );
+        assert!(skill.execute(SkillInput::new(args)).await.is_err());
     }
 
     #[tokio::test]
@@ -506,14 +473,6 @@ mod tests {
         let skill = ServiceStatusSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("unit".into(), serde_json::json!("sshd.service"));
-        assert!(
-            skill
-                .execute(SkillInput {
-                    args,
-                    context: None
-                })
-                .await
-                .is_err()
-        );
+        assert!(skill.execute(SkillInput::new(args)).await.is_err());
     }
 }

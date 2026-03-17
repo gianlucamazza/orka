@@ -1,3 +1,7 @@
+//! Slack Events API adapter for receiving and sending messages.
+
+#![warn(missing_docs)]
+
 use std::collections::HashMap;
 use std::future::IntoFuture;
 use std::sync::Arc;
@@ -12,6 +16,7 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+/// Slack Events API [`ChannelAdapter`] using HTTP webhooks.
 pub struct SlackAdapter {
     bot_token: String,
     client: Client,
@@ -22,6 +27,7 @@ pub struct SlackAdapter {
 }
 
 impl SlackAdapter {
+    /// Create an adapter with the given bot token and webhook listen port.
     pub fn new(bot_token: String, listen_port: u16) -> Self {
         Self {
             bot_token,
@@ -87,10 +93,9 @@ async fn handle_event(
         {
             let session_id = {
                 let mut sessions = state.sessions.lock().await;
-                sessions
+                *sessions
                     .entry(channel.clone())
                     .or_insert_with(SessionId::new)
-                    .clone()
             };
 
             let mut envelope = Envelope::text("slack", session_id, &text);
@@ -256,7 +261,6 @@ impl ChannelAdapter for SlackAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orka_core::types::Payload;
     use serde_json::json;
 
     fn make_adapter() -> SlackAdapter {
@@ -272,13 +276,7 @@ mod tests {
     #[tokio::test]
     async fn send_errors_when_slack_channel_missing() {
         let adapter = make_adapter();
-        let msg = OutboundMessage {
-            channel: "slack".into(),
-            session_id: SessionId::new(),
-            payload: Payload::Text("hello".into()),
-            reply_to: None,
-            metadata: HashMap::new(),
-        };
+        let msg = OutboundMessage::text("slack", SessionId::new(), "hello", None);
         let err = adapter.send(msg).await.unwrap_err();
         let msg = err.to_string();
         assert!(

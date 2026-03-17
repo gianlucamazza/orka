@@ -86,15 +86,14 @@ impl Scheduler {
 
                 // Execute the scheduled skill
                 if let Some(ref skill_name) = schedule.skill {
-                    let input = orka_core::SkillInput {
-                        args: schedule
+                    let input = orka_core::SkillInput::new(
+                        schedule
                             .args
                             .clone()
                             .unwrap_or_default()
                             .into_iter()
                             .collect(),
-                        context: None,
-                    };
+                    );
 
                     match skills.invoke(skill_name, input).await {
                         Ok(_) => {

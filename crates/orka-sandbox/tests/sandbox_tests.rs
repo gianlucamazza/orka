@@ -148,10 +148,7 @@ fn skill_input(args: Vec<(&str, serde_json::Value)>) -> SkillInput {
     for (k, v) in args {
         map.insert(k.to_string(), v);
     }
-    SkillInput {
-        args: map,
-        context: None,
-    }
+    SkillInput::new(map)
 }
 
 #[tokio::test]

@@ -88,7 +88,7 @@ impl WasmPluginSkill {
         Ok(Self {
             name: info.name,
             description: info.description,
-            schema: SkillSchema { parameters: schema },
+            schema: SkillSchema::new(schema),
             engine,
             module_bytes,
         })
@@ -213,9 +213,7 @@ impl Skill for WasmPluginSkill {
             let skill = WasmPluginSkill {
                 name,
                 description: String::new(),
-                schema: SkillSchema {
-                    parameters: serde_json::json!({}),
-                },
+                schema: SkillSchema::new(serde_json::json!({})),
                 engine,
                 module_bytes,
             };
@@ -224,6 +222,6 @@ impl Skill for WasmPluginSkill {
         .await
         .map_err(|e| Error::Skill(format!("spawn blocking: {e}")))?;
 
-        Ok(SkillOutput { data: result? })
+        Ok(SkillOutput::new(result?))
     }
 }

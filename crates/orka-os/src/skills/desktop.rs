@@ -34,15 +34,13 @@ impl Skill for DesktopOpenSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "target": { "type": "string", "description": "URL or file path to open" }
-                },
-                "required": ["target"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "target": { "type": "string", "description": "URL or file path to open" }
+            },
+            "required": ["target"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -71,12 +69,10 @@ impl Skill for DesktopOpenSkill {
             .await
             .map_err(|e| Error::Skill(format!("xdg-open failed: {}", e)))?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "success": output.status.success(),
-                "target": target,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "success": output.status.success(),
+            "target": target,
+        })))
     }
 }
 
@@ -103,20 +99,18 @@ impl Skill for DesktopScreenshotSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "output_path": { "type": "string", "description": "Path to save screenshot (default: /tmp/screenshot.png)" },
-                    "region": {
-                        "type": "string",
-                        "enum": ["full", "window", "selection"],
-                        "default": "full"
-                    }
-                },
-                "required": []
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "output_path": { "type": "string", "description": "Path to save screenshot (default: /tmp/screenshot.png)" },
+                "region": {
+                    "type": "string",
+                    "enum": ["full", "window", "selection"],
+                    "default": "full"
+                }
+            },
+            "required": []
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -162,14 +156,12 @@ impl Skill for DesktopScreenshotSkill {
 
         let output = output.map_err(|e| Error::Skill(format!("screenshot failed: {}", e)))?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "success": output.status.success(),
-                "path": output_path,
-                "backend": if is_wayland() { "grim" } else { "scrot" },
-                "region": region,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "success": output.status.success(),
+            "path": output_path,
+            "backend": if is_wayland() { "grim" } else { "scrot" },
+            "region": region,
+        })))
     }
 }
 
@@ -209,14 +201,6 @@ mod tests {
         let skill = DesktopOpenSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("target".into(), serde_json::json!("https://example.com"));
-        assert!(
-            skill
-                .execute(SkillInput {
-                    args,
-                    context: None
-                })
-                .await
-                .is_err()
-        );
+        assert!(skill.execute(SkillInput::new(args)).await.is_err());
     }
 }

@@ -18,21 +18,15 @@ async fn session_map_consistency() {
 
     let sid1 = {
         let mut s = sessions.lock().await;
-        s.entry("ch-abc".into())
-            .or_insert_with(SessionId::new)
-            .clone()
+        *s.entry("ch-abc".into()).or_insert_with(SessionId::new)
     };
     let sid2 = {
         let mut s = sessions.lock().await;
-        s.entry("ch-abc".into())
-            .or_insert_with(SessionId::new)
-            .clone()
+        *s.entry("ch-abc".into()).or_insert_with(SessionId::new)
     };
     let sid3 = {
         let mut s = sessions.lock().await;
-        s.entry("ch-xyz".into())
-            .or_insert_with(SessionId::new)
-            .clone()
+        *s.entry("ch-xyz".into()).or_insert_with(SessionId::new)
     };
 
     assert_eq!(sid1, sid2, "same channel_id must produce same SessionId");
@@ -48,7 +42,7 @@ async fn envelope_from_discord_message() {
     use orka_core::types::{Envelope, Payload};
 
     let session_id = SessionId::new();
-    let mut envelope = Envelope::text("discord", session_id.clone(), "Hey there");
+    let mut envelope = Envelope::text("discord", session_id, "Hey there");
     envelope.metadata.insert(
         "discord_channel_id".to_string(),
         serde_json::json!("ch-abc"),

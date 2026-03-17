@@ -34,13 +34,11 @@ impl Skill for ClipboardReadSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+        }))
     }
 
     async fn execute(&self, _input: SkillInput) -> Result<SkillOutput> {
@@ -60,12 +58,10 @@ impl Skill for ClipboardReadSkill {
 
         let content = String::from_utf8_lossy(&output.stdout).to_string();
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "content": content,
-                "backend": if is_wayland() { "wayland" } else { "x11" },
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "content": content,
+            "backend": if is_wayland() { "wayland" } else { "x11" },
+        })))
     }
 }
 
@@ -92,15 +88,13 @@ impl Skill for ClipboardWriteSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "content": { "type": "string", "description": "Content to copy to clipboard" }
-                },
-                "required": ["content"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "content": { "type": "string", "description": "Content to copy to clipboard" }
+            },
+            "required": ["content"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -137,13 +131,11 @@ impl Skill for ClipboardWriteSkill {
             .await
             .map_err(|e| Error::Skill(format!("clipboard command failed: {}", e)))?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "success": status.success(),
-                "bytes_written": content.len(),
-                "backend": if is_wayland() { "wayland" } else { "x11" },
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "success": status.success(),
+            "bytes_written": content.len(),
+            "backend": if is_wayland() { "wayland" } else { "x11" },
+        })))
     }
 }
 
@@ -180,10 +172,7 @@ mod tests {
             ..OsConfig::default()
         }));
         let skill = ClipboardReadSkill::new(guard);
-        let input = SkillInput {
-            args: std::collections::HashMap::new(),
-            context: None,
-        };
+        let input = SkillInput::new(std::collections::HashMap::new());
         assert!(skill.execute(input).await.is_err());
     }
 }

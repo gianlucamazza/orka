@@ -38,36 +38,34 @@ impl Skill for MemorySearchSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query"
-                    },
-                    "collection": {
-                        "type": "string",
-                        "description": "Collection to search (optional, uses default)"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "default": 5,
-                        "description": "Maximum number of results"
-                    },
-                    "score_threshold": {
-                        "type": "number",
-                        "description": "Minimum similarity score (0-1)"
-                    },
-                    "filter": {
-                        "type": "object",
-                        "additionalProperties": { "type": "string" },
-                        "description": "Metadata filter key-value pairs"
-                    }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query"
                 },
-                "required": ["query"]
-            }),
-        }
+                "collection": {
+                    "type": "string",
+                    "description": "Collection to search (optional, uses default)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "Maximum number of results"
+                },
+                "score_threshold": {
+                    "type": "number",
+                    "description": "Minimum similarity score (0-1)"
+                },
+                "filter": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "Metadata filter key-value pairs"
+                }
+            },
+            "required": ["query"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -118,12 +116,10 @@ impl Skill for MemorySearchSkill {
             .search(collection, &vector, limit, score_threshold, filter)
             .await?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "results": results,
-                "count": results.len(),
-                "collection": collection,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "results": results,
+            "count": results.len(),
+            "collection": collection,
+        })))
     }
 }

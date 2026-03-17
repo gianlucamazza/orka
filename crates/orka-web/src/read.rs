@@ -49,24 +49,22 @@ impl Skill for WebReadSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to fetch and read"
-                    },
-                    "start_index": {
-                        "type": "integer",
-                        "description": "Character offset for pagination (default: 0)",
-                        "default": 0,
-                        "minimum": 0
-                    }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to fetch and read"
                 },
-                "required": ["url"]
-            }),
-        }
+                "start_index": {
+                    "type": "integer",
+                    "description": "Character offset for pagination (default: 0)",
+                    "default": 0,
+                    "minimum": 0
+                }
+            },
+            "required": ["url"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -161,16 +159,14 @@ impl Skill for WebReadSkill {
 
         let (text, truncated) = extract::truncate(remaining, self.max_chars);
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "url": url,
-                "title": title,
-                "content": text,
-                "truncated": truncated,
-                "total_length": content_length,
-                "start_index": start_index,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "url": url,
+            "title": title,
+            "content": text,
+            "truncated": truncated,
+            "total_length": content_length,
+            "start_index": start_index,
+        })))
     }
 }
 
@@ -198,10 +194,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_missing_url() {
         let skill = make_skill();
-        let input = SkillInput {
-            args: HashMap::new(),
-            context: None,
-        };
+        let input = SkillInput::new(HashMap::new());
         assert!(skill.execute(input).await.is_err());
     }
 
@@ -210,10 +203,7 @@ mod tests {
         let skill = make_skill();
         let mut args = HashMap::new();
         args.insert("url".into(), serde_json::json!("ftp://example.com"));
-        let input = SkillInput {
-            args,
-            context: None,
-        };
+        let input = SkillInput::new(args);
         let err = skill.execute(input).await.unwrap_err();
         assert!(err.to_string().contains("http://"));
     }

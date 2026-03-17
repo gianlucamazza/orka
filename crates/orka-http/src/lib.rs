@@ -1,3 +1,11 @@
+//! HTTP client skills with SSRF protection.
+//!
+//! Provides an `http_request` skill guarded by [`SsrfGuard`] to prevent
+//! server-side request forgery against internal networks.
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 mod guard;
 mod skills;
 

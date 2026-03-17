@@ -30,22 +30,20 @@ impl Skill for DocListSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "collection": {
-                        "type": "string",
-                        "description": "Collection to list (optional, uses default)"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "default": 100,
-                        "description": "Maximum number of documents to list"
-                    }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "collection": {
+                    "type": "string",
+                    "description": "Collection to list (optional, uses default)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 100,
+                    "description": "Maximum number of documents to list"
                 }
-            }),
-        }
+            }
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -63,12 +61,10 @@ impl Skill for DocListSkill {
 
         let documents = self.store.list_documents(collection, limit).await?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "documents": documents,
-                "count": documents.len(),
-                "collection": collection,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "documents": documents,
+            "count": documents.len(),
+            "collection": collection,
+        })))
     }
 }

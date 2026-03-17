@@ -1,6 +1,17 @@
+//! Operating system interaction skills with permission guards and approval channels.
+//!
+//! Provides file, shell, process, and network skills gated by configurable
+//! [`PermissionLevel`] and [`ApprovalChannel`].
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 pub mod approval;
+#[allow(missing_docs)]
 pub mod config;
+#[allow(missing_docs)]
 pub mod guard;
+#[allow(missing_docs)]
 pub mod skills;
 
 use std::sync::Arc;

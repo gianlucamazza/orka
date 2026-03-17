@@ -39,27 +39,25 @@ impl Skill for MemoryStoreSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string",
-                        "description": "The text content to store"
-                    },
-                    "collection": {
-                        "type": "string",
-                        "description": "Collection name (optional, uses default)"
-                    },
-                    "metadata": {
-                        "type": "object",
-                        "additionalProperties": { "type": "string" },
-                        "description": "Optional metadata key-value pairs"
-                    }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The text content to store"
                 },
-                "required": ["content"]
-            }),
-        }
+                "collection": {
+                    "type": "string",
+                    "description": "Collection name (optional, uses default)"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "Optional metadata key-value pairs"
+                }
+            },
+            "required": ["content"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -103,12 +101,10 @@ impl Skill for MemoryStoreSkill {
             )
             .await?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "stored": true,
-                "id": id,
-                "collection": collection,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "stored": true,
+            "id": id,
+            "collection": collection,
+        })))
     }
 }

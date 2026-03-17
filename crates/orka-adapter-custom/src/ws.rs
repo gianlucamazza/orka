@@ -76,7 +76,7 @@ mod tests {
     async fn register_and_send() {
         let registry = WsRegistry::new();
         let session = SessionId::new();
-        let (_tx, mut rx) = registry.register(session.clone()).await;
+        let (_tx, mut rx) = registry.register(session).await;
 
         let count = registry.send_to_session(&session, "hello").await;
         assert_eq!(count, 1);
@@ -89,7 +89,7 @@ mod tests {
     async fn deregister_cleanup() {
         let registry = WsRegistry::new();
         let session = SessionId::new();
-        let (tx, _rx) = registry.register(session.clone()).await;
+        let (tx, _rx) = registry.register(session).await;
 
         registry.deregister(&session, &tx).await;
 
@@ -101,8 +101,8 @@ mod tests {
     async fn multiple_connections() {
         let registry = WsRegistry::new();
         let session = SessionId::new();
-        let (_tx1, mut rx1) = registry.register(session.clone()).await;
-        let (_tx2, mut rx2) = registry.register(session.clone()).await;
+        let (_tx1, mut rx1) = registry.register(session).await;
+        let (_tx2, mut rx2) = registry.register(session).await;
 
         let count = registry.send_to_session(&session, "broadcast").await;
         assert_eq!(count, 2);
@@ -116,8 +116,8 @@ mod tests {
         let registry = WsRegistry::new();
         let session = SessionId::new();
 
-        let (_tx1, mut rx1) = registry.register(session.clone()).await;
-        let (_tx2, rx2) = registry.register(session.clone()).await;
+        let (_tx1, mut rx1) = registry.register(session).await;
+        let (_tx2, rx2) = registry.register(session).await;
 
         // Drop rx2 to close the channel
         drop(rx2);

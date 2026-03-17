@@ -30,13 +30,11 @@ impl Skill for NetworkInfoSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+        }))
     }
 
     async fn execute(&self, _input: SkillInput) -> Result<SkillOutput> {
@@ -54,12 +52,10 @@ impl Skill for NetworkInfoSkill {
             })
             .collect();
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "interfaces": interfaces,
-                "count": interfaces.len(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "interfaces": interfaces,
+            "count": interfaces.len(),
+        })))
     }
 }
 
@@ -86,16 +82,14 @@ impl Skill for NetworkCheckSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "host": { "type": "string", "default": "1.1.1.1", "description": "Host to check" },
-                    "port": { "type": "integer", "default": 443, "description": "Port to connect to" }
-                },
-                "required": []
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "host": { "type": "string", "default": "1.1.1.1", "description": "Host to check" },
+                "port": { "type": "integer", "default": 443, "description": "Port to connect to" }
+            },
+            "required": []
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -127,15 +121,13 @@ impl Skill for NetworkCheckSkill {
             Err(_) => (false, Some("connection timed out".into())),
         };
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "host": host,
-                "port": port,
-                "reachable": reachable,
-                "latency_ms": if reachable { Some(latency_ms) } else { None },
-                "error": error,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "host": host,
+            "port": port,
+            "reachable": reachable,
+            "latency_ms": if reachable { Some(latency_ms) } else { None },
+            "error": error,
+        })))
     }
 }
 
@@ -158,10 +150,7 @@ mod tests {
     #[tokio::test]
     async fn network_info_returns_data() {
         let skill = NetworkInfoSkill::new(make_guard());
-        let input = SkillInput {
-            args: HashMap::new(),
-            context: None,
-        };
+        let input = SkillInput::new(HashMap::new());
         let output = skill.execute(input).await.unwrap();
         assert!(output.data["count"].is_number());
     }

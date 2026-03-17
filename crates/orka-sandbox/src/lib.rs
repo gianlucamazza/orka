@@ -1,6 +1,18 @@
+//! Sandboxed code execution via WASM or subprocess isolation.
+//!
+//! - [`SandboxExecutor`] — trait for running untrusted code safely
+//! - [`WasmSandbox`] — WebAssembly-based executor
+//! - [`ProcessSandbox`] — subprocess-based executor with resource limits
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 pub mod executor;
+#[allow(missing_docs)]
 pub mod process;
+#[allow(missing_docs)]
 pub mod skill;
+#[allow(missing_docs)]
 pub mod wasm;
 
 #[cfg(feature = "test-util")]
@@ -15,6 +27,7 @@ use orka_core::Result;
 use orka_core::config::SandboxConfig;
 use std::sync::Arc;
 
+/// Create a [`SandboxExecutor`] from the given configuration.
 pub fn create_sandbox(config: &SandboxConfig) -> Result<Arc<dyn SandboxExecutor>> {
     match config.backend.as_str() {
         "wasm" => Ok(Arc::new(WasmSandbox::new(config)?)),

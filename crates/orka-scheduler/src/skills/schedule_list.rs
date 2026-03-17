@@ -26,18 +26,16 @@ impl Skill for ScheduleListSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "include_completed": {
-                        "type": "boolean",
-                        "default": false,
-                        "description": "Include completed one-shot schedules"
-                    }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "include_completed": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Include completed one-shot schedules"
                 }
-            }),
-        }
+            }
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -49,11 +47,9 @@ impl Skill for ScheduleListSkill {
 
         let schedules = self.store.list(include_completed).await?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "schedules": schedules,
-                "count": schedules.len(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "schedules": schedules,
+            "count": schedules.len(),
+        })))
     }
 }

@@ -29,15 +29,13 @@ impl Skill for EnvGetSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string", "description": "Environment variable name" }
-                },
-                "required": ["name"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "Environment variable name" }
+            },
+            "required": ["name"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -51,13 +49,11 @@ impl Skill for EnvGetSkill {
 
         let value = std::env::var(name).ok();
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "name": name,
-                "value": value,
-                "exists": value.is_some(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "name": name,
+            "value": value,
+            "exists": value.is_some(),
+        })))
     }
 }
 
@@ -84,15 +80,13 @@ impl Skill for EnvListSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "filter": { "type": "string", "description": "Filter by name substring (case-insensitive)" }
-                },
-                "required": []
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "filter": { "type": "string", "description": "Filter by name substring (case-insensitive)" }
+            },
+            "required": []
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -127,12 +121,10 @@ impl Skill for EnvListSkill {
                 .cmp(b["name"].as_str().unwrap_or(""))
         });
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "variables": vars,
-                "count": vars.len(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "variables": vars,
+            "count": vars.len(),
+        })))
     }
 }
 
@@ -158,13 +150,7 @@ mod tests {
         let skill = EnvGetSkill::new(make_guard());
         let mut args = HashMap::new();
         args.insert("name".into(), serde_json::json!("HOME"));
-        let output = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await
-            .unwrap();
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
         assert!(output.data["exists"].as_bool().unwrap());
     }
 
@@ -173,22 +159,14 @@ mod tests {
         let skill = EnvGetSkill::new(make_guard());
         let mut args = HashMap::new();
         args.insert("name".into(), serde_json::json!("API_KEY"));
-        let result = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await;
+        let result = skill.execute(SkillInput::new(args)).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn env_list_returns_data() {
         let skill = EnvListSkill::new(make_guard());
-        let input = SkillInput {
-            args: HashMap::new(),
-            context: None,
-        };
+        let input = SkillInput::new(HashMap::new());
         let output = skill.execute(input).await.unwrap();
         assert!(output.data["count"].as_u64().unwrap() > 0);
     }
@@ -198,13 +176,7 @@ mod tests {
         let skill = EnvListSkill::new(make_guard());
         let mut args = HashMap::new();
         args.insert("filter".into(), serde_json::json!("HOME"));
-        let output = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await
-            .unwrap();
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
         assert!(output.data["count"].as_u64().unwrap() >= 1);
     }
 
@@ -216,13 +188,7 @@ mod tests {
         let skill = EnvListSkill::new(make_guard());
         let mut args = HashMap::new();
         args.insert("filter".into(), serde_json::json!("TEST_API_KEY"));
-        let output = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await
-            .unwrap();
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
         let vars = output.data["variables"].as_array().unwrap();
         if let Some(var) = vars.iter().find(|v| v["name"] == "TEST_API_KEY") {
             assert_eq!(var["value"], "***");

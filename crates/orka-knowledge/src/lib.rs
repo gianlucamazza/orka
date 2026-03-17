@@ -1,8 +1,22 @@
+//! Knowledge base and RAG (Retrieval-Augmented Generation) infrastructure.
+//!
+//! - [`EmbeddingProvider`] — trait for text-to-vector embedding
+//! - [`VectorStore`] — trait for vector similarity search
+//! - Skills: `memory_store`, `memory_search`, `doc_ingest`, `doc_list`
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 pub mod chunking;
+#[allow(missing_docs)]
 pub mod embeddings;
+#[allow(missing_docs)]
 pub mod parsers;
+#[allow(missing_docs)]
 pub mod skills;
+#[allow(missing_docs)]
 pub mod types;
+#[allow(missing_docs)]
 pub mod vector_store;
 
 use std::sync::Arc;

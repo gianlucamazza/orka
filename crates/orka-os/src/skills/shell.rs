@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -7,7 +6,7 @@ use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use orka_core::{
-    DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema,
+    DomainEvent, DomainEventKind, Error, Result, SkillInput, SkillOutput, SkillSchema,
 };
 use tracing::debug;
 use uuid::Uuid;
@@ -81,13 +80,11 @@ impl Skill for ShellExecSkill {
             );
         }
 
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": props,
-                "required": ["command"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": props,
+            "required": ["command"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -242,14 +239,12 @@ impl Skill for ShellExecSkill {
                     .await;
                 }
 
-                Ok(SkillOutput {
-                    data: serde_json::json!({
-                        "exit_code": output.status.code(),
-                        "stdout": stdout,
-                        "stderr": stderr,
-                        "duration_ms": duration_ms,
-                    }),
-                })
+                Ok(SkillOutput::new(serde_json::json!({
+                    "exit_code": output.status.code(),
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "duration_ms": duration_ms,
+                })))
             }
             Ok(Err(e)) => Err(Error::Skill(format!("command execution failed: {}", e))),
             Err(_) => {
@@ -278,10 +273,8 @@ async fn emit_executed(
     duration_ms: u64,
 ) {
     if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent {
-            id: EventId::new(),
-            timestamp: Utc::now(),
-            kind: DomainEventKind::PrivilegedCommandExecuted {
+        sink.emit(DomainEvent::new(
+            DomainEventKind::PrivilegedCommandExecuted {
                 message_id: orka_core::types::MessageId::new(),
                 session_id: orka_core::types::SessionId::new(),
                 command: command.to_string(),
@@ -292,26 +285,20 @@ async fn emit_executed(
                 success,
                 duration_ms,
             },
-            metadata: HashMap::new(),
-        })
+        ))
         .await;
     }
 }
 
 async fn emit_denied(input: &SkillInput, command: &str, args: &[&str], reason: &str) {
     if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent {
-            id: EventId::new(),
-            timestamp: Utc::now(),
-            kind: DomainEventKind::PrivilegedCommandDenied {
-                message_id: orka_core::types::MessageId::new(),
-                session_id: orka_core::types::SessionId::new(),
-                command: command.to_string(),
-                args: args.iter().map(|s| s.to_string()).collect(),
-                reason: reason.to_string(),
-            },
-            metadata: HashMap::new(),
-        })
+        sink.emit(DomainEvent::new(DomainEventKind::PrivilegedCommandDenied {
+            message_id: orka_core::types::MessageId::new(),
+            session_id: orka_core::types::SessionId::new(),
+            command: command.to_string(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            reason: reason.to_string(),
+        }))
         .await;
     }
 }
@@ -348,13 +335,7 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("echo"));
         args.insert("args".into(), serde_json::json!(["hello", "world"]));
-        let output = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await
-            .unwrap();
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
         assert_eq!(output.data["exit_code"], 0);
         assert!(
             output.data["stdout"]
@@ -379,15 +360,7 @@ mod tests {
         );
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("echo"));
-        assert!(
-            skill
-                .execute(SkillInput {
-                    args,
-                    context: None
-                })
-                .await
-                .is_err()
-        );
+        assert!(skill.execute(SkillInput::new(args)).await.is_err());
     }
 
     #[tokio::test]
@@ -407,24 +380,13 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("rm"));
         args.insert("args".into(), serde_json::json!(["-rf", "/"]));
-        assert!(
-            skill
-                .execute(SkillInput {
-                    args,
-                    context: None
-                })
-                .await
-                .is_err()
-        );
+        assert!(skill.execute(SkillInput::new(args)).await.is_err());
     }
 
     #[tokio::test]
     async fn exec_missing_command_errors() {
         let skill = make_skill();
-        let input = SkillInput {
-            args: HashMap::new(),
-            context: None,
-        };
+        let input = SkillInput::new(HashMap::new());
         assert!(skill.execute(input).await.is_err());
     }
 
@@ -451,15 +413,7 @@ mod tests {
         args.insert("command".into(), serde_json::json!("echo"));
         args.insert("args".into(), serde_json::json!(["hi"]));
         args.insert("sudo".into(), serde_json::json!(true));
-        assert!(
-            skill
-                .execute(SkillInput {
-                    args,
-                    context: None
-                })
-                .await
-                .is_err()
-        );
+        assert!(skill.execute(SkillInput::new(args)).await.is_err());
     }
 
     #[tokio::test]
@@ -499,13 +453,7 @@ mod tests {
         args.insert("command".into(), serde_json::json!("echo"));
         args.insert("args".into(), serde_json::json!(["hi"]));
         args.insert("sudo".into(), serde_json::json!(true));
-        let err = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await
-            .unwrap_err();
+        let err = skill.execute(SkillInput::new(args)).await.unwrap_err();
         assert!(err.to_string().contains("denied"));
     }
 

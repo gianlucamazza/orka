@@ -24,22 +24,18 @@ impl Skill for StrictSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string" }
-                },
-                "required": ["name"],
-                "additionalProperties": false
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> orka_core::Result<SkillOutput> {
-        Ok(SkillOutput {
-            data: serde_json::to_value(input.args).unwrap(),
-        })
+        Ok(SkillOutput::new(serde_json::to_value(input.args).unwrap()))
     }
 }
 
@@ -48,12 +44,11 @@ async fn register_and_invoke() {
     let mut registry = SkillRegistry::new();
     registry.register(Arc::new(EchoSkill));
 
-    let input = SkillInput {
-        args: [("msg".to_string(), serde_json::json!("hi"))]
+    let input = SkillInput::new(
+        [("msg".to_string(), serde_json::json!("hi"))]
             .into_iter()
             .collect(),
-        context: None,
-    };
+    );
     let output = registry.invoke("echo", input).await.unwrap();
     assert_eq!(output.data, serde_json::json!({"msg": "hi"}));
 }
@@ -61,10 +56,7 @@ async fn register_and_invoke() {
 #[tokio::test]
 async fn invoke_unknown_returns_error() {
     let registry = SkillRegistry::new();
-    let input = SkillInput {
-        args: Default::default(),
-        context: None,
-    };
+    let input = SkillInput::new(Default::default());
     let result = registry.invoke("nonexistent", input).await;
     assert!(result.is_err());
 }
@@ -89,10 +81,10 @@ async fn valid_input_passes_schema() {
     let mut registry = SkillRegistry::new();
     registry.register(Arc::new(StrictSkill));
 
-    let input = SkillInput {
-        args: HashMap::from([("name".to_string(), serde_json::json!("test"))]),
-        context: None,
-    };
+    let input = SkillInput::new(HashMap::from([(
+        "name".to_string(),
+        serde_json::json!("test"),
+    )]));
     let result = registry.invoke("strict", input).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap().data, serde_json::json!({"name": "test"}));
@@ -104,10 +96,7 @@ async fn invalid_input_fails_schema() {
     registry.register(Arc::new(StrictSkill));
 
     // Missing required "name" field
-    let input = SkillInput {
-        args: HashMap::new(),
-        context: None,
-    };
+    let input = SkillInput::new(HashMap::new());
     let result = registry.invoke("strict", input).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -122,14 +111,11 @@ async fn permissive_schema_accepts_anything() {
     let mut registry = SkillRegistry::new();
     registry.register(Arc::new(EchoSkill));
 
-    let input = SkillInput {
-        args: HashMap::from([
-            ("foo".to_string(), serde_json::json!(42)),
-            ("bar".to_string(), serde_json::json!([1, 2, 3])),
-            ("baz".to_string(), serde_json::json!({"nested": true})),
-        ]),
-        context: None,
-    };
+    let input = SkillInput::new(HashMap::from([
+        ("foo".to_string(), serde_json::json!(42)),
+        ("bar".to_string(), serde_json::json!([1, 2, 3])),
+        ("baz".to_string(), serde_json::json!({"nested": true})),
+    ]));
     let result = registry.invoke("echo", input).await;
     assert!(result.is_ok());
 }

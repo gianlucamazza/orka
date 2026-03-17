@@ -28,20 +28,18 @@ impl Skill for SystemInfoSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "category": {
-                        "type": "string",
-                        "description": "Category of info to retrieve",
-                        "enum": ["all", "cpu", "memory", "disk", "network", "os", "processes"],
-                        "default": "all"
-                    }
-                },
-                "required": []
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "Category of info to retrieve",
+                    "enum": ["all", "cpu", "memory", "disk", "network", "os", "processes"],
+                    "default": "all"
+                }
+            },
+            "required": []
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -86,7 +84,7 @@ impl Skill for SystemInfoSkill {
             }
         };
 
-        Ok(SkillOutput { data })
+        Ok(SkillOutput::new(data))
     }
 }
 
@@ -213,10 +211,7 @@ mod tests {
     #[tokio::test]
     async fn system_info_all() {
         let skill = make_skill();
-        let input = SkillInput {
-            args: HashMap::new(),
-            context: None,
-        };
+        let input = SkillInput::new(HashMap::new());
         let output = skill.execute(input).await.unwrap();
         assert!(output.data["os"]["host_name"].is_string());
         assert!(output.data["memory"]["total_bytes"].is_number());
@@ -227,10 +222,7 @@ mod tests {
         let skill = make_skill();
         let mut args = HashMap::new();
         args.insert("category".into(), serde_json::json!("cpu"));
-        let input = SkillInput {
-            args,
-            context: None,
-        };
+        let input = SkillInput::new(args);
         let output = skill.execute(input).await.unwrap();
         assert!(output.data["count"].is_number());
     }
@@ -274,10 +266,7 @@ ID=debian
         let skill = make_skill();
         let mut args = HashMap::new();
         args.insert("category".into(), serde_json::json!("os"));
-        let input = SkillInput {
-            args,
-            context: None,
-        };
+        let input = SkillInput::new(args);
         let output = skill.execute(input).await.unwrap();
         assert!(output.data["uptime_secs"].is_number());
     }

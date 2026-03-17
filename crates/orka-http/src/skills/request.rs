@@ -49,40 +49,38 @@ impl Skill for HttpRequestSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to request"
-                    },
-                    "method": {
-                        "type": "string",
-                        "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
-                        "default": "GET",
-                        "description": "HTTP method"
-                    },
-                    "headers": {
-                        "type": "object",
-                        "additionalProperties": { "type": "string" },
-                        "description": "Request headers"
-                    },
-                    "body": {
-                        "description": "Request body (string or JSON object)"
-                    },
-                    "timeout_secs": {
-                        "type": "integer",
-                        "description": "Request timeout in seconds"
-                    },
-                    "auth_bearer_secret": {
-                        "type": "string",
-                        "description": "Name of secret containing Bearer token"
-                    }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to request"
                 },
-                "required": ["url"]
-            }),
-        }
+                "method": {
+                    "type": "string",
+                    "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
+                    "default": "GET",
+                    "description": "HTTP method"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "Request headers"
+                },
+                "body": {
+                    "description": "Request body (string or JSON object)"
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "description": "Request timeout in seconds"
+                },
+                "auth_bearer_secret": {
+                    "type": "string",
+                    "description": "Name of secret containing Bearer token"
+                }
+            },
+            "required": ["url"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -200,13 +198,11 @@ impl Skill for HttpRequestSkill {
         let body_value = serde_json::from_str::<serde_json::Value>(&body)
             .unwrap_or(serde_json::Value::String(body));
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "status": status,
-                "headers": headers,
-                "body": body_value,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "status": status,
+            "headers": headers,
+            "body": body_value,
+        })))
     }
 }
 

@@ -1,6 +1,17 @@
+//! Cron-style task scheduling with Redis-backed persistence.
+//!
+//! - [`Scheduler`] — tick loop that fires due schedules as inbound messages
+//! - Skills: `schedule_create`, `schedule_list`, `schedule_delete`
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 pub mod scheduler;
+#[allow(missing_docs)]
 pub mod skills;
+#[allow(missing_docs)]
 pub mod store;
+#[allow(missing_docs)]
 pub mod types;
 
 use std::sync::Arc;

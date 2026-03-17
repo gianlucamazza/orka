@@ -1,5 +1,12 @@
+//! Custom HTTP/WebSocket adapter for direct API integration.
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 pub mod routes;
+#[allow(missing_docs)]
 pub mod types;
+#[allow(missing_docs)]
 pub mod ws;
 
 use std::sync::Arc;

@@ -47,33 +47,31 @@ impl Skill for DocIngestSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Local file path to the document"
-                    },
-                    "url": {
-                        "type": "string",
-                        "description": "URL to fetch the document from"
-                    },
-                    "collection": {
-                        "type": "string",
-                        "description": "Collection to store in (optional)"
-                    },
-                    "chunk_size": {
-                        "type": "integer",
-                        "description": "Characters per chunk (optional)"
-                    },
-                    "chunk_overlap": {
-                        "type": "integer",
-                        "description": "Overlap between chunks (optional)"
-                    }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Local file path to the document"
+                },
+                "url": {
+                    "type": "string",
+                    "description": "URL to fetch the document from"
+                },
+                "collection": {
+                    "type": "string",
+                    "description": "Collection to store in (optional)"
+                },
+                "chunk_size": {
+                    "type": "integer",
+                    "description": "Characters per chunk (optional)"
+                },
+                "chunk_overlap": {
+                    "type": "integer",
+                    "description": "Overlap between chunks (optional)"
                 }
-            }),
-        }
+            }
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -122,12 +120,10 @@ impl Skill for DocIngestSkill {
         let text = parser.parse(&data)?;
 
         if text.is_empty() {
-            return Ok(SkillOutput {
-                data: serde_json::json!({
-                    "ingested": false,
-                    "reason": "document is empty after parsing",
-                }),
-            });
+            return Ok(SkillOutput::new(serde_json::json!({
+                "ingested": false,
+                "reason": "document is empty after parsing",
+            })));
         }
 
         // Chunk text
@@ -172,14 +168,12 @@ impl Skill for DocIngestSkill {
             total_stored += batch.len();
         }
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "ingested": true,
-                "document_id": document_id,
-                "source": source,
-                "collection": collection,
-                "chunks": total_stored,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "ingested": true,
+            "document_id": document_id,
+            "source": source,
+            "collection": collection,
+            "chunks": total_stored,
+        })))
     }
 }

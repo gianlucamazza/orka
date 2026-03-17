@@ -38,18 +38,16 @@ impl Skill for FsReadSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "File path to read" },
-                    "offset": { "type": "integer", "description": "Byte offset to start reading from", "default": 0 },
-                    "limit": { "type": "integer", "description": "Maximum bytes to read" },
-                    "encoding": { "type": "string", "enum": ["utf8", "base64"], "default": "utf8" }
-                },
-                "required": ["path"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "File path to read" },
+                "offset": { "type": "integer", "description": "Byte offset to start reading from", "default": 0 },
+                "limit": { "type": "integer", "description": "Maximum bytes to read" },
+                "encoding": { "type": "string", "enum": ["utf8", "base64"], "default": "utf8" }
+            },
+            "required": ["path"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -107,14 +105,12 @@ impl Skill for FsReadSkill {
             }
         };
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "content": content,
-                "encoding": actual_encoding,
-                "size_bytes": metadata.len(),
-                "path": canonical.to_string_lossy(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "content": content,
+            "encoding": actual_encoding,
+            "size_bytes": metadata.len(),
+            "path": canonical.to_string_lossy(),
+        })))
     }
 }
 
@@ -169,18 +165,16 @@ impl Skill for FsListSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Directory to list" },
-                    "recursive": { "type": "boolean", "default": false },
-                    "show_hidden": { "type": "boolean", "default": false },
-                    "pattern": { "type": "string", "description": "Glob pattern to filter results" }
-                },
-                "required": ["path"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Directory to list" },
+                "recursive": { "type": "boolean", "default": false },
+                "show_hidden": { "type": "boolean", "default": false },
+                "pattern": { "type": "string", "description": "Glob pattern to filter results" }
+            },
+            "required": ["path"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -215,13 +209,11 @@ impl Skill for FsListSkill {
         )
         .await?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "entries": entries,
-                "total": entries.len(),
-                "path": canonical.to_string_lossy(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "entries": entries,
+            "total": entries.len(),
+            "path": canonical.to_string_lossy(),
+        })))
     }
 }
 
@@ -312,15 +304,13 @@ impl Skill for FsInfoSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Path to inspect" }
-                },
-                "required": ["path"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Path to inspect" }
+            },
+            "required": ["path"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -353,24 +343,22 @@ impl Skill for FsInfoSkill {
             .map(|m| m.is_symlink())
             .unwrap_or(false);
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "path": canonical.to_string_lossy(),
-                "size_bytes": metadata.len(),
-                "file_type": file_type,
-                "is_symlink": is_symlink,
-                "permissions": format!("{:o}", metadata.permissions().mode() & 0o7777),
-                "modified": metadata.modified().ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs()),
-                "accessed": metadata.accessed().ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs()),
-                "created": metadata.created().ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs()),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "path": canonical.to_string_lossy(),
+            "size_bytes": metadata.len(),
+            "file_type": file_type,
+            "is_symlink": is_symlink,
+            "permissions": format!("{:o}", metadata.permissions().mode() & 0o7777),
+            "modified": metadata.modified().ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs()),
+            "accessed": metadata.accessed().ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs()),
+            "created": metadata.created().ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs()),
+        })))
     }
 }
 
@@ -401,23 +389,21 @@ impl Skill for FsSearchSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Root directory to search" },
-                    "pattern": { "type": "string", "description": "Search pattern" },
-                    "by": {
-                        "type": "string",
-                        "enum": ["name", "content", "glob"],
-                        "default": "glob",
-                        "description": "Search mode"
-                    },
-                    "max_results": { "type": "integer", "default": 50, "description": "Max results" }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Root directory to search" },
+                "pattern": { "type": "string", "description": "Search pattern" },
+                "by": {
+                    "type": "string",
+                    "enum": ["name", "content", "glob"],
+                    "default": "glob",
+                    "description": "Search mode"
                 },
-                "required": ["path", "pattern"]
-            }),
-        }
+                "max_results": { "type": "integer", "default": 50, "description": "Max results" }
+            },
+            "required": ["path", "pattern"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -461,35 +447,29 @@ impl Skill for FsSearchSkill {
                         results.push(serde_json::json!(p.to_string_lossy()));
                     }
                 }
-                Ok(SkillOutput {
-                    data: serde_json::json!({
-                        "matches": results,
-                        "count": results.len(),
-                        "search_type": "glob",
-                    }),
-                })
+                Ok(SkillOutput::new(serde_json::json!({
+                    "matches": results,
+                    "count": results.len(),
+                    "search_type": "glob",
+                })))
             }
             "name" => {
                 let mut results = Vec::new();
                 search_by_name(&canonical, pattern, &mut results, max).await?;
-                Ok(SkillOutput {
-                    data: serde_json::json!({
-                        "matches": results,
-                        "count": results.len(),
-                        "search_type": "name",
-                    }),
-                })
+                Ok(SkillOutput::new(serde_json::json!({
+                    "matches": results,
+                    "count": results.len(),
+                    "search_type": "name",
+                })))
             }
             "content" => {
                 let mut results = Vec::new();
                 search_by_content(&canonical, pattern, &mut results, max).await?;
-                Ok(SkillOutput {
-                    data: serde_json::json!({
-                        "matches": results,
-                        "count": results.len(),
-                        "search_type": "content",
-                    }),
-                })
+                Ok(SkillOutput::new(serde_json::json!({
+                    "matches": results,
+                    "count": results.len(),
+                    "search_type": "content",
+                })))
             }
             _ => Err(Error::Skill(format!("unknown search mode: {}", by))),
         }
@@ -600,19 +580,17 @@ impl Skill for FsWriteSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "File path to write" },
-                    "content": { "type": "string", "description": "Content to write" },
-                    "mode": { "type": "string", "enum": ["write", "append"], "default": "write" },
-                    "create_dirs": { "type": "boolean", "default": false, "description": "Create parent directories" },
-                    "encoding": { "type": "string", "enum": ["utf8", "base64"], "default": "utf8" }
-                },
-                "required": ["path", "content"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "File path to write" },
+                "content": { "type": "string", "description": "Content to write" },
+                "mode": { "type": "string", "enum": ["write", "append"], "default": "write" },
+                "create_dirs": { "type": "boolean", "default": false, "description": "Create parent directories" },
+                "encoding": { "type": "string", "enum": ["utf8", "base64"], "default": "utf8" }
+            },
+            "required": ["path", "content"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -675,12 +653,10 @@ impl Skill for FsWriteSkill {
 
         debug!(path = %canonical.display(), bytes = bytes_written, "fs_write complete");
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "bytes_written": bytes_written,
-                "path": canonical.to_string_lossy(),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "bytes_written": bytes_written,
+            "path": canonical.to_string_lossy(),
+        })))
     }
 }
 
@@ -707,17 +683,15 @@ impl Skill for FsWatchSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Path to watch" },
-                    "duration_secs": { "type": "integer", "default": 5, "maximum": 30, "description": "How long to watch" },
-                    "recursive": { "type": "boolean", "default": true }
-                },
-                "required": ["path"]
-            }),
-        }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Path to watch" },
+                "duration_secs": { "type": "integer", "default": 5, "maximum": 30, "description": "How long to watch" },
+                "recursive": { "type": "boolean", "default": true }
+            },
+            "required": ["path"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -784,14 +758,12 @@ impl Skill for FsWatchSkill {
             }
         }
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "events": events,
-                "count": events.len(),
-                "watched_path": canonical.to_string_lossy(),
-                "duration_secs": duration_secs,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "events": events,
+            "count": events.len(),
+            "watched_path": canonical.to_string_lossy(),
+            "duration_secs": duration_secs,
+        })))
     }
 }
 
@@ -838,13 +810,7 @@ mod tests {
 
         let mut args = HashMap::new();
         args.insert("path".into(), serde_json::json!(file.to_string_lossy()));
-        let output = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await
-            .unwrap();
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
         assert_eq!(output.data["content"], "hello world");
         assert_eq!(output.data["encoding"], "utf8");
     }
@@ -852,10 +818,7 @@ mod tests {
     #[tokio::test]
     async fn fs_read_missing_path_errors() {
         let skill = FsReadSkill::new(test_guard("read-only"), &test_os_config());
-        let input = SkillInput {
-            args: HashMap::new(),
-            context: None,
-        };
+        let input = SkillInput::new(HashMap::new());
         assert!(skill.execute(input).await.is_err());
     }
 
@@ -877,13 +840,7 @@ mod tests {
             "path".into(),
             serde_json::json!(dir.path().to_string_lossy()),
         );
-        let output = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await
-            .unwrap();
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
         assert_eq!(output.data["total"], 2);
     }
 
@@ -895,12 +852,7 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("path".into(), serde_json::json!("/tmp/test_write.txt"));
         args.insert("content".into(), serde_json::json!("data"));
-        let result = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await;
+        let result = skill.execute(SkillInput::new(args)).await;
         assert!(result.is_err());
     }
 
@@ -920,13 +872,7 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("path".into(), serde_json::json!(file.to_string_lossy()));
         args.insert("content".into(), serde_json::json!("hello"));
-        let output = skill
-            .execute(SkillInput {
-                args,
-                context: None,
-            })
-            .await
-            .unwrap();
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
         assert_eq!(output.data["bytes_written"], 5);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello");
     }

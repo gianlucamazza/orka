@@ -45,9 +45,7 @@ impl Skill for McpToolBridge {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: self.tool_schema.clone(),
-        }
+        SkillSchema::new(self.tool_schema.clone())
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -70,8 +68,6 @@ impl Skill for McpToolBridge {
             return Err(orka_core::Error::Skill(format!("MCP tool error: {text}")));
         }
 
-        Ok(SkillOutput {
-            data: serde_json::Value::String(text),
-        })
+        Ok(SkillOutput::new(serde_json::Value::String(text)))
     }
 }

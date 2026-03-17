@@ -45,30 +45,28 @@ impl Skill for WebSearchSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query"
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum number of results to return (1-10)",
-                        "default": 5,
-                        "minimum": 1,
-                        "maximum": 10
-                    },
-                    "include_content": {
-                        "type": "boolean",
-                        "description": "Include page content in results (default: true). Set to false for faster results with only snippets.",
-                        "default": true
-                    }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query"
                 },
-                "required": ["query"]
-            }),
-        }
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (1-10)",
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": 10
+                },
+                "include_content": {
+                    "type": "boolean",
+                    "description": "Include page content in results (default: true). Set to false for faster results with only snippets.",
+                    "default": true
+                }
+            },
+            "required": ["query"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -97,7 +95,7 @@ impl Skill for WebSearchSkill {
             debug!(query, "web_search cache hit");
             let data: serde_json::Value = serde_json::from_str(&cached)
                 .map_err(|e| Error::Skill(format!("cache deserialization error: {e}")))?;
-            return Ok(SkillOutput { data });
+            return Ok(SkillOutput::new(data));
         }
 
         let options = SearchOptions {
@@ -131,7 +129,7 @@ impl Skill for WebSearchSkill {
             self.cache.set("search", &cache_key, json);
         }
 
-        Ok(SkillOutput { data })
+        Ok(SkillOutput::new(data))
     }
 }
 
@@ -190,10 +188,7 @@ mod tests {
 
         let mut args = HashMap::new();
         args.insert("query".into(), serde_json::json!("rust"));
-        let input = SkillInput {
-            args,
-            context: None,
-        };
+        let input = SkillInput::new(args);
         let output = skill.execute(input).await.unwrap();
 
         let results = output.data.as_array().unwrap();
@@ -211,10 +206,7 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("query".into(), serde_json::json!("test"));
         args.insert("max_results".into(), serde_json::json!(1));
-        let input = SkillInput {
-            args,
-            context: None,
-        };
+        let input = SkillInput::new(args);
         let output = skill.execute(input).await.unwrap();
         assert_eq!(output.data.as_array().unwrap().len(), 1);
     }
@@ -222,10 +214,7 @@ mod tests {
     #[tokio::test]
     async fn search_missing_query_errors() {
         let skill = make_skill(vec![]);
-        let input = SkillInput {
-            args: HashMap::new(),
-            context: None,
-        };
+        let input = SkillInput::new(HashMap::new());
         assert!(skill.execute(input).await.is_err());
     }
 
@@ -242,17 +231,11 @@ mod tests {
 
         let mut args = HashMap::new();
         args.insert("query".into(), serde_json::json!("cache test"));
-        let input = SkillInput {
-            args: args.clone(),
-            context: None,
-        };
+        let input = SkillInput::new(args.clone());
         let _ = skill.execute(input).await.unwrap();
 
         // Second call should hit cache
-        let input2 = SkillInput {
-            args,
-            context: None,
-        };
+        let input2 = SkillInput::new(args);
         let output2 = skill.execute(input2).await.unwrap();
         assert_eq!(output2.data.as_array().unwrap()[0]["title"], "Cached");
     }
@@ -270,10 +253,7 @@ mod tests {
 
         let mut args = HashMap::new();
         args.insert("query".into(), serde_json::json!("example"));
-        let input = SkillInput {
-            args,
-            context: None,
-        };
+        let input = SkillInput::new(args);
         let output = skill.execute(input).await.unwrap();
 
         // Content should be in search results
@@ -293,20 +273,14 @@ mod tests {
         let mut args = HashMap::new();
         args.insert("query".into(), serde_json::json!("test"));
         args.insert("include_content".into(), serde_json::json!(true));
-        let input = SkillInput {
-            args,
-            context: None,
-        };
+        let input = SkillInput::new(args);
         let _ = skill.execute(input).await.unwrap();
 
         // Search without content should NOT be a cache hit (different key)
         let mut args2 = HashMap::new();
         args2.insert("query".into(), serde_json::json!("test"));
         args2.insert("include_content".into(), serde_json::json!(false));
-        let input2 = SkillInput {
-            args: args2,
-            context: None,
-        };
+        let input2 = SkillInput::new(args2);
         // This should succeed (hits provider, not cache) — verifies different cache keys
         let output = skill.execute(input2).await.unwrap();
         assert_eq!(output.data.as_array().unwrap().len(), 1);

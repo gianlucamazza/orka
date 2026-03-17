@@ -23,21 +23,15 @@ async fn session_map_consistency() {
 
     let sid1 = {
         let mut s = sessions.lock().await;
-        s.entry("+1234567890".into())
-            .or_insert_with(SessionId::new)
-            .clone()
+        *s.entry("+1234567890".into()).or_insert_with(SessionId::new)
     };
     let sid2 = {
         let mut s = sessions.lock().await;
-        s.entry("+1234567890".into())
-            .or_insert_with(SessionId::new)
-            .clone()
+        *s.entry("+1234567890".into()).or_insert_with(SessionId::new)
     };
     let sid3 = {
         let mut s = sessions.lock().await;
-        s.entry("+0987654321".into())
-            .or_insert_with(SessionId::new)
-            .clone()
+        *s.entry("+0987654321".into()).or_insert_with(SessionId::new)
     };
 
     assert_eq!(sid1, sid2, "same phone number must produce same SessionId");
@@ -53,7 +47,7 @@ async fn envelope_from_whatsapp_message() {
     use orka_core::types::{Envelope, Payload};
 
     let session_id = SessionId::new();
-    let mut envelope = Envelope::text("whatsapp", session_id.clone(), "Hello from WhatsApp");
+    let mut envelope = Envelope::text("whatsapp", session_id, "Hello from WhatsApp");
     envelope.metadata.insert(
         "whatsapp_from".to_string(),
         serde_json::json!("+1234567890"),
@@ -123,11 +117,11 @@ fn webhook_verification_logic() {
     let verify_token = "my-secret-token";
     let mode = Some("subscribe");
     let token = Some("my-secret-token");
-    let challenge = Some("challenge-string");
+    let challenge = "challenge-string";
 
     let verified = mode == Some("subscribe") && token == Some(verify_token);
     assert!(verified);
-    assert_eq!(challenge.unwrap(), "challenge-string");
+    assert_eq!(challenge, "challenge-string");
 
     // Wrong token should fail
     let bad_token = Some("wrong-token");

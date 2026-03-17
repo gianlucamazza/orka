@@ -30,42 +30,40 @@ impl Skill for ScheduleCreateSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Name for this schedule"
-                    },
-                    "cron": {
-                        "type": "string",
-                        "description": "Cron expression (e.g. '0 0 9 * * *' for daily at 9am)"
-                    },
-                    "run_at": {
-                        "type": "string",
-                        "description": "ISO 8601 datetime for one-shot execution"
-                    },
-                    "skill": {
-                        "type": "string",
-                        "description": "Skill name to invoke"
-                    },
-                    "args": {
-                        "type": "object",
-                        "description": "Arguments to pass to the skill"
-                    },
-                    "message": {
-                        "type": "string",
-                        "description": "Message to send (alternative to skill)"
-                    },
-                    "timezone": {
-                        "type": "string",
-                        "description": "Timezone (e.g. 'Europe/Rome')"
-                    }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Name for this schedule"
                 },
-                "required": ["name"]
-            }),
-        }
+                "cron": {
+                    "type": "string",
+                    "description": "Cron expression (e.g. '0 0 9 * * *' for daily at 9am)"
+                },
+                "run_at": {
+                    "type": "string",
+                    "description": "ISO 8601 datetime for one-shot execution"
+                },
+                "skill": {
+                    "type": "string",
+                    "description": "Skill name to invoke"
+                },
+                "args": {
+                    "type": "object",
+                    "description": "Arguments to pass to the skill"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Message to send (alternative to skill)"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "Timezone (e.g. 'Europe/Rome')"
+                }
+            },
+            "required": ["name"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -140,14 +138,12 @@ impl Skill for ScheduleCreateSkill {
 
         self.store.add(&schedule).await?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "created": true,
-                "id": schedule.id,
-                "name": schedule.name,
-                "next_run": chrono::DateTime::from_timestamp(next_run, 0)
-                    .map(|dt| dt.to_rfc3339()),
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "created": true,
+            "id": schedule.id,
+            "name": schedule.name,
+            "next_run": chrono::DateTime::from_timestamp(next_run, 0)
+                .map(|dt| dt.to_rfc3339()),
+        })))
     }
 }

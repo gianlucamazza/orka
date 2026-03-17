@@ -1,3 +1,7 @@
+//! Telegram Bot API adapter for receiving and sending messages.
+
+#![warn(missing_docs)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -10,6 +14,7 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+/// Telegram Bot API [`ChannelAdapter`] using long polling.
 pub struct TelegramAdapter {
     bot_token: String,
     client: Client,
@@ -20,6 +25,7 @@ pub struct TelegramAdapter {
 }
 
 impl TelegramAdapter {
+    /// Create an adapter with the given bot token.
     pub fn new(bot_token: String) -> Self {
         Self {
             bot_token,
@@ -123,9 +129,7 @@ impl ChannelAdapter for TelegramAdapter {
                                         {
                                             let session_id = {
                                                 let mut s = sessions.lock().await;
-                                                s.entry(msg.chat.id)
-                                                    .or_insert_with(SessionId::new)
-                                                    .clone()
+                                                *s.entry(msg.chat.id).or_insert_with(SessionId::new)
                                             };
 
                                             let mut envelope =
@@ -267,13 +271,7 @@ mod tests {
     #[tokio::test]
     async fn send_errors_when_chat_id_missing() {
         let adapter = make_adapter();
-        let msg = OutboundMessage {
-            channel: "telegram".into(),
-            session_id: SessionId::new(),
-            payload: Payload::Text("hello".into()),
-            reply_to: None,
-            metadata: HashMap::new(),
-        };
+        let msg = OutboundMessage::text("telegram", SessionId::new(), "hello", None);
         let err = adapter.send(msg).await.unwrap_err();
         let msg = format!("{err}");
         assert!(

@@ -116,7 +116,7 @@ pub async fn handle_message(
         .map(SessionId)
         .unwrap_or_else(SessionId::new);
 
-    let mut envelope = Envelope::text("custom", session_id.clone(), &req.text);
+    let mut envelope = Envelope::text("custom", session_id, &req.text);
 
     if let Some(metadata) = req.metadata {
         envelope.metadata = metadata;
@@ -184,8 +184,8 @@ async fn handle_ws_connection(
 ) {
     info!(%session_id, "WebSocket connected");
 
-    let (tx, mut rx) = registry.register(session_id.clone()).await;
-    let mut stream_rx = stream_registry.subscribe(session_id.clone()).await;
+    let (tx, mut rx) = registry.register(session_id).await;
+    let mut stream_rx = stream_registry.subscribe(session_id);
     let (mut ws_sink, mut ws_stream) = socket.split();
 
     // Forward both stream chunks (deltas) and final outbound messages to WS frames

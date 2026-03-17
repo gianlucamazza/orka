@@ -1,3 +1,7 @@
+//! Discord Gateway WebSocket adapter for receiving and sending messages.
+
+#![warn(missing_docs)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -11,6 +15,7 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+/// Discord Gateway [`ChannelAdapter`] using WebSocket and REST API.
 pub struct DiscordAdapter {
     bot_token: String,
     client: Client,
@@ -20,6 +25,7 @@ pub struct DiscordAdapter {
 }
 
 impl DiscordAdapter {
+    /// Create an adapter with the given bot token.
     pub fn new(bot_token: String) -> Self {
         Self {
             bot_token,
@@ -200,9 +206,8 @@ impl ChannelAdapter for DiscordAdapter {
 
                                                 let session_id = {
                                                     let mut s = sessions.lock().await;
-                                                    s.entry(channel_id.to_string())
+                                                    *s.entry(channel_id.to_string())
                                                         .or_insert_with(SessionId::new)
-                                                        .clone()
                                                 };
 
                                                 let mut envelope = Envelope::text(
@@ -314,7 +319,7 @@ impl ChannelAdapter for DiscordAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orka_core::types::{OutboundMessage, Payload, SessionId};
+    use orka_core::types::{OutboundMessage, SessionId};
 
     #[test]
     fn channel_id_returns_discord() {
@@ -334,13 +339,7 @@ mod tests {
     #[tokio::test]
     async fn send_errors_when_discord_channel_id_missing() {
         let adapter = DiscordAdapter::new("test-token".into());
-        let msg = OutboundMessage {
-            channel: "discord".into(),
-            session_id: SessionId::new(),
-            payload: Payload::Text("hello".into()),
-            reply_to: None,
-            metadata: HashMap::new(),
-        };
+        let msg = OutboundMessage::text("discord", SessionId::new(), "hello", None);
         let err = adapter.send(msg).await.unwrap_err();
         let msg = format!("{err}");
         assert!(

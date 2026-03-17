@@ -65,13 +65,8 @@ impl McpServer {
                     .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                     .unwrap_or_default();
 
-                let input = SkillInput {
-                    args,
-                    context: Some(SkillContext {
-                        secrets: self.secrets.clone(),
-                        event_sink: None,
-                    }),
-                };
+                let input = SkillInput::new(args)
+                    .with_context(SkillContext::new(self.secrets.clone(), None));
 
                 match self.skills.invoke(name, input).await {
                     Ok(output) => {

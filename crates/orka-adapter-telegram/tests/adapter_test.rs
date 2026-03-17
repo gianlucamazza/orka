@@ -3,7 +3,7 @@ use orka_core::traits::ChannelAdapter;
 use orka_core::types::SessionId;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::Mutex;
 
 #[test]
 fn channel_id_returns_telegram() {
@@ -19,15 +19,15 @@ async fn session_map_consistency() {
 
     let sid1 = {
         let mut s = sessions.lock().await;
-        s.entry(12345).or_insert_with(SessionId::new).clone()
+        *s.entry(12345).or_insert_with(SessionId::new)
     };
     let sid2 = {
         let mut s = sessions.lock().await;
-        s.entry(12345).or_insert_with(SessionId::new).clone()
+        *s.entry(12345).or_insert_with(SessionId::new)
     };
     let sid3 = {
         let mut s = sessions.lock().await;
-        s.entry(99999).or_insert_with(SessionId::new).clone()
+        *s.entry(99999).or_insert_with(SessionId::new)
     };
 
     assert_eq!(sid1, sid2, "same chat_id must produce same SessionId");
@@ -43,7 +43,7 @@ async fn envelope_from_telegram_update() {
     use orka_core::types::{Envelope, Payload};
 
     let session_id = SessionId::new();
-    let mut envelope = Envelope::text("telegram", session_id.clone(), "Hello world");
+    let mut envelope = Envelope::text("telegram", session_id, "Hello world");
     envelope
         .metadata
         .insert("telegram_chat_id".to_string(), serde_json::json!(12345i64));

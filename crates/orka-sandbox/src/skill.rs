@@ -28,27 +28,25 @@ impl Skill for SandboxSkill {
     }
 
     fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "The code to execute"
-                    },
-                    "language": {
-                        "type": "string",
-                        "enum": ["python", "bash", "wasm"],
-                        "description": "The programming language"
-                    },
-                    "timeout_secs": {
-                        "type": "number",
-                        "description": "Optional execution timeout in seconds"
-                    }
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "The code to execute"
                 },
-                "required": ["code", "language"]
-            }),
-        }
+                "language": {
+                    "type": "string",
+                    "enum": ["python", "bash", "wasm"],
+                    "description": "The programming language"
+                },
+                "timeout_secs": {
+                    "type": "number",
+                    "description": "Optional execution timeout in seconds"
+                }
+            },
+            "required": ["code", "language"]
+        }))
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
@@ -94,14 +92,12 @@ impl Skill for SandboxSkill {
 
         let result = self.executor.execute(req).await?;
 
-        Ok(SkillOutput {
-            data: serde_json::json!({
-                "exit_code": result.exit_code,
-                "stdout": String::from_utf8_lossy(&result.stdout),
-                "stderr": String::from_utf8_lossy(&result.stderr),
-                "duration_ms": result.duration.as_millis() as u64,
-            }),
-        })
+        Ok(SkillOutput::new(serde_json::json!({
+            "exit_code": result.exit_code,
+            "stdout": String::from_utf8_lossy(&result.stdout),
+            "stderr": String::from_utf8_lossy(&result.stderr),
+            "duration_ms": result.duration.as_millis() as u64,
+        })))
     }
 }
 
