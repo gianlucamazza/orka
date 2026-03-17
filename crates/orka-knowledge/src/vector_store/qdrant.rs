@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use orka_core::Result;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::{
-    CreateCollectionBuilder, Distance, PointStruct, ScrollPointsBuilder, SearchPointsBuilder,
-    UpsertPointsBuilder, VectorParamsBuilder,
+    Condition, CreateCollectionBuilder, Distance, Filter, PointStruct, ScrollPointsBuilder,
+    SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -95,13 +95,21 @@ impl VectorStore for QdrantStore {
         vector: &[f32],
         limit: usize,
         score_threshold: Option<f32>,
-        _filter: Option<HashMap<String, String>>,
+        filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<SearchResult>> {
         let mut search =
             SearchPointsBuilder::new(collection, vector.to_vec(), limit as u64).with_payload(true);
 
         if let Some(threshold) = score_threshold {
             search = search.score_threshold(threshold);
+        }
+
+        if let Some(ref conditions) = filter {
+            let must: Vec<Condition> = conditions
+                .iter()
+                .map(|(key, value)| Condition::matches(key.as_str(), value.clone()))
+                .collect();
+            search = search.filter(Filter::must(must));
         }
 
         let results = self
@@ -147,6 +155,7 @@ impl VectorStore for QdrantStore {
         &self,
         collection: &str,
         limit: usize,
+        filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<HashMap<String, String>>> {
         let exists = self
             .client
@@ -160,9 +169,17 @@ impl VectorStore for QdrantStore {
             return Ok(Vec::new());
         }
 
-        let scroll = ScrollPointsBuilder::new(collection)
+        let mut scroll = ScrollPointsBuilder::new(collection)
             .with_payload(true)
             .limit(limit as u32);
+
+        if let Some(ref conditions) = filter {
+            let must: Vec<Condition> = conditions
+                .iter()
+                .map(|(key, value)| Condition::matches(key.as_str(), value.clone()))
+                .collect();
+            scroll = scroll.filter(Filter::must(must));
+        }
 
         let result = self
             .client
