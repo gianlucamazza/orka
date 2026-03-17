@@ -24,7 +24,7 @@ cargo test -- --ignored        # Integration tests (requires Redis)
 
 ## Conventions
 
-- **MSRV:** 1.75
+- **MSRV:** 1.85
 - **Error handling:** `thiserror` for library crates, `anyhow` sparingly in binaries
 - **Formatting:** `rustfmt` defaults, no `rustfmt.toml`
 - **Linting:** `cargo clippy -- -D warnings`

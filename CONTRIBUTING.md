@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Orka!
 
 ### Prerequisites
 
-- Rust 1.75+ (MSRV)
+- Rust 1.85+ (MSRV)
 - Redis 7+ (for integration tests)
 - Docker (for `testcontainers`-based integration tests)
 - [just](https://github.com/casey/just) command runner
