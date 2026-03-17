@@ -83,15 +83,19 @@ impl TrajectoryStore {
     ) -> Result<Vec<Trajectory>> {
         self.ensure_init().await?;
 
+        let ws_filter = workspace.map(|w| {
+            let mut f = HashMap::new();
+            f.insert("workspace".to_string(), w.to_string());
+            f
+        });
         let payloads = self
             .vector_store
-            .list_documents(&self.collection, limit)
+            .list_documents(&self.collection, limit, ws_filter)
             .await?;
 
         let mut trajectories: Vec<Trajectory> = payloads
             .into_iter()
             .filter_map(|p| payload_to_trajectory(&p))
-            .filter(|t| workspace.is_none_or(|w| t.workspace == w))
             .collect();
 
         // Sort by timestamp descending (most recent first)

@@ -59,7 +59,7 @@ impl Skill for DocListSkill {
             .and_then(|v| v.as_u64())
             .unwrap_or(100) as usize;
 
-        let documents = self.store.list_documents(collection, limit).await?;
+        let documents = self.store.list_documents(collection, limit, None).await?;
 
         Ok(SkillOutput::new(serde_json::json!({
             "documents": documents,

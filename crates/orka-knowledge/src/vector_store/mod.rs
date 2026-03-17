@@ -36,5 +36,6 @@ pub trait VectorStore: Send + Sync + 'static {
         &self,
         collection: &str,
         limit: usize,
+        filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<HashMap<String, String>>>;
 }
