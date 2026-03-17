@@ -93,9 +93,7 @@ impl Skill for HttpRequestSkill {
             .ok_or_else(|| orka_core::Error::Skill("url is required".into()))?;
 
         // SSRF check
-        self.guard
-            .check(url)
-            .map_err(|e| orka_core::Error::Skill(e))?;
+        self.guard.check(url).map_err(orka_core::Error::Skill)?;
 
         let method = input
             .args

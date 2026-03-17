@@ -95,7 +95,12 @@ impl Skill for MemoryStoreSkill {
 
         let id = Uuid::new_v4().to_string();
         self.store
-            .upsert(collection, &[id.clone()], &embeddings, &[metadata])
+            .upsert(
+                collection,
+                std::slice::from_ref(&id),
+                &embeddings,
+                &[metadata],
+            )
             .await?;
 
         Ok(SkillOutput {

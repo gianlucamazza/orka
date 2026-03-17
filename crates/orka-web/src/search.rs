@@ -82,7 +82,7 @@ impl Skill for WebSearchSkill {
             .args
             .get("max_results")
             .and_then(|v| v.as_u64())
-            .map(|n| (n as usize).min(10).max(1))
+            .map(|n| (n as usize).clamp(1, 10))
             .unwrap_or(self.max_results);
 
         let include_content = input

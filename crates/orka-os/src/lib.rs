@@ -16,39 +16,19 @@ use guard::PermissionGuard;
 pub fn create_os_skills(config: &OsConfig) -> Result<Vec<Arc<dyn Skill>>> {
     let guard = Arc::new(PermissionGuard::new(config));
     let level = guard.level();
-    let mut result: Vec<Arc<dyn Skill>> = Vec::new();
-
-    // Read-only skills (always included)
-    result.push(Arc::new(skills::system_info::SystemInfoSkill::new(
-        guard.clone(),
-    )));
-    result.push(Arc::new(skills::fs::FsReadSkill::new(
-        guard.clone(),
-        config,
-    )));
-    result.push(Arc::new(skills::fs::FsListSkill::new(
-        guard.clone(),
-        config,
-    )));
-    result.push(Arc::new(skills::fs::FsInfoSkill::new(guard.clone())));
-    result.push(Arc::new(skills::fs::FsSearchSkill::new(
-        guard.clone(),
-        config,
-    )));
-    result.push(Arc::new(skills::process::ProcessListSkill::new(
-        guard.clone(),
-    )));
-    result.push(Arc::new(skills::process::ProcessInfoSkill::new(
-        guard.clone(),
-    )));
-    result.push(Arc::new(skills::env::EnvGetSkill::new(guard.clone())));
-    result.push(Arc::new(skills::env::EnvListSkill::new(guard.clone())));
-    result.push(Arc::new(skills::network::NetworkInfoSkill::new(
-        guard.clone(),
-    )));
-    result.push(Arc::new(skills::network::NetworkCheckSkill::new(
-        guard.clone(),
-    )));
+    let mut result: Vec<Arc<dyn Skill>> = vec![
+        Arc::new(skills::system_info::SystemInfoSkill::new(guard.clone())),
+        Arc::new(skills::fs::FsReadSkill::new(guard.clone(), config)),
+        Arc::new(skills::fs::FsListSkill::new(guard.clone(), config)),
+        Arc::new(skills::fs::FsInfoSkill::new(guard.clone())),
+        Arc::new(skills::fs::FsSearchSkill::new(guard.clone(), config)),
+        Arc::new(skills::process::ProcessListSkill::new(guard.clone())),
+        Arc::new(skills::process::ProcessInfoSkill::new(guard.clone())),
+        Arc::new(skills::env::EnvGetSkill::new(guard.clone())),
+        Arc::new(skills::env::EnvListSkill::new(guard.clone())),
+        Arc::new(skills::network::NetworkInfoSkill::new(guard.clone())),
+        Arc::new(skills::network::NetworkCheckSkill::new(guard.clone())),
+    ];
 
     // Write skills
     if level >= PermissionLevel::Write {

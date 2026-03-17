@@ -41,11 +41,9 @@ pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn S
     };
 
     // Initialize vector store
-    let vector_store: Arc<dyn VectorStore> = match config.vector_store.provider.as_str() {
-        "qdrant" | _ => Arc::new(vector_store::qdrant::QdrantStore::new(
-            &config.vector_store.url,
-        )?),
-    };
+    let vector_store: Arc<dyn VectorStore> = Arc::new(vector_store::qdrant::QdrantStore::new(
+        &config.vector_store.url,
+    )?);
 
     let full_collection = format!(
         "{}{}",

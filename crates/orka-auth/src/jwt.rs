@@ -185,9 +185,7 @@ mod tests {
             &EncodingKey::from_secret(secret.as_bytes()),
         )
         .unwrap();
-        let result = auth
-            .authenticate(&Credentials::Bearer(token))
-            .await;
+        let result = auth.authenticate(&Credentials::Bearer(token)).await;
         assert!(result.is_err(), "expired JWT should be rejected");
     }
 }

@@ -111,13 +111,11 @@ impl CircuitBreaker {
         let raw = self.state.load(Ordering::SeqCst);
 
         // Auto-transition from Open to HalfOpen if duration elapsed.
-        if raw == CircuitState::Open as u8 {
-            if self.open_duration_elapsed() {
-                self.state
-                    .store(CircuitState::HalfOpen as u8, Ordering::SeqCst);
-                self.half_open_probes.store(0, Ordering::SeqCst);
-                return CircuitState::HalfOpen;
-            }
+        if raw == CircuitState::Open as u8 && self.open_duration_elapsed() {
+            self.state
+                .store(CircuitState::HalfOpen as u8, Ordering::SeqCst);
+            self.half_open_probes.store(0, Ordering::SeqCst);
+            return CircuitState::HalfOpen;
         }
 
         CircuitState::from_u8(raw)

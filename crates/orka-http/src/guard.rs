@@ -17,14 +17,13 @@ impl SsrfGuard {
         let host = url.host_str().unwrap_or("");
 
         // Block private/link-local IPs
-        if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
-            if self
+        if (host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0")
+            && self
                 .blocked_domains
                 .iter()
                 .any(|d| d == "localhost" || d == "127.0.0.1")
-            {
-                return Err(format!("blocked: localhost access denied"));
-            }
+        {
+            return Err("blocked: localhost access denied".into());
         }
 
         for blocked in &self.blocked_domains {

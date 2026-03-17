@@ -71,7 +71,7 @@ impl Skill for SystemInfoSkill {
                     "total_processes": sys.processes().len(),
                 })
             }
-            "all" | _ => {
+            _ => {
                 sys.refresh_all();
                 serde_json::json!({
                     "cpu": cpu_info(&sys),
