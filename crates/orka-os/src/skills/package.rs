@@ -5,7 +5,9 @@ use async_trait::async_trait;
 use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use orka_core::{DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema,
+};
 use uuid::Uuid;
 
 use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
@@ -354,20 +356,28 @@ impl Skill for PackageInstallSkill {
                 session_id: orka_core::types::SessionId::new(),
                 message_id: orka_core::types::MessageId::new(),
                 requested_at: now,
-                expires_at: now
-                    + chrono::Duration::seconds(self.confirmation_timeout_secs as i64),
+                expires_at: now + chrono::Duration::seconds(self.confirmation_timeout_secs as i64),
             };
             match self.approval.request_approval(req).await? {
                 ApprovalDecision::Approved => {}
                 ApprovalDecision::Denied { reason } => {
-                    emit_denied(&input, cmd, &install_args, &format!("package install denied: {reason}")).await;
-                    return Err(Error::Skill(format!(
-                        "package install denied: {}",
-                        reason
-                    )));
+                    emit_denied(
+                        &input,
+                        cmd,
+                        &install_args,
+                        &format!("package install denied: {reason}"),
+                    )
+                    .await;
+                    return Err(Error::Skill(format!("package install denied: {}", reason)));
                 }
                 ApprovalDecision::Expired => {
-                    emit_denied(&input, cmd, &install_args, "package install approval expired").await;
+                    emit_denied(
+                        &input,
+                        cmd,
+                        &install_args,
+                        "package install approval expired",
+                    )
+                    .await;
                     return Err(Error::Skill("package install approval expired".into()));
                 }
             }

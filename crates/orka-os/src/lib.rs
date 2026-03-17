@@ -10,6 +10,23 @@ use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use tracing::info;
 
+/// Check whether the current process has `NoNewPrivileges` set.
+///
+/// On Linux this uses `prctl(PR_GET_NO_NEW_PRIVS)`. Returns `false` on
+/// non-Linux platforms or if the check cannot be performed.
+pub fn has_no_new_privileges() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: PR_GET_NO_NEW_PRIVS (39) takes no pointer arguments and
+        // cannot cause undefined behaviour — it simply returns 0 or 1.
+        unsafe { libc::prctl(libc::PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) == 1 }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
 use approval::{ApprovalChannel, AutoApproveChannel};
 use config::PermissionLevel;
 use guard::PermissionGuard;

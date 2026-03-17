@@ -98,4 +98,4 @@ Use [GitHub Issues](https://github.com/gianlucamazza/orka/issues) for bug report
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+By contributing, you agree that your contributions will be licensed under both the [MIT License](LICENSE-MIT) and [Apache License 2.0](LICENSE-APACHE), at the choice of the user.

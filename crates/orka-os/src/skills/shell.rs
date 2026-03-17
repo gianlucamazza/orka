@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use orka_core::{DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema,
+};
 use tracing::debug;
 use uuid::Uuid;
 
@@ -143,22 +145,11 @@ impl Skill for ShellExecSkill {
                             &format!("sudo execution denied: {reason}"),
                         )
                         .await;
-                        return Err(Error::Skill(format!(
-                            "sudo execution denied: {}",
-                            reason
-                        )));
+                        return Err(Error::Skill(format!("sudo execution denied: {}", reason)));
                     }
                     ApprovalDecision::Expired => {
-                        emit_denied(
-                            &input,
-                            command,
-                            &args,
-                            "sudo approval request expired",
-                        )
-                        .await;
-                        return Err(Error::Skill(
-                            "sudo approval request expired".into(),
-                        ));
+                        emit_denied(&input, command, &args, "sudo approval request expired").await;
+                        return Err(Error::Skill("sudo approval request expired".into()));
                     }
                 }
             }

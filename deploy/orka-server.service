@@ -21,6 +21,9 @@ RestartSec=5s
 RestartSteps=5
 RestartMaxDelaySec=60s
 
+# Allow coredumps for post-mortem debugging (requires systemd-coredump)
+LimitCORE=infinity
+
 TimeoutStopSec=35s
 KillMode=mixed
 KillSignal=SIGTERM

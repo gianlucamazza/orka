@@ -53,6 +53,21 @@ ICON_DIR="/usr/local/share/icons/hicolor"
 DESKTOP_DIR="/usr/local/share/applications"
 
 SERVICE_NAME="orka-server"
+DROPIN_DIR="/etc/systemd/system/${SERVICE_NAME}.service.d"
+
+# ── Check if sudo is enabled in config ──────────────────────────────
+# Parses the TOML config for [os.sudo] enabled = true.
+check_sudo_enabled() {
+	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
+	[[ -f "$cfg" ]] || return 1
+	# Look for enabled = true under [os.sudo]
+	awk '
+		/^\[os\.sudo\]/ { in_section=1; next }
+		/^\[/           { in_section=0 }
+		in_section && /^enabled\s*=\s*true/ { found=1; exit }
+		END { exit !found }
+	' "$cfg"
+}
 
 # ── Root check ───────────────────────────────────────────────────────
 if ((EUID != 0)); then
@@ -73,6 +88,7 @@ uninstall() {
 	rm -f "${SYSUSERS_DIR}/${SERVICE_NAME}.conf"
 	rm -f "${TMPFILES_DIR}/${SERVICE_NAME}.conf"
 	rm -f /etc/sudoers.d/orka
+	rm -rf "${DROPIN_DIR}"
 
 	info "Removing icons and desktop entries..."
 	for size in 16 24 32 48 64 128 256 512; do
@@ -96,10 +112,22 @@ uninstall() {
 	warn "Remove manually if no longer needed."
 }
 
-if [[ "${1:-}" == "--uninstall" ]]; then
-	uninstall
-	exit 0
-fi
+FORCE=false
+for arg in "$@"; do
+	case "$arg" in
+	--uninstall)
+		uninstall
+		exit 0
+		;;
+	--force | --skip-stale-check)
+		FORCE=true
+		;;
+	*)
+		error "Unknown option: $arg"
+		exit 1
+		;;
+	esac
+done
 
 # ── Check pre-built binaries ─────────────────────────────────────────
 SERVER_BIN="$REPO_ROOT/target/release/orka-server"
@@ -109,6 +137,31 @@ if [[ ! -f "$SERVER_BIN" || ! -f "$CLI_BIN" ]]; then
 	error "Release binaries not found at target/release/"
 	error "Build them first:  cargo build --release  (or: just build-release)"
 	exit 1
+fi
+
+# ── Staleness check ─────────────────────────────────────────────────
+# Warn if binaries are older than any source file, which can cause
+# hard-to-debug crashes from stale intermediate builds.
+NEWEST_SRC=$(find "$REPO_ROOT" \( -name target -o -name .git \) -prune -o \
+	-type f \( -name '*.rs' -o -name '*.toml' \) -printf '%T@\n' | sort -rn | head -1)
+OLDEST_BIN=$(stat -c '%Y' "$SERVER_BIN" "$CLI_BIN" | sort -n | head -1)
+
+if [[ -n "$NEWEST_SRC" ]] && ((${OLDEST_BIN%%.*} < ${NEWEST_SRC%%.*})); then
+	warn "Release binaries are older than source files!"
+	warn "Run 'cargo build --release' before installing to avoid stale-binary issues."
+	if [[ "$FORCE" == true ]]; then
+		info "Continuing anyway (--force)."
+	elif [[ ! -t 0 ]]; then
+		error "Non-interactive shell detected and binaries are stale."
+		error "Rebuild first, or pass --force to skip this check."
+		exit 1
+	else
+		read -r -p "$(echo -e "${PREFIX}") Continue anyway? [y/N] " REPLY
+		if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+			info "Aborted. Rebuild with: cargo build --release"
+			exit 1
+		fi
+	fi
 fi
 
 # ── Stop service if running ──────────────────────────────────────────
@@ -203,6 +256,22 @@ else
 		warn "Review ${SUDOERS_SRC} and install manually."
 	fi
 	rm -f "$SUDOERS_TMP"
+fi
+
+# ── Install systemd drop-in for sudo ────────────────────────────────
+# When sudo is enabled, NoNewPrivileges must be relaxed or sudo will fail.
+if check_sudo_enabled "${CONFIG_DIR}/orka.toml"; then
+	info "sudo enabled in config — installing systemd drop-in to relax NoNewPrivileges"
+	mkdir -p "$DROPIN_DIR"
+	install -Dm644 "$REPO_ROOT/deploy/orka-server-sudo.conf" "${DROPIN_DIR}/sudo.conf"
+	ok "Drop-in installed → ${DROPIN_DIR}/sudo.conf"
+else
+	# Remove stale drop-in if sudo was previously enabled
+	if [[ -f "${DROPIN_DIR}/sudo.conf" ]]; then
+		info "sudo disabled in config — removing systemd drop-in"
+		rm -f "${DROPIN_DIR}/sudo.conf"
+		rmdir --ignore-fail-on-non-empty "$DROPIN_DIR" 2>/dev/null || true
+	fi
 fi
 
 # ── Install shell completions ────────────────────────────────────────

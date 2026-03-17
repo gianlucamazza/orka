@@ -5,7 +5,7 @@ use orka_core::config::SandboxConfig;
 use orka_core::{Error, Result};
 use wasmtime::{Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
 use wasmtime_wasi::WasiCtxBuilder;
-use wasmtime_wasi::preview1::WasiP1Ctx;
+use wasmtime_wasi::p1::WasiP1Ctx;
 
 use crate::executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult};
 
@@ -87,15 +87,15 @@ fn run_wasm_sync(
         .map_err(|e| Error::Sandbox(format!("failed to compile WASM module: {e}")))?;
 
     // Build captured stdout/stderr pipes.
-    let stdout_pipe = wasmtime_wasi::pipe::MemoryOutputPipe::new(max_output);
-    let stderr_pipe = wasmtime_wasi::pipe::MemoryOutputPipe::new(max_output);
+    let stdout_pipe = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(max_output);
+    let stderr_pipe = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(max_output);
 
     let mut wasi_builder = WasiCtxBuilder::new();
     wasi_builder.stdout(stdout_pipe.clone());
     wasi_builder.stderr(stderr_pipe.clone());
 
     if let Some(data) = stdin_data {
-        wasi_builder.stdin(wasmtime_wasi::pipe::MemoryInputPipe::new(data));
+        wasi_builder.stdin(wasmtime_wasi::p2::pipe::MemoryInputPipe::new(data));
     }
 
     for (k, v) in env_vars {
@@ -118,7 +118,7 @@ fn run_wasm_sync(
         .map_err(|e| Error::Sandbox(format!("failed to set fuel: {e}")))?;
 
     let mut linker: Linker<WasmState> = Linker::new(engine);
-    wasmtime_wasi::preview1::add_to_linker_sync(&mut linker, |s: &mut WasmState| &mut s.wasi)
+    wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |s: &mut WasmState| &mut s.wasi)
         .map_err(|e| Error::Sandbox(format!("failed to add WASI to linker: {e}")))?;
 
     let instance = linker

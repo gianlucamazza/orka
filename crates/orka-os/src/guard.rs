@@ -431,17 +431,21 @@ mod tests {
     #[test]
     fn sudo_allowed_command_accepted() {
         let guard = PermissionGuard::new(&sudo_config());
-        assert!(guard
-            .check_sudo_command("systemctl", &["restart", "nginx"])
-            .is_ok());
+        assert!(
+            guard
+                .check_sudo_command("systemctl", &["restart", "nginx"])
+                .is_ok()
+        );
     }
 
     #[test]
     fn sudo_command_not_in_allowlist_rejected() {
         let guard = PermissionGuard::new(&sudo_config());
-        assert!(guard
-            .check_sudo_command("systemctl", &["start", "nginx"])
-            .is_err());
+        assert!(
+            guard
+                .check_sudo_command("systemctl", &["start", "nginx"])
+                .is_err()
+        );
     }
 
     #[test]
@@ -450,9 +454,7 @@ mod tests {
         config.sudo.allowed_commands.push("dd".into());
         let guard = PermissionGuard::new(&config);
         // dd is in blocked_commands, so it must be rejected
-        assert!(guard
-            .check_sudo_command("dd", &["if=/dev/zero"])
-            .is_err());
+        assert!(guard.check_sudo_command("dd", &["if=/dev/zero"]).is_err());
     }
 
     #[test]
@@ -460,9 +462,11 @@ mod tests {
         let mut config = sudo_config();
         config.sudo.enabled = false;
         let guard = PermissionGuard::new(&config);
-        assert!(guard
-            .check_sudo_command("systemctl", &["restart", "nginx"])
-            .is_err());
+        assert!(
+            guard
+                .check_sudo_command("systemctl", &["restart", "nginx"])
+                .is_err()
+        );
     }
 
     #[test]
@@ -470,9 +474,11 @@ mod tests {
         let mut config = sudo_config();
         config.permission_level = "execute".into();
         let guard = PermissionGuard::new(&config);
-        assert!(guard
-            .check_sudo_command("systemctl", &["restart", "nginx"])
-            .is_err());
+        assert!(
+            guard
+                .check_sudo_command("systemctl", &["restart", "nginx"])
+                .is_err()
+        );
     }
 
     #[test]

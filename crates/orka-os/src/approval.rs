@@ -35,10 +35,7 @@ pub struct AutoApproveChannel;
 
 #[async_trait]
 impl ApprovalChannel for AutoApproveChannel {
-    async fn request_approval(
-        &self,
-        _req: ApprovalRequest,
-    ) -> orka_core::Result<ApprovalDecision> {
+    async fn request_approval(&self, _req: ApprovalRequest) -> orka_core::Result<ApprovalDecision> {
         Ok(ApprovalDecision::Approved)
     }
 }

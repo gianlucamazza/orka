@@ -5,7 +5,9 @@ use async_trait::async_trait;
 use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use orka_core::{DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema,
+};
 use uuid::Uuid;
 
 use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
@@ -306,25 +308,31 @@ impl Skill for ServiceControlSkill {
                 session_id: orka_core::types::SessionId::new(),
                 message_id: orka_core::types::MessageId::new(),
                 requested_at: now,
-                expires_at: now
-                    + chrono::Duration::seconds(self.confirmation_timeout_secs as i64),
+                expires_at: now + chrono::Duration::seconds(self.confirmation_timeout_secs as i64),
             };
             match self.approval.request_approval(req).await? {
                 ApprovalDecision::Approved => {}
                 ApprovalDecision::Denied { reason } => {
                     let args = &[action, unit];
-                    emit_denied(&input, "systemctl", args, &format!("service control denied: {reason}")).await;
-                    return Err(Error::Skill(format!(
-                        "service control denied: {}",
-                        reason
-                    )));
+                    emit_denied(
+                        &input,
+                        "systemctl",
+                        args,
+                        &format!("service control denied: {reason}"),
+                    )
+                    .await;
+                    return Err(Error::Skill(format!("service control denied: {}", reason)));
                 }
                 ApprovalDecision::Expired => {
                     let args = &[action, unit];
-                    emit_denied(&input, "systemctl", args, "service control approval expired").await;
-                    return Err(Error::Skill(
-                        "service control approval expired".into(),
-                    ));
+                    emit_denied(
+                        &input,
+                        "systemctl",
+                        args,
+                        "service control approval expired",
+                    )
+                    .await;
+                    return Err(Error::Skill("service control approval expired".into()));
                 }
             }
         }

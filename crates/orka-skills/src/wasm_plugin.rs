@@ -5,7 +5,7 @@ use orka_core::traits::Skill;
 use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
 use wasmtime::*;
 use wasmtime_wasi::WasiCtxBuilder;
-use wasmtime_wasi::preview1::WasiP1Ctx;
+use wasmtime_wasi::p1::WasiP1Ctx;
 
 /// Plugin metadata mirroring the guest SDK's `PluginInfo`.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -46,7 +46,7 @@ impl WasmPluginSkill {
             .map_err(|e| Error::Skill(format!("compile wasm: {e}")))?;
 
         let mut linker: Linker<PluginState> = Linker::new(&engine);
-        wasmtime_wasi::preview1::add_to_linker_sync(&mut linker, |s: &mut PluginState| &mut s.wasi)
+        wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |s: &mut PluginState| &mut s.wasi)
             .map_err(|e| Error::Skill(format!("link wasi: {e}")))?;
 
         let wasi = WasiCtxBuilder::new().build_p1();
@@ -100,7 +100,7 @@ impl WasmPluginSkill {
             .map_err(|e| Error::Skill(format!("compile wasm: {e}")))?;
 
         let mut linker: Linker<PluginState> = Linker::new(&self.engine);
-        wasmtime_wasi::preview1::add_to_linker_sync(&mut linker, |s: &mut PluginState| &mut s.wasi)
+        wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |s: &mut PluginState| &mut s.wasi)
             .map_err(|e| Error::Skill(format!("link wasi: {e}")))?;
 
         let wasi = WasiCtxBuilder::new().build_p1();

@@ -80,11 +80,7 @@ pub fn classify_input(line: &str) -> InputAction {
 
     // Slash commands
     if let Some(rest) = trimmed.strip_prefix('/') {
-        let cmd_name = rest
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_lowercase();
+        let cmd_name = rest.split_whitespace().next().unwrap_or("").to_lowercase();
         return match cmd_name.as_str() {
             "quit" | "exit" | "help" | "clear" => InputAction::SlashLocal(trimmed.to_string()),
             _ => InputAction::SlashServer(trimmed.to_string()),

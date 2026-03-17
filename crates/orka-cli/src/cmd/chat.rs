@@ -41,14 +41,23 @@ fn print_help() {
     println!("{}", "=== Orka Shell ===".bold().cyan());
     println!();
     println!("{}", "Shell execution:".bold());
-    println!("  {}       Execute shell command locally", "!<command>".yellow());
+    println!(
+        "  {}       Execute shell command locally",
+        "!<command>".yellow()
+    );
     println!("  {}              Repeat last shell command", "!!".yellow());
     println!("  {}        Change directory", "!cd <path>".yellow());
     println!("  {}     Set environment variable", "!export K=V".yellow());
-    println!("  {}      Unset environment variable", "!unset <K>".yellow());
+    println!(
+        "  {}      Unset environment variable",
+        "!unset <K>".yellow()
+    );
     println!();
     println!("{}", "AI agent:".bold());
-    println!("  {}           Send to AI agent (default)", "<text>".yellow());
+    println!(
+        "  {}           Send to AI agent (default)",
+        "<text>".yellow()
+    );
     println!();
     println!("{}", "Commands:".bold());
     println!(
@@ -242,9 +251,8 @@ pub async fn run(
     // Set up rustyline in a dedicated blocking thread, communicating via channels.
     // The editor thread sends lines to us, and we send prompts back to it.
     let (prompt_tx, prompt_rx) = std::sync::mpsc::channel::<String>();
-    let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<
-        std::result::Result<String, ReadlineError>,
-    >();
+    let (line_tx, mut line_rx) =
+        tokio::sync::mpsc::unbounded_channel::<std::result::Result<String, ReadlineError>>();
 
     let hist_path = history_path();
     let hist_path_save = hist_path.clone();
@@ -256,14 +264,17 @@ pub async fn run(
             .expect("valid history size")
             .build();
         let helper = OrkaHelper::new();
-        let mut editor = match rustyline::Editor::<OrkaHelper, rustyline::history::DefaultHistory>::with_config(config) {
-            Ok(mut ed) => {
-                ed.set_helper(Some(helper));
-                let _ = ed.load_history(&hist_path);
-                ed
-            }
-            Err(_) => return,
-        };
+        let mut editor =
+            match rustyline::Editor::<OrkaHelper, rustyline::history::DefaultHistory>::with_config(
+                config,
+            ) {
+                Ok(mut ed) => {
+                    ed.set_helper(Some(helper));
+                    let _ = ed.load_history(&hist_path);
+                    ed
+                }
+                Err(_) => return,
+            };
 
         while let Ok(prompt) = prompt_rx.recv() {
             let result = editor.readline(&prompt);

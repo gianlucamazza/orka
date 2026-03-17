@@ -23,6 +23,7 @@ notify.workspace = true
 sysinfo.workspace = true
 glob.workspace = true
 nix.workspace = true
+libc.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 

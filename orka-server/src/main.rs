@@ -385,6 +385,15 @@ async fn main() -> anyhow::Result<()> {
 
     // 4i. OS skills
     if config.os.enabled {
+        if config.os.sudo.enabled && orka_os::has_no_new_privileges() {
+            warn!(
+                "sudo is enabled but NoNewPrivileges is active — sudo will fail. \
+                 Install the systemd drop-in: \
+                 sudo cp deploy/orka-server-sudo.conf \
+                 /etc/systemd/system/orka-server.service.d/sudo.conf && \
+                 sudo systemctl daemon-reload && sudo systemctl restart orka-server"
+            );
+        }
         match orka_os::create_os_skills(&config.os) {
             Ok(os_skills) => {
                 for skill in os_skills {

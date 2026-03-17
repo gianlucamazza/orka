@@ -29,7 +29,7 @@ cargo test -- --ignored        # Integration tests (requires Redis)
 - **Formatting:** `rustfmt` defaults, no `rustfmt.toml`
 - **Linting:** `cargo clippy -- -D warnings`
 - **Comments and docs:** English
-- **License:** MIT
+- **License:** MIT OR Apache-2.0
 
 ## Infrastructure
 
