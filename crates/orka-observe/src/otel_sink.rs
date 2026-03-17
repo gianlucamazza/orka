@@ -195,6 +195,26 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("trajectory_id", trajectory_id.clone()),
                 ],
             ),
+            DomainEventKind::TrajectoryRecorded {
+                session_id,
+                trajectory_id,
+            } => (
+                "experience.trajectory_recorded",
+                vec![
+                    KeyValue::new("session_id", session_id.to_string()),
+                    KeyValue::new("trajectory_id", trajectory_id.clone()),
+                ],
+            ),
+            DomainEventKind::DistillationCompleted {
+                workspace,
+                principles_created,
+            } => (
+                "experience.distillation_completed",
+                vec![
+                    KeyValue::new("workspace", workspace.clone()),
+                    KeyValue::new("principles_created", *principles_created as i64),
+                ],
+            ),
             DomainEventKind::Heartbeat => ("heartbeat", vec![]),
             _ => ("unknown", vec![]),
         };

@@ -114,6 +114,15 @@ pub fn record_event(event: &DomainEvent) {
             counter!("orka_reflections_completed_total").increment(1);
             counter!("orka_principles_created_total").increment(*principles_created as u64);
         }
+        DomainEventKind::TrajectoryRecorded { .. } => {
+            counter!("orka_trajectories_recorded_total").increment(1);
+        }
+        DomainEventKind::DistillationCompleted {
+            principles_created, ..
+        } => {
+            counter!("orka_distillations_completed_total").increment(1);
+            counter!("orka_principles_created_total").increment(*principles_created as u64);
+        }
         DomainEventKind::Heartbeat => {
             counter!("orka_heartbeats_total").increment(1);
         }
@@ -219,6 +228,14 @@ mod tests {
                 session_id: sid,
                 principles_created: 2,
                 trajectory_id: "traj-1".into(),
+            },
+            DomainEventKind::TrajectoryRecorded {
+                session_id: sid,
+                trajectory_id: "traj-1".into(),
+            },
+            DomainEventKind::DistillationCompleted {
+                workspace: "default".into(),
+                principles_created: 3,
             },
             DomainEventKind::Heartbeat,
         ]

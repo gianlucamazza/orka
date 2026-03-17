@@ -140,6 +140,18 @@ impl EventSink for LogEventSink {
             } => {
                 info!(%session_id, principles_created, trajectory_id, "reflection completed");
             }
+            DomainEventKind::TrajectoryRecorded {
+                session_id,
+                trajectory_id,
+            } => {
+                info!(%session_id, trajectory_id, "trajectory recorded");
+            }
+            DomainEventKind::DistillationCompleted {
+                workspace,
+                principles_created,
+            } => {
+                info!(workspace, principles_created, "distillation completed");
+            }
             DomainEventKind::Heartbeat => {
                 debug!("heartbeat");
             }
@@ -313,6 +325,14 @@ mod tests {
                 session_id: sid,
                 principles_created: 2,
                 trajectory_id: "traj-1".into(),
+            },
+            DomainEventKind::TrajectoryRecorded {
+                session_id: sid,
+                trajectory_id: "traj-1".into(),
+            },
+            DomainEventKind::DistillationCompleted {
+                workspace: "default".into(),
+                principles_created: 3,
             },
             DomainEventKind::Heartbeat,
         ]
