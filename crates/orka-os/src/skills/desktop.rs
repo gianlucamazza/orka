@@ -209,12 +209,14 @@ mod tests {
         let skill = DesktopOpenSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("target".into(), serde_json::json!("https://example.com"));
-        assert!(skill
-            .execute(SkillInput {
-                args,
-                context: None
-            })
-            .await
-            .is_err());
+        assert!(
+            skill
+                .execute(SkillInput {
+                    args,
+                    context: None
+                })
+                .await
+                .is_err()
+        );
     }
 }

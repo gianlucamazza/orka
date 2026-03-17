@@ -341,12 +341,11 @@ impl LlmClient for AnthropicClient {
                                 if data == "[DONE]" {
                                     continue;
                                 }
-                                if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
-                                    if event["type"] == "content_block_delta" {
-                                        if let Some(t) = event["delta"]["text"].as_str() {
-                                            text.push_str(t);
-                                        }
-                                    }
+                                if let Ok(event) = serde_json::from_str::<serde_json::Value>(data)
+                                    && event["type"] == "content_block_delta"
+                                    && let Some(t) = event["delta"]["text"].as_str()
+                                {
+                                    text.push_str(t);
                                 }
                             }
                         }
@@ -456,16 +455,16 @@ impl LlmClient for AnthropicClient {
                                                 .as_u64()
                                                 .unwrap_or(0)
                                                 as u32,
-                                            cache_read_input_tokens: msg["usage"]
-                                                ["cache_read_input_tokens"]
-                                                .as_u64()
-                                                .unwrap_or(0)
-                                                as u32,
-                                            cache_creation_input_tokens: msg["usage"]
-                                                ["cache_creation_input_tokens"]
-                                                .as_u64()
-                                                .unwrap_or(0)
-                                                as u32,
+                                            cache_read_input_tokens:
+                                                msg["usage"]["cache_read_input_tokens"]
+                                                    .as_u64()
+                                                    .unwrap_or(0)
+                                                    as u32,
+                                            cache_creation_input_tokens:
+                                                msg["usage"]["cache_creation_input_tokens"]
+                                                    .as_u64()
+                                                    .unwrap_or(0)
+                                                    as u32,
                                         };
                                         events.push(StreamEvent::Usage(usage));
                                     }

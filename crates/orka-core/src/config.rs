@@ -2,9 +2,21 @@ use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 use std::path::Path;
 
+use crate::migrate;
+
+/// A named workspace entry for multi-workspace support.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkspaceEntry {
+    pub name: String,
+    pub dir: String,
+}
+
 /// Top-level Orka configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct OrkaConfig {
+    /// Config schema version (0 = legacy/absent, current = 1).
+    #[serde(default)]
+    pub config_version: u32,
     #[serde(default = "default_server")]
     pub server: ServerConfig,
     #[serde(default)]
@@ -15,6 +27,10 @@ pub struct OrkaConfig {
     pub logging: LoggingConfig,
     #[serde(default = "default_workspace_dir")]
     pub workspace_dir: String,
+    #[serde(default)]
+    pub workspaces: Vec<WorkspaceEntry>,
+    #[serde(default)]
+    pub default_workspace: Option<String>,
     #[serde(default)]
     pub adapters: AdapterConfig,
     #[serde(default)]
@@ -35,6 +51,10 @@ pub struct OrkaConfig {
     pub queue: QueueConfig,
     #[serde(default)]
     pub llm: LlmConfig,
+    #[serde(default)]
+    pub agent: AgentConfig,
+    #[serde(default)]
+    pub tools: ToolsConfig,
     #[serde(default)]
     pub observe: ObserveConfig,
     #[serde(default)]
@@ -167,11 +187,15 @@ pub struct AdapterConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct TelegramAdapterConfig {
     pub bot_token_secret: Option<String>,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct DiscordAdapterConfig {
     pub bot_token_secret: Option<String>,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -179,6 +203,8 @@ pub struct SlackAdapterConfig {
     pub bot_token_secret: Option<String>,
     #[serde(default = "default_slack_port")]
     pub listen_port: u16,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 impl Default for SlackAdapterConfig {
@@ -186,6 +212,7 @@ impl Default for SlackAdapterConfig {
         Self {
             bot_token_secret: None,
             listen_port: default_slack_port(),
+            workspace: None,
         }
     }
 }
@@ -201,6 +228,8 @@ pub struct WhatsAppAdapterConfig {
     pub verify_token_secret: Option<String>,
     #[serde(default = "default_whatsapp_port")]
     pub listen_port: u16,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 impl Default for WhatsAppAdapterConfig {
@@ -210,6 +239,7 @@ impl Default for WhatsAppAdapterConfig {
             phone_number_id: None,
             verify_token_secret: None,
             listen_port: default_whatsapp_port(),
+            workspace: None,
         }
     }
 }
@@ -224,6 +254,8 @@ pub struct CustomAdapterConfig {
     pub host: String,
     #[serde(default = "default_custom_port")]
     pub port: u16,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 impl Default for CustomAdapterConfig {
@@ -231,6 +263,7 @@ impl Default for CustomAdapterConfig {
         Self {
             host: default_custom_host(),
             port: default_custom_port(),
+            workspace: None,
         }
     }
 }
@@ -565,6 +598,12 @@ pub struct LlmProviderConfig {
     pub base_url: Option<String>,
     #[serde(default)]
     pub prefixes: Vec<String>,
+    /// Cost per 1K input tokens in USD (for cost tracking metrics).
+    #[serde(default)]
+    pub cost_per_1k_input_tokens: Option<f64>,
+    /// Cost per 1K output tokens in USD (for cost tracking metrics).
+    #[serde(default)]
+    pub cost_per_1k_output_tokens: Option<f64>,
 }
 
 fn default_llm_model() -> String {
@@ -589,6 +628,102 @@ fn default_llm_api_version() -> String {
 
 fn default_llm_context_window_tokens() -> u32 {
     1_000_000
+}
+
+/// Per-agent runtime configuration (migrated from workspace markdown files).
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentConfig {
+    #[serde(default = "default_agent_id")]
+    pub id: String,
+    #[serde(default = "default_agent_display_name")]
+    pub display_name: String,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default = "default_agent_max_iterations")]
+    pub max_iterations: usize,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    #[serde(default)]
+    pub context_window_tokens: Option<u32>,
+    #[serde(default)]
+    pub max_tokens_per_session: Option<u64>,
+    #[serde(default)]
+    pub heartbeat_interval_secs: Option<u64>,
+    #[serde(default)]
+    pub summarization_model: Option<String>,
+    #[serde(default)]
+    pub summarization_threshold: Option<usize>,
+    #[serde(default = "default_agent_max_history_entries")]
+    pub max_history_entries: usize,
+    /// Maximum characters for a single tool result before truncation (default 50_000).
+    #[serde(default = "default_max_tool_result_chars")]
+    pub max_tool_result_chars: usize,
+    /// Per-skill execution timeout in seconds (default 120).
+    #[serde(default = "default_skill_timeout_secs")]
+    pub skill_timeout_secs: u64,
+    /// Max consecutive failures of the same tool before injecting a self-correction hint (default 2).
+    #[serde(default = "default_max_tool_retries")]
+    pub max_tool_retries: u32,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            id: default_agent_id(),
+            display_name: default_agent_display_name(),
+            timezone: None,
+            max_iterations: default_agent_max_iterations(),
+            model: None,
+            max_tokens: None,
+            context_window_tokens: None,
+            max_tokens_per_session: None,
+            heartbeat_interval_secs: None,
+            summarization_model: None,
+            summarization_threshold: None,
+            max_history_entries: default_agent_max_history_entries(),
+            max_tool_result_chars: default_max_tool_result_chars(),
+            skill_timeout_secs: default_skill_timeout_secs(),
+            max_tool_retries: default_max_tool_retries(),
+        }
+    }
+}
+
+fn default_agent_id() -> String {
+    "orka-default".into()
+}
+
+fn default_agent_display_name() -> String {
+    "Orka".into()
+}
+
+fn default_agent_max_iterations() -> usize {
+    10
+}
+
+fn default_agent_max_history_entries() -> usize {
+    50
+}
+
+fn default_max_tool_result_chars() -> usize {
+    50_000
+}
+
+fn default_skill_timeout_secs() -> u64 {
+    120
+}
+
+fn default_max_tool_retries() -> u32 {
+    2
+}
+
+/// Tool enable/disable configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ToolsConfig {
+    /// Tools to disable (all enabled by default).
+    #[serde(default)]
+    pub disabled: Vec<String>,
 }
 
 fn default_server() -> ServerConfig {
@@ -750,6 +885,8 @@ pub struct OsConfig {
     pub max_list_entries: usize,
     #[serde(default = "default_os_sensitive_env_patterns")]
     pub sensitive_env_patterns: Vec<String>,
+    #[serde(default)]
+    pub sudo: SudoConfig,
 }
 
 impl Default for OsConfig {
@@ -766,8 +903,48 @@ impl Default for OsConfig {
             max_output_bytes: default_os_max_output_bytes(),
             max_list_entries: default_os_max_list_entries(),
             sensitive_env_patterns: default_os_sensitive_env_patterns(),
+            sudo: SudoConfig::default(),
         }
     }
+}
+
+/// Privileged command execution via sudo.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SudoConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub allowed_commands: Vec<String>,
+    #[serde(default = "default_sudo_require_confirmation")]
+    pub require_confirmation: bool,
+    #[serde(default = "default_sudo_confirmation_timeout_secs")]
+    pub confirmation_timeout_secs: u64,
+    #[serde(default = "default_sudo_path")]
+    pub sudo_path: String,
+}
+
+impl Default for SudoConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allowed_commands: Vec::new(),
+            require_confirmation: default_sudo_require_confirmation(),
+            confirmation_timeout_secs: default_sudo_confirmation_timeout_secs(),
+            sudo_path: default_sudo_path(),
+        }
+    }
+}
+
+fn default_sudo_require_confirmation() -> bool {
+    true
+}
+
+fn default_sudo_confirmation_timeout_secs() -> u64 {
+    120
+}
+
+fn default_sudo_path() -> String {
+    "/usr/bin/sudo".into()
 }
 
 fn default_os_permission_level() -> String {
@@ -1044,12 +1221,12 @@ impl OrkaConfig {
             ));
         }
 
-        if let Some(ref custom) = self.adapters.custom {
-            if custom.port == 0 {
-                return Err(crate::Error::Config(
-                    "adapters.custom.port must be in range 1-65535".into(),
-                ));
-            }
+        if let Some(ref custom) = self.adapters.custom
+            && custom.port == 0
+        {
+            return Err(crate::Error::Config(
+                "adapters.custom.port must be in range 1-65535".into(),
+            ));
         }
 
         if !self.redis.url.starts_with("redis://") && !self.redis.url.starts_with("rediss://") {
@@ -1085,31 +1262,81 @@ impl OrkaConfig {
             )));
         }
 
+        // Validate multi-workspace entries
+        if !self.workspaces.is_empty() {
+            let mut seen_names = std::collections::HashSet::new();
+            for ws in &self.workspaces {
+                if !seen_names.insert(&ws.name) {
+                    return Err(crate::Error::Config(format!(
+                        "duplicate workspace name: '{}'",
+                        ws.name
+                    )));
+                }
+                if !Path::new(&ws.dir).is_dir() {
+                    return Err(crate::Error::Config(format!(
+                        "workspace '{}' dir '{}' does not exist or is not a directory",
+                        ws.name, ws.dir
+                    )));
+                }
+            }
+            if let Some(ref default) = self.default_workspace
+                && !self.workspaces.iter().any(|w| &w.name == default)
+            {
+                return Err(crate::Error::Config(format!(
+                    "default_workspace '{}' not found in [[workspaces]]",
+                    default
+                )));
+            }
+        }
+
         Ok(())
     }
 
-    /// Load configuration from file + environment variables.
+    /// Resolve the config file path.
     ///
-    /// Resolution order for the config file path:
+    /// Resolution order:
     /// 1. Explicit `path` argument
     /// 2. `ORKA_CONFIG` environment variable
     /// 3. `orka.toml` in the current directory
-    ///
-    /// Then overlays `ORKA__` prefixed environment variables.
-    pub fn load(path: Option<&Path>) -> Result<Self, ConfigError> {
-        let mut builder = Config::builder();
-
-        let config_path = path
-            .map(|p| p.to_path_buf())
+    pub fn resolve_path(path: Option<&Path>) -> std::path::PathBuf {
+        path.map(|p| p.to_path_buf())
             .or_else(|| {
                 std::env::var("ORKA_CONFIG")
                     .ok()
                     .map(std::path::PathBuf::from)
             })
-            .unwrap_or_else(|| "orka.toml".into());
+            .unwrap_or_else(|| "orka.toml".into())
+    }
+
+    /// Load configuration from file + environment variables.
+    ///
+    /// The raw TOML is read, migrated in-memory if needed (preserving
+    /// comments), and then deserialized. Environment variable overlays
+    /// are applied on top.
+    pub fn load(path: Option<&Path>) -> Result<Self, ConfigError> {
+        let config_path = Self::resolve_path(path);
+
+        let mut builder = Config::builder();
 
         if config_path.exists() {
-            builder = builder.add_source(File::from(config_path));
+            // Read raw TOML so we can run migrations before deserializing.
+            let raw = std::fs::read_to_string(&config_path)
+                .map_err(|e| ConfigError::Foreign(Box::new(e)))?;
+
+            let (migrated, result) =
+                migrate::migrate_if_needed(&raw).map_err(|e| ConfigError::Foreign(Box::new(e)))?;
+
+            if let Some(ref res) = result {
+                for w in &res.warnings {
+                    tracing::warn!(
+                        from = res.from_version,
+                        to = res.to_version,
+                        "config migration: {w}"
+                    );
+                }
+            }
+
+            builder = builder.add_source(File::from_str(&migrated, config::FileFormat::Toml));
         }
 
         builder = builder.add_source(
@@ -1129,11 +1356,14 @@ mod tests {
     #[test]
     fn defaults_are_sane() {
         let cfg = OrkaConfig::load(None).unwrap_or_else(|_| OrkaConfig {
+            config_version: 1,
             server: ServerConfig::default(),
             bus: BusConfig::default(),
             redis: RedisConfig::default(),
             logging: LoggingConfig::default(),
             workspace_dir: default_workspace_dir(),
+            workspaces: Vec::new(),
+            default_workspace: None,
             adapters: AdapterConfig::default(),
             worker: WorkerConfig::default(),
             memory: MemoryConfig::default(),
@@ -1144,6 +1374,8 @@ mod tests {
             session: SessionConfig::default(),
             queue: QueueConfig::default(),
             llm: LlmConfig::default(),
+            agent: AgentConfig::default(),
+            tools: ToolsConfig::default(),
             observe: ObserveConfig::default(),
             gateway: GatewayConfig::default(),
             mcp: McpConfig::default(),
@@ -1163,11 +1395,14 @@ mod tests {
 
     fn valid_config() -> OrkaConfig {
         OrkaConfig {
+            config_version: 1,
             server: ServerConfig::default(),
             bus: BusConfig::default(),
             redis: RedisConfig::default(),
             logging: LoggingConfig::default(),
             workspace_dir: ".".into(), // current dir exists
+            workspaces: Vec::new(),
+            default_workspace: None,
             adapters: AdapterConfig::default(),
             worker: WorkerConfig::default(),
             memory: MemoryConfig::default(),
@@ -1178,6 +1413,8 @@ mod tests {
             session: SessionConfig::default(),
             queue: QueueConfig::default(),
             llm: LlmConfig::default(),
+            agent: AgentConfig::default(),
+            tools: ToolsConfig::default(),
             observe: ObserveConfig::default(),
             gateway: GatewayConfig::default(),
             mcp: McpConfig::default(),
@@ -1226,6 +1463,22 @@ mod tests {
     }
 
     #[test]
+    fn sudo_config_defaults() {
+        let sudo = SudoConfig::default();
+        assert!(!sudo.enabled);
+        assert!(sudo.allowed_commands.is_empty());
+        assert!(sudo.require_confirmation);
+        assert_eq!(sudo.confirmation_timeout_secs, 120);
+        assert_eq!(sudo.sudo_path, "/usr/bin/sudo");
+    }
+
+    #[test]
+    fn os_config_has_sudo_default() {
+        let os = OsConfig::default();
+        assert!(!os.sudo.enabled);
+    }
+
+    #[test]
     fn apply_defaults_propagates_llm_timeout() {
         let mut llm = LlmConfig {
             timeout_secs: 120,
@@ -1243,6 +1496,8 @@ mod tests {
                 max_retries: Some(1), // explicitly set
                 base_url: None,
                 prefixes: Vec::new(),
+                cost_per_1k_input_tokens: None,
+                cost_per_1k_output_tokens: None,
             }],
             ..LlmConfig::default()
         };

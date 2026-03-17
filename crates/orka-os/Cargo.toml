@@ -23,6 +23,8 @@ notify.workspace = true
 sysinfo.workspace = true
 glob.workspace = true
 nix.workspace = true
+chrono.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }

@@ -64,11 +64,60 @@ impl EventSink for LogEventSink {
                 input_tokens,
                 output_tokens,
                 duration_ms,
+                estimated_cost_usd,
             } => {
-                info!(%message_id, model, input_tokens, output_tokens, duration_ms, "llm completed");
+                if let Some(cost) = estimated_cost_usd {
+                    info!(%message_id, model, input_tokens, output_tokens, duration_ms, cost, "llm completed");
+                } else {
+                    info!(%message_id, model, input_tokens, output_tokens, duration_ms, "llm completed");
+                }
             }
             DomainEventKind::ErrorOccurred { source, message } => {
                 warn!(source, message, "error occurred");
+            }
+            DomainEventKind::AgentReasoning {
+                message_id,
+                iteration,
+                reasoning_text,
+            } => {
+                debug!(%message_id, iteration, reasoning_len = reasoning_text.len(), "agent reasoning extracted");
+            }
+            DomainEventKind::AgentIteration {
+                message_id,
+                iteration,
+                tool_count,
+                tokens_used,
+                elapsed_ms,
+            } => {
+                info!(%message_id, iteration, tool_count, tokens_used, elapsed_ms, "agent iteration completed");
+            }
+            DomainEventKind::PrivilegedCommandExecuted {
+                message_id,
+                session_id,
+                command,
+                args,
+                success,
+                duration_ms,
+                ..
+            } => {
+                warn!(
+                    %message_id, %session_id, command,
+                    args = ?args, success, duration_ms,
+                    "privileged command executed"
+                );
+            }
+            DomainEventKind::PrivilegedCommandDenied {
+                message_id,
+                session_id,
+                command,
+                args,
+                reason,
+            } => {
+                warn!(
+                    %message_id, %session_id, command,
+                    args = ?args, reason,
+                    "privileged command denied"
+                );
             }
             DomainEventKind::Heartbeat => {
                 debug!("heartbeat");
@@ -119,11 +168,14 @@ mod tests {
 
     fn test_config() -> OrkaConfig {
         OrkaConfig {
+            config_version: 1,
             server: ServerConfig::default(),
             bus: BusConfig::default(),
             redis: RedisConfig::default(),
             logging: LoggingConfig::default(),
             workspace_dir: ".".into(),
+            workspaces: Vec::new(),
+            default_workspace: None,
             adapters: AdapterConfig::default(),
             worker: WorkerConfig::default(),
             memory: MemoryConfig::default(),
@@ -134,6 +186,8 @@ mod tests {
             session: SessionConfig::default(),
             queue: QueueConfig::default(),
             llm: LlmConfig::default(),
+            agent: AgentConfig::default(),
+            tools: ToolsConfig::default(),
             observe: ObserveConfig::default(),
             gateway: GatewayConfig::default(),
             mcp: McpConfig::default(),
@@ -195,10 +249,41 @@ mod tests {
                 input_tokens: 100,
                 output_tokens: 50,
                 duration_ms: 200,
+                estimated_cost_usd: Some(0.005),
             },
             DomainEventKind::ErrorOccurred {
                 source: "test".into(),
                 message: "boom".into(),
+            },
+            DomainEventKind::AgentReasoning {
+                message_id: mid.clone(),
+                iteration: 0,
+                reasoning_text: "Let me think...".into(),
+            },
+            DomainEventKind::AgentIteration {
+                message_id: mid.clone(),
+                iteration: 0,
+                tool_count: 2,
+                tokens_used: 500,
+                elapsed_ms: 1200,
+            },
+            DomainEventKind::PrivilegedCommandExecuted {
+                message_id: mid.clone(),
+                session_id: sid.clone(),
+                command: "systemctl".into(),
+                args: vec!["restart".into(), "nginx".into()],
+                approval_id: None,
+                approved_by: None,
+                exit_code: Some(0),
+                success: true,
+                duration_ms: 150,
+            },
+            DomainEventKind::PrivilegedCommandDenied {
+                message_id: mid.clone(),
+                session_id: sid.clone(),
+                command: "rm".into(),
+                args: vec!["-rf".into(), "/".into()],
+                reason: "blocked".into(),
             },
             DomainEventKind::Heartbeat,
         ]

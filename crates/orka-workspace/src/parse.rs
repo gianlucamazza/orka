@@ -33,3 +33,21 @@ pub fn parse_document<T: DeserializeOwned>(raw: &str) -> Result<Document<T>, ork
 
     Ok(Document { frontmatter, body })
 }
+
+/// Extract body from a markdown file, stripping optional YAML frontmatter.
+/// If the file has no frontmatter delimiters, the entire content is returned.
+pub fn strip_frontmatter(raw: &str) -> String {
+    let trimmed = raw.trim_start();
+    if !trimmed.starts_with("---") {
+        return raw.to_string();
+    }
+    let after_open = &trimmed[3..];
+    let after_open = after_open.strip_prefix('\n').unwrap_or(after_open);
+    match after_open.find("\n---") {
+        Some(pos) => {
+            let rest = &after_open[pos + 4..];
+            rest.strip_prefix('\n').unwrap_or(rest).to_string()
+        }
+        None => raw.to_string(),
+    }
+}

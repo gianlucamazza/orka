@@ -3,9 +3,9 @@ mod skills;
 
 use std::sync::Arc;
 
+use orka_core::Result;
 use orka_core::config::HttpClientConfig;
 use orka_core::traits::Skill;
-use orka_core::Result;
 use tracing::info;
 
 pub use guard::SsrfGuard;

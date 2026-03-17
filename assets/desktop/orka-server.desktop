@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Orka Server
+Comment=Orka AI agent orchestration server
+Exec=orka-server
+Icon=orka
+Terminal=false
+Categories=Development;Network;
+NoDisplay=true

@@ -1,15 +1,15 @@
 use axum::{
+    Json, Router,
     extract::{
-        ws::{Message, WebSocket},
         Query, State, WebSocketUpgrade,
+        ws::{Message, WebSocket},
     },
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use futures_util::{SinkExt, StreamExt};
-use orka_core::{Envelope, MessageSink, SessionId};
+use orka_core::{Envelope, MessageSink, SessionId, StreamRegistry};
 use serde::Deserialize;
 use tower_http::cors::{AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
@@ -27,6 +27,7 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
 pub struct AppState {
     pub sink: MessageSink,
     pub ws_registry: WsRegistry,
+    pub stream_registry: StreamRegistry,
 }
 
 /// Middleware that adds security headers to all responses.
@@ -59,9 +60,14 @@ async fn security_headers(
 pub fn app_router(
     sink: MessageSink,
     ws_registry: WsRegistry,
+    stream_registry: StreamRegistry,
     auth_layer: Option<orka_auth::AuthLayer>,
 ) -> Router {
-    let state = AppState { sink, ws_registry };
+    let state = AppState {
+        sink,
+        ws_registry,
+        stream_registry,
+    };
 
     let health = Router::new().route("/api/v1/health", get(handle_health));
 
@@ -165,20 +171,46 @@ async fn handle_ws(
         }
     };
 
-    ws.on_upgrade(move |socket| handle_ws_connection(socket, state.ws_registry, session_id))
+    ws.on_upgrade(move |socket| {
+        handle_ws_connection(socket, state.ws_registry, state.stream_registry, session_id)
+    })
 }
 
-async fn handle_ws_connection(socket: WebSocket, registry: WsRegistry, session_id: SessionId) {
+async fn handle_ws_connection(
+    socket: WebSocket,
+    registry: WsRegistry,
+    stream_registry: StreamRegistry,
+    session_id: SessionId,
+) {
     info!(%session_id, "WebSocket connected");
 
     let (tx, mut rx) = registry.register(session_id.clone()).await;
+    let mut stream_rx = stream_registry.subscribe(session_id.clone()).await;
     let (mut ws_sink, mut ws_stream) = socket.split();
 
-    // Forward messages from registry channel to WS frames
+    // Forward both stream chunks (deltas) and final outbound messages to WS frames
     let send_task = tokio::spawn(async move {
-        while let Some(text) = rx.recv().await {
-            if ws_sink.send(Message::Text(text.into())).await.is_err() {
-                break;
+        loop {
+            tokio::select! {
+                // Stream chunks (real-time deltas, tool status)
+                chunk = stream_rx.recv() => {
+                    if let Some(chunk) = chunk
+                        && let Ok(json) = serde_json::to_string(&chunk.kind)
+                            && ws_sink.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
+                }
+                // Final outbound messages (backward compat)
+                msg = rx.recv() => {
+                    match msg {
+                        Some(text) => {
+                            if ws_sink.send(Message::Text(text.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
             }
         }
     });

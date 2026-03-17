@@ -23,12 +23,22 @@ impl OrkaClient {
         &self.base_url
     }
 
-    pub async fn send_message(&self, text: &str, session_id: &str) -> Result<serde_json::Value> {
+    pub async fn send_message(
+        &self,
+        text: &str,
+        session_id: &str,
+        metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    ) -> Result<serde_json::Value> {
         let url = format!("{}/api/v1/message", self.base_url);
-        let payload = json!({
+        let mut payload = json!({
             "text": text,
             "session_id": session_id,
         });
+        if let Some(meta) = metadata
+            && !meta.is_empty()
+        {
+            payload["metadata"] = json!(meta);
+        }
         let mut req = self.http.post(&url).json(&payload);
         if let Some(key) = &self.api_key {
             req = req.header("X-Api-Key", key);

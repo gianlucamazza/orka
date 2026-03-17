@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::traits::SecretManager;
+use crate::traits::{EventSink, SecretManager};
 
 /// Unique identifier for a message flowing through the system.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
@@ -125,10 +125,45 @@ pub enum DomainEventKind {
         input_tokens: u32,
         output_tokens: u32,
         duration_ms: u64,
+        /// Estimated cost in USD (if cost-per-token config is available).
+        #[serde(default)]
+        estimated_cost_usd: Option<f64>,
     },
     ErrorOccurred {
         source: String,
         message: String,
+    },
+    /// Emitted after each LLM response when reasoning text is extracted.
+    AgentReasoning {
+        message_id: MessageId,
+        iteration: usize,
+        reasoning_text: String,
+    },
+    /// Emitted at the end of each agent loop iteration with summary metrics.
+    AgentIteration {
+        message_id: MessageId,
+        iteration: usize,
+        tool_count: usize,
+        tokens_used: u64,
+        elapsed_ms: u64,
+    },
+    PrivilegedCommandExecuted {
+        message_id: MessageId,
+        session_id: SessionId,
+        command: String,
+        args: Vec<String>,
+        approval_id: Option<Uuid>,
+        approved_by: Option<String>,
+        exit_code: Option<i32>,
+        success: bool,
+        duration_ms: u64,
+    },
+    PrivilegedCommandDenied {
+        message_id: MessageId,
+        session_id: SessionId,
+        command: String,
+        args: Vec<String>,
+        reason: String,
     },
     Heartbeat,
 }
@@ -138,6 +173,7 @@ pub enum DomainEventKind {
 #[allow(missing_docs)]
 pub struct SkillContext {
     pub secrets: Arc<dyn SecretManager>,
+    pub event_sink: Option<Arc<dyn EventSink>>,
 }
 
 impl std::fmt::Debug for SkillContext {
@@ -307,6 +343,22 @@ impl Session {
             created_at: now,
             updated_at: now,
             state: HashMap::new(),
+        }
+    }
+
+    /// Read a value from the shared scratchpad.
+    pub fn scratchpad_get(&self, key: &str) -> Option<&serde_json::Value> {
+        self.state.get("scratchpad").and_then(|sp| sp.get(key))
+    }
+
+    /// Write a value to the shared scratchpad.
+    pub fn scratchpad_set(&mut self, key: impl Into<String>, value: serde_json::Value) {
+        let scratchpad = self
+            .state
+            .entry("scratchpad".to_string())
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        if let serde_json::Value::Object(map) = scratchpad {
+            map.insert(key.into(), value);
         }
     }
 }

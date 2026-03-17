@@ -32,23 +32,23 @@ pub fn extract_text(html: &str) -> String {
     }
 
     // Fallback: extract from body, skipping script/style/nav/header/footer
-    if let Ok(body_sel) = Selector::parse("body") {
-        if let Some(body) = document.select(&body_sel).next() {
-            let skip_tags = ["script", "style", "nav", "header", "footer", "aside"];
-            let texts: Vec<String> = body
-                .descendants()
-                .filter_map(|node| {
-                    if let Some(el) = node.value().as_element() {
-                        if skip_tags.contains(&el.name()) {
-                            return Some(String::new()); // marker to skip subtree
-                        }
-                    }
-                    node.value().as_text().map(|t| t.trim().to_string())
-                })
-                .filter(|t| !t.is_empty())
-                .collect();
-            return clean_text(&texts.join("\n"));
-        }
+    if let Ok(body_sel) = Selector::parse("body")
+        && let Some(body) = document.select(&body_sel).next()
+    {
+        let skip_tags = ["script", "style", "nav", "header", "footer", "aside"];
+        let texts: Vec<String> = body
+            .descendants()
+            .filter_map(|node| {
+                if let Some(el) = node.value().as_element()
+                    && skip_tags.contains(&el.name())
+                {
+                    return Some(String::new()); // marker to skip subtree
+                }
+                node.value().as_text().map(|t| t.trim().to_string())
+            })
+            .filter(|t| !t.is_empty())
+            .collect();
+        return clean_text(&texts.join("\n"));
     }
 
     // Last resort: all text

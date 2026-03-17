@@ -1,8 +1,9 @@
 use orka_adapter_custom::{
-    routes::app_router, types::InboundResponse, ws::WsRegistry, CustomAdapter,
+    CustomAdapter, routes::app_router, types::InboundResponse, ws::WsRegistry,
 };
 use orka_core::{
-    config::CustomAdapterConfig, traits::ChannelAdapter, OutboundMessage, Payload, SessionId,
+    OutboundMessage, Payload, SessionId, StreamRegistry, config::CustomAdapterConfig,
+    traits::ChannelAdapter,
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -16,7 +17,7 @@ async fn post_message_arrives_on_sink() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let router = app_router(tx, ws_registry, None);
+    let router = app_router(tx, ws_registry, StreamRegistry::new(), None);
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
@@ -53,7 +54,7 @@ async fn health_endpoint_returns_ok() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let router = app_router(tx, ws_registry, None);
+    let router = app_router(tx, ws_registry, StreamRegistry::new(), None);
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
@@ -77,8 +78,10 @@ async fn adapter_start_and_shutdown() {
         CustomAdapterConfig {
             host: "127.0.0.1".into(),
             port: 0,
+            workspace: None,
         },
         None,
+        StreamRegistry::new(),
     );
 
     let (tx, _rx) = mpsc::channel(16);
@@ -92,8 +95,10 @@ async fn ws_connect_and_receive_outbound() {
         CustomAdapterConfig {
             host: "127.0.0.1".into(),
             port: 0,
+            workspace: None,
         },
         None,
+        StreamRegistry::new(),
     );
 
     let (tx, _rx) = mpsc::channel(16);
@@ -112,7 +117,7 @@ async fn ws_connect_and_receive_outbound() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let router = app_router(sink_tx, ws_registry, None);
+    let router = app_router(sink_tx, ws_registry, StreamRegistry::new(), None);
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });

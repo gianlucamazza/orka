@@ -211,7 +211,8 @@ mod tests {
     #[tokio::test]
     async fn env_list_masks_sensitive() {
         // Set a test env var that matches sensitive pattern
-        std::env::set_var("TEST_API_KEY", "super_secret");
+        // SAFETY: test runs single-threaded; no other thread reads this var.
+        unsafe { std::env::set_var("TEST_API_KEY", "super_secret") };
         let skill = EnvListSkill::new(make_guard());
         let mut args = HashMap::new();
         args.insert("filter".into(), serde_json::json!("TEST_API_KEY"));
@@ -226,6 +227,7 @@ mod tests {
         if let Some(var) = vars.iter().find(|v| v["name"] == "TEST_API_KEY") {
             assert_eq!(var["value"], "***");
         }
-        std::env::remove_var("TEST_API_KEY");
+        // SAFETY: test runs single-threaded; no other thread reads this var.
+        unsafe { std::env::remove_var("TEST_API_KEY") };
     }
 }

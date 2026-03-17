@@ -70,14 +70,14 @@ impl SandboxExecutor for ProcessSandbox {
             .map_err(|e| Error::Sandbox(format!("failed to spawn process: {e}")))?;
 
         // Write stdin if provided.
-        if let Some(stdin_data) = &req.stdin {
-            if let Some(mut stdin) = child.stdin.take() {
-                stdin
-                    .write_all(stdin_data)
-                    .await
-                    .map_err(|e| Error::Sandbox(format!("failed to write stdin: {e}")))?;
-                // Drop to close stdin.
-            }
+        if let Some(stdin_data) = &req.stdin
+            && let Some(mut stdin) = child.stdin.take()
+        {
+            stdin
+                .write_all(stdin_data)
+                .await
+                .map_err(|e| Error::Sandbox(format!("failed to write stdin: {e}")))?;
+            // Drop to close stdin.
         }
 
         let timeout = req.limits.timeout;

@@ -1,8 +1,13 @@
 mod client;
 mod cmd;
+mod completion;
+mod markdown;
+mod prompt;
 mod protocol;
+mod shell;
+mod workspace;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -52,12 +57,18 @@ enum Commands {
         /// Timeout in seconds to wait for a reply
         #[arg(long, default_value = "10")]
         timeout: u64,
+        /// Skip local workspace discovery (SOUL.md/TOOLS.md)
+        #[arg(long)]
+        no_workspace: bool,
     },
     /// Interactive chat session
     Chat {
         /// Session ID (auto-generated if omitted)
         #[arg(long)]
         session_id: Option<String>,
+        /// Skip local workspace discovery (SOUL.md/TOOLS.md)
+        #[arg(long)]
+        no_workspace: bool,
     },
     /// Dead letter queue operations
     Dlq {
@@ -72,6 +83,50 @@ enum Commands {
     /// Run as MCP server (stdio transport) for Claude Code/Cursor
     McpServe {
         /// Path to orka.toml config file
+        #[arg(long)]
+        config: Option<String>,
+    },
+    /// Config validation and migration
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+    /// Sudo configuration checks
+    Sudo {
+        #[command(subcommand)]
+        action: SudoAction,
+    },
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum ConfigAction {
+    /// Validate config and show version + warnings
+    Check {
+        /// Path to orka.toml
+        #[arg(long)]
+        config: Option<String>,
+    },
+    /// Apply pending migrations (writes backup + migrated file)
+    Migrate {
+        /// Path to orka.toml
+        #[arg(long)]
+        config: Option<String>,
+        /// Show diff without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum SudoAction {
+    /// Check that sudo allowed commands have NOPASSWD in sudoers
+    Check {
+        /// Path to orka.toml
         #[arg(long)]
         config: Option<String>,
     },
@@ -137,9 +192,25 @@ async fn main() {
             text,
             session_id,
             timeout,
-        } => cmd::send::run(&adapter_client, &text, session_id.as_deref(), timeout).await,
-        Commands::Chat { session_id } => {
-            cmd::chat::run(&adapter_client, session_id.as_deref()).await
+            no_workspace,
+        } => {
+            let ws = if no_workspace {
+                None
+            } else {
+                workspace::discover()
+            };
+            cmd::send::run(&adapter_client, &text, session_id.as_deref(), timeout, ws).await
+        }
+        Commands::Chat {
+            session_id,
+            no_workspace,
+        } => {
+            let ws = if no_workspace {
+                None
+            } else {
+                workspace::discover()
+            };
+            cmd::chat::run(&adapter_client, session_id.as_deref(), ws).await
         }
         Commands::Dlq { action } => match action {
             DlqAction::List => cmd::dlq::list(&server_client).await,
@@ -153,6 +224,19 @@ async fn main() {
             SecretAction::Delete { path } => cmd::secret::delete(&path).await,
         },
         Commands::McpServe { config } => cmd::mcp_serve::run(config.as_deref()).await,
+        Commands::Config { action } => match action {
+            ConfigAction::Check { config } => cmd::config::check(config.as_deref()).await,
+            ConfigAction::Migrate { config, dry_run } => {
+                cmd::config::migrate_cmd(config.as_deref(), dry_run).await
+            }
+        },
+        Commands::Sudo { action } => match action {
+            SudoAction::Check { config } => cmd::sudo::check(config.as_deref()).await,
+        },
+        Commands::Completions { shell } => {
+            clap_complete::generate(shell, &mut Cli::command(), "orka", &mut std::io::stdout());
+            Ok(())
+        }
     };
 
     if let Err(e) = result {

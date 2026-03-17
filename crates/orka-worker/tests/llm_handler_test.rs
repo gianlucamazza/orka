@@ -1,17 +1,21 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
+use orka_core::config::AgentConfig;
 use orka_core::testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager};
 use orka_core::traits::MemoryStore;
 use orka_core::{Envelope, Error, Payload, Session};
 use orka_llm::client::{ChatContent, ChatMessage, ChatMessageExt, LlmClient};
 use orka_skills::SkillRegistry;
-use orka_worker::{AgentHandler, CommandRegistry, WorkspaceHandler};
+use orka_worker::{
+    AgentHandler, CommandRegistry, StreamRegistry, WorkspaceHandler, WorkspaceHandlerConfig,
+};
 use orka_workspace::config::SoulFrontmatter;
 use orka_workspace::parse::Document;
 use orka_workspace::state::WorkspaceState;
-use tokio::sync::RwLock;
+use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 
 struct MockLlmClient {
     response: String,
@@ -49,7 +53,8 @@ impl LlmClient for MockLlmClient {
     }
 }
 
-fn test_workspace_state(name: &str, body: &str) -> Arc<RwLock<WorkspaceState>> {
+async fn test_workspace_registry(name: &str, body: &str) -> Arc<WorkspaceRegistry> {
+    let loader = Arc::new(WorkspaceLoader::new("."));
     let state = WorkspaceState {
         soul: Some(Document {
             frontmatter: SoulFrontmatter {
@@ -60,31 +65,41 @@ fn test_workspace_state(name: &str, body: &str) -> Arc<RwLock<WorkspaceState>> {
         }),
         ..Default::default()
     };
-    Arc::new(RwLock::new(state))
+    let state_lock = loader.state();
+    *state_lock.write().await = state;
+
+    let mut registry = WorkspaceRegistry::new("default".into());
+    registry.register("default".into(), loader);
+    Arc::new(registry)
 }
 
-fn make_handler(llm: Option<Arc<dyn LlmClient>>) -> WorkspaceHandler {
-    let state = test_workspace_state("TestBot", "You are a helpful bot.");
+async fn make_handler(llm: Option<Arc<dyn LlmClient>>) -> WorkspaceHandler {
+    let registry = test_workspace_registry("TestBot", "You are a helpful bot.").await;
     let skills = Arc::new(SkillRegistry::new());
     let memory = Arc::new(InMemoryMemoryStore::new());
     let secrets = Arc::new(InMemorySecretManager::new());
     WorkspaceHandler::new(
-        state,
+        registry,
         skills,
         memory,
         secrets,
         llm,
         Arc::new(InMemoryEventSink::new()),
-        128_000,
+        WorkspaceHandlerConfig {
+            agent_config: AgentConfig::default(),
+            disabled_tools: HashSet::new(),
+            default_context_window: 128_000,
+        },
         None,
         Arc::new(CommandRegistry::new()),
+        StreamRegistry::new(),
     )
 }
 
 #[tokio::test]
 async fn llm_responds_with_reply() {
     let llm = Arc::new(MockLlmClient::new("Hello from LLM!"));
-    let handler = make_handler(Some(llm));
+    let handler = make_handler(Some(llm)).await;
 
     let session = Session::new("custom", "user1");
     let envelope = Envelope::text("custom", session.id.clone(), "hi");
@@ -100,7 +115,7 @@ async fn llm_responds_with_reply() {
 #[tokio::test]
 async fn llm_failure_falls_back_to_echo() {
     let llm = Arc::new(MockLlmClient::failing());
-    let handler = make_handler(Some(llm));
+    let handler = make_handler(Some(llm)).await;
 
     let session = Session::new("custom", "user1");
     let envelope = Envelope::text("custom", session.id.clone(), "hi");
@@ -121,19 +136,24 @@ async fn llm_failure_falls_back_to_echo() {
 async fn multi_turn_conversation_saves_history() {
     let llm = Arc::new(MockLlmClient::new("response"));
     let memory = Arc::new(InMemoryMemoryStore::new());
-    let state = test_workspace_state("Bot", "");
+    let registry = test_workspace_registry("Bot", "").await;
     let skills = Arc::new(SkillRegistry::new());
     let secrets = Arc::new(InMemorySecretManager::new());
     let handler = WorkspaceHandler::new(
-        state,
+        registry,
         skills,
         memory.clone(),
         secrets,
         Some(llm),
         Arc::new(InMemoryEventSink::new()),
-        128_000,
+        WorkspaceHandlerConfig {
+            agent_config: AgentConfig::default(),
+            disabled_tools: HashSet::new(),
+            default_context_window: 128_000,
+        },
         None,
         Arc::new(CommandRegistry::new()),
+        StreamRegistry::new(),
     );
 
     let session = Session::new("custom", "user1");

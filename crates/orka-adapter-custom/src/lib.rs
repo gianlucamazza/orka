@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::{
-    config::CustomAdapterConfig, traits::ChannelAdapter, MessageSink, OutboundMessage, Result,
+    MessageSink, OutboundMessage, Result, StreamRegistry, config::CustomAdapterConfig,
+    traits::ChannelAdapter,
 };
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
@@ -21,19 +22,27 @@ pub struct CustomAdapter {
     sink: Arc<Mutex<Option<MessageSink>>>,
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     ws_registry: WsRegistry,
+    stream_registry: StreamRegistry,
 }
 
 impl CustomAdapter {
-    pub fn new(config: CustomAdapterConfig, auth_layer: Option<orka_auth::AuthLayer>) -> Self {
+    /// Create a new adapter with an optional stream registry for real-time streaming.
+    pub fn new(
+        config: CustomAdapterConfig,
+        auth_layer: Option<orka_auth::AuthLayer>,
+        stream_registry: StreamRegistry,
+    ) -> Self {
         Self {
             config,
             auth_layer,
             sink: Arc::new(Mutex::new(None)),
             shutdown_tx: Arc::new(Mutex::new(None)),
             ws_registry: WsRegistry::new(),
+            stream_registry,
         }
     }
 
+    /// Access the WS registry for outbound final messages.
     pub fn ws_registry(&self) -> &WsRegistry {
         &self.ws_registry
     }
@@ -50,6 +59,7 @@ impl ChannelAdapter for CustomAdapter {
         let router = app_router(
             sink.clone(),
             self.ws_registry.clone(),
+            self.stream_registry.clone(),
             self.auth_layer.clone(),
         );
 

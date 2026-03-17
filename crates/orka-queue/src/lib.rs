@@ -2,7 +2,7 @@ pub mod redis_queue;
 
 pub use redis_queue::RedisPriorityQueue;
 
-use orka_core::{config::OrkaConfig, traits::PriorityQueue, Result};
+use orka_core::{Result, config::OrkaConfig, traits::PriorityQueue};
 use std::sync::Arc;
 
 /// Create a priority queue from the given configuration.

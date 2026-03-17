@@ -14,24 +14,32 @@ fn channel_id_returns_slack() {
 /// Same Slack channel maps to the same SessionId; different channels differ.
 #[tokio::test]
 async fn session_map_consistency() {
-    let sessions: Arc<Mutex<HashMap<String, SessionId>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let sessions: Arc<Mutex<HashMap<String, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let sid1 = {
         let mut s = sessions.lock().await;
-        s.entry("C12345".into()).or_insert_with(SessionId::new).clone()
+        s.entry("C12345".into())
+            .or_insert_with(SessionId::new)
+            .clone()
     };
     let sid2 = {
         let mut s = sessions.lock().await;
-        s.entry("C12345".into()).or_insert_with(SessionId::new).clone()
+        s.entry("C12345".into())
+            .or_insert_with(SessionId::new)
+            .clone()
     };
     let sid3 = {
         let mut s = sessions.lock().await;
-        s.entry("C99999".into()).or_insert_with(SessionId::new).clone()
+        s.entry("C99999".into())
+            .or_insert_with(SessionId::new)
+            .clone()
     };
 
     assert_eq!(sid1, sid2, "same channel must produce same SessionId");
-    assert_ne!(sid1, sid3, "different channels must produce different SessionIds");
+    assert_ne!(
+        sid1, sid3,
+        "different channels must produce different SessionIds"
+    );
 }
 
 /// Verifies Envelope creation from a Slack event_callback message.
@@ -57,7 +65,10 @@ async fn envelope_from_slack_event() {
         Payload::Text(t) => assert_eq!(t, "Slack message"),
         other => panic!("expected Text payload, got {other:?}"),
     }
-    assert_eq!(envelope.metadata["slack_channel"], serde_json::json!("C12345"));
+    assert_eq!(
+        envelope.metadata["slack_channel"],
+        serde_json::json!("C12345")
+    );
     assert_eq!(envelope.metadata["slack_user"], serde_json::json!("U98765"));
 }
 
@@ -116,7 +127,10 @@ fn bot_message_filtering() {
         "bot_id": "B12345"
     }"#;
     let v: serde_json::Value = serde_json::from_str(json).unwrap();
-    assert!(v.get("bot_id").is_some(), "bot messages should be detected and skipped");
+    assert!(
+        v.get("bot_id").is_some(),
+        "bot messages should be detected and skipped"
+    );
 }
 
 #[tokio::test]

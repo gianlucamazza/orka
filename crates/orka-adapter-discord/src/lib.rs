@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use orka_core::traits::ChannelAdapter;
-use orka_core::types::{backoff_delay, Envelope, MessageSink, OutboundMessage, Payload, SessionId};
+use orka_core::types::{Envelope, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay};
 use orka_core::{Error, Result};
 use reqwest::Client;
 use serde::Deserialize;
@@ -187,8 +187,8 @@ impl ChannelAdapter for DiscordAdapter {
                                         }
 
                                         // Handle MESSAGE_CREATE
-                                        if event.t.as_deref() == Some("MESSAGE_CREATE") {
-                                            if let Some(ref d) = event.d {
+                                        if event.t.as_deref() == Some("MESSAGE_CREATE")
+                                            && let Some(ref d) = event.d {
                                                 let content = d["content"].as_str().unwrap_or("");
                                                 let channel_id = d["channel_id"].as_str().unwrap_or("");
                                                 let is_bot = d["author"]["bot"].as_bool().unwrap_or(false);
@@ -232,7 +232,6 @@ impl ChannelAdapter for DiscordAdapter {
                                                     return;
                                                 }
                                             }
-                                        }
 
                                         let _ = sequence; // suppress unused warning
                                     }

@@ -1,7 +1,7 @@
 use crate::state::WorkspaceState;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast};
 use tracing::warn;
 
 #[derive(Debug, Clone)]
@@ -42,9 +42,6 @@ impl WorkspaceLoader {
     pub async fn load_all(&self) -> orka_core::Result<()> {
         self.load_file("SOUL.md").await;
         self.load_file("TOOLS.md").await;
-        self.load_file("IDENTITY.md").await;
-        self.load_file("HEARTBEAT.md").await;
-        self.load_file("MEMORY.md").await;
         let _ = self.tx.send(WorkspaceEvent::Reloaded);
         Ok(())
     }
@@ -66,22 +63,9 @@ impl WorkspaceLoader {
                 Ok(doc) => state.soul = Some(doc),
                 Err(e) => warn!(file = %filename, error = %e, "failed to parse"),
             },
-            "TOOLS.md" => match crate::parse::parse_document(&content) {
-                Ok(doc) => state.tools = Some(doc),
-                Err(e) => warn!(file = %filename, error = %e, "failed to parse"),
-            },
-            "IDENTITY.md" => match crate::parse::parse_document(&content) {
-                Ok(doc) => state.identity = Some(doc),
-                Err(e) => warn!(file = %filename, error = %e, "failed to parse"),
-            },
-            "HEARTBEAT.md" => match crate::parse::parse_document(&content) {
-                Ok(doc) => state.heartbeat = Some(doc),
-                Err(e) => warn!(file = %filename, error = %e, "failed to parse"),
-            },
-            "MEMORY.md" => match crate::parse::parse_document(&content) {
-                Ok(doc) => state.memory = Some(doc),
-                Err(e) => warn!(file = %filename, error = %e, "failed to parse"),
-            },
+            "TOOLS.md" => {
+                state.tools_body = Some(crate::parse::strip_frontmatter(&content));
+            }
             other => warn!(file = %other, "unknown workspace file"),
         }
         let _ = self

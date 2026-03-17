@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Orka
+GenericName=AI Agent CLI
+Comment=CLI tool for Orka AI agent orchestration
+Exec=orka chat
+Icon=orka
+Terminal=true
+Categories=Development;Utility;
+Keywords=ai;agent;llm;orchestration;

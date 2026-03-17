@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use opentelemetry::trace::{Span, SpanKind, Status, Tracer};
 use opentelemetry::KeyValue;
+use opentelemetry::trace::{Span, SpanKind, Status, Tracer};
 use orka_core::traits::EventSink;
 use orka_core::{DomainEvent, DomainEventKind};
 
@@ -95,21 +95,85 @@ impl EventSink for OtelEventSink {
                 input_tokens,
                 output_tokens,
                 duration_ms,
-            } => (
-                "llm.completed",
-                vec![
+                estimated_cost_usd,
+            } => {
+                let mut attrs = vec![
                     KeyValue::new("message_id", message_id.to_string()),
                     KeyValue::new("model", model.clone()),
                     KeyValue::new("input_tokens", *input_tokens as i64),
                     KeyValue::new("output_tokens", *output_tokens as i64),
                     KeyValue::new("duration_ms", *duration_ms as i64),
-                ],
-            ),
+                ];
+                if let Some(cost) = estimated_cost_usd {
+                    attrs.push(KeyValue::new("estimated_cost_usd", *cost));
+                }
+                ("llm.completed", attrs)
+            }
             DomainEventKind::ErrorOccurred { source, message } => (
                 "error.occurred",
                 vec![
                     KeyValue::new("error.source", source.clone()),
                     KeyValue::new("error.message", message.clone()),
+                ],
+            ),
+            DomainEventKind::AgentReasoning {
+                message_id,
+                iteration,
+                reasoning_text,
+            } => (
+                "agent.reasoning",
+                vec![
+                    KeyValue::new("message_id", message_id.to_string()),
+                    KeyValue::new("iteration", *iteration as i64),
+                    KeyValue::new("reasoning_len", reasoning_text.len() as i64),
+                ],
+            ),
+            DomainEventKind::AgentIteration {
+                message_id,
+                iteration,
+                tool_count,
+                tokens_used,
+                elapsed_ms,
+            } => (
+                "agent.iteration",
+                vec![
+                    KeyValue::new("message_id", message_id.to_string()),
+                    KeyValue::new("iteration", *iteration as i64),
+                    KeyValue::new("tool_count", *tool_count as i64),
+                    KeyValue::new("tokens_used", *tokens_used as i64),
+                    KeyValue::new("elapsed_ms", *elapsed_ms as i64),
+                ],
+            ),
+            DomainEventKind::PrivilegedCommandExecuted {
+                message_id,
+                session_id,
+                command,
+                success,
+                duration_ms,
+                ..
+            } => (
+                "privileged_command.executed",
+                vec![
+                    KeyValue::new("message_id", message_id.to_string()),
+                    KeyValue::new("session_id", session_id.to_string()),
+                    KeyValue::new("command", command.clone()),
+                    KeyValue::new("success", *success),
+                    KeyValue::new("duration_ms", *duration_ms as i64),
+                ],
+            ),
+            DomainEventKind::PrivilegedCommandDenied {
+                message_id,
+                session_id,
+                command,
+                reason,
+                ..
+            } => (
+                "privileged_command.denied",
+                vec![
+                    KeyValue::new("message_id", message_id.to_string()),
+                    KeyValue::new("session_id", session_id.to_string()),
+                    KeyValue::new("command", command.clone()),
+                    KeyValue::new("reason", reason.clone()),
                 ],
             ),
             DomainEventKind::Heartbeat => ("heartbeat", vec![]),

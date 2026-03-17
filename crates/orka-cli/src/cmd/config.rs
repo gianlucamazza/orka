@@ -1,0 +1,125 @@
+use std::path::Path;
+
+use orka_core::config::OrkaConfig;
+use orka_core::migrate::{self, CURRENT_CONFIG_VERSION};
+
+/// `orka config check` — validate config and show version + warnings.
+pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let path = config_path.map(Path::new);
+    let resolved = OrkaConfig::resolve_path(path);
+
+    if !resolved.exists() {
+        eprintln!("Config file not found: {}", resolved.display());
+        std::process::exit(1);
+    }
+
+    let raw = std::fs::read_to_string(&resolved)?;
+    let (_, result) = migrate::migrate_if_needed(&raw)?;
+
+    match &result {
+        Some(res) => {
+            println!(
+                "Config version: {} (current is {})",
+                res.from_version, CURRENT_CONFIG_VERSION
+            );
+            if !res.warnings.is_empty() {
+                println!("\nWarnings:");
+                for w in &res.warnings {
+                    println!("  - {w}");
+                }
+            }
+            println!(
+                "\nMigration available: v{} → v{}",
+                res.from_version, res.to_version
+            );
+        }
+        None => {
+            println!("Config version: {} (up to date)", CURRENT_CONFIG_VERSION);
+        }
+    }
+
+    // Full deserialization + validation via OrkaConfig::load.
+    let mut cfg = OrkaConfig::load(Some(&resolved))?;
+
+    match cfg.validate() {
+        Ok(()) => println!("\nValidation: OK"),
+        Err(e) => {
+            eprintln!("\nValidation error: {e}");
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+/// `orka config migrate` — apply migrations and write the file (with backup).
+pub async fn migrate_cmd(
+    config_path: Option<&str>,
+    dry_run: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = config_path.map(Path::new);
+    let resolved = OrkaConfig::resolve_path(path);
+
+    if !resolved.exists() {
+        eprintln!("Config file not found: {}", resolved.display());
+        std::process::exit(1);
+    }
+
+    let raw = std::fs::read_to_string(&resolved)?;
+    let (migrated_toml, result) = migrate::migrate_if_needed(&raw)?;
+
+    match result {
+        None => {
+            println!(
+                "Config is already at version {}. Nothing to do.",
+                CURRENT_CONFIG_VERSION
+            );
+        }
+        Some(res) => {
+            println!(
+                "Migrating config: v{} → v{}",
+                res.from_version, res.to_version
+            );
+
+            if !res.warnings.is_empty() {
+                println!("\nWarnings:");
+                for w in &res.warnings {
+                    println!("  - {w}");
+                }
+            }
+
+            if dry_run {
+                println!("\n--- Diff (dry run) ---");
+                print_diff(&raw, &migrated_toml);
+                println!("--- End diff ---");
+                println!("\nNo changes written (dry run).");
+            } else {
+                // Create backup.
+                let backup_path = resolved.with_extension("toml.bak");
+                std::fs::copy(&resolved, &backup_path)?;
+                println!("\nBackup written to: {}", backup_path.display());
+
+                // Write migrated config.
+                std::fs::write(&resolved, &migrated_toml)?;
+                println!("Config written to: {}", resolved.display());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Print a unified diff between two strings.
+fn print_diff(old: &str, new: &str) {
+    use similar::{ChangeTag, TextDiff};
+
+    let diff = TextDiff::from_lines(old, new);
+    for change in diff.iter_all_changes() {
+        let sign = match change.tag() {
+            ChangeTag::Delete => "-",
+            ChangeTag::Insert => "+",
+            ChangeTag::Equal => " ",
+        };
+        print!("{sign}{change}");
+    }
+}

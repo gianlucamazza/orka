@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::{extract::State, response::IntoResponse, Json};
+use axum::{Json, extract::State, response::IntoResponse};
 use chrono::Utc;
 use serde_json::json;
 use tokio::sync::Mutex;
@@ -95,6 +95,7 @@ async fn handle_task_send(
             args,
             context: Some(SkillContext {
                 secrets: state.secrets.clone(),
+                event_sink: None,
             }),
         };
         match state.skills.invoke(&skill_name, input).await {
@@ -176,10 +177,10 @@ pub fn extract_text_from_message(message: &serde_json::Value) -> String {
     // Try to extract text from parts array
     if let Some(parts) = message["parts"].as_array() {
         for part in parts {
-            if part["type"].as_str() == Some("text") {
-                if let Some(text) = part["text"].as_str() {
-                    return text.to_string();
-                }
+            if part["type"].as_str() == Some("text")
+                && let Some(text) = part["text"].as_str()
+            {
+                return text.to_string();
             }
         }
     }

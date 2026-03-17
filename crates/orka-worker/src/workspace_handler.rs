@@ -2,24 +2,98 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use orka_core::config::AgentConfig;
 use orka_core::traits::{EventSink, Guardrail, MemoryStore, SecretManager};
 use orka_core::{
-    DomainEvent, DomainEventKind, Envelope, EventId, MemoryEntry, OutboundMessage, Payload, Result,
-    Session, SkillInput,
+    DomainEvent, DomainEventKind, Envelope, EventId, MemoryEntry, MessageId, OutboundMessage,
+    Payload, Result, Session, SessionId, SkillInput,
 };
 use orka_llm::client::{
-    ChatContent, ChatMessageExt, CompletionOptions, ContentBlock, ContentBlockInput, LlmClient,
-    StopReason, ToolDefinition,
+    ChatContent, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
+    ContentBlockInput, LlmClient, LlmToolStream, StopReason, StreamEvent, ToolCall, ToolDefinition,
+    Usage,
 };
 use orka_llm::context::{available_history_budget, truncate_history};
 use orka_skills::SkillRegistry;
-use orka_workspace::config::ToolEntry;
-use orka_workspace::state::WorkspaceState;
-use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use orka_workspace::WorkspaceRegistry;
+use tracing::{Instrument, debug, info, info_span, warn};
 
 use crate::commands::CommandRegistry;
 use crate::handler::AgentHandler;
+use crate::stream::{StreamChunk, StreamChunkKind, StreamRegistry};
+
+/// Truncate a tool result string if it exceeds the configured limit.
+fn truncate_tool_result(content: &str, max_chars: usize) -> String {
+    if content.len() <= max_chars {
+        return content.to_string();
+    }
+    let truncated = &content[..max_chars];
+    format!(
+        "{truncated}\n\n[truncated, showing first {max_chars} chars of {} total]",
+        content.len()
+    )
+}
+
+/// Derive a category tag and human-readable input summary from the tool name and its JSON input.
+fn tool_metadata(name: &str, input: &serde_json::Value) -> (Option<String>, Option<String>) {
+    match name {
+        "web_search" => {
+            let summary = input
+                .get("query")
+                .and_then(|v| v.as_str())
+                .map(|q| format!("query: '{q}'"));
+            (Some("search".into()), summary)
+        }
+        "http_request" => {
+            let method = input
+                .get("method")
+                .and_then(|v| v.as_str())
+                .unwrap_or("GET");
+            let summary = input
+                .get("url")
+                .and_then(|v| v.as_str())
+                .map(|u| format!("{method} {u}"));
+            (Some("http".into()), summary)
+        }
+        "sandbox" | "code_exec" | "code_interpreter" => (Some("code".into()), None),
+        n if n.starts_with("memory_") || n.starts_with("doc_") => (Some("memory".into()), None),
+        n if n.starts_with("schedule_") => (Some("schedule".into()), None),
+        _ => (None, None),
+    }
+}
+
+/// Produce a brief output summary for known tools.
+fn summarize_result(name: &str, content: &str, is_error: bool) -> Option<String> {
+    if is_error {
+        // Truncate long error messages
+        let msg = if content.len() > 80 {
+            format!("{}…", &content[..80])
+        } else {
+            content.to_string()
+        };
+        return Some(msg);
+    }
+    match name {
+        "web_search" => {
+            // Try to count results from JSON array
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(content)
+                && let Some(arr) = v.as_array()
+            {
+                return Some(format!("Found {} results", arr.len()));
+            }
+            Some("Search complete".into())
+        }
+        "http_request" => {
+            let len = content.len();
+            if len > 1024 {
+                Some(format!("{:.1} KB response", len as f64 / 1024.0))
+            } else {
+                Some(format!("{len} bytes"))
+            }
+        }
+        _ => None,
+    }
+}
 
 fn format_current_datetime(timezone: Option<&str>) -> String {
     use chrono::Utc;
@@ -41,43 +115,55 @@ fn format_current_datetime(timezone: Option<&str>) -> String {
     )
 }
 
-const MAX_AGENT_ITERATIONS: usize = 10;
+/// Configuration parameters for [`WorkspaceHandler`], grouped to reduce constructor arguments.
+pub struct WorkspaceHandlerConfig {
+    pub agent_config: AgentConfig,
+    pub disabled_tools: HashSet<String>,
+    pub default_context_window: u32,
+}
 
 pub struct WorkspaceHandler {
-    workspace_state: Arc<RwLock<WorkspaceState>>,
+    workspace_registry: Arc<WorkspaceRegistry>,
     skills: Arc<SkillRegistry>,
     memory: Arc<dyn MemoryStore>,
     secrets: Arc<dyn SecretManager>,
     llm: Option<Arc<dyn LlmClient>>,
     event_sink: Arc<dyn EventSink>,
+    agent_config: AgentConfig,
+    disabled_tools: HashSet<String>,
     default_context_window: u32,
     guardrail: Option<Arc<dyn Guardrail>>,
     commands: Arc<CommandRegistry>,
+    stream_registry: StreamRegistry,
 }
 
 impl WorkspaceHandler {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        workspace_state: Arc<RwLock<WorkspaceState>>,
+        workspace_registry: Arc<WorkspaceRegistry>,
         skills: Arc<SkillRegistry>,
         memory: Arc<dyn MemoryStore>,
         secrets: Arc<dyn SecretManager>,
         llm: Option<Arc<dyn LlmClient>>,
         event_sink: Arc<dyn EventSink>,
-        default_context_window: u32,
+        config: WorkspaceHandlerConfig,
         guardrail: Option<Arc<dyn Guardrail>>,
         commands: Arc<CommandRegistry>,
+        stream_registry: StreamRegistry,
     ) -> Self {
         Self {
-            workspace_state,
+            workspace_registry,
             skills,
             memory,
             secrets,
             llm,
             event_sink,
-            default_context_window,
+            agent_config: config.agent_config,
+            disabled_tools: config.disabled_tools,
+            default_context_window: config.default_context_window,
             guardrail,
             commands,
+            stream_registry,
         }
     }
 
@@ -91,60 +177,472 @@ impl WorkspaceHandler {
         }
     }
 
-    /// Convert workspace TOOLS.md entries to LLM tool definitions.
-    /// Skills explicitly listed in TOOLS.md respect their `enabled` flag.
-    /// Registered skills NOT listed in TOOLS.md are included by default.
-    fn build_tool_definitions(&self, tool_entries: &[ToolEntry]) -> Vec<ToolDefinition> {
-        let listed_names: HashSet<&str> = tool_entries.iter().map(|t| t.name.as_str()).collect();
-
-        // 1. Tools explicitly listed in TOOLS.md (respect enabled flag)
-        let mut defs: Vec<ToolDefinition> = tool_entries
+    /// Build LLM tool definitions from skill registry, excluding disabled tools.
+    /// Also appends built-in workspace management tools.
+    fn build_tool_definitions(&self) -> Vec<ToolDefinition> {
+        let mut defs: Vec<ToolDefinition> = self
+            .skills
+            .list()
             .iter()
-            .filter(|t| t.enabled)
-            .filter(|t| self.skills.get(&t.name).is_some())
-            .map(|t| {
-                let schema = self
-                    .skills
-                    .get(&t.name)
-                    .map(|s| s.schema().parameters.clone())
-                    .unwrap_or_else(|| {
-                        serde_json::json!({
-                            "type": "object",
-                            "properties": {},
-                        })
-                    });
-                let description = t
-                    .description
-                    .clone()
-                    .or_else(|| {
-                        self.skills
-                            .get(&t.name)
-                            .map(|s| s.description().to_string())
-                    })
-                    .unwrap_or_default();
-                ToolDefinition {
-                    name: t.name.clone(),
-                    description,
-                    input_schema: schema,
-                }
+            .filter(|name| !self.disabled_tools.contains(**name))
+            .filter_map(|name| self.skills.get(name))
+            .map(|skill| ToolDefinition {
+                name: skill.name().to_string(),
+                description: skill.description().to_string(),
+                input_schema: skill.schema().parameters.clone(),
             })
             .collect();
 
-        // 2. Auto-include registered skills NOT listed in TOOLS.md
-        for name in self.skills.list() {
-            if !listed_names.contains(name) {
-                if let Some(skill) = self.skills.get(name) {
-                    defs.push(ToolDefinition {
-                        name: skill.name().to_string(),
-                        description: skill.description().to_string(),
-                        input_schema: skill.schema().parameters.clone(),
-                    });
-                }
-            }
-        }
+        // Built-in workspace tools
+        defs.push(ToolDefinition {
+            name: "workspace_info".to_string(),
+            description:
+                "Get information about the current workspace and list all available workspaces."
+                    .to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        });
+        defs.push(ToolDefinition {
+            name: "workspace_switch".to_string(),
+            description: "Switch to a different workspace by name. Changes the active persona and tools for this session.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the workspace to switch to"
+                    }
+                },
+                "required": ["name"]
+            }),
+        });
 
         defs
     }
+
+    /// Assemble the system prompt from SOUL.md body, TOOLS.md body, current datetime,
+    /// and workspace awareness.
+    fn build_system_prompt(
+        soul_name: &str,
+        soul_body: &str,
+        tools_body: &str,
+        timezone: Option<&str>,
+        workspace_name: &str,
+        available_workspaces: &[&str],
+    ) -> String {
+        let mut prompt = if soul_body.is_empty() {
+            format!("You are {soul_name}.")
+        } else {
+            format!("You are {soul_name}.\n\n{soul_body}")
+        };
+
+        let now_str = format_current_datetime(timezone);
+        prompt.push_str("\n\n");
+        prompt.push_str(&now_str);
+
+        if !tools_body.is_empty() {
+            prompt.push_str("\n\n");
+            prompt.push_str(tools_body);
+        }
+
+        // Workspace awareness
+        let ws_list = available_workspaces.join(", ");
+        prompt.push_str(&format!(
+            "\n\nYou are currently operating in workspace \"{workspace_name}\".\n\
+             Available workspaces: {ws_list}.\n\
+             You can use the workspace_info tool to get details and workspace_switch to change workspace."
+        ));
+
+        prompt
+    }
+
+    /// Resolve workspace from the registry by name. Falls back to default if not found.
+    async fn resolve_from_registry(&self, ws_name: &str) -> (String, String, String) {
+        let state_lock = self.workspace_registry.state(ws_name).unwrap_or_else(|| {
+            warn!(workspace = %ws_name, "workspace not found in registry, using default");
+            self.workspace_registry.default_state()
+        });
+        let state = state_lock.read().await;
+        let soul_name = state
+            .soul
+            .as_ref()
+            .and_then(|doc| doc.frontmatter.name.clone())
+            .unwrap_or_else(|| self.agent_config.display_name.clone());
+        let soul_body = state
+            .soul
+            .as_ref()
+            .map(|doc| doc.body.clone())
+            .unwrap_or_default();
+        let tools_body = state.tools_body.clone().unwrap_or_default();
+        (soul_name, soul_body, tools_body)
+    }
+
+    /// Resolve workspace from inline CLI content (raw SOUL.md/TOOLS.md strings).
+    /// Falls back to the default workspace for any missing piece.
+    async fn resolve_from_inline(
+        &self,
+        raw_soul: Option<&str>,
+        raw_tools: Option<&str>,
+    ) -> (String, String, String) {
+        let (name, body) = if let Some(raw) = raw_soul {
+            match orka_workspace::parse::parse_document::<orka_workspace::SoulFrontmatter>(raw) {
+                Ok(doc) => (
+                    doc.frontmatter
+                        .name
+                        .unwrap_or_else(|| self.agent_config.display_name.clone()),
+                    doc.body,
+                ),
+                Err(e) => {
+                    warn!(%e, "failed to parse workspace override SOUL.md, falling back");
+                    (self.agent_config.display_name.clone(), raw.to_string())
+                }
+            }
+        } else {
+            let state = self.workspace_registry.default_state();
+            let state = state.read().await;
+            let name = state
+                .soul
+                .as_ref()
+                .and_then(|doc| doc.frontmatter.name.clone())
+                .unwrap_or_else(|| self.agent_config.display_name.clone());
+            let body = state
+                .soul
+                .as_ref()
+                .map(|doc| doc.body.clone())
+                .unwrap_or_default();
+            (name, body)
+        };
+
+        let tools = if let Some(raw) = raw_tools {
+            orka_workspace::strip_frontmatter(raw)
+        } else {
+            let state = self.workspace_registry.default_state();
+            let state = state.read().await;
+            state.tools_body.clone().unwrap_or_default()
+        };
+
+        (name, body, tools)
+    }
+
+    /// Handle a built-in workspace tool call. Returns `Some(result)` if the tool was
+    /// handled, or `None` if it should be dispatched to the skill registry.
+    async fn handle_builtin_tool(
+        &self,
+        call: &ToolCall,
+        session: &Session,
+        current_workspace: &str,
+    ) -> Option<(String, bool)> {
+        match call.name.as_str() {
+            "workspace_info" => {
+                let names = self.workspace_registry.list_names();
+                let mut workspaces = Vec::new();
+                for name in &names {
+                    let is_current = *name == current_workspace;
+                    let soul_name = if let Some(state_lock) = self.workspace_registry.state(name) {
+                        let state = state_lock.read().await;
+                        state
+                            .soul
+                            .as_ref()
+                            .and_then(|doc| doc.frontmatter.name.clone())
+                    } else {
+                        None
+                    };
+                    workspaces.push(serde_json::json!({
+                        "name": name,
+                        "soul_name": soul_name,
+                        "active": is_current,
+                    }));
+                }
+                let result = serde_json::json!({
+                    "current_workspace": current_workspace,
+                    "workspaces": workspaces,
+                });
+                Some((result.to_string(), false))
+            }
+            "workspace_switch" => {
+                let target = call
+                    .input
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if target.is_empty() {
+                    return Some(("Error: missing required parameter 'name'".into(), true));
+                }
+                if self.workspace_registry.get(target).is_none() {
+                    let available = self.workspace_registry.list_names().join(", ");
+                    return Some((
+                        format!("Error: workspace '{target}' not found. Available: {available}"),
+                        true,
+                    ));
+                }
+                let override_key = format!("workspace_override:{}", session.id);
+                let override_val = serde_json::json!({ "workspace_name": target });
+                let entry = MemoryEntry {
+                    key: override_key.clone(),
+                    value: override_val,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                    tags: Vec::new(),
+                };
+                if let Err(e) = self.memory.store(&override_key, entry, None).await {
+                    return Some((format!("Error storing workspace override: {e}"), true));
+                }
+                info!(from = %current_workspace, to = %target, session = %session.id, "workspace switched");
+                Some((
+                    format!(
+                        "Switched to workspace '{target}'. The new persona and tools will take effect on the next message."
+                    ),
+                    false,
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// Execute tool calls in parallel, emitting streaming events and domain events.
+    /// Returns content blocks with tool results in the original call order.
+    /// Built-in workspace tools are intercepted before dispatching to the skill registry.
+    async fn execute_tool_calls(
+        &self,
+        tool_calls: &[ToolCall],
+        envelope: &Envelope,
+        session: &Session,
+        current_workspace: &str,
+    ) -> Vec<ContentBlockInput> {
+        let mut join_set = tokio::task::JoinSet::new();
+        // Track which calls are handled as built-in (index → result)
+        let mut builtin_results: HashMap<usize, (String, bool)> = HashMap::new();
+
+        for (idx, call) in tool_calls.iter().enumerate() {
+            // Check for built-in workspace tools first
+            if let Some(result) = self
+                .handle_builtin_tool(call, session, current_workspace)
+                .await
+            {
+                info!(tool = %call.name, id = %call.id, "handled built-in workspace tool");
+                builtin_results.insert(idx, result);
+                continue;
+            }
+
+            info!(skill = %call.name, id = %call.id, "invoking skill via tool call");
+
+            self.event_sink
+                .emit(DomainEvent {
+                    id: EventId::new(),
+                    timestamp: chrono::Utc::now(),
+                    kind: DomainEventKind::SkillInvoked {
+                        skill_name: call.name.clone(),
+                        message_id: envelope.id.clone(),
+                    },
+                    metadata: HashMap::new(),
+                })
+                .await;
+
+            let (category, input_summary) = tool_metadata(&call.name, &call.input);
+            self.stream_registry
+                .send(&StreamChunk {
+                    session_id: envelope.session_id.clone(),
+                    channel: envelope.channel.clone(),
+                    reply_to: Some(envelope.id.clone()),
+                    kind: StreamChunkKind::ToolExecStart {
+                        name: call.name.clone(),
+                        id: call.id.clone(),
+                        input_summary,
+                        category,
+                    },
+                })
+                .await;
+
+            let call_id = call.id.clone();
+            let call_name = call.name.clone();
+            let call_name_for_summary = call.name.clone();
+            let call_input = call.input.clone();
+            let skills = self.skills.clone();
+            let event_sink = self.event_sink.clone();
+            let message_id = envelope.id.clone();
+            let secrets = self.secrets.clone();
+            let skill_timeout =
+                std::time::Duration::from_secs(self.agent_config.skill_timeout_secs);
+            let max_result_chars = self.agent_config.max_tool_result_chars;
+
+            join_set.spawn(async move {
+                let args: HashMap<String, serde_json::Value> = call_input
+                    .as_object()
+                    .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+                    .unwrap_or_default();
+
+                let start = std::time::Instant::now();
+                let skill_input = SkillInput {
+                    args,
+                    context: Some(orka_core::SkillContext {
+                        secrets,
+                        event_sink: Some(event_sink.clone()),
+                    }),
+                };
+                let result = match tokio::time::timeout(
+                    skill_timeout,
+                    skills.invoke(&call_name, skill_input),
+                )
+                .await
+                {
+                    Ok(r) => r,
+                    Err(_) => Err(orka_core::Error::Skill(format!(
+                        "skill '{call_name}' timed out after {}s",
+                        skill_timeout.as_secs()
+                    ))),
+                };
+                let duration_ms = start.elapsed().as_millis() as u64;
+
+                let (content, is_error) = match &result {
+                    Ok(output) => {
+                        let raw = output.data.to_string();
+                        (truncate_tool_result(&raw, max_result_chars), false)
+                    }
+                    Err(e) => (format!("Error: {e}"), true),
+                };
+
+                event_sink
+                    .emit(DomainEvent {
+                        id: EventId::new(),
+                        timestamp: chrono::Utc::now(),
+                        kind: DomainEventKind::SkillCompleted {
+                            skill_name: call_name,
+                            message_id,
+                            duration_ms,
+                            success: !is_error,
+                        },
+                        metadata: HashMap::new(),
+                    })
+                    .await;
+
+                let error_msg = if is_error {
+                    Some(content.clone())
+                } else {
+                    None
+                };
+                let result_summary = summarize_result(&call_name_for_summary, &content, is_error);
+                (
+                    call_id,
+                    content,
+                    is_error,
+                    duration_ms,
+                    error_msg,
+                    result_summary,
+                )
+            });
+        }
+
+        // Collect results and emit ToolExecEnd chunks
+        let mut results_map: HashMap<String, (String, bool)> = HashMap::new();
+        while let Some(res) = join_set.join_next().await {
+            if let Ok((call_id, content, is_error, duration_ms, error_msg, result_summary)) = res {
+                self.stream_registry
+                    .send(&StreamChunk {
+                        session_id: envelope.session_id.clone(),
+                        channel: envelope.channel.clone(),
+                        reply_to: Some(envelope.id.clone()),
+                        kind: StreamChunkKind::ToolExecEnd {
+                            id: call_id.clone(),
+                            success: !is_error,
+                            duration_ms,
+                            error: error_msg,
+                            result_summary,
+                        },
+                    })
+                    .await;
+                results_map.insert(call_id, (content, is_error));
+            }
+        }
+
+        // Build result blocks in original order, merging built-in and skill results
+        tool_calls
+            .iter()
+            .enumerate()
+            .map(|(idx, call)| {
+                let (content, is_error) = if let Some(result) = builtin_results.remove(&idx) {
+                    result
+                } else {
+                    results_map
+                        .remove(&call.id)
+                        .unwrap_or_else(|| ("Error: task failed".to_string(), true))
+                };
+                ContentBlockInput::ToolResult {
+                    tool_use_id: call.id.clone(),
+                    content,
+                    is_error,
+                }
+            })
+            .collect()
+    }
+
+    /// Persist conversation history and token usage to the memory store.
+    #[allow(clippy::too_many_arguments)]
+    async fn save_conversation_history(
+        &self,
+        messages: Vec<ChatMessageExt>,
+        max_entries: usize,
+        summarization_threshold: usize,
+        summarization_model: Option<&str>,
+        memory_key: &str,
+        session_tokens: u64,
+        token_key: &str,
+    ) {
+        let history_to_save = if messages.len() > max_entries {
+            if let (Some(llm), true) = (&self.llm, messages.len() > summarization_threshold) {
+                let split_point = messages.len() - max_entries;
+                let old_messages = &messages[..split_point];
+
+                let summary_text =
+                    Self::summarize_messages(llm, old_messages, summarization_model).await;
+                let mut condensed = vec![ChatMessageExt {
+                    role: "user".to_string(),
+                    content: ChatContent::Text(format!(
+                        "[Previous conversation summary: {}]",
+                        summary_text
+                    )),
+                }];
+                condensed.extend_from_slice(&messages[split_point..]);
+                condensed
+            } else {
+                messages[messages.len() - max_entries..].to_vec()
+            }
+        } else {
+            messages
+        };
+
+        let history_value = match serde_json::to_value(&history_to_save) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(%e, key = %memory_key, "failed to serialize conversation history");
+                return;
+            }
+        };
+        let entry = MemoryEntry {
+            key: memory_key.to_string(),
+            value: history_value,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            tags: vec!["conversation".to_string()],
+        };
+        if let Err(e) = self.memory.store(memory_key, entry, None).await {
+            warn!(%e, key = %memory_key, "failed to persist conversation history");
+        }
+
+        let token_entry = MemoryEntry {
+            key: token_key.to_string(),
+            value: serde_json::json!(session_tokens),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            tags: vec!["token_usage".to_string()],
+        };
+        if let Err(e) = self.memory.store(token_key, token_entry, None).await {
+            warn!(%e, key = %token_key, "failed to persist token usage");
+        }
+    }
+
     async fn summarize_messages(
         llm: &Arc<dyn LlmClient>,
         messages: &[ChatMessageExt],
@@ -208,6 +706,119 @@ impl WorkspaceHandler {
             }
         }
     }
+
+    /// Consume a streaming LLM response, emitting `StreamChunk`s to the registry
+    /// and reconstructing a `CompletionResponse` from the events.
+    async fn consume_stream(
+        mut stream: LlmToolStream,
+        stream_registry: &StreamRegistry,
+        session_id: &SessionId,
+        channel: &str,
+        reply_to: Option<&MessageId>,
+    ) -> Result<CompletionResponse> {
+        use futures_util::StreamExt;
+
+        let mut text = String::new();
+        let mut tool_calls: Vec<ToolCall> = Vec::new();
+        let mut current_tool_id: Option<String> = None;
+        let mut current_tool_name: Option<String> = None;
+        let mut current_tool_input = String::new();
+        let mut usage = Usage::default();
+        let mut stop_reason = None;
+
+        while let Some(event) = stream.next().await {
+            let event = event?;
+            match event {
+                StreamEvent::TextDelta(delta) => {
+                    stream_registry
+                        .send(&StreamChunk {
+                            session_id: session_id.clone(),
+                            channel: channel.to_string(),
+                            reply_to: reply_to.cloned(),
+                            kind: StreamChunkKind::Delta(delta.clone()),
+                        })
+                        .await;
+                    text.push_str(&delta);
+                }
+                StreamEvent::ToolUseStart { id, name } => {
+                    stream_registry
+                        .send(&StreamChunk {
+                            session_id: session_id.clone(),
+                            channel: channel.to_string(),
+                            reply_to: reply_to.cloned(),
+                            kind: StreamChunkKind::ToolStart {
+                                name: name.clone(),
+                                id: id.clone(),
+                            },
+                        })
+                        .await;
+                    current_tool_id = Some(id);
+                    current_tool_name = Some(name);
+                    current_tool_input.clear();
+                }
+                StreamEvent::ToolUseInputDelta(delta) => {
+                    current_tool_input.push_str(&delta);
+                }
+                StreamEvent::ToolUseEnd { id, input } => {
+                    let name = current_tool_name.take().unwrap_or_default();
+                    let final_input = if input != serde_json::Value::Null {
+                        input
+                    } else {
+                        serde_json::from_str(&current_tool_input).unwrap_or_else(|e| {
+                            warn!(%e, tool = %name, "malformed tool input JSON, using empty object");
+                            serde_json::Value::Object(Default::default())
+                        })
+                    };
+                    stream_registry
+                        .send(&StreamChunk {
+                            session_id: session_id.clone(),
+                            channel: channel.to_string(),
+                            reply_to: reply_to.cloned(),
+                            kind: StreamChunkKind::ToolEnd {
+                                id: id.clone(),
+                                success: true,
+                            },
+                        })
+                        .await;
+                    tool_calls.push(ToolCall {
+                        id,
+                        name,
+                        input: final_input,
+                    });
+                    current_tool_id = None;
+                    current_tool_input.clear();
+                }
+                StreamEvent::Usage(u) => usage = u,
+                StreamEvent::Stop(reason) => stop_reason = Some(reason),
+            }
+        }
+
+        // If we were mid-tool when the stream ended, treat it as incomplete
+        if let Some(id) = current_tool_id {
+            stream_registry
+                .send(&StreamChunk {
+                    session_id: session_id.clone(),
+                    channel: channel.to_string(),
+                    reply_to: reply_to.cloned(),
+                    kind: StreamChunkKind::ToolEnd { id, success: false },
+                })
+                .await;
+        }
+
+        let mut blocks = Vec::new();
+        if !text.is_empty() {
+            blocks.push(ContentBlock::Text(text));
+        }
+        for call in tool_calls {
+            blocks.push(ContentBlock::ToolUse(call));
+        }
+
+        Ok(CompletionResponse {
+            blocks,
+            usage,
+            stop_reason,
+        })
+    }
 }
 
 #[async_trait]
@@ -223,76 +834,79 @@ impl AgentHandler for WorkspaceHandler {
             }
         };
 
-        // Read workspace state
-        let state = self.workspace_state.read().await;
-        let identity_display_name = state
-            .identity
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.display_name.clone());
-        let soul_name = state
-            .soul
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.name.clone())
-            .or(identity_display_name)
-            .unwrap_or_else(|| "Orka".into());
-        let soul_body = state
-            .soul
-            .as_ref()
-            .map(|doc| doc.body.clone())
-            .unwrap_or_default();
-        let soul_model = state
-            .soul
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.model.clone());
-        let soul_max_tokens = state
-            .soul
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.max_tokens);
-        let max_entries = state
-            .memory
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.max_entries)
-            .unwrap_or(50);
-        let max_tokens_per_session = state
-            .soul
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.max_tokens_per_session);
-        let summarization_model = state
-            .memory
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.summarization_model.clone());
-        let summarization_threshold = state
-            .memory
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.summarization_threshold)
-            .unwrap_or(max_entries * 2);
-        let context_window = state
-            .soul
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.context_window_tokens)
-            .unwrap_or(self.default_context_window);
-        let soul_timezone = state
-            .soul
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.timezone.clone());
-        let max_iterations = state
-            .soul
-            .as_ref()
-            .and_then(|doc| doc.frontmatter.max_agent_iterations)
-            .unwrap_or(MAX_AGENT_ITERATIONS);
+        // 3-tier workspace resolution:
+        //   1. Per-session override from MemoryStore (CLI inline content or named workspace)
+        //   2. Adapter-level workspace binding (workspace:name in envelope metadata)
+        //   3. Default workspace from registry
+        let override_key = format!("workspace_override:{}", session.id);
 
-        // Read tool definitions from TOOLS.md
-        let tool_entries: Vec<ToolEntry> = state
-            .tools
-            .as_ref()
-            .map(|doc| doc.frontmatter.tools.clone())
-            .unwrap_or_default();
-        let tools_body = state
-            .tools
-            .as_ref()
-            .map(|doc| doc.body.clone())
-            .unwrap_or_default();
-        drop(state);
+        // Persist CLI metadata overrides into MemoryStore for session stickiness
+        let has_ws_meta = envelope.metadata.contains_key("workspace:soul")
+            || envelope.metadata.contains_key("workspace:tools");
+
+        if has_ws_meta {
+            let override_val = serde_json::json!({
+                "soul": envelope.metadata.get("workspace:soul").and_then(|v| v.as_str()),
+                "tools": envelope.metadata.get("workspace:tools").and_then(|v| v.as_str()),
+            });
+            if let Err(e) = self
+                .memory
+                .store(
+                    &override_key,
+                    MemoryEntry {
+                        key: override_key.clone(),
+                        value: override_val,
+                        created_at: chrono::Utc::now(),
+                        updated_at: chrono::Utc::now(),
+                        tags: Vec::new(),
+                    },
+                    None,
+                )
+                .await
+            {
+                warn!(%e, "failed to store workspace override");
+            }
+        }
+
+        let ws_override = self.memory.recall(&override_key).await.ok().flatten();
+
+        let (soul_name, soul_body, tools_body) = if let Some(ref entry) = ws_override {
+            // Case 1a: named workspace override (e.g. stored by a prior API call)
+            if let Some(ws_name) = entry.value.get("workspace_name").and_then(|v| v.as_str()) {
+                self.resolve_from_registry(ws_name).await
+            }
+            // Case 1b: inline content override (CLI sends raw SOUL.md/TOOLS.md content)
+            else {
+                let raw_soul = entry.value.get("soul").and_then(|v| v.as_str());
+                let raw_tools = entry.value.get("tools").and_then(|v| v.as_str());
+                self.resolve_from_inline(raw_soul, raw_tools).await
+            }
+        } else if let Some(ws_name) = envelope
+            .metadata
+            .get("workspace:name")
+            .and_then(|v| v.as_str())
+        {
+            // Case 2: adapter-level workspace binding
+            self.resolve_from_registry(ws_name).await
+        } else {
+            // Case 3: default workspace
+            self.resolve_from_registry(self.workspace_registry.default_name())
+                .await
+        };
+
+        // Runtime params from agent config
+        let agent = &self.agent_config;
+        let soul_model = agent.model.clone();
+        let soul_max_tokens = agent.max_tokens;
+        let max_tokens_per_session = agent.max_tokens_per_session;
+        let summarization_model = agent.summarization_model.clone();
+        let max_entries = agent.max_history_entries;
+        let summarization_threshold = agent.summarization_threshold.unwrap_or(max_entries * 2);
+        let context_window = agent
+            .context_window_tokens
+            .unwrap_or(self.default_context_window);
+        let soul_timezone = agent.timezone.clone();
+        let max_iterations = agent.max_iterations;
 
         // Apply input guardrail
         let text = if let Some(ref guardrail) = self.guardrail {
@@ -329,39 +943,58 @@ impl AgentHandler for WorkspaceHandler {
 
         // If LLM is configured, run the agent loop
         if let Some(ref llm) = self.llm {
-            // Build tool definitions from TOOLS.md + skill registry
-            let tools = self.build_tool_definitions(&tool_entries);
+            let tools = self.build_tool_definitions();
 
             // Load conversation history from memory
             let memory_key = format!("conversation:{}", session.id);
             let history: Vec<ChatMessageExt> = match self.memory.recall(&memory_key).await {
-                Ok(Some(entry)) => serde_json::from_value(entry.value).unwrap_or_default(),
-                _ => Vec::new(),
+                Ok(Some(entry)) => {
+                    serde_json::from_value(entry.value).unwrap_or_else(|e| {
+                        warn!(%e, key = %memory_key, "failed to deserialize conversation history, starting fresh");
+                        Vec::new()
+                    })
+                }
+                Ok(None) => Vec::new(),
+                Err(e) => {
+                    warn!(%e, key = %memory_key, "failed to recall conversation history");
+                    Vec::new()
+                }
             };
 
-            // Build messages: history + current user message
             let mut messages = history;
             messages.push(ChatMessageExt {
                 role: "user".to_string(),
                 content: ChatContent::Text(text.clone()),
             });
 
-            // System prompt from SOUL.md + TOOLS.md body (instructions)
-            let mut system_prompt = if soul_body.is_empty() {
-                format!("You are {soul_name}.")
+            let available_ws = self.workspace_registry.list_names();
+            let available_ws_refs: Vec<&str> = available_ws.to_vec();
+
+            // Determine the resolved workspace name for awareness
+            let resolved_workspace = if let Some(ref entry) = ws_override {
+                if let Some(ws_name) = entry.value.get("workspace_name").and_then(|v| v.as_str()) {
+                    ws_name.to_string()
+                } else {
+                    self.workspace_registry.default_name().to_string()
+                }
+            } else if let Some(ws_name) = envelope
+                .metadata
+                .get("workspace:name")
+                .and_then(|v| v.as_str())
+            {
+                ws_name.to_string()
             } else {
-                format!("You are {soul_name}.\n\n{soul_body}")
+                self.workspace_registry.default_name().to_string()
             };
 
-            // Inject current date/time context
-            let now_str = format_current_datetime(soul_timezone.as_deref());
-            system_prompt.push_str("\n\n");
-            system_prompt.push_str(&now_str);
-
-            if !tools_body.is_empty() {
-                system_prompt.push_str("\n\n");
-                system_prompt.push_str(&tools_body);
-            }
+            let system_prompt = Self::build_system_prompt(
+                &soul_name,
+                &soul_body,
+                &tools_body,
+                soul_timezone.as_deref(),
+                &resolved_workspace,
+                &available_ws_refs,
+            );
 
             let options = CompletionOptions {
                 model: soul_model.clone(),
@@ -372,14 +1005,29 @@ impl AgentHandler for WorkspaceHandler {
             // Load accumulated token usage from memory
             let token_key = format!("tokens:{}", session.id);
             let mut session_tokens: u64 = match self.memory.recall(&token_key).await {
-                Ok(Some(entry)) => entry.value.as_u64().unwrap_or(0),
-                _ => 0,
+                Ok(Some(entry)) => match entry.value.as_u64() {
+                    Some(v) => v,
+                    None => {
+                        warn!(key = %token_key, value = ?entry.value, "corrupted token count, resetting to 0");
+                        0
+                    }
+                },
+                Ok(None) => 0,
+                Err(e) => {
+                    warn!(%e, key = %token_key, "failed to recall token usage");
+                    0
+                }
             };
 
             // Agent loop: call LLM, execute tool calls, feed results back
             let mut final_text = String::new();
             let llm_model = soul_model.as_deref().unwrap_or("default").to_string();
+            let max_tool_retries = self.agent_config.max_tool_retries;
+            // Track per-tool-name consecutive error counts for self-correction
+            let mut tool_error_counts: HashMap<String, u32> = HashMap::new();
             for iteration in 0..max_iterations {
+                let iteration_start = std::time::Instant::now();
+
                 // Pre-flight truncation: ensure messages fit context window
                 let output_budget = soul_max_tokens.unwrap_or(4096);
                 let budget =
@@ -396,14 +1044,47 @@ impl AgentHandler for WorkspaceHandler {
                 }
 
                 let llm_start = std::time::Instant::now();
-                let completion = match llm
-                    .complete_with_tools(messages.clone(), &system_prompt, &tools, options.clone())
+                let llm_span = info_span!(
+                    "llm.call",
+                    iteration,
+                    model = %llm_model,
+                    message_id = %envelope.id,
+                );
+                let stream = match llm
+                    .complete_stream_with_tools(
+                        messages.clone(),
+                        &system_prompt,
+                        &tools,
+                        options.clone(),
+                    )
+                    .instrument(llm_span.clone())
                     .await
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!(%e, "LLM stream init failed");
+                        final_text = format!(
+                            "Sorry, the LLM request failed: {e}\n\nPlease check the server logs for details."
+                        );
+                        break;
+                    }
+                };
+                let completion = match Self::consume_stream(
+                    stream,
+                    &self.stream_registry,
+                    &envelope.session_id,
+                    &envelope.channel,
+                    Some(&envelope.id),
+                )
+                .instrument(llm_span)
+                .await
                 {
                     Ok(resp) => resp,
                     Err(e) => {
-                        warn!(%e, "LLM call failed");
-                        final_text = format!("Sorry, the LLM request failed: {e}\n\nPlease check the server logs for details.");
+                        warn!(%e, "LLM stream failed");
+                        final_text = format!(
+                            "Sorry, the LLM request failed: {e}\n\nPlease check the server logs for details."
+                        );
                         break;
                     }
                 };
@@ -426,6 +1107,7 @@ impl AgentHandler for WorkspaceHandler {
                             input_tokens: completion.usage.input_tokens,
                             output_tokens: completion.usage.output_tokens,
                             duration_ms: llm_duration_ms,
+                            estimated_cost_usd: None,
                         },
                         metadata: HashMap::new(),
                     })
@@ -437,14 +1119,14 @@ impl AgentHandler for WorkspaceHandler {
                 session_tokens += iteration_tokens;
 
                 // Check token budget
-                if let Some(budget) = max_tokens_per_session {
-                    if session_tokens > budget {
-                        warn!(session_tokens, budget, "token budget exceeded for session");
-                        final_text = format!(
-                            "I've reached the token budget for this session ({budget} tokens). Please start a new conversation."
-                        );
-                        break;
-                    }
+                if let Some(budget) = max_tokens_per_session
+                    && session_tokens > budget
+                {
+                    warn!(session_tokens, budget, "token budget exceeded for session");
+                    final_text = format!(
+                        "I've reached the token budget for this session ({budget} tokens). Please start a new conversation."
+                    );
+                    break;
                 }
 
                 if completion.stop_reason == Some(StopReason::MaxTokens) {
@@ -461,6 +1143,22 @@ impl AgentHandler for WorkspaceHandler {
                     }
                 }
 
+                // R1.1: Extract and log reasoning text (text before first tool call)
+                if !response_text.is_empty() {
+                    self.event_sink
+                        .emit(DomainEvent {
+                            id: EventId::new(),
+                            timestamp: chrono::Utc::now(),
+                            kind: DomainEventKind::AgentReasoning {
+                                message_id: envelope.id.clone(),
+                                iteration,
+                                reasoning_text: response_text.clone(),
+                            },
+                            metadata: HashMap::new(),
+                        })
+                        .await;
+                }
+
                 if tool_calls.is_empty() {
                     // No tool calls — final response
                     final_text = response_text;
@@ -468,6 +1166,21 @@ impl AgentHandler for WorkspaceHandler {
                         role: "assistant".to_string(),
                         content: ChatContent::Text(final_text.clone()),
                     });
+                    // Emit iteration event before breaking
+                    self.event_sink
+                        .emit(DomainEvent {
+                            id: EventId::new(),
+                            timestamp: chrono::Utc::now(),
+                            kind: DomainEventKind::AgentIteration {
+                                message_id: envelope.id.clone(),
+                                iteration,
+                                tool_count: 0,
+                                tokens_used: iteration_tokens,
+                                elapsed_ms: iteration_start.elapsed().as_millis() as u64,
+                            },
+                            metadata: HashMap::new(),
+                        })
+                        .await;
                     break;
                 }
 
@@ -499,94 +1212,66 @@ impl AgentHandler for WorkspaceHandler {
                     });
                 }
 
-                // Execute tool calls in parallel
-                let mut join_set = tokio::task::JoinSet::new();
-                for call in &tool_calls {
-                    info!(skill = %call.name, id = %call.id, "invoking skill via tool call");
+                // Execute tool calls and collect results
+                let tool_span = info_span!(
+                    "tools.execute",
+                    iteration,
+                    tool_count = tool_calls.len(),
+                    message_id = %envelope.id,
+                );
+                let result_blocks = self
+                    .execute_tool_calls(&tool_calls, envelope, session, &resolved_workspace)
+                    .instrument(tool_span)
+                    .await;
 
-                    self.event_sink
-                        .emit(DomainEvent {
-                            id: EventId::new(),
-                            timestamp: chrono::Utc::now(),
-                            kind: DomainEventKind::SkillInvoked {
-                                skill_name: call.name.clone(),
-                                message_id: envelope.id.clone(),
-                            },
-                            metadata: HashMap::new(),
-                        })
-                        .await;
-
-                    let call_id = call.id.clone();
-                    let call_name = call.name.clone();
-                    let call_input = call.input.clone();
-                    let skills = self.skills.clone();
-                    let event_sink = self.event_sink.clone();
-                    let message_id = envelope.id.clone();
-                    let secrets = self.secrets.clone();
-
-                    join_set.spawn(async move {
-                        let args: HashMap<String, serde_json::Value> = call_input
-                            .as_object()
-                            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-                            .unwrap_or_default();
-
-                        let start = std::time::Instant::now();
-                        let skill_input = SkillInput {
-                            args,
-                            context: Some(orka_core::SkillContext { secrets }),
-                        };
-                        let result = skills.invoke(&call_name, skill_input).await;
-                        let duration_ms = start.elapsed().as_millis() as u64;
-
-                        let (content, is_error) = match &result {
-                            Ok(output) => (output.data.to_string(), false),
-                            Err(e) => (format!("Error: {e}"), true),
-                        };
-
-                        event_sink
-                            .emit(DomainEvent {
-                                id: EventId::new(),
-                                timestamp: chrono::Utc::now(),
-                                kind: DomainEventKind::SkillCompleted {
-                                    skill_name: call_name,
-                                    message_id,
-                                    duration_ms,
-                                    success: !is_error,
-                                },
-                                metadata: HashMap::new(),
-                            })
-                            .await;
-
-                        (call_id, content, is_error)
-                    });
-                }
-
-                // Collect results
-                let mut results_map: HashMap<String, (String, bool)> = HashMap::new();
-                while let Some(res) = join_set.join_next().await {
-                    if let Ok((call_id, content, is_error)) = res {
-                        results_map.insert(call_id, (content, is_error));
+                // R1.3: Track per-tool error counts and inject self-correction hints
+                let mut corrected_blocks = result_blocks;
+                for (block, call) in corrected_blocks.iter().zip(tool_calls.iter()) {
+                    if let ContentBlockInput::ToolResult { is_error, .. } = block {
+                        if *is_error {
+                            let count = tool_error_counts.entry(call.name.clone()).or_insert(0);
+                            *count += 1;
+                        } else {
+                            tool_error_counts.remove(&call.name);
+                        }
                     }
                 }
-
-                // Build result blocks in original order
-                let mut result_blocks = Vec::new();
-                for call in &tool_calls {
-                    let (content, is_error) = results_map
-                        .remove(&call.id)
-                        .unwrap_or_else(|| ("Error: task failed".to_string(), true));
-                    result_blocks.push(ContentBlockInput::ToolResult {
-                        tool_use_id: call.id.clone(),
-                        content,
-                        is_error,
-                    });
+                // Inject self-correction hint if any tool has failed too many times
+                let mut hint_text: Option<String> = None;
+                for (tool_name, count) in &tool_error_counts {
+                    if *count >= max_tool_retries {
+                        hint_text = Some(format!(
+                            "Tool '{}' has failed {} consecutive times. Consider an alternative approach or different parameters.",
+                            tool_name, count
+                        ));
+                        break;
+                    }
+                }
+                if let Some(hint) = hint_text {
+                    corrected_blocks.push(ContentBlockInput::Text { text: hint });
                 }
 
                 // Add tool results as a user message
                 messages.push(ChatMessageExt {
                     role: "user".to_string(),
-                    content: ChatContent::Blocks(result_blocks),
+                    content: ChatContent::Blocks(corrected_blocks),
                 });
+
+                // R1.4: Emit iteration-level event
+                self.event_sink
+                    .emit(DomainEvent {
+                        id: EventId::new(),
+                        timestamp: chrono::Utc::now(),
+                        kind: DomainEventKind::AgentIteration {
+                            message_id: envelope.id.clone(),
+                            iteration,
+                            tool_count: tool_calls.len(),
+                            tokens_used: iteration_tokens,
+                            elapsed_ms: iteration_start.elapsed().as_millis() as u64,
+                        },
+                        metadata: HashMap::new(),
+                    })
+                    .await;
 
                 if iteration == max_iterations - 1 {
                     warn!(max_iterations, "agent loop reached max iterations");
@@ -596,56 +1281,28 @@ impl AgentHandler for WorkspaceHandler {
                 }
             }
 
+            // Emit Done chunk to signal stream completion
+            self.stream_registry
+                .send(&StreamChunk {
+                    session_id: envelope.session_id.clone(),
+                    channel: envelope.channel.clone(),
+                    reply_to: Some(envelope.id.clone()),
+                    kind: StreamChunkKind::Done,
+                })
+                .await;
+
             if !final_text.is_empty() {
-                // Save conversation history
-                let history_to_save = if messages.len() > max_entries {
-                    if let (Some(ref llm), true) =
-                        (&self.llm, messages.len() > summarization_threshold)
-                    {
-                        // Summarize old messages
-                        let split_point = messages.len() - max_entries;
-                        let old_messages = &messages[..split_point];
-
-                        let summary_text = Self::summarize_messages(
-                            llm,
-                            old_messages,
-                            summarization_model.as_deref(),
-                        )
-                        .await;
-                        let mut condensed = vec![ChatMessageExt {
-                            role: "user".to_string(),
-                            content: ChatContent::Text(format!(
-                                "[Previous conversation summary: {}]",
-                                summary_text
-                            )),
-                        }];
-                        condensed.extend_from_slice(&messages[split_point..]);
-                        condensed
-                    } else {
-                        messages[messages.len() - max_entries..].to_vec()
-                    }
-                } else {
-                    messages
-                };
-
-                let entry = MemoryEntry {
-                    key: memory_key.clone(),
-                    value: serde_json::to_value(&history_to_save).unwrap_or_default(),
-                    created_at: chrono::Utc::now(),
-                    updated_at: chrono::Utc::now(),
-                    tags: vec!["conversation".to_string()],
-                };
-                let _ = self.memory.store(&memory_key, entry, None).await;
-
-                // Persist accumulated token usage
-                let token_entry = MemoryEntry {
-                    key: token_key.clone(),
-                    value: serde_json::json!(session_tokens),
-                    created_at: chrono::Utc::now(),
-                    updated_at: chrono::Utc::now(),
-                    tags: vec!["token_usage".to_string()],
-                };
-                let _ = self.memory.store(&token_key, token_entry, None).await;
+                // Save conversation history and token usage
+                self.save_conversation_history(
+                    messages,
+                    max_entries,
+                    summarization_threshold,
+                    summarization_model.as_deref(),
+                    &memory_key,
+                    session_tokens,
+                    &token_key,
+                )
+                .await;
 
                 // Apply output guardrail
                 let final_text = if let Some(ref guardrail) = self.guardrail {
@@ -681,13 +1338,16 @@ impl AgentHandler for WorkspaceHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orka_core::testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager};
     use orka_core::SessionId;
+    use orka_core::testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager};
 
-    fn test_workspace_state(name: Option<&str>, body: &str) -> Arc<RwLock<WorkspaceState>> {
-        use orka_workspace::config::SoulFrontmatter;
-        use orka_workspace::parse::Document;
+    use orka_workspace::WorkspaceLoader;
+    use orka_workspace::config::SoulFrontmatter;
+    use orka_workspace::parse::Document;
+    use orka_workspace::state::WorkspaceState;
 
+    async fn test_workspace_registry(name: Option<&str>, body: &str) -> Arc<WorkspaceRegistry> {
+        let loader = Arc::new(WorkspaceLoader::new("."));
         let state = WorkspaceState {
             soul: Some(Document {
                 frontmatter: SoulFrontmatter {
@@ -698,47 +1358,34 @@ mod tests {
             }),
             ..Default::default()
         };
-        Arc::new(RwLock::new(state))
+        let state_lock = loader.state();
+        *state_lock.write().await = state;
+
+        let mut registry = WorkspaceRegistry::new("default".into());
+        registry.register("default".into(), loader);
+        Arc::new(registry)
     }
 
-    fn test_workspace_state_with_tools(
-        name: Option<&str>,
-        body: &str,
-        tool_entries: Vec<ToolEntry>,
-    ) -> Arc<RwLock<WorkspaceState>> {
-        use orka_workspace::config::{SoulFrontmatter, ToolsFrontmatter};
-        use orka_workspace::parse::Document;
-
-        let state = WorkspaceState {
-            soul: Some(Document {
-                frontmatter: SoulFrontmatter {
-                    name: name.map(|s| s.to_string()),
-                    ..Default::default()
-                },
-                body: body.to_string(),
-            }),
-            tools: Some(Document {
-                frontmatter: ToolsFrontmatter {
-                    tools: tool_entries,
-                },
-                body: String::new(),
-            }),
-            ..Default::default()
-        };
-        Arc::new(RwLock::new(state))
-    }
-
-    fn test_registry() -> Arc<SkillRegistry> {
+    fn test_skill_registry() -> Arc<SkillRegistry> {
         let mut reg = SkillRegistry::new();
         reg.register(Arc::new(orka_skills::EchoSkill));
         Arc::new(reg)
     }
 
-    fn test_handler(state: Arc<RwLock<WorkspaceState>>) -> WorkspaceHandler {
-        let skills = test_registry();
+    fn test_handler(ws_registry: Arc<WorkspaceRegistry>) -> WorkspaceHandler {
+        test_handler_with_disabled(ws_registry, HashSet::new())
+    }
+
+    fn test_handler_with_disabled(
+        ws_registry: Arc<WorkspaceRegistry>,
+        disabled: HashSet<String>,
+    ) -> WorkspaceHandler {
+        let skills = test_skill_registry();
         let memory: Arc<dyn orka_core::traits::MemoryStore> = Arc::new(InMemoryMemoryStore::new());
         let secrets: Arc<dyn orka_core::traits::SecretManager> =
             Arc::new(InMemorySecretManager::new());
+
+        let agent_config = AgentConfig::default();
 
         let mut commands = CommandRegistry::new();
         crate::commands::register_all(
@@ -746,26 +1393,32 @@ mod tests {
             skills.clone(),
             memory.clone(),
             secrets.clone(),
-            state.clone(),
+            ws_registry.clone(),
+            &agent_config,
         );
         let commands = Arc::new(commands);
 
         WorkspaceHandler::new(
-            state,
+            ws_registry,
             skills,
             memory,
             secrets,
             None,
             Arc::new(InMemoryEventSink::new()),
-            128_000,
+            WorkspaceHandlerConfig {
+                agent_config,
+                disabled_tools: disabled,
+                default_context_window: 128_000,
+            },
             None,
             commands,
+            StreamRegistry::new(),
         )
     }
 
     #[tokio::test]
     async fn soul_name_in_reply() {
-        let state = test_workspace_state(Some("TestBot"), "I am a test bot.");
+        let state = test_workspace_registry(Some("TestBot"), "I am a test bot.").await;
         let handler = test_handler(state);
 
         let session = Session::new("custom", "user1");
@@ -785,7 +1438,7 @@ mod tests {
 
     #[tokio::test]
     async fn skill_invocation() {
-        let state = test_workspace_state(Some("Bot"), "");
+        let state = test_workspace_registry(Some("Bot"), "").await;
         let handler = test_handler(state);
 
         let session = Session::new("custom", "user1");
@@ -805,7 +1458,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_skill_error() {
-        let state = test_workspace_state(Some("Bot"), "");
+        let state = test_workspace_registry(Some("Bot"), "").await;
         let handler = test_handler(state);
 
         let session = Session::new("custom", "user1");
@@ -824,7 +1477,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_text_rejection() {
-        let state = test_workspace_state(Some("Bot"), "");
+        let state = test_workspace_registry(Some("Bot"), "").await;
         let handler = test_handler(state);
 
         let session = Session::new("custom", "user1");
@@ -861,69 +1514,166 @@ mod tests {
         assert!(result.contains("UTC"));
     }
 
-    #[test]
-    fn build_tool_definitions_filters_enabled_and_registered() {
-        let tool_entries = vec![
-            ToolEntry {
-                name: "echo".to_string(),
-                enabled: true,
-                description: Some("Custom echo desc".to_string()),
-                config: HashMap::new(),
-            },
-            ToolEntry {
-                name: "nonexistent".to_string(),
-                enabled: true,
-                description: None,
-                config: HashMap::new(),
-            },
-            ToolEntry {
-                name: "echo".to_string(),
-                enabled: false,
-                description: None,
-                config: HashMap::new(),
-            },
-        ];
-
-        let state = test_workspace_state_with_tools(Some("Bot"), "", tool_entries.clone());
+    #[tokio::test]
+    async fn build_tool_definitions_includes_registered_skills() {
+        let state = test_workspace_registry(Some("Bot"), "").await;
         let handler = test_handler(state);
 
-        let defs = handler.build_tool_definitions(&tool_entries);
-        // Only the first entry passes: enabled=true and "echo" exists in registry
-        // "echo" is listed in tool_entries so it won't be auto-included
-        assert_eq!(defs.len(), 1);
+        let defs = handler.build_tool_definitions();
+        // "echo" + 2 built-in workspace tools
+        assert_eq!(defs.len(), 3);
         assert_eq!(defs[0].name, "echo");
-        assert_eq!(defs[0].description, "Custom echo desc");
+        assert_eq!(defs[1].name, "workspace_info");
+        assert_eq!(defs[2].name, "workspace_switch");
+    }
+
+    #[tokio::test]
+    async fn build_tool_definitions_excludes_disabled() {
+        let state = test_workspace_registry(Some("Bot"), "").await;
+        let disabled: HashSet<String> = ["echo".to_string()].into_iter().collect();
+        let handler = test_handler_with_disabled(state, disabled);
+
+        let defs = handler.build_tool_definitions();
+        // Only the 2 built-in workspace tools remain
+        assert_eq!(defs.len(), 2);
+        assert_eq!(defs[0].name, "workspace_info");
+        assert_eq!(defs[1].name, "workspace_switch");
     }
 
     #[test]
-    fn build_tool_definitions_auto_includes_unlisted_skills() {
-        // No tool entries at all — registered skills should be auto-included
-        let tool_entries: Vec<ToolEntry> = vec![];
-
-        let state = test_workspace_state_with_tools(Some("Bot"), "", tool_entries.clone());
-        let handler = test_handler(state);
-
-        let defs = handler.build_tool_definitions(&tool_entries);
-        // "echo" is registered but not listed, so it should be auto-included
-        assert_eq!(defs.len(), 1);
-        assert_eq!(defs[0].name, "echo");
+    fn system_prompt_includes_workspace_awareness() {
+        let prompt = WorkspaceHandler::build_system_prompt(
+            "TestBot",
+            "I am helpful.",
+            "",
+            None,
+            "main",
+            &["main", "support"],
+        );
+        assert!(prompt.contains("You are TestBot."));
+        assert!(prompt.contains("workspace \"main\""));
+        assert!(prompt.contains("main, support"));
+        assert!(prompt.contains("workspace_info"));
+        assert!(prompt.contains("workspace_switch"));
     }
 
-    #[test]
-    fn build_tool_definitions_disabled_listed_not_auto_included() {
-        // "echo" is explicitly listed as disabled — should NOT appear
-        let tool_entries = vec![ToolEntry {
-            name: "echo".to_string(),
-            enabled: false,
-            description: None,
-            config: HashMap::new(),
-        }];
+    async fn multi_workspace_registry() -> Arc<WorkspaceRegistry> {
+        use orka_workspace::config::SoulFrontmatter;
+        use orka_workspace::parse::Document;
+        use orka_workspace::state::WorkspaceState;
 
-        let state = test_workspace_state_with_tools(Some("Bot"), "", tool_entries.clone());
-        let handler = test_handler(state);
+        let mut registry = WorkspaceRegistry::new("main".into());
 
-        let defs = handler.build_tool_definitions(&tool_entries);
-        // "echo" is listed (disabled), so auto-include won't add it
-        assert_eq!(defs.len(), 0);
+        let main_loader = Arc::new(WorkspaceLoader::new("."));
+        *main_loader.state().write().await = WorkspaceState {
+            soul: Some(Document {
+                frontmatter: SoulFrontmatter {
+                    name: Some("MainBot".into()),
+                    ..Default::default()
+                },
+                body: "Main persona".into(),
+            }),
+            ..Default::default()
+        };
+        registry.register("main".into(), main_loader);
+
+        let support_loader = Arc::new(WorkspaceLoader::new("workspaces/support"));
+        *support_loader.state().write().await = WorkspaceState {
+            soul: Some(Document {
+                frontmatter: SoulFrontmatter {
+                    name: Some("SupportBot".into()),
+                    ..Default::default()
+                },
+                body: "Support persona".into(),
+            }),
+            ..Default::default()
+        };
+        registry.register("support".into(), support_loader);
+
+        Arc::new(registry)
+    }
+
+    #[tokio::test]
+    async fn workspace_info_returns_all_workspaces() {
+        let registry = multi_workspace_registry().await;
+        let handler = test_handler(registry);
+
+        let session = Session::new("custom", "user1");
+        let call = ToolCall {
+            id: "call_1".into(),
+            name: "workspace_info".into(),
+            input: serde_json::json!({}),
+        };
+
+        let result = handler.handle_builtin_tool(&call, &session, "main").await;
+        assert!(result.is_some());
+        let (content, is_error) = result.unwrap();
+        assert!(!is_error);
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed["current_workspace"], "main");
+        let workspaces = parsed["workspaces"].as_array().unwrap();
+        assert_eq!(workspaces.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn workspace_switch_stores_override() {
+        let registry = multi_workspace_registry().await;
+        let handler = test_handler(registry);
+
+        let session = Session::new("custom", "user1");
+        let call = ToolCall {
+            id: "call_1".into(),
+            name: "workspace_switch".into(),
+            input: serde_json::json!({"name": "support"}),
+        };
+
+        let result = handler.handle_builtin_tool(&call, &session, "main").await;
+        assert!(result.is_some());
+        let (content, is_error) = result.unwrap();
+        assert!(!is_error);
+        assert!(content.contains("support"));
+
+        // Verify the override was stored in memory
+        let override_key = format!("workspace_override:{}", session.id);
+        let entry = handler.memory.recall(&override_key).await.unwrap().unwrap();
+        assert_eq!(
+            entry.value.get("workspace_name").unwrap().as_str().unwrap(),
+            "support"
+        );
+    }
+
+    #[tokio::test]
+    async fn workspace_switch_rejects_unknown() {
+        let registry = multi_workspace_registry().await;
+        let handler = test_handler(registry);
+
+        let session = Session::new("custom", "user1");
+        let call = ToolCall {
+            id: "call_1".into(),
+            name: "workspace_switch".into(),
+            input: serde_json::json!({"name": "nonexistent"}),
+        };
+
+        let result = handler.handle_builtin_tool(&call, &session, "main").await;
+        assert!(result.is_some());
+        let (content, is_error) = result.unwrap();
+        assert!(is_error);
+        assert!(content.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn non_builtin_tool_returns_none() {
+        let registry = multi_workspace_registry().await;
+        let handler = test_handler(registry);
+
+        let session = Session::new("custom", "user1");
+        let call = ToolCall {
+            id: "call_1".into(),
+            name: "echo".into(),
+            input: serde_json::json!({"greeting": "hello"}),
+        };
+
+        let result = handler.handle_builtin_tool(&call, &session, "main").await;
+        assert!(result.is_none());
     }
 }

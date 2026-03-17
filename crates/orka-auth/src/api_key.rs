@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 
-use orka_core::config::ApiKeyEntry;
 use orka_core::Error;
+use orka_core::config::ApiKeyEntry;
 
 use crate::authenticator::Authenticator;
 use crate::types::{AuthIdentity, Credentials};

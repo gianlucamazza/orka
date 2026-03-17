@@ -1,19 +1,32 @@
+pub mod approval;
 pub mod config;
 pub mod guard;
 pub mod skills;
 
 use std::sync::Arc;
 
+use orka_core::Result;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use orka_core::Result;
 use tracing::info;
 
+use approval::{ApprovalChannel, AutoApproveChannel};
 use config::PermissionLevel;
 use guard::PermissionGuard;
 
 /// Create OS skills from config, filtered by permission level and feature flags.
+///
+/// Uses an [`AutoApproveChannel`] for sudo approval. For custom approval
+/// channels (e.g. interactive confirmation), use [`create_os_skills_with_approval`].
 pub fn create_os_skills(config: &OsConfig) -> Result<Vec<Arc<dyn Skill>>> {
+    create_os_skills_with_approval(config, Arc::new(AutoApproveChannel))
+}
+
+/// Create OS skills with a custom approval channel for sudo commands.
+pub fn create_os_skills_with_approval(
+    config: &OsConfig,
+    approval: Arc<dyn ApprovalChannel>,
+) -> Result<Vec<Arc<dyn Skill>>> {
     let guard = Arc::new(PermissionGuard::new(config));
     let level = guard.level();
     let mut result: Vec<Arc<dyn Skill>> = vec![
@@ -57,6 +70,7 @@ pub fn create_os_skills(config: &OsConfig) -> Result<Vec<Arc<dyn Skill>>> {
         result.push(Arc::new(skills::shell::ShellExecSkill::new(
             guard.clone(),
             config,
+            approval.clone(),
         )));
         result.push(Arc::new(skills::process::ProcessSignalSkill::new(
             guard.clone(),
@@ -85,6 +99,13 @@ pub fn create_os_skills(config: &OsConfig) -> Result<Vec<Arc<dyn Skill>>> {
         result.push(Arc::new(skills::package::PackageListSkill::new(
             guard.clone(),
         )));
+        if guard.sudo_enabled() {
+            result.push(Arc::new(skills::package::PackageInstallSkill::new(
+                guard.clone(),
+                config,
+                approval.clone(),
+            )));
+        }
 
         #[cfg(feature = "systemd")]
         {
@@ -97,6 +118,13 @@ pub fn create_os_skills(config: &OsConfig) -> Result<Vec<Arc<dyn Skill>>> {
             result.push(Arc::new(skills::systemd::JournalReadSkill::new(
                 guard.clone(),
             )));
+            if guard.sudo_enabled() {
+                result.push(Arc::new(skills::systemd::ServiceControlSkill::new(
+                    guard.clone(),
+                    config,
+                    approval.clone(),
+                )));
+            }
         }
     }
 

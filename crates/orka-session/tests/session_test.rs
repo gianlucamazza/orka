@@ -1,5 +1,5 @@
-use orka_core::traits::SessionStore;
 use orka_core::Session;
+use orka_core::traits::SessionStore;
 use orka_session::RedisSessionStore;
 
 #[tokio::test]

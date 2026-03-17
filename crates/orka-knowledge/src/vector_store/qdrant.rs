@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use orka_core::Result;
+use qdrant_client::Qdrant;
 use qdrant_client::qdrant::{
     CreateCollectionBuilder, Distance, PointStruct, ScrollPointsBuilder, SearchPointsBuilder,
     UpsertPointsBuilder, VectorParamsBuilder,
 };
-use qdrant_client::Qdrant;
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -3,7 +3,7 @@ use orka_core::traits::ChannelAdapter;
 use orka_core::types::SessionId;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 #[test]
 fn channel_id_returns_telegram() {
@@ -15,8 +15,7 @@ fn channel_id_returns_telegram() {
 /// yields the same SessionId, different chat_ids yield different SessionIds.
 #[tokio::test]
 async fn session_map_consistency() {
-    let sessions: Arc<Mutex<HashMap<i64, SessionId>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let sessions: Arc<Mutex<HashMap<i64, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let sid1 = {
         let mut s = sessions.lock().await;
@@ -32,7 +31,10 @@ async fn session_map_consistency() {
     };
 
     assert_eq!(sid1, sid2, "same chat_id must produce same SessionId");
-    assert_ne!(sid1, sid3, "different chat_ids must produce different SessionIds");
+    assert_ne!(
+        sid1, sid3,
+        "different chat_ids must produce different SessionIds"
+    );
 }
 
 /// Verifies Envelope creation from a Telegram-style update payload.
@@ -55,7 +57,10 @@ async fn envelope_from_telegram_update() {
         Payload::Text(t) => assert_eq!(t, "Hello world"),
         other => panic!("expected Text payload, got {other:?}"),
     }
-    assert_eq!(envelope.metadata["telegram_chat_id"], serde_json::json!(12345i64));
+    assert_eq!(
+        envelope.metadata["telegram_chat_id"],
+        serde_json::json!(12345i64)
+    );
     assert_eq!(envelope.metadata["chat_type"], serde_json::json!("direct"));
 }
 

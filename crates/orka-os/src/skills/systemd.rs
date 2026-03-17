@@ -1,9 +1,14 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::Utc;
+use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema};
+use uuid::Uuid;
 
+use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
 use crate::config::PermissionLevel;
 use crate::guard::PermissionGuard;
 
@@ -214,6 +219,197 @@ impl Skill for JournalReadSkill {
     }
 }
 
+// ── service_control ──
+
+pub struct ServiceControlSkill {
+    guard: Arc<PermissionGuard>,
+    require_confirmation: bool,
+    confirmation_timeout_secs: u64,
+    approval: Arc<dyn ApprovalChannel>,
+}
+
+impl ServiceControlSkill {
+    pub fn new(
+        guard: Arc<PermissionGuard>,
+        config: &OsConfig,
+        approval: Arc<dyn ApprovalChannel>,
+    ) -> Self {
+        Self {
+            guard,
+            require_confirmation: config.sudo.require_confirmation,
+            confirmation_timeout_secs: config.sudo.confirmation_timeout_secs,
+            approval,
+        }
+    }
+}
+
+#[async_trait]
+impl Skill for ServiceControlSkill {
+    fn name(&self) -> &str {
+        "service_control"
+    }
+
+    fn description(&self) -> &str {
+        "Start, stop, or restart a systemd service (requires sudo)."
+    }
+
+    fn schema(&self) -> SkillSchema {
+        SkillSchema {
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "unit": { "type": "string", "description": "Service unit name (e.g. 'nginx.service')" },
+                    "action": {
+                        "type": "string",
+                        "enum": ["start", "stop", "restart"],
+                        "description": "Action to perform on the service"
+                    }
+                },
+                "required": ["unit", "action"]
+            }),
+        }
+    }
+
+    async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
+        self.guard.check_permission(PermissionLevel::Admin)?;
+
+        let unit = input
+            .args
+            .get("unit")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| Error::Skill("missing 'unit' argument".into()))?;
+        let action = input
+            .args
+            .get("action")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| Error::Skill("missing 'action' argument".into()))?;
+
+        if !matches!(action, "start" | "stop" | "restart") {
+            return Err(Error::Skill(format!(
+                "invalid action '{}': must be start, stop, or restart",
+                action
+            )));
+        }
+
+        // Check sudo allowlist
+        self.guard
+            .check_sudo_command("systemctl", &[action, unit])?;
+
+        // Request approval if needed
+        if self.require_confirmation {
+            let now = Utc::now();
+            let req = ApprovalRequest {
+                id: Uuid::now_v7(),
+                command: "systemctl".to_string(),
+                args: vec![action.to_string(), unit.to_string()],
+                reason: format!("systemctl {} {}", action, unit),
+                session_id: orka_core::types::SessionId::new(),
+                message_id: orka_core::types::MessageId::new(),
+                requested_at: now,
+                expires_at: now
+                    + chrono::Duration::seconds(self.confirmation_timeout_secs as i64),
+            };
+            match self.approval.request_approval(req).await? {
+                ApprovalDecision::Approved => {}
+                ApprovalDecision::Denied { reason } => {
+                    let args = &[action, unit];
+                    emit_denied(&input, "systemctl", args, &format!("service control denied: {reason}")).await;
+                    return Err(Error::Skill(format!(
+                        "service control denied: {}",
+                        reason
+                    )));
+                }
+                ApprovalDecision::Expired => {
+                    let args = &[action, unit];
+                    emit_denied(&input, "systemctl", args, "service control approval expired").await;
+                    return Err(Error::Skill(
+                        "service control approval expired".into(),
+                    ));
+                }
+            }
+        }
+
+        let start = std::time::Instant::now();
+        let output = tokio::process::Command::new(self.guard.sudo_path())
+            .args(["-n", "systemctl", action, unit])
+            .output()
+            .await
+            .map_err(|e| Error::Skill(format!("systemctl failed: {}", e)))?;
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        emit_executed(
+            &input,
+            "systemctl",
+            &[action, unit],
+            output.status.code(),
+            output.status.success(),
+            duration_ms,
+        )
+        .await;
+
+        Ok(SkillOutput {
+            data: serde_json::json!({
+                "unit": unit,
+                "action": action,
+                "stdout": stdout,
+                "stderr": stderr,
+                "exit_code": output.status.code(),
+                "success": output.status.success(),
+            }),
+        })
+    }
+}
+
+async fn emit_executed(
+    input: &SkillInput,
+    command: &str,
+    args: &[&str],
+    exit_code: Option<i32>,
+    success: bool,
+    duration_ms: u64,
+) {
+    if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
+        sink.emit(DomainEvent {
+            id: EventId::new(),
+            timestamp: Utc::now(),
+            kind: DomainEventKind::PrivilegedCommandExecuted {
+                message_id: orka_core::types::MessageId::new(),
+                session_id: orka_core::types::SessionId::new(),
+                command: command.to_string(),
+                args: args.iter().map(|s| s.to_string()).collect(),
+                approval_id: None,
+                approved_by: None,
+                exit_code,
+                success,
+                duration_ms,
+            },
+            metadata: HashMap::new(),
+        })
+        .await;
+    }
+}
+
+async fn emit_denied(input: &SkillInput, command: &str, args: &[&str], reason: &str) {
+    if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
+        sink.emit(DomainEvent {
+            id: EventId::new(),
+            timestamp: Utc::now(),
+            kind: DomainEventKind::PrivilegedCommandDenied {
+                message_id: orka_core::types::MessageId::new(),
+                session_id: orka_core::types::SessionId::new(),
+                command: command.to_string(),
+                args: args.iter().map(|s| s.to_string()).collect(),
+                reason: reason.to_string(),
+            },
+            metadata: HashMap::new(),
+        })
+        .await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,6 +435,59 @@ mod tests {
         let _schema = skill.schema();
     }
 
+    #[test]
+    fn service_control_schema_valid() {
+        use orka_core::config::{OsConfig, SudoConfig};
+        let config = OsConfig {
+            permission_level: "admin".into(),
+            sudo: SudoConfig {
+                enabled: true,
+                ..SudoConfig::default()
+            },
+            ..OsConfig::default()
+        };
+        let skill = ServiceControlSkill::new(
+            make_guard(),
+            &config,
+            Arc::new(crate::approval::AutoApproveChannel),
+        );
+        let schema = skill.schema();
+        assert_eq!(schema.parameters["required"][0], "unit");
+        assert_eq!(schema.parameters["required"][1], "action");
+    }
+
+    #[tokio::test]
+    async fn service_control_requires_admin() {
+        use orka_core::config::{OsConfig, SudoConfig};
+        let config = OsConfig {
+            permission_level: "execute".into(),
+            sudo: SudoConfig {
+                enabled: true,
+                allowed_commands: vec!["systemctl restart".into()],
+                ..SudoConfig::default()
+            },
+            ..OsConfig::default()
+        };
+        let guard = Arc::new(PermissionGuard::new(&config));
+        let skill = ServiceControlSkill::new(
+            guard,
+            &config,
+            Arc::new(crate::approval::AutoApproveChannel),
+        );
+        let mut args = std::collections::HashMap::new();
+        args.insert("unit".into(), serde_json::json!("nginx.service"));
+        args.insert("action".into(), serde_json::json!("restart"));
+        assert!(
+            skill
+                .execute(SkillInput {
+                    args,
+                    context: None
+                })
+                .await
+                .is_err()
+        );
+    }
+
     #[tokio::test]
     async fn service_status_requires_admin() {
         use orka_core::config::OsConfig;
@@ -249,12 +498,14 @@ mod tests {
         let skill = ServiceStatusSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("unit".into(), serde_json::json!("sshd.service"));
-        assert!(skill
-            .execute(SkillInput {
-                args,
-                context: None
-            })
-            .await
-            .is_err());
+        assert!(
+            skill
+                .execute(SkillInput {
+                    args,
+                    context: None
+                })
+                .await
+                .is_err()
+        );
     }
 }

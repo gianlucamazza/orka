@@ -40,22 +40,16 @@ impl WorkspaceWatcher {
                 }
                 for path in &event.paths {
                     if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
-                        let known = [
-                            "SOUL.md",
-                            "TOOLS.md",
-                            "IDENTITY.md",
-                            "HEARTBEAT.md",
-                            "MEMORY.md",
-                        ];
+                        let known = ["SOUL.md", "TOOLS.md"];
                         if !known.contains(&filename) {
                             continue;
                         }
 
                         let now = Instant::now();
-                        if let Some(last) = last_seen.get(filename) {
-                            if now.duration_since(*last) < debounce {
-                                continue;
-                            }
+                        if let Some(last) = last_seen.get(filename)
+                            && now.duration_since(*last) < debounce
+                        {
+                            continue;
                         }
                         last_seen.insert(filename.to_string(), now);
                         loader.load_file(filename).await;

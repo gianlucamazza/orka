@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- Orca: simplified silhouette matching main icon proportions -->
+  <g transform="translate(8 8.2) rotate(-35) scale(0.036) translate(-298 -128)">
+    <!-- Body -->
+    <path d="
+      M 572 130
+      C 575 110, 562 92, 548 82
+      C 525 68, 495 62, 465 60
+      C 405 54, 345 58, 285 68
+      C 220 80, 155 98, 105 115
+      C 70 128, 48 135, 34 138
+      C 24 140, 20 138, 20 135
+      C 20 138, 24 142, 34 144
+      C 48 150, 70 158, 105 172
+      C 155 192, 220 206, 285 216
+      C 345 224, 405 226, 465 218
+      C 495 214, 525 206, 548 192
+      C 562 180, 575 162, 575 148
+      C 575 140, 574 134, 572 130Z
+    " fill="#ffffff"/>
+    <!-- Dorsal fin -->
+    <path d="
+      M 300 72
+      C 312 38, 340 2, 368 -10
+      C 378 -14, 385 -6, 382 8
+      C 378 34, 368 54, 358 64
+      C 345 72, 328 75, 300 72Z
+    " fill="#ffffff"/>
+    <!-- Tail flukes -->
+    <path d="M 22 132 C 6 118, -14 104, -18 114 C -20 124, -4 132, 14 131Z" fill="#ffffff"/>
+    <path d="M 22 142 C 6 156, -14 170, -18 160 C -20 150, -4 142, 14 143Z" fill="#ffffff"/>
+    <!-- Eye cutout -->
+    <ellipse cx="535" cy="86" rx="14" ry="7" fill="#000000"/>
+    <!-- Baton -->
+    <line x1="428" y1="206" x2="280" y2="5" stroke="#ffffff" stroke-width="20" stroke-linecap="round"/>
+  </g>
+</svg>

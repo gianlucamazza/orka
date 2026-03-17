@@ -15,13 +15,12 @@ pub async fn run(config_path: Option<&str>) -> Result<()> {
     skills.register(Arc::new(orka_skills::EchoSkill));
 
     // Load WASM plugins if configured
-    if let Some(ref config) = config {
-        if let Some(ref plugin_dir) = config.plugins.dir {
-            if let Ok(plugins) = orka_skills::load_plugins(std::path::Path::new(plugin_dir)) {
-                for plugin in plugins {
-                    skills.register(plugin);
-                }
-            }
+    if let Some(ref config) = config
+        && let Some(ref plugin_dir) = config.plugins.dir
+        && let Ok(plugins) = orka_skills::load_plugins(std::path::Path::new(plugin_dir))
+    {
+        for plugin in plugins {
+            skills.register(plugin);
         }
     }
 

@@ -49,7 +49,7 @@ External Clients
 - **MCP server** — Model Context Protocol over JSON-RPC 2.0
 - **A2A protocol** — Agent-to-Agent communication
 - **Agent router** — Prefix-based routing with delegation
-- **Workspace config** — Hot-reloadable agent configuration (SOUL.md, IDENTITY.md)
+- **Workspace config** — Hot-reloadable agent configuration (SOUL.md, TOOLS.md)
 - **Knowledge base** — RAG with Qdrant vector store and document ingestion
 - **Sandboxed execution** — Process isolation and WASM sandboxing
 - **Guardrails** — Input/output validation and content filtering
@@ -136,8 +136,10 @@ Environment variables use `ORKA__` prefix with `__` as separator (e.g., `ORKA__R
 
 Agent behavior is configured through workspace files:
 
-- `SOUL.md` — Agent personality and system prompt
-- `IDENTITY.md` — Agent identity metadata
+- `SOUL.md` — Agent personality and system prompt (markdown with YAML frontmatter)
+- `TOOLS.md` — Tool usage guidelines for the LLM (plain markdown)
+
+Runtime parameters (model, tokens, heartbeat, etc.) live in `orka.toml` under `[agent]` and `[tools]`.
 
 Workspaces support hot-reloading via filesystem watcher.
 

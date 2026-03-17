@@ -1,0 +1,7 @@
+# /etc/sudoers.d/orka — managed by orka install script
+# Allow orka service user to manage systemd services without password
+# Package manager entries are appended by scripts/install.sh based on detected distro
+
+orka ALL=(ALL) NOPASSWD: /usr/bin/systemctl start *
+orka ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop *
+orka ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart *

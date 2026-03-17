@@ -61,15 +61,17 @@ impl Skill for NotifySendSkill {
             .get("urgency")
             .and_then(|v| v.as_str())
             .unwrap_or("normal");
-        let icon = input.args.get("icon").and_then(|v| v.as_str());
+        let icon = input
+            .args
+            .get("icon")
+            .and_then(|v| v.as_str())
+            .unwrap_or("orka");
         let timeout_ms = input.args.get("timeout_ms").and_then(|v| v.as_u64());
 
         let mut cmd = tokio::process::Command::new("notify-send");
+        cmd.arg("--app-name").arg("orka");
         cmd.arg("--urgency").arg(urgency);
-
-        if let Some(icon) = icon {
-            cmd.arg("--icon").arg(icon);
-        }
+        cmd.arg("--icon").arg(icon);
         if let Some(ms) = timeout_ms {
             cmd.arg("--expire-time").arg(ms.to_string());
         }
@@ -122,12 +124,14 @@ mod tests {
         let skill = NotifySendSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("title".into(), serde_json::json!("test"));
-        assert!(skill
-            .execute(SkillInput {
-                args,
-                context: None
-            })
-            .await
-            .is_err());
+        assert!(
+            skill
+                .execute(SkillInput {
+                    args,
+                    context: None
+                })
+                .await
+                .is_err()
+        );
     }
 }

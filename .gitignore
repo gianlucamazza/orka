@@ -10,6 +10,9 @@
 dump.rdb
 .fastembed_cache/
 
+# Local build config
+.cargo/
+
 # IDEs
 .idea/
 .vscode/

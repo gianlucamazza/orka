@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::ChannelAdapter;
-use orka_core::types::{backoff_delay, Envelope, MessageSink, OutboundMessage, Payload, SessionId};
+use orka_core::types::{Envelope, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay};
 use orka_core::{Error, Result};
 use reqwest::Client;
 use serde::Deserialize;
@@ -118,43 +118,39 @@ impl ChannelAdapter for TelegramAdapter {
                                     for update in updates {
                                         offset = update.update_id + 1;
 
-                                        if let Some(msg) = update.message {
-                                            if let Some(text) = msg.text {
-                                                let session_id = {
-                                                    let mut s = sessions.lock().await;
-                                                    s.entry(msg.chat.id)
-                                                        .or_insert_with(SessionId::new)
-                                                        .clone()
-                                                };
+                                        if let Some(msg) = update.message
+                                            && let Some(text) = msg.text
+                                        {
+                                            let session_id = {
+                                                let mut s = sessions.lock().await;
+                                                s.entry(msg.chat.id)
+                                                    .or_insert_with(SessionId::new)
+                                                    .clone()
+                                            };
 
-                                                let mut envelope =
-                                                    Envelope::text("telegram", session_id, text);
+                                            let mut envelope =
+                                                Envelope::text("telegram", session_id, text);
 
-                                                // Store chat_id in metadata for outbound routing
-                                                envelope.metadata.insert(
-                                                    "telegram_chat_id".to_string(),
-                                                    serde_json::json!(msg.chat.id),
-                                                );
+                                            // Store chat_id in metadata for outbound routing
+                                            envelope.metadata.insert(
+                                                "telegram_chat_id".to_string(),
+                                                serde_json::json!(msg.chat.id),
+                                            );
 
-                                                // Propagate chat type for priority routing
-                                                let chat_type = match msg.chat.r#type.as_deref() {
-                                                    Some("private") => "direct",
-                                                    Some("group" | "supergroup" | "channel") => {
-                                                        "group"
-                                                    }
-                                                    _ => "group",
-                                                };
-                                                envelope.metadata.insert(
-                                                    "chat_type".to_string(),
-                                                    serde_json::json!(chat_type),
-                                                );
+                                            // Propagate chat type for priority routing
+                                            let chat_type = match msg.chat.r#type.as_deref() {
+                                                Some("private") => "direct",
+                                                Some("group" | "supergroup" | "channel") => "group",
+                                                _ => "group",
+                                            };
+                                            envelope.metadata.insert(
+                                                "chat_type".to_string(),
+                                                serde_json::json!(chat_type),
+                                            );
 
-                                                if send_sink.send(envelope).await.is_err() {
-                                                    debug!(
-                                                        "sink closed, stopping Telegram polling"
-                                                    );
-                                                    return;
-                                                }
+                                            if send_sink.send(envelope).await.is_err() {
+                                                debug!("sink closed, stopping Telegram polling");
+                                                return;
                                             }
                                         }
                                     }

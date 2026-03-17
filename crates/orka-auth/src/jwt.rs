@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use orka_core::{Error, Result};
 use serde::Deserialize;
 use tracing::debug;
@@ -102,7 +102,7 @@ impl Authenticator for JwtAuthenticator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jsonwebtoken::{encode, EncodingKey, Header};
+    use jsonwebtoken::{EncodingKey, Header, encode};
     use serde::Serialize;
 
     #[derive(Serialize)]

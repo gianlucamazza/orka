@@ -14,6 +14,9 @@ pub struct PermissionGuard {
     allowed_commands: Vec<String>,
     max_file_size_bytes: u64,
     sensitive_env_patterns: Vec<String>,
+    sudo_enabled: bool,
+    sudo_allowed_commands: Vec<String>,
+    sudo_path: String,
 }
 
 impl PermissionGuard {
@@ -35,6 +38,9 @@ impl PermissionGuard {
             allowed_commands: config.allowed_commands.clone(),
             max_file_size_bytes: config.max_file_size_bytes,
             sensitive_env_patterns: config.sensitive_env_patterns.clone(),
+            sudo_enabled: config.sudo.enabled,
+            sudo_allowed_commands: config.sudo.allowed_commands.clone(),
+            sudo_path: config.sudo.sudo_path.clone(),
         }
     }
 
@@ -96,13 +102,13 @@ impl PermissionGuard {
                 )));
             }
             // Try as regex
-            if let Ok(re) = Regex::new(blocked) {
-                if re.is_match(&full) {
-                    return Err(orka_core::Error::Skill(format!(
-                        "command blocked: matches blocked pattern '{}'",
-                        blocked,
-                    )));
-                }
+            if let Ok(re) = Regex::new(blocked)
+                && re.is_match(&full)
+            {
+                return Err(orka_core::Error::Skill(format!(
+                    "command blocked: matches blocked pattern '{}'",
+                    blocked,
+                )));
             }
         }
 
@@ -161,6 +167,69 @@ impl PermissionGuard {
         self.max_file_size_bytes
     }
 
+    /// Whether sudo execution is enabled.
+    pub fn sudo_enabled(&self) -> bool {
+        self.sudo_enabled
+    }
+
+    /// Path to the sudo binary.
+    pub fn sudo_path(&self) -> &str {
+        &self.sudo_path
+    }
+
+    /// Validate a command for privileged (sudo) execution.
+    ///
+    /// Checks:
+    /// 1. sudo is enabled
+    /// 2. caller has Admin permission level
+    /// 3. command matches an entry in `sudo.allowed_commands` (prefix match at word boundary)
+    /// 4. command is NOT in the block list (block list takes absolute precedence)
+    pub fn check_sudo_command(&self, cmd: &str, args: &[&str]) -> orka_core::Result<()> {
+        if !self.sudo_enabled {
+            return Err(orka_core::Error::Skill(
+                "sudo is not enabled in configuration".into(),
+            ));
+        }
+
+        self.check_permission(PermissionLevel::Admin)?;
+
+        // Block list has absolute precedence
+        let full = if args.is_empty() {
+            cmd.to_string()
+        } else {
+            format!("{} {}", cmd, args.join(" "))
+        };
+        for blocked in &self.blocked_commands {
+            if full.contains(blocked.as_str()) || cmd == blocked.as_str() {
+                return Err(orka_core::Error::Skill(format!(
+                    "privileged command blocked: matches blocked pattern '{}'",
+                    blocked,
+                )));
+            }
+            if let Ok(re) = Regex::new(blocked)
+                && re.is_match(&full)
+            {
+                return Err(orka_core::Error::Skill(format!(
+                    "privileged command blocked: matches blocked pattern '{}'",
+                    blocked,
+                )));
+            }
+        }
+
+        // Check sudo allowed commands (prefix match at word boundary)
+        let allowed = self.sudo_allowed_commands.iter().any(|allowed_cmd| {
+            full == *allowed_cmd || full.starts_with(&format!("{} ", allowed_cmd))
+        });
+        if !allowed {
+            return Err(orka_core::Error::Skill(format!(
+                "command '{}' not in sudo allowed list",
+                full,
+            )));
+        }
+
+        Ok(())
+    }
+
     fn validate_canonical_path(&self, canonical: &Path) -> orka_core::Result<()> {
         let path_str = canonical.to_string_lossy();
 
@@ -205,15 +274,15 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 
 /// Expand `~` to the user's home directory.
 fn shellexpand(s: &str) -> String {
-    if let Some(rest) = s.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return format!("{}/{}", home, rest);
-        }
+    if let Some(rest) = s.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return format!("{}/{}", home, rest);
     }
-    if s == "~" {
-        if let Ok(home) = std::env::var("HOME") {
-            return home;
-        }
+    if s == "~"
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return home;
     }
     s.to_string()
 }
@@ -240,6 +309,7 @@ mod tests {
                 "*_TOKEN".into(),
                 "*_PASSWORD".into(),
             ],
+            sudo: orka_core::config::SudoConfig::default(),
         }
     }
 
@@ -331,5 +401,83 @@ mod tests {
         // ../etc from /tmp should resolve outside allowed paths
         let result = guard.check_path(Path::new("/tmp/../etc/hostname"));
         assert!(result.is_err());
+    }
+
+    fn sudo_config() -> OsConfig {
+        OsConfig {
+            enabled: true,
+            permission_level: "admin".into(),
+            allowed_paths: vec!["/tmp".into()],
+            blocked_paths: vec![],
+            blocked_commands: vec!["rm -rf /".into(), "dd".into()],
+            allowed_commands: vec![],
+            max_file_size_bytes: 1024,
+            shell_timeout_secs: 30,
+            max_output_bytes: 1024,
+            max_list_entries: 100,
+            sensitive_env_patterns: vec![],
+            sudo: orka_core::config::SudoConfig {
+                enabled: true,
+                allowed_commands: vec![
+                    "systemctl restart".into(),
+                    "systemctl stop".into(),
+                    "pacman -S".into(),
+                ],
+                ..orka_core::config::SudoConfig::default()
+            },
+        }
+    }
+
+    #[test]
+    fn sudo_allowed_command_accepted() {
+        let guard = PermissionGuard::new(&sudo_config());
+        assert!(guard
+            .check_sudo_command("systemctl", &["restart", "nginx"])
+            .is_ok());
+    }
+
+    #[test]
+    fn sudo_command_not_in_allowlist_rejected() {
+        let guard = PermissionGuard::new(&sudo_config());
+        assert!(guard
+            .check_sudo_command("systemctl", &["start", "nginx"])
+            .is_err());
+    }
+
+    #[test]
+    fn sudo_blocked_command_rejected_even_if_allowed() {
+        let mut config = sudo_config();
+        config.sudo.allowed_commands.push("dd".into());
+        let guard = PermissionGuard::new(&config);
+        // dd is in blocked_commands, so it must be rejected
+        assert!(guard
+            .check_sudo_command("dd", &["if=/dev/zero"])
+            .is_err());
+    }
+
+    #[test]
+    fn sudo_disabled_rejects_all() {
+        let mut config = sudo_config();
+        config.sudo.enabled = false;
+        let guard = PermissionGuard::new(&config);
+        assert!(guard
+            .check_sudo_command("systemctl", &["restart", "nginx"])
+            .is_err());
+    }
+
+    #[test]
+    fn sudo_requires_admin_level() {
+        let mut config = sudo_config();
+        config.permission_level = "execute".into();
+        let guard = PermissionGuard::new(&config);
+        assert!(guard
+            .check_sudo_command("systemctl", &["restart", "nginx"])
+            .is_err());
+    }
+
+    #[test]
+    fn sudo_enabled_accessor() {
+        let guard = PermissionGuard::new(&sudo_config());
+        assert!(guard.sudo_enabled());
     }
 }

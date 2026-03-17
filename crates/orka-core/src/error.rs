@@ -77,12 +77,18 @@ pub enum Error {
     #[error("http client error: {0}")]
     HttpClient(String),
 
+    #[error("llm error: {0}")]
+    Llm(String),
+
     #[error("adapter error: {context}")]
     Adapter {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
         context: String,
     },
+
+    #[error("config migration error: {0}")]
+    Migration(#[from] crate::migrate::MigrationError),
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),

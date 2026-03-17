@@ -126,10 +126,10 @@ impl OpenAiClient {
         let mut blocks = Vec::new();
 
         // Text content
-        if let Some(content) = message["content"].as_str() {
-            if !content.is_empty() {
-                blocks.push(ContentBlock::Text(content.to_string()));
-            }
+        if let Some(content) = message["content"].as_str()
+            && !content.is_empty()
+        {
+            blocks.push(ContentBlock::Text(content.to_string()));
         }
 
         // Tool calls
@@ -306,12 +306,11 @@ impl LlmClient for OpenAiClient {
                                 if data == "[DONE]" {
                                     continue;
                                 }
-                                if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
-                                    if let Some(t) =
+                                if let Ok(event) = serde_json::from_str::<serde_json::Value>(data)
+                                    && let Some(t) =
                                         event["choices"][0]["delta"]["content"].as_str()
-                                    {
-                                        text.push_str(t);
-                                    }
+                                {
+                                    text.push_str(t);
                                 }
                             }
                         }
@@ -462,10 +461,10 @@ impl LlmClient for OpenAiClient {
                             let delta = &choice["delta"];
 
                             // Text content delta
-                            if let Some(content) = delta["content"].as_str() {
-                                if !content.is_empty() {
-                                    events.push(StreamEvent::TextDelta(content.to_string()));
-                                }
+                            if let Some(content) = delta["content"].as_str()
+                                && !content.is_empty()
+                            {
+                                events.push(StreamEvent::TextDelta(content.to_string()));
                             }
 
                             // Tool call deltas
@@ -492,13 +491,12 @@ impl LlmClient for OpenAiClient {
                                     }
 
                                     // Accumulate arguments
-                                    if let Some(args) = func["arguments"].as_str() {
-                                        if let Some(accum) = state.tool_calls.get_mut(&index) {
-                                            accum.arguments.push_str(args);
-                                            events.push(StreamEvent::ToolUseInputDelta(
-                                                args.to_string(),
-                                            ));
-                                        }
+                                    if let Some(args) = func["arguments"].as_str()
+                                        && let Some(accum) = state.tool_calls.get_mut(&index)
+                                    {
+                                        accum.arguments.push_str(args);
+                                        events
+                                            .push(StreamEvent::ToolUseInputDelta(args.to_string()));
                                     }
                                 }
                             }

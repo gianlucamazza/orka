@@ -19,24 +19,32 @@ fn channel_id_returns_whatsapp() {
 /// Same sender phone number maps to the same SessionId; different numbers differ.
 #[tokio::test]
 async fn session_map_consistency() {
-    let sessions: Arc<Mutex<HashMap<String, SessionId>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let sessions: Arc<Mutex<HashMap<String, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let sid1 = {
         let mut s = sessions.lock().await;
-        s.entry("+1234567890".into()).or_insert_with(SessionId::new).clone()
+        s.entry("+1234567890".into())
+            .or_insert_with(SessionId::new)
+            .clone()
     };
     let sid2 = {
         let mut s = sessions.lock().await;
-        s.entry("+1234567890".into()).or_insert_with(SessionId::new).clone()
+        s.entry("+1234567890".into())
+            .or_insert_with(SessionId::new)
+            .clone()
     };
     let sid3 = {
         let mut s = sessions.lock().await;
-        s.entry("+0987654321".into()).or_insert_with(SessionId::new).clone()
+        s.entry("+0987654321".into())
+            .or_insert_with(SessionId::new)
+            .clone()
     };
 
     assert_eq!(sid1, sid2, "same phone number must produce same SessionId");
-    assert_ne!(sid1, sid3, "different phone numbers must produce different SessionIds");
+    assert_ne!(
+        sid1, sid3,
+        "different phone numbers must produce different SessionIds"
+    );
 }
 
 /// Verifies Envelope creation from a WhatsApp webhook message.
@@ -46,9 +54,10 @@ async fn envelope_from_whatsapp_message() {
 
     let session_id = SessionId::new();
     let mut envelope = Envelope::text("whatsapp", session_id.clone(), "Hello from WhatsApp");
-    envelope
-        .metadata
-        .insert("whatsapp_from".to_string(), serde_json::json!("+1234567890"));
+    envelope.metadata.insert(
+        "whatsapp_from".to_string(),
+        serde_json::json!("+1234567890"),
+    );
     envelope
         .metadata
         .insert("chat_type".to_string(), serde_json::json!("direct"));

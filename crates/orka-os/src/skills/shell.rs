@@ -1,12 +1,16 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{DomainEvent, DomainEventKind, Error, EventId, Result, SkillInput, SkillOutput, SkillSchema};
 use tracing::debug;
+use uuid::Uuid;
 
+use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
 use crate::config::PermissionLevel;
 use crate::guard::PermissionGuard;
 
@@ -14,14 +18,24 @@ pub struct ShellExecSkill {
     guard: Arc<PermissionGuard>,
     timeout_secs: u64,
     max_output_bytes: usize,
+    require_confirmation: bool,
+    confirmation_timeout_secs: u64,
+    approval: Arc<dyn ApprovalChannel>,
 }
 
 impl ShellExecSkill {
-    pub fn new(guard: Arc<PermissionGuard>, config: &OsConfig) -> Self {
+    pub fn new(
+        guard: Arc<PermissionGuard>,
+        config: &OsConfig,
+        approval: Arc<dyn ApprovalChannel>,
+    ) -> Self {
         Self {
             guard,
             timeout_secs: config.shell_timeout_secs,
             max_output_bytes: config.max_output_bytes,
+            require_confirmation: config.sudo.require_confirmation,
+            confirmation_timeout_secs: config.sudo.confirmation_timeout_secs,
+            approval,
         }
     }
 }
@@ -37,25 +51,38 @@ impl Skill for ShellExecSkill {
     }
 
     fn schema(&self) -> SkillSchema {
+        let mut props = serde_json::json!({
+            "command": { "type": "string", "description": "Command to execute (no shell interpretation)" },
+            "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Command arguments"
+            },
+            "cwd": { "type": "string", "description": "Working directory" },
+            "env": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Additional environment variables"
+            },
+            "timeout_secs": { "type": "integer", "description": "Execution timeout in seconds" },
+            "stdin": { "type": "string", "description": "Standard input to provide" }
+        });
+
+        // Only expose sudo parameter to Admin-level users when sudo is enabled
+        if self.guard.sudo_enabled() && self.guard.level() >= PermissionLevel::Admin {
+            props.as_object_mut().unwrap().insert(
+                "sudo".into(),
+                serde_json::json!({
+                    "type": "boolean",
+                    "description": "Execute with elevated privileges via sudo (requires admin level and allowed command)"
+                }),
+            );
+        }
+
         SkillSchema {
             parameters: serde_json::json!({
                 "type": "object",
-                "properties": {
-                    "command": { "type": "string", "description": "Command to execute (no shell interpretation)" },
-                    "args": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Command arguments"
-                    },
-                    "cwd": { "type": "string", "description": "Working directory" },
-                    "env": {
-                        "type": "object",
-                        "additionalProperties": { "type": "string" },
-                        "description": "Additional environment variables"
-                    },
-                    "timeout_secs": { "type": "integer", "description": "Execution timeout in seconds" },
-                    "stdin": { "type": "string", "description": "Standard input to provide" }
-                },
+                "properties": props,
                 "required": ["command"]
             }),
         }
@@ -83,19 +110,80 @@ impl Skill for ShellExecSkill {
             .and_then(|v| v.as_u64())
             .unwrap_or(self.timeout_secs);
         let stdin_data = input.args.get("stdin").and_then(|v| v.as_str());
+        let use_sudo = input
+            .args
+            .get("sudo")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        // Validate command
-        self.guard.check_command(command, &args)?;
+        if use_sudo {
+            // Sudo flow: Admin check + allowlist + approval
+            self.guard.check_sudo_command(command, &args)?;
+
+            if self.require_confirmation {
+                let now = Utc::now();
+                let req = ApprovalRequest {
+                    id: Uuid::now_v7(),
+                    command: command.to_string(),
+                    args: args.iter().map(|s| s.to_string()).collect(),
+                    reason: format!("sudo execution of: {} {}", command, args.join(" ")),
+                    session_id: orka_core::types::SessionId::new(),
+                    message_id: orka_core::types::MessageId::new(),
+                    requested_at: now,
+                    expires_at: now
+                        + chrono::Duration::seconds(self.confirmation_timeout_secs as i64),
+                };
+                match self.approval.request_approval(req).await? {
+                    ApprovalDecision::Approved => {}
+                    ApprovalDecision::Denied { reason } => {
+                        emit_denied(
+                            &input,
+                            command,
+                            &args,
+                            &format!("sudo execution denied: {reason}"),
+                        )
+                        .await;
+                        return Err(Error::Skill(format!(
+                            "sudo execution denied: {}",
+                            reason
+                        )));
+                    }
+                    ApprovalDecision::Expired => {
+                        emit_denied(
+                            &input,
+                            command,
+                            &args,
+                            "sudo approval request expired",
+                        )
+                        .await;
+                        return Err(Error::Skill(
+                            "sudo approval request expired".into(),
+                        ));
+                    }
+                }
+            }
+        } else {
+            // Normal flow: just validate command against block/allow lists
+            self.guard.check_command(command, &args)?;
+        }
 
         // Validate cwd if provided
         if let Some(dir) = cwd {
             self.guard.check_path(Path::new(dir))?;
         }
 
-        debug!(command, ?args, "shell_exec");
+        debug!(command, ?args, use_sudo, "shell_exec");
 
-        let mut cmd = tokio::process::Command::new(command);
-        cmd.args(&args);
+        let mut cmd = if use_sudo {
+            let mut c = tokio::process::Command::new(self.guard.sudo_path());
+            c.arg("-n").arg(command);
+            c.args(&args);
+            c
+        } else {
+            let mut c = tokio::process::Command::new(command);
+            c.args(&args);
+            c
+        };
         if let Some(dir) = cwd {
             cmd.current_dir(dir);
         }
@@ -120,12 +208,12 @@ impl Skill for ShellExecSkill {
             .map_err(|e| Error::Skill(format!("failed to spawn '{}': {}", command, e)))?;
 
         // Write stdin if provided
-        if let Some(data) = stdin_data {
-            if let Some(mut stdin) = child.stdin.take() {
-                use tokio::io::AsyncWriteExt;
-                let _ = stdin.write_all(data.as_bytes()).await;
-                drop(stdin);
-            }
+        if let Some(data) = stdin_data
+            && let Some(mut stdin) = child.stdin.take()
+        {
+            use tokio::io::AsyncWriteExt;
+            let _ = stdin.write_all(data.as_bytes()).await;
+            drop(stdin);
         }
 
         let child_id = child.id();
@@ -149,6 +237,18 @@ impl Skill for ShellExecSkill {
                 if stderr.len() > self.max_output_bytes {
                     stderr.truncate(self.max_output_bytes);
                     stderr.push_str("\n... [truncated]");
+                }
+
+                if use_sudo {
+                    emit_executed(
+                        &input,
+                        command,
+                        &args,
+                        output.status.code(),
+                        output.status.success(),
+                        duration_ms,
+                    )
+                    .await;
                 }
 
                 Ok(SkillOutput {
@@ -178,18 +278,70 @@ impl Skill for ShellExecSkill {
     }
 }
 
+async fn emit_executed(
+    input: &SkillInput,
+    command: &str,
+    args: &[&str],
+    exit_code: Option<i32>,
+    success: bool,
+    duration_ms: u64,
+) {
+    if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
+        sink.emit(DomainEvent {
+            id: EventId::new(),
+            timestamp: Utc::now(),
+            kind: DomainEventKind::PrivilegedCommandExecuted {
+                message_id: orka_core::types::MessageId::new(),
+                session_id: orka_core::types::SessionId::new(),
+                command: command.to_string(),
+                args: args.iter().map(|s| s.to_string()).collect(),
+                approval_id: None,
+                approved_by: None,
+                exit_code,
+                success,
+                duration_ms,
+            },
+            metadata: HashMap::new(),
+        })
+        .await;
+    }
+}
+
+async fn emit_denied(input: &SkillInput, command: &str, args: &[&str], reason: &str) {
+    if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
+        sink.emit(DomainEvent {
+            id: EventId::new(),
+            timestamp: Utc::now(),
+            kind: DomainEventKind::PrivilegedCommandDenied {
+                message_id: orka_core::types::MessageId::new(),
+                session_id: orka_core::types::SessionId::new(),
+                command: command.to_string(),
+                args: args.iter().map(|s| s.to_string()).collect(),
+                reason: reason.to_string(),
+            },
+            metadata: HashMap::new(),
+        })
+        .await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
 
     fn make_skill() -> ShellExecSkill {
+        use crate::approval::AutoApproveChannel;
         use orka_core::config::OsConfig;
         let config = OsConfig {
             permission_level: "execute".into(),
             ..OsConfig::default()
         };
-        ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)), &config)
+        ShellExecSkill::new(
+            Arc::new(PermissionGuard::new(&config)),
+            &config,
+            Arc::new(AutoApproveChannel),
+        )
     }
 
     #[test]
@@ -213,50 +365,66 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(output.data["exit_code"], 0);
-        assert!(output.data["stdout"]
-            .as_str()
-            .unwrap()
-            .contains("hello world"));
+        assert!(
+            output.data["stdout"]
+                .as_str()
+                .unwrap()
+                .contains("hello world")
+        );
     }
 
     #[tokio::test]
     async fn exec_requires_execute_permission() {
+        use crate::approval::AutoApproveChannel;
         use orka_core::config::OsConfig;
         let config = OsConfig {
             permission_level: "read-only".into(),
             ..OsConfig::default()
         };
-        let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)), &config);
+        let skill = ShellExecSkill::new(
+            Arc::new(PermissionGuard::new(&config)),
+            &config,
+            Arc::new(AutoApproveChannel),
+        );
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("echo"));
-        assert!(skill
-            .execute(SkillInput {
-                args,
-                context: None
-            })
-            .await
-            .is_err());
+        assert!(
+            skill
+                .execute(SkillInput {
+                    args,
+                    context: None
+                })
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn exec_blocked_command() {
+        use crate::approval::AutoApproveChannel;
         use orka_core::config::OsConfig;
         let config = OsConfig {
             permission_level: "execute".into(),
             blocked_commands: vec!["rm".into()],
             ..OsConfig::default()
         };
-        let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)), &config);
+        let skill = ShellExecSkill::new(
+            Arc::new(PermissionGuard::new(&config)),
+            &config,
+            Arc::new(AutoApproveChannel),
+        );
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("rm"));
         args.insert("args".into(), serde_json::json!(["-rf", "/"]));
-        assert!(skill
-            .execute(SkillInput {
-                args,
-                context: None
-            })
-            .await
-            .is_err());
+        assert!(
+            skill
+                .execute(SkillInput {
+                    args,
+                    context: None
+                })
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -267,5 +435,128 @@ mod tests {
             context: None,
         };
         assert!(skill.execute(input).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn exec_sudo_requires_admin() {
+        use crate::approval::AutoApproveChannel;
+        use orka_core::config::{OsConfig, SudoConfig};
+        let config = OsConfig {
+            permission_level: "execute".into(),
+            sudo: SudoConfig {
+                enabled: true,
+                allowed_commands: vec!["echo".into()],
+                require_confirmation: false,
+                ..SudoConfig::default()
+            },
+            ..OsConfig::default()
+        };
+        let skill = ShellExecSkill::new(
+            Arc::new(PermissionGuard::new(&config)),
+            &config,
+            Arc::new(AutoApproveChannel),
+        );
+        let mut args = HashMap::new();
+        args.insert("command".into(), serde_json::json!("echo"));
+        args.insert("args".into(), serde_json::json!(["hi"]));
+        args.insert("sudo".into(), serde_json::json!(true));
+        assert!(
+            skill
+                .execute(SkillInput {
+                    args,
+                    context: None
+                })
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn exec_sudo_denied_by_approval() {
+        use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
+        use orka_core::config::{OsConfig, SudoConfig};
+
+        struct DenyChannel;
+        #[async_trait]
+        impl ApprovalChannel for DenyChannel {
+            async fn request_approval(
+                &self,
+                _req: ApprovalRequest,
+            ) -> orka_core::Result<ApprovalDecision> {
+                Ok(ApprovalDecision::Denied {
+                    reason: "test denial".into(),
+                })
+            }
+        }
+
+        let config = OsConfig {
+            permission_level: "admin".into(),
+            sudo: SudoConfig {
+                enabled: true,
+                allowed_commands: vec!["echo".into()],
+                require_confirmation: true,
+                ..SudoConfig::default()
+            },
+            ..OsConfig::default()
+        };
+        let skill = ShellExecSkill::new(
+            Arc::new(PermissionGuard::new(&config)),
+            &config,
+            Arc::new(DenyChannel),
+        );
+        let mut args = HashMap::new();
+        args.insert("command".into(), serde_json::json!("echo"));
+        args.insert("args".into(), serde_json::json!(["hi"]));
+        args.insert("sudo".into(), serde_json::json!(true));
+        let err = skill
+            .execute(SkillInput {
+                args,
+                context: None,
+            })
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("denied"));
+    }
+
+    #[test]
+    fn schema_includes_sudo_for_admin() {
+        use crate::approval::AutoApproveChannel;
+        use orka_core::config::{OsConfig, SudoConfig};
+        let config = OsConfig {
+            permission_level: "admin".into(),
+            sudo: SudoConfig {
+                enabled: true,
+                ..SudoConfig::default()
+            },
+            ..OsConfig::default()
+        };
+        let skill = ShellExecSkill::new(
+            Arc::new(PermissionGuard::new(&config)),
+            &config,
+            Arc::new(AutoApproveChannel),
+        );
+        let schema = skill.schema();
+        assert!(schema.parameters["properties"]["sudo"].is_object());
+    }
+
+    #[test]
+    fn schema_hides_sudo_for_non_admin() {
+        use crate::approval::AutoApproveChannel;
+        use orka_core::config::{OsConfig, SudoConfig};
+        let config = OsConfig {
+            permission_level: "execute".into(),
+            sudo: SudoConfig {
+                enabled: true,
+                ..SudoConfig::default()
+            },
+            ..OsConfig::default()
+        };
+        let skill = ShellExecSkill::new(
+            Arc::new(PermissionGuard::new(&config)),
+            &config,
+            Arc::new(AutoApproveChannel),
+        );
+        let schema = skill.schema();
+        assert!(schema.parameters["properties"]["sudo"].is_null());
     }
 }

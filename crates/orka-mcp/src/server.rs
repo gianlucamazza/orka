@@ -69,6 +69,7 @@ impl McpServer {
                     args,
                     context: Some(SkillContext {
                         secrets: self.secrets.clone(),
+                        event_sink: None,
                     }),
                 };
 

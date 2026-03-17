@@ -76,6 +76,7 @@ impl ServerCommand for SkillCommand {
             args: skill_args,
             context: Some(SkillContext {
                 secrets: self.secrets.clone(),
+                event_sink: None,
             }),
         };
 

@@ -7,7 +7,7 @@ pub mod workspace_handler;
 pub use commands::CommandRegistry;
 pub use handler::{AgentHandler, EchoHandler};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
-pub use workspace_handler::WorkspaceHandler;
+pub use workspace_handler::{WorkspaceHandler, WorkspaceHandlerConfig};
 
 use std::sync::Arc;
 use std::time::Duration;

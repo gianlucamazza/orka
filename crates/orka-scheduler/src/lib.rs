@@ -5,9 +5,9 @@ pub mod types;
 
 use std::sync::Arc;
 
+use orka_core::Result;
 use orka_core::config::SchedulerConfig;
 use orka_core::traits::Skill;
-use orka_core::Result;
 use tracing::info;
 
 pub use scheduler::{Scheduler, SkillRegistry};

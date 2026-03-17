@@ -176,12 +176,12 @@ async fn resolve_key_from_env(
     if key.is_some() {
         return key;
     }
-    if let Some(key_name) = config.api_key_secret.as_deref() {
-        if let Ok(s) = secrets.get_secret(key_name).await {
-            let k = s.expose_str().unwrap_or("").to_string();
-            if !k.is_empty() {
-                return Some(k);
-            }
+    if let Some(key_name) = config.api_key_secret.as_deref()
+        && let Ok(s) = secrets.get_secret(key_name).await
+    {
+        let k = s.expose_str().unwrap_or("").to_string();
+        if !k.is_empty() {
+            return Some(k);
         }
     }
     None

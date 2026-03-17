@@ -7,9 +7,9 @@ pub mod vector_store;
 
 use std::sync::Arc;
 
+use orka_core::Result;
 use orka_core::config::KnowledgeConfig;
 use orka_core::traits::Skill;
-use orka_core::Result;
 use tracing::info;
 
 pub use embeddings::EmbeddingProvider;

@@ -121,8 +121,10 @@ async fn unknown_method_returns_error_code() {
 
     let response = server.handle_request(request).await.unwrap();
     assert_eq!(response["error"]["code"], -32601);
-    assert!(response["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("Method not found"));
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Method not found")
+    );
 }

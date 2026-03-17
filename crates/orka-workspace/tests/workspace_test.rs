@@ -1,6 +1,6 @@
 use orka_workspace::config::*;
 use orka_workspace::loader::WorkspaceLoader;
-use orka_workspace::parse::parse_document;
+use orka_workspace::parse::{parse_document, strip_frontmatter};
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::fs;
@@ -47,37 +47,24 @@ fn parse_empty_frontmatter() {
 }
 
 #[test]
-fn parse_tools_frontmatter() {
-    let raw = "---\ntools:\n  - name: search\n    enabled: true\n  - name: calc\n    enabled: false\n---\nTool docs";
-    let doc = parse_document::<ToolsFrontmatter>(raw).unwrap();
-    assert_eq!(doc.frontmatter.tools.len(), 2);
-    assert_eq!(doc.frontmatter.tools[0].name, "search");
-    assert!(doc.frontmatter.tools[0].enabled);
-    assert!(!doc.frontmatter.tools[1].enabled);
+fn strip_frontmatter_removes_yaml() {
+    let raw = "---\ntools:\n  - name: echo\n---\n\n## Tools body";
+    let body = strip_frontmatter(raw);
+    assert_eq!(body, "\n## Tools body");
 }
 
 #[test]
-fn parse_heartbeat_default_interval() {
-    let raw = "---\nversion: \"2.0\"\n---\nheartbeat info";
-    let doc = parse_document::<HeartbeatFrontmatter>(raw).unwrap();
-    assert_eq!(doc.frontmatter.interval_secs, 30);
-    assert_eq!(doc.frontmatter.version.as_deref(), Some("2.0"));
+fn strip_frontmatter_no_frontmatter() {
+    let raw = "## Just markdown\n\nSome content";
+    let body = strip_frontmatter(raw);
+    assert_eq!(body, raw);
 }
 
 #[test]
-fn parse_identity_frontmatter() {
-    let raw = "---\nagent_id: agent-42\ndisplay_name: Orka Bot\n---\n";
-    let doc = parse_document::<IdentityFrontmatter>(raw).unwrap();
-    assert_eq!(doc.frontmatter.agent_id.as_deref(), Some("agent-42"));
-    assert_eq!(doc.frontmatter.display_name.as_deref(), Some("Orka Bot"));
-}
-
-#[test]
-fn parse_memory_frontmatter() {
-    let raw = "---\nbackend: redis\nmax_entries: 1000\n---\nmemory config";
-    let doc = parse_document::<MemoryFrontmatter>(raw).unwrap();
-    assert_eq!(doc.frontmatter.backend.as_deref(), Some("redis"));
-    assert_eq!(doc.frontmatter.max_entries, Some(1000));
+fn strip_frontmatter_unclosed_returns_raw() {
+    let raw = "---\nname: TestAgent\nNo closing delimiter";
+    let body = strip_frontmatter(raw);
+    assert_eq!(body, raw);
 }
 
 // --- Loader tests ---
@@ -93,22 +80,10 @@ async fn loader_load_all() {
     .unwrap();
     fs::write(
         dir.path().join("TOOLS.md"),
-        "---\ntools:\n  - name: t1\n    enabled: true\n---\n",
+        "---\ntools:\n  - name: t1\n    enabled: true\n---\nTool instructions",
     )
     .await
     .unwrap();
-    fs::write(dir.path().join("IDENTITY.md"), "---\nagent_id: a1\n---\n")
-        .await
-        .unwrap();
-    fs::write(
-        dir.path().join("HEARTBEAT.md"),
-        "---\ninterval_secs: 10\n---\n",
-    )
-    .await
-    .unwrap();
-    fs::write(dir.path().join("MEMORY.md"), "---\nbackend: sqlite\n---\n")
-        .await
-        .unwrap();
 
     let loader = WorkspaceLoader::new(dir.path());
     loader.load_all().await.unwrap();
@@ -120,15 +95,29 @@ async fn loader_load_all() {
         state.soul.as_ref().unwrap().frontmatter.name.as_deref(),
         Some("TestSoul")
     );
-    assert!(state.tools.is_some());
-    assert_eq!(state.tools.as_ref().unwrap().frontmatter.tools.len(), 1);
-    assert!(state.identity.is_some());
-    assert!(state.heartbeat.is_some());
+    assert!(state.tools_body.is_some());
+    assert_eq!(state.tools_body.as_deref().unwrap(), "Tool instructions");
+}
+
+#[tokio::test]
+async fn loader_tools_md_without_frontmatter() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("TOOLS.md"),
+        "## Tool instructions\n\nUse wisely.",
+    )
+    .await
+    .unwrap();
+
+    let loader = WorkspaceLoader::new(dir.path());
+    loader.load_all().await.unwrap();
+
+    let binding = loader.state();
+    let state = binding.read().await;
     assert_eq!(
-        state.heartbeat.as_ref().unwrap().frontmatter.interval_secs,
-        10
+        state.tools_body.as_deref().unwrap(),
+        "## Tool instructions\n\nUse wisely."
     );
-    assert!(state.memory.is_some());
 }
 
 #[tokio::test]
@@ -141,10 +130,7 @@ async fn loader_missing_file() {
     let binding = loader.state();
     let state = binding.read().await;
     assert!(state.soul.is_none());
-    assert!(state.tools.is_none());
-    assert!(state.identity.is_none());
-    assert!(state.heartbeat.is_none());
-    assert!(state.memory.is_none());
+    assert!(state.tools_body.is_none());
 }
 
 #[tokio::test]

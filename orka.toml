@@ -1,3 +1,5 @@
+config_version = 1
+
 [server]
 host = "127.0.0.1"
 port = 8080
@@ -83,6 +85,22 @@ ttl_secs = 86400
 [queue]
 max_retries = 3
 
+[agent]
+id = "orka-default"
+display_name = "Orka"
+timezone = "Europe/Rome"
+max_iterations = 15
+# model = "claude-sonnet-4-6"      # override [llm] default model for this agent
+# max_tokens = 4096                 # override [llm] default max_tokens
+# context_window_tokens = 200000
+# max_tokens_per_session = 1000000
+heartbeat_interval_secs = 30
+# summarization_model = "claude-haiku-4-5-20251001"
+# summarization_threshold = 100
+
+[tools]
+disabled = ["echo"]
+
 [llm]
 timeout_secs = 120
 max_tokens = 8192
@@ -130,6 +148,15 @@ permission_level = "admin"
 # shell_timeout_secs = 30
 # max_output_bytes = 1048576
 # max_list_entries = 1000
+
+[os.sudo]
+enabled = true
+allowed_commands = ["systemctl restart", "systemctl stop", "systemctl start"]
+require_confirmation = true
+confirmation_timeout_secs = 120
+sudo_path = "/usr/bin/sudo"
+# Package manager commands are added automatically by scripts/install.sh
+# based on detected distro (pacman, apt-get, dnf, zypper, apk)
 
 [http]
 enabled = true

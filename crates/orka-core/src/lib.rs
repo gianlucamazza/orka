@@ -15,6 +15,8 @@
 pub mod config;
 /// Unified error type and `Result` alias.
 pub mod error;
+/// Config versioning and migration engine.
+pub mod migrate;
 /// Slash-command parser for user input.
 pub mod slash_command;
 /// Core traits that define the Orka abstraction layer.
@@ -22,10 +24,14 @@ pub mod traits;
 /// Core data types: envelopes, sessions, events, payloads, and IDs.
 pub mod types;
 
+/// Streaming infrastructure for real-time LLM response delivery.
+pub mod stream;
+
 #[allow(missing_docs)]
 /// In-memory test doubles for core traits.
 pub mod testing;
 
 pub use error::{Error, Result};
-pub use slash_command::{parse_slash_command, ParsedCommand};
+pub use slash_command::{ParsedCommand, parse_slash_command};
+pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 pub use types::*;

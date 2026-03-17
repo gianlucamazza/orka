@@ -1,12 +1,12 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use orka_core::{Error, Result};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{Mutex, oneshot};
 use tracing::{debug, warn};
 
 use crate::config::McpServerConfig;
@@ -247,10 +247,10 @@ impl McpClient {
 impl Drop for McpClient {
     fn drop(&mut self) {
         // Best-effort kill on drop
-        if let Ok(mut guard) = self.child.try_lock() {
-            if let Some(ref mut child) = *guard {
-                let _ = child.start_kill();
-            }
+        if let Ok(mut guard) = self.child.try_lock()
+            && let Some(ref mut child) = *guard
+        {
+            let _ = child.start_kill();
         }
     }
 }

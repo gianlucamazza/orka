@@ -37,10 +37,10 @@ members = [
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 publish = false
-rust-version = "1.75"
+rust-version = "1.85"
 repository = "https://github.com/gianlucamazza/orka"
 homepage = "https://github.com/gianlucamazza/orka"
 keywords = ["ai", "agent", "orchestration", "llm", "rust"]
@@ -48,7 +48,17 @@ categories = ["command-line-utilities", "web-programming"]
 
 [workspace.dependencies]
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "macros",
+  "net",
+  "io-util",
+  "time",
+  "signal",
+  "sync",
+  "fs",
+  "process",
+] }
 async-trait = "0.1"
 
 # Serialization
@@ -112,6 +122,7 @@ scraper = "0.22"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 rustyline = "15"
 colored = "3"
 
@@ -187,10 +198,15 @@ orka-scheduler = { path = "crates/orka-scheduler" }
 qdrant-client = "1"
 fastembed = "4"
 text-splitter = { version = "0.16", features = ["tiktoken-rs"] }
+tiktoken-rs = "0.6"
 pdf-extract = "0.7"
 
 # Scheduler
 cron = "0.13"
+
+# Config migration
+toml_edit = "0.22"
+similar = "2"
 
 # URL parsing
 url = "2"
@@ -201,7 +217,17 @@ glob = "0.3"
 nix = { version = "0.29", features = ["signal"] }
 orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
 
+[profile.dev]
+split-debuginfo = "unpacked"
+debug = "line-tables-only"
+
 [profile.release]
-lto = "thin"
+opt-level = 3
+lto = "fat"
 codegen-units = 1
 strip = true
+panic = "abort"
+
+[profile.release-small]
+inherits = "release"
+opt-level = "z"

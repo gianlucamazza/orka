@@ -119,7 +119,7 @@ impl Skill for HttpRequestSkill {
             other => {
                 return Err(orka_core::Error::Skill(format!(
                     "unsupported method: {other}"
-                )))
+                )));
             }
         };
 
@@ -139,20 +139,19 @@ impl Skill for HttpRequestSkill {
             .args
             .get("auth_bearer_secret")
             .and_then(|v| v.as_str())
+            && let Some(ref ctx) = input.context
         {
-            if let Some(ref ctx) = input.context {
-                match ctx.secrets.get_secret(secret_name).await {
-                    Ok(secret) => {
-                        let token = secret.expose_str().unwrap_or("").to_string();
-                        if !token.is_empty() {
-                            req = req.bearer_auth(token);
-                        }
+            match ctx.secrets.get_secret(secret_name).await {
+                Ok(secret) => {
+                    let token = secret.expose_str().unwrap_or("").to_string();
+                    if !token.is_empty() {
+                        req = req.bearer_auth(token);
                     }
-                    Err(e) => {
-                        return Err(orka_core::Error::Skill(format!(
-                            "failed to read bearer secret '{secret_name}': {e}"
-                        )));
-                    }
+                }
+                Err(e) => {
+                    return Err(orka_core::Error::Skill(format!(
+                        "failed to read bearer secret '{secret_name}': {e}"
+                    )));
                 }
             }
         }

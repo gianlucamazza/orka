@@ -4,12 +4,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::{
+    Json, Router,
     extract::{Query, State},
     routing::get,
-    Json, Router,
 };
 use orka_core::traits::ChannelAdapter;
-use orka_core::types::{backoff_delay, Envelope, MessageSink, OutboundMessage, Payload, SessionId};
+use orka_core::types::{Envelope, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay};
 use orka_core::{Error, Result};
 use reqwest::Client;
 use serde::Deserialize;
@@ -103,10 +103,9 @@ async fn webhook_verify(
 ) -> axum::response::Response {
     if params.mode.as_deref() == Some("subscribe")
         && params.token.as_deref() == Some(&state.verify_token)
+        && let Some(challenge) = params.challenge
     {
-        if let Some(challenge) = params.challenge {
-            return axum::response::IntoResponse::into_response(challenge);
-        }
+        return axum::response::IntoResponse::into_response(challenge);
     }
     axum::response::IntoResponse::into_response(axum::http::StatusCode::FORBIDDEN)
 }
@@ -119,38 +118,37 @@ async fn webhook_receive(
         for entry in entries {
             if let Some(changes) = entry.changes {
                 for change in changes {
-                    if let Some(value) = change.value {
-                        if let Some(messages) = value.messages {
-                            for msg in messages {
-                                if msg.msg_type != "text" {
-                                    continue;
-                                }
-                                if let Some(text) = msg.text {
-                                    let session_id = {
-                                        let mut sessions = state.sessions.lock().await;
-                                        sessions
-                                            .entry(msg.from.clone())
-                                            .or_insert_with(SessionId::new)
-                                            .clone()
-                                    };
+                    if let Some(value) = change.value
+                        && let Some(messages) = value.messages
+                    {
+                        for msg in messages {
+                            if msg.msg_type != "text" {
+                                continue;
+                            }
+                            if let Some(text) = msg.text {
+                                let session_id = {
+                                    let mut sessions = state.sessions.lock().await;
+                                    sessions
+                                        .entry(msg.from.clone())
+                                        .or_insert_with(SessionId::new)
+                                        .clone()
+                                };
 
-                                    let mut envelope =
-                                        Envelope::text("whatsapp", session_id, &text.body);
-                                    envelope.metadata.insert(
-                                        "whatsapp_from".to_string(),
-                                        serde_json::json!(msg.from),
-                                    );
-                                    envelope.metadata.insert(
-                                        "chat_type".to_string(),
-                                        serde_json::json!("direct"),
-                                    );
+                                let mut envelope =
+                                    Envelope::text("whatsapp", session_id, &text.body);
+                                envelope.metadata.insert(
+                                    "whatsapp_from".to_string(),
+                                    serde_json::json!(msg.from),
+                                );
+                                envelope
+                                    .metadata
+                                    .insert("chat_type".to_string(), serde_json::json!("direct"));
 
-                                    let sink = state.sink.lock().await;
-                                    if let Some(ref tx) = *sink {
-                                        if tx.send(envelope).await.is_err() {
-                                            error!("WhatsApp: sink closed");
-                                        }
-                                    }
+                                let sink = state.sink.lock().await;
+                                if let Some(ref tx) = *sink
+                                    && tx.send(envelope).await.is_err()
+                                {
+                                    error!("WhatsApp: sink closed");
                                 }
                             }
                         }

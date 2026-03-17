@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use std::time::Duration;
 
 use tokio::time::Instant;

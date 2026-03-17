@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use orka_core::config::SandboxConfig;
 use orka_core::{Error, Result};
 use wasmtime::{Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
-use wasmtime_wasi::preview1::WasiP1Ctx;
 use wasmtime_wasi::WasiCtxBuilder;
+use wasmtime_wasi::preview1::WasiP1Ctx;
 
 use crate::executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult};
 
@@ -59,7 +59,7 @@ impl SandboxExecutor for WasmSandbox {
         let stdin_data = req.stdin.clone();
         let env_vars: Vec<(String, String)> = req.env.into_iter().collect();
 
-        let result = tokio::time::timeout(
+        tokio::time::timeout(
             timeout,
             tokio::task::spawn_blocking(move || {
                 run_wasm_sync(
@@ -69,9 +69,7 @@ impl SandboxExecutor for WasmSandbox {
         )
         .await
         .map_err(|_| Error::Sandbox("WASM execution timed out".into()))?
-        .map_err(|e| Error::Sandbox(format!("WASM task failed: {e}")))?;
-
-        result
+        .map_err(|e| Error::Sandbox(format!("WASM task failed: {e}")))?
     }
 }
 

@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - MCP (Model Context Protocol) server with JSON-RPC 2.0 over stdio
 - A2A (Agent-to-Agent) protocol for inter-agent communication
 - Agent router with prefix-based routing and delegation
-- Workspace-based agent configuration with hot-reload (SOUL.md, IDENTITY.md)
+- Workspace-based agent configuration with hot-reload (SOUL.md, TOOLS.md)
 - Session management with Redis-backed storage
 - Memory store (key-value per session)
 - Secret management with AES-256-GCM encryption at rest

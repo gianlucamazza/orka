@@ -1,22 +1,77 @@
+use std::sync::OnceLock;
+
+use tiktoken_rs::CoreBPE;
+
 use crate::client::{ChatContent, ChatMessageExt, ContentBlockInput, ToolDefinition};
 
-/// Estimate token count from text using chars/4 heuristic.
+/// Model family hint for selecting the right tokenizer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenizerHint {
+    /// OpenAI models (GPT-4, GPT-4o, etc.) — use cl100k_base / o200k_base.
+    OpenAi,
+    /// Anthropic models (Claude) — use chars/3.5 heuristic.
+    Anthropic,
+    /// Unknown / local models — use chars/4 heuristic.
+    Unknown,
+}
+
+impl TokenizerHint {
+    /// Infer the tokenizer hint from a model name.
+    pub fn from_model(model: Option<&str>) -> Self {
+        match model {
+            Some(m) if m.starts_with("gpt") || m.starts_with("o1") || m.starts_with("o3") => {
+                Self::OpenAi
+            }
+            Some(m) if m.starts_with("claude") => Self::Anthropic,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Thread-safe singleton for the cl100k_base tokenizer (used by GPT-4 / GPT-4o).
+fn cl100k_bpe() -> &'static CoreBPE {
+    static BPE: OnceLock<CoreBPE> = OnceLock::new();
+    BPE.get_or_init(|| tiktoken_rs::cl100k_base().expect("failed to load cl100k_base tokenizer"))
+}
+
+/// Estimate token count from text using a model-aware strategy.
+///
+/// - OpenAI: exact count via cl100k_base tokenizer.
+/// - Anthropic: chars / 3.5 (empirically closer than chars / 4).
+/// - Unknown: chars / 4 heuristic.
 pub fn estimate_tokens(text: &str) -> u32 {
-    (text.len() / 4) as u32
+    estimate_tokens_with_hint(text, TokenizerHint::Unknown)
+}
+
+/// Estimate token count using a specific tokenizer hint.
+pub fn estimate_tokens_with_hint(text: &str, hint: TokenizerHint) -> u32 {
+    match hint {
+        TokenizerHint::OpenAi => cl100k_bpe().encode_ordinary(text).len() as u32,
+        TokenizerHint::Anthropic => (text.len() as f64 / 3.5).ceil() as u32,
+        TokenizerHint::Unknown => (text.len() / 4) as u32,
+    }
 }
 
 /// Estimate tokens for a single chat message (content + 4 overhead per message).
 pub fn estimate_message_tokens(msg: &ChatMessageExt) -> u32 {
+    estimate_message_tokens_with_hint(msg, TokenizerHint::Unknown)
+}
+
+/// Estimate message tokens using a specific tokenizer hint.
+pub fn estimate_message_tokens_with_hint(msg: &ChatMessageExt, hint: TokenizerHint) -> u32 {
     let content_tokens = match &msg.content {
-        ChatContent::Text(t) => estimate_tokens(t),
+        ChatContent::Text(t) => estimate_tokens_with_hint(t, hint),
         ChatContent::Blocks(blocks) => blocks
             .iter()
             .map(|b| match b {
-                ContentBlockInput::Text { text } => estimate_tokens(text),
-                ContentBlockInput::ToolUse { input, .. } => {
-                    estimate_tokens(&serde_json::to_string(input).unwrap_or_default())
+                ContentBlockInput::Text { text } => estimate_tokens_with_hint(text, hint),
+                ContentBlockInput::ToolUse { input, .. } => estimate_tokens_with_hint(
+                    &serde_json::to_string(input).unwrap_or_default(),
+                    hint,
+                ),
+                ContentBlockInput::ToolResult { content, .. } => {
+                    estimate_tokens_with_hint(content, hint)
                 }
-                ContentBlockInput::ToolResult { content, .. } => estimate_tokens(content),
             })
             .sum(),
     };
@@ -25,11 +80,16 @@ pub fn estimate_message_tokens(msg: &ChatMessageExt) -> u32 {
 
 /// Estimate tokens for tool definitions by serializing to JSON.
 pub fn estimate_tools_tokens(tools: &[ToolDefinition]) -> u32 {
+    estimate_tools_tokens_with_hint(tools, TokenizerHint::Unknown)
+}
+
+/// Estimate tool definition tokens using a specific tokenizer hint.
+pub fn estimate_tools_tokens_with_hint(tools: &[ToolDefinition], hint: TokenizerHint) -> u32 {
     if tools.is_empty() {
         return 0;
     }
     let json = serde_json::to_string(tools).unwrap_or_default();
-    estimate_tokens(&json)
+    estimate_tokens_with_hint(&json, hint)
 }
 
 /// Compute available token budget for conversation history.
@@ -41,8 +101,25 @@ pub fn available_history_budget(
     system_prompt: &str,
     tools: &[ToolDefinition],
 ) -> u32 {
-    let system_tokens = estimate_tokens(system_prompt);
-    let tools_tokens = estimate_tools_tokens(tools);
+    available_history_budget_with_hint(
+        context_window,
+        output_budget,
+        system_prompt,
+        tools,
+        TokenizerHint::Unknown,
+    )
+}
+
+/// Compute available token budget using a specific tokenizer hint.
+pub fn available_history_budget_with_hint(
+    context_window: u32,
+    output_budget: u32,
+    system_prompt: &str,
+    tools: &[ToolDefinition],
+    hint: TokenizerHint,
+) -> u32 {
+    let system_tokens = estimate_tokens_with_hint(system_prompt, hint);
+    let tools_tokens = estimate_tools_tokens_with_hint(tools, hint);
     context_window
         .saturating_sub(output_budget)
         .saturating_sub(system_tokens)
@@ -56,8 +133,19 @@ pub fn truncate_history(
     messages: Vec<ChatMessageExt>,
     available_tokens: u32,
 ) -> (Vec<ChatMessageExt>, usize) {
-    // Estimate total tokens
-    let total: u32 = messages.iter().map(estimate_message_tokens).sum();
+    truncate_history_with_hint(messages, available_tokens, TokenizerHint::Unknown)
+}
+
+/// Truncate history using a specific tokenizer hint.
+pub fn truncate_history_with_hint(
+    messages: Vec<ChatMessageExt>,
+    available_tokens: u32,
+    hint: TokenizerHint,
+) -> (Vec<ChatMessageExt>, usize) {
+    let total: u32 = messages
+        .iter()
+        .map(|m| estimate_message_tokens_with_hint(m, hint))
+        .sum();
     if total <= available_tokens {
         return (messages, 0);
     }
@@ -69,7 +157,7 @@ pub fn truncate_history(
         if running <= available_tokens {
             break;
         }
-        running -= estimate_message_tokens(msg);
+        running -= estimate_message_tokens_with_hint(msg, hint);
         drop_count += 1;
     }
 
@@ -89,6 +177,41 @@ mod tests {
         // 400 chars / 4 = 100
         let long = "a".repeat(400);
         assert_eq!(estimate_tokens(&long), 100);
+    }
+
+    #[test]
+    fn estimate_tokens_openai_uses_tokenizer() {
+        let tokens = estimate_tokens_with_hint("Hello, world!", TokenizerHint::OpenAi);
+        // cl100k_base should give a precise count (4 tokens for "Hello, world!")
+        assert!(tokens > 0);
+        assert!(tokens < 10);
+    }
+
+    #[test]
+    fn estimate_tokens_anthropic_uses_3_5() {
+        // 35 chars / 3.5 = 10
+        let text = "a".repeat(35);
+        assert_eq!(
+            estimate_tokens_with_hint(&text, TokenizerHint::Anthropic),
+            10
+        );
+    }
+
+    #[test]
+    fn tokenizer_hint_from_model() {
+        assert_eq!(
+            TokenizerHint::from_model(Some("gpt-4o")),
+            TokenizerHint::OpenAi
+        );
+        assert_eq!(
+            TokenizerHint::from_model(Some("claude-sonnet-4-6")),
+            TokenizerHint::Anthropic
+        );
+        assert_eq!(
+            TokenizerHint::from_model(Some("llama-3")),
+            TokenizerHint::Unknown
+        );
+        assert_eq!(TokenizerHint::from_model(None), TokenizerHint::Unknown);
     }
 
     #[test]
@@ -169,7 +292,7 @@ mod tests {
             })
             .collect();
 
-        // Total: 10 * 29 = 290 tokens. Budget: 100 → need to drop some.
+        // Total: 10 * 29 = 290 tokens. Budget: 100 -> need to drop some.
         let (kept, dropped) = truncate_history(messages, 100);
         assert!(dropped > 0);
         assert!(kept.len() < 10);

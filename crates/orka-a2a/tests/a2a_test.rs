@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use tower::ServiceExt;
 
 use orka_a2a::routes::extract_text_from_message;
-use orka_a2a::{a2a_router, build_agent_card, A2aState, AgentCard, TaskStatus};
+use orka_a2a::{A2aState, AgentCard, TaskStatus, a2a_router, build_agent_card};
 use orka_core::testing::{EchoSkill, InMemorySecretManager};
 use orka_skills::SkillRegistry;
 

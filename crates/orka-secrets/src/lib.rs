@@ -49,7 +49,9 @@ pub fn create_secret_manager(
                     "ORKA_SECRET_ENCRYPTION_KEY must be set in production",
                 ));
             }
-            warn!("ORKA_SECRET_ENCRYPTION_KEY not set — secrets stored in PLAINTEXT. Do NOT use in production.");
+            warn!(
+                "ORKA_SECRET_ENCRYPTION_KEY not set — secrets stored in PLAINTEXT. Do NOT use in production."
+            );
             RedisSecretManager::new(&config.redis.url)?
         }
     };

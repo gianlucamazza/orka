@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use deadpool_redis::{Config, Pool, Runtime};
 use orka_core::{
+    Result,
     error::Error,
     traits::PriorityQueue,
     types::{Envelope, Priority},
-    Result,
 };
 use redis::AsyncCommands;
 use std::time::Duration;
@@ -125,31 +125,26 @@ impl PriorityQueue for RedisPriorityQueue {
                 let envelope: Envelope = serde_json::from_str(&json)?;
 
                 // Check not_before: if message is not yet mature, re-enqueue it
-                if let Some(not_before_val) = envelope.metadata.get("not_before") {
-                    if let Some(not_before_str) = not_before_val.as_str() {
-                        if let Ok(not_before) = chrono::DateTime::parse_from_rfc3339(not_before_str)
-                        {
-                            if Utc::now() < not_before {
-                                debug!(id = %member, "message not yet mature, re-enqueuing");
-                                // Re-add to sorted set with original score and restore data
-                                redis::pipe()
-                                    .atomic()
-                                    .cmd("SET")
-                                    .arg(&dkey)
-                                    .arg(&json)
-                                    .cmd("ZADD")
-                                    .arg(PENDING_KEY)
-                                    .arg(score)
-                                    .arg(&member)
-                                    .exec_async(&mut *conn)
-                                    .await
-                                    .map_err(|e| {
-                                        Error::queue(format!("re-enqueue not_before failed: {e}"))
-                                    })?;
-                                return Ok(None);
-                            }
-                        }
-                    }
+                if let Some(not_before_val) = envelope.metadata.get("not_before")
+                    && let Some(not_before_str) = not_before_val.as_str()
+                    && let Ok(not_before) = chrono::DateTime::parse_from_rfc3339(not_before_str)
+                    && Utc::now() < not_before
+                {
+                    debug!(id = %member, "message not yet mature, re-enqueuing");
+                    // Re-add to sorted set with original score and restore data
+                    redis::pipe()
+                        .atomic()
+                        .cmd("SET")
+                        .arg(&dkey)
+                        .arg(&json)
+                        .cmd("ZADD")
+                        .arg(PENDING_KEY)
+                        .arg(score)
+                        .arg(&member)
+                        .exec_async(&mut *conn)
+                        .await
+                        .map_err(|e| Error::queue(format!("re-enqueue not_before failed: {e}")))?;
+                    return Ok(None);
                 }
 
                 debug!(id = %member, "popped envelope from queue");

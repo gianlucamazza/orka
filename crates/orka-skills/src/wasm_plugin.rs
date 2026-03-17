@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use orka_core::traits::Skill;
 use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
 use wasmtime::*;
-use wasmtime_wasi::preview1::WasiP1Ctx;
 use wasmtime_wasi::WasiCtxBuilder;
+use wasmtime_wasi::preview1::WasiP1Ctx;
 
 /// Plugin metadata mirroring the guest SDK's `PluginInfo`.
 #[derive(Debug, Clone, serde::Deserialize)]

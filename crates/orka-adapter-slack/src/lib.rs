@@ -3,9 +3,9 @@ use std::future::IntoFuture;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{Json, Router, extract::State, routing::post};
 use orka_core::traits::ChannelAdapter;
-use orka_core::types::{backoff_delay, Envelope, MessageSink, OutboundMessage, Payload, SessionId};
+use orka_core::types::{Envelope, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay};
 use orka_core::{Error, Result};
 use reqwest::Client;
 use serde::Deserialize;
@@ -66,57 +66,57 @@ async fn handle_event(
     Json(payload): Json<SlackEventPayload>,
 ) -> axum::response::Response {
     // URL verification challenge
-    if payload.event_type == "url_verification" {
-        if let Some(challenge) = payload.challenge {
-            return axum::response::IntoResponse::into_response(Json(
-                serde_json::json!({ "challenge": challenge }),
-            ));
-        }
+    if payload.event_type == "url_verification"
+        && let Some(challenge) = payload.challenge
+    {
+        return axum::response::IntoResponse::into_response(Json(
+            serde_json::json!({ "challenge": challenge }),
+        ));
     }
 
-    if payload.event_type == "event_callback" {
-        if let Some(event) = payload.event {
-            // Skip bot messages
-            if event.bot_id.is_some() {
-                return axum::response::IntoResponse::into_response(axum::http::StatusCode::OK);
+    if payload.event_type == "event_callback"
+        && let Some(event) = payload.event
+    {
+        // Skip bot messages
+        if event.bot_id.is_some() {
+            return axum::response::IntoResponse::into_response(axum::http::StatusCode::OK);
+        }
+
+        if event.event_type == "message"
+            && let (Some(channel), Some(text)) = (event.channel, event.text)
+        {
+            let session_id = {
+                let mut sessions = state.sessions.lock().await;
+                sessions
+                    .entry(channel.clone())
+                    .or_insert_with(SessionId::new)
+                    .clone()
+            };
+
+            let mut envelope = Envelope::text("slack", session_id, &text);
+            envelope
+                .metadata
+                .insert("slack_channel".to_string(), serde_json::json!(channel));
+            if let Some(user) = event.user {
+                envelope
+                    .metadata
+                    .insert("slack_user".to_string(), serde_json::json!(user));
             }
 
-            if event.event_type == "message" {
-                if let (Some(channel), Some(text)) = (event.channel, event.text) {
-                    let session_id = {
-                        let mut sessions = state.sessions.lock().await;
-                        sessions
-                            .entry(channel.clone())
-                            .or_insert_with(SessionId::new)
-                            .clone()
-                    };
+            // "im" = DM, anything else = group
+            let chat_type = match event.channel_type.as_deref() {
+                Some("im") => "direct",
+                _ => "group",
+            };
+            envelope
+                .metadata
+                .insert("chat_type".to_string(), serde_json::json!(chat_type));
 
-                    let mut envelope = Envelope::text("slack", session_id, &text);
-                    envelope
-                        .metadata
-                        .insert("slack_channel".to_string(), serde_json::json!(channel));
-                    if let Some(user) = event.user {
-                        envelope
-                            .metadata
-                            .insert("slack_user".to_string(), serde_json::json!(user));
-                    }
-
-                    // "im" = DM, anything else = group
-                    let chat_type = match event.channel_type.as_deref() {
-                        Some("im") => "direct",
-                        _ => "group",
-                    };
-                    envelope
-                        .metadata
-                        .insert("chat_type".to_string(), serde_json::json!(chat_type));
-
-                    let sink = state.sink.lock().await;
-                    if let Some(ref tx) = *sink {
-                        if tx.send(envelope).await.is_err() {
-                            error!("Slack: sink closed");
-                        }
-                    }
-                }
+            let sink = state.sink.lock().await;
+            if let Some(ref tx) = *sink
+                && tx.send(envelope).await.is_err()
+            {
+                error!("Slack: sink closed");
             }
         }
     }

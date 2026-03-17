@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, warn};
 
 use orka_core::traits::MessageBus;
@@ -247,13 +247,13 @@ fn parse_xreadgroup_response(value: &redis::Value) -> Option<Vec<(String, String
             // Look for "envelope" key followed by its value
             let mut i = 0;
             while i + 1 < fields.len() {
-                if let Some(field_name) = value_to_string(&fields[i]) {
-                    if field_name == "envelope" {
-                        if let Some(field_value) = value_to_string(&fields[i + 1]) {
-                            results.push((entry_id.clone(), field_value));
-                        }
-                        break;
+                if let Some(field_name) = value_to_string(&fields[i])
+                    && field_name == "envelope"
+                {
+                    if let Some(field_value) = value_to_string(&fields[i + 1]) {
+                        results.push((entry_id.clone(), field_value));
                     }
+                    break;
                 }
                 i += 2;
             }

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
-use orka_core::traits::EventSink;
 use orka_core::DomainEvent;
+use orka_core::traits::EventSink;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
@@ -104,6 +104,8 @@ impl RedisEventSink {
 #[async_trait]
 impl EventSink for RedisEventSink {
     async fn emit(&self, event: DomainEvent) {
+        // All event kinds are serialized uniformly via serde; no per-variant
+        // handling is needed here. The batch_loop serializes to JSON.
         if self.tx.send(event).await.is_err() {
             error!("event sink channel closed");
         }

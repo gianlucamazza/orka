@@ -248,11 +248,11 @@ impl MemoryStore for InMemoryMemoryStore {
     async fn recall(&self, key: &str) -> Result<Option<MemoryEntry>> {
         let mut entries = self.entries.lock().await;
         if let Some((entry, deadline)) = entries.get(key) {
-            if let Some(dl) = deadline {
-                if tokio::time::Instant::now() >= *dl {
-                    entries.remove(key);
-                    return Ok(None);
-                }
+            if let Some(dl) = deadline
+                && tokio::time::Instant::now() >= *dl
+            {
+                entries.remove(key);
+                return Ok(None);
             }
             Ok(Some(entry.clone()))
         } else {

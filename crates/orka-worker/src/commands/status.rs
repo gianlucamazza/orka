@@ -1,19 +1,23 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use orka_core::config::AgentConfig;
 use orka_core::{Envelope, OutboundMessage, Payload, Result, Session};
-use orka_workspace::state::WorkspaceState;
-use tokio::sync::RwLock;
+use orka_workspace::WorkspaceRegistry;
 
 use super::ServerCommand;
 
 pub struct StatusCommand {
-    workspace_state: Arc<RwLock<WorkspaceState>>,
+    workspace_registry: Arc<WorkspaceRegistry>,
+    agent_config: AgentConfig,
 }
 
 impl StatusCommand {
-    pub fn new(workspace_state: Arc<RwLock<WorkspaceState>>) -> Self {
-        Self { workspace_state }
+    pub fn new(workspace_registry: Arc<WorkspaceRegistry>, agent_config: AgentConfig) -> Self {
+        Self {
+            workspace_registry,
+            agent_config,
+        }
     }
 }
 
@@ -35,13 +39,10 @@ impl ServerCommand for StatusCommand {
         envelope: &Envelope,
         session: &Session,
     ) -> Result<Vec<OutboundMessage>> {
-        let state = self.workspace_state.read().await;
+        let state = self.workspace_registry.default_state();
+        let state = state.read().await;
 
-        let model = state
-            .soul
-            .as_ref()
-            .and_then(|s| s.frontmatter.model.as_deref())
-            .unwrap_or("(default)");
+        let model = self.agent_config.model.as_deref().unwrap_or("(default)");
 
         let name = state
             .soul
@@ -49,8 +50,11 @@ impl ServerCommand for StatusCommand {
             .and_then(|s| s.frontmatter.name.as_deref())
             .unwrap_or("(unnamed)");
 
+        let workspace_name = self.workspace_registry.default_name();
+        let workspaces = self.workspace_registry.list_names().join(", ");
+
         let text = format!(
-            "Session status:\n  Session ID: {}\n  Channel: {}\n  User: {}\n  Agent: {name}\n  Model: {model}",
+            "Session status:\n  Session ID: {}\n  Channel: {}\n  User: {}\n  Agent: {name}\n  Model: {model}\n  Workspace: {workspace_name}\n  Available workspaces: {workspaces}",
             session.id, session.channel, session.user_id
         );
 

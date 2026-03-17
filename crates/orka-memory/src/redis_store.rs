@@ -113,10 +113,10 @@ impl MemoryStore for RedisMemoryStore {
                     .get(&key)
                     .await
                     .map_err(|e| Error::memory(format!("redis GET error: {e}")))?;
-                if let Some(json) = value {
-                    if let Ok(entry) = serde_json::from_str::<MemoryEntry>(&json) {
-                        results.push(entry);
-                    }
+                if let Some(json) = value
+                    && let Ok(entry) = serde_json::from_str::<MemoryEntry>(&json)
+                {
+                    results.push(entry);
                 }
             }
 
@@ -148,14 +148,12 @@ impl MemoryStore for RedisMemoryStore {
                         .get(&key)
                         .await
                         .map_err(|e| Error::memory(format!("redis GET error: {e}")))?;
-                    if let Some(json) = value {
-                        if let Ok(entry) = serde_json::from_str::<MemoryEntry>(&json) {
-                            if entry.tags.iter().any(|t| t.contains(query))
-                                && !results.iter().any(|r: &MemoryEntry| r.key == entry.key)
-                            {
-                                results.push(entry);
-                            }
-                        }
+                    if let Some(json) = value
+                        && let Ok(entry) = serde_json::from_str::<MemoryEntry>(&json)
+                        && entry.tags.iter().any(|t| t.contains(query))
+                        && !results.iter().any(|r: &MemoryEntry| r.key == entry.key)
+                    {
+                        results.push(entry);
                     }
                 }
 
@@ -196,10 +194,10 @@ impl MemoryStore for RedisMemoryStore {
                     .get(&key)
                     .await
                     .map_err(|e| Error::memory(format!("redis GET error: {e}")))?;
-                if let Some(json) = value {
-                    if let Ok(entry) = serde_json::from_str::<MemoryEntry>(&json) {
-                        entries.push((key, entry.updated_at));
-                    }
+                if let Some(json) = value
+                    && let Ok(entry) = serde_json::from_str::<MemoryEntry>(&json)
+                {
+                    entries.push((key, entry.updated_at));
                 }
             }
 

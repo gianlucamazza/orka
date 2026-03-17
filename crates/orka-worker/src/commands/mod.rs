@@ -7,11 +7,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use orka_core::config::AgentConfig;
 use orka_core::traits::{MemoryStore, SecretManager};
 use orka_core::{Envelope, OutboundMessage, Result, Session};
 use orka_skills::SkillRegistry;
-use orka_workspace::state::WorkspaceState;
-use tokio::sync::RwLock;
+use orka_workspace::WorkspaceRegistry;
 
 #[async_trait]
 pub trait ServerCommand: Send + Sync {
@@ -76,10 +76,14 @@ pub fn register_all(
     skills: Arc<SkillRegistry>,
     memory: Arc<dyn MemoryStore>,
     secrets: Arc<dyn SecretManager>,
-    workspace_state: Arc<RwLock<WorkspaceState>>,
+    workspace_registry: Arc<WorkspaceRegistry>,
+    agent_config: &AgentConfig,
 ) {
     registry.register(Arc::new(skill::SkillCommand::new(skills.clone(), secrets)));
     registry.register(Arc::new(skills::SkillsCommand::new(skills)));
     registry.register(Arc::new(reset::ResetCommand::new(memory)));
-    registry.register(Arc::new(status::StatusCommand::new(workspace_state)));
+    registry.register(Arc::new(status::StatusCommand::new(
+        workspace_registry,
+        agent_config.clone(),
+    )));
 }

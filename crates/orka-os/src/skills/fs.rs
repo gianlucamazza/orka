@@ -251,13 +251,12 @@ async fn list_dir(
             continue;
         }
 
-        if let Some(pat) = pattern {
-            if !glob::Pattern::new(pat)
+        if let Some(pat) = pattern
+            && !glob::Pattern::new(pat)
                 .map(|p| p.matches(&name))
                 .unwrap_or(true)
-            {
-                continue;
-            }
+        {
+            continue;
         }
 
         let metadata = entry.metadata().await.ok();
@@ -645,12 +644,10 @@ impl Skill for FsWriteSkill {
         let path = Path::new(path_str);
         let canonical = self.guard.check_write_path(path)?;
 
-        if create_dirs {
-            if let Some(parent) = canonical.parent() {
-                tokio::fs::create_dir_all(parent)
-                    .await
-                    .map_err(|e| Error::Skill(format!("cannot create directories: {}", e)))?;
-            }
+        if create_dirs && let Some(parent) = canonical.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| Error::Skill(format!("cannot create directories: {}", e)))?;
         }
 
         let bytes_written = content.len();

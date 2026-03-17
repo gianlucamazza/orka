@@ -89,10 +89,10 @@ impl RedisScheduleStore {
                 orka_core::Error::Scheduler(format!("failed to get schedule data: {e}"))
             })?;
 
-            if let Some(data) = data {
-                if let Ok(schedule) = serde_json::from_str::<Schedule>(&data) {
-                    schedules.push(schedule);
-                }
+            if let Some(data) = data
+                && let Ok(schedule) = serde_json::from_str::<Schedule>(&data)
+            {
+                schedules.push(schedule);
             }
         }
 
@@ -117,12 +117,11 @@ impl RedisScheduleStore {
                 orka_core::Error::Scheduler(format!("failed to get schedule data: {e}"))
             })?;
 
-            if let Some(data) = data {
-                if let Ok(schedule) = serde_json::from_str::<Schedule>(&data) {
-                    if include_completed || !schedule.completed {
-                        schedules.push(schedule);
-                    }
-                }
+            if let Some(data) = data
+                && let Ok(schedule) = serde_json::from_str::<Schedule>(&data)
+                && (include_completed || !schedule.completed)
+            {
+                schedules.push(schedule);
             }
         }
 

@@ -1,5 +1,8 @@
 mod env_watcher;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::collections::HashMap;
 use std::future::IntoFuture;
 use std::sync::Arc;
@@ -14,8 +17,8 @@ use orka_gateway::Gateway;
 use orka_llm::SwappableLlmClient;
 use orka_queue::create_queue;
 use orka_session::create_session_store;
-use orka_worker::{CommandRegistry, WorkerPool, WorkspaceHandler};
-use orka_workspace::WorkspaceLoader;
+use orka_worker::{CommandRegistry, WorkerPool, WorkspaceHandler, WorkspaceHandlerConfig};
+use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tower_http::limit::RequestBodyLimitLayer;
@@ -86,10 +89,14 @@ async fn security_headers(
 
 /// Start an adapter: create inbound bridge (adapter sink → bus "inbound")
 /// and return the adapter Arc.
+///
+/// If `workspace_name` is provided, it's injected as `workspace:name` metadata
+/// on every inbound envelope so the worker can resolve the correct workspace.
 async fn start_adapter(
     adapter: Arc<dyn ChannelAdapter>,
     bus: Arc<dyn orka_core::traits::MessageBus>,
     shutdown: CancellationToken,
+    workspace_name: Option<String>,
 ) -> anyhow::Result<()> {
     let (sink_tx, mut sink_rx) = mpsc::channel::<Envelope>(256);
     adapter.start(sink_tx).await?;
@@ -102,7 +109,11 @@ async fn start_adapter(
                 _ = cancel.cancelled() => break,
                 msg = sink_rx.recv() => {
                     match msg {
-                        Some(envelope) => {
+                        Some(mut envelope) => {
+                            if let Some(ref ws) = workspace_name {
+                                envelope.metadata.entry("workspace:name".to_string())
+                                    .or_insert_with(|| serde_json::json!(ws));
+                            }
                             if let Err(e) = bus_for_bridge.publish("inbound", &envelope).await {
                                 error!(%e, "failed to publish inbound envelope to bus");
                             }
@@ -473,7 +484,9 @@ async fn main() -> anyhow::Result<()> {
     if llm_client.is_some() {
         info!("LLM client ready");
     } else {
-        error!("no LLM providers initialized — set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable AI responses");
+        error!(
+            "no LLM providers initialized — set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable AI responses"
+        );
     }
 
     // Start env file watcher for API key hot-reload
@@ -490,45 +503,67 @@ async fn main() -> anyhow::Result<()> {
         info!("guardrails enabled");
     }
 
-    // 5. Load workspace
-    let workspace = Arc::new(WorkspaceLoader::new(&config.workspace_dir));
-    workspace.load_all().await?;
-    info!("workspace loaded");
+    // 5. Load workspace(s) into registry
+    let workspace_registry = if config.workspaces.is_empty() {
+        // Backward-compatible: single workspace from workspace_dir
+        let loader = Arc::new(WorkspaceLoader::new(&config.workspace_dir));
+        loader.load_all().await?;
+        let mut reg = WorkspaceRegistry::new("default".into());
+        reg.register("default".into(), loader);
+        info!("workspace loaded (single, default)");
+        reg
+    } else {
+        let default_name = config
+            .default_workspace
+            .clone()
+            .unwrap_or_else(|| config.workspaces[0].name.clone());
+        let mut reg = WorkspaceRegistry::new(default_name);
+        for entry in &config.workspaces {
+            let loader = Arc::new(WorkspaceLoader::new(&entry.dir));
+            loader.load_all().await?;
+            info!(workspace = %entry.name, dir = %entry.dir, "workspace loaded");
+            reg.register(entry.name.clone(), loader);
+        }
+        reg
+    };
+    let workspace_registry = Arc::new(workspace_registry);
 
-    // 5a. Start workspace watcher
-    let _watcher = orka_workspace::WorkspaceWatcher::start(workspace.clone())?;
-    info!("workspace watcher started");
+    // 5a. Start workspace watchers for all registered workspaces
+    let mut _watchers = Vec::new();
+    for ws_name in workspace_registry.list_names() {
+        if let Some(loader) = workspace_registry.get(ws_name) {
+            match orka_workspace::WorkspaceWatcher::start(loader.clone()) {
+                Ok(w) => _watchers.push(w),
+                Err(e) => warn!(workspace = %ws_name, %e, "failed to start workspace watcher"),
+            }
+        }
+    }
+    info!("workspace watchers started");
 
     // Shutdown token (created early so heartbeat can use it)
     let shutdown = CancellationToken::new();
 
-    // 5b. Heartbeat task (if configured in workspace)
-    {
-        let ws_state = workspace.state();
-        let ws = ws_state.read().await;
-        if let Some(ref hb_doc) = ws.heartbeat {
-            let interval_secs = hb_doc.frontmatter.interval_secs;
-            let event_sink_hb = event_sink.clone();
-            let hb_shutdown = shutdown.clone();
-            tokio::spawn(async move {
-                let mut interval =
-                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-                loop {
-                    tokio::select! {
-                        _ = hb_shutdown.cancelled() => break,
-                        _ = interval.tick() => {
-                            event_sink_hb.emit(orka_core::DomainEvent {
-                                id: orka_core::EventId::new(),
-                                timestamp: chrono::Utc::now(),
-                                kind: orka_core::DomainEventKind::Heartbeat,
-                                metadata: Default::default(),
-                            }).await;
-                        }
+    // 5b. Heartbeat task (if configured)
+    if let Some(interval_secs) = config.agent.heartbeat_interval_secs {
+        let event_sink_hb = event_sink.clone();
+        let hb_shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            loop {
+                tokio::select! {
+                    _ = hb_shutdown.cancelled() => break,
+                    _ = interval.tick() => {
+                        event_sink_hb.emit(orka_core::DomainEvent {
+                            id: orka_core::EventId::new(),
+                            timestamp: chrono::Utc::now(),
+                            kind: orka_core::DomainEventKind::Heartbeat,
+                            metadata: Default::default(),
+                        }).await;
                     }
                 }
-            });
-            info!(interval_secs, "heartbeat task started");
-        }
+            }
+        });
+        info!(interval_secs, "heartbeat task started");
     }
 
     // 5c. Auth
@@ -543,14 +578,31 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // Stream registry (shared between worker handler and custom adapter)
+    let stream_registry = orka_core::StreamRegistry::new();
+
     // 6. Create + start adapters
     let mut adapters: Vec<Arc<dyn ChannelAdapter>> = Vec::new();
 
     // 6a. Custom adapter (always started)
     let adapter_config = config.adapters.custom.clone().unwrap_or_default();
-    let custom_adapter: Arc<dyn ChannelAdapter> =
-        Arc::new(CustomAdapter::new(adapter_config, auth_layer));
-    start_adapter(custom_adapter.clone(), bus.clone(), shutdown.clone()).await?;
+    let custom_adapter: Arc<dyn ChannelAdapter> = Arc::new(CustomAdapter::new(
+        adapter_config,
+        auth_layer,
+        stream_registry.clone(),
+    ));
+    let custom_ws = config
+        .adapters
+        .custom
+        .as_ref()
+        .and_then(|c| c.workspace.clone());
+    start_adapter(
+        custom_adapter.clone(),
+        bus.clone(),
+        shutdown.clone(),
+        custom_ws,
+    )
+    .await?;
     adapters.push(custom_adapter);
     info!("custom adapter started");
 
@@ -566,7 +618,13 @@ async fn main() -> anyhow::Result<()> {
                 if !token.is_empty() {
                     let tg: Arc<dyn ChannelAdapter> =
                         Arc::new(orka_adapter_telegram::TelegramAdapter::new(token));
-                    start_adapter(tg.clone(), bus.clone(), shutdown.clone()).await?;
+                    start_adapter(
+                        tg.clone(),
+                        bus.clone(),
+                        shutdown.clone(),
+                        tg_config.workspace.clone(),
+                    )
+                    .await?;
                     adapters.push(tg);
                     info!("telegram adapter started");
                 } else {
@@ -589,7 +647,13 @@ async fn main() -> anyhow::Result<()> {
                 if !token.is_empty() {
                     let dc: Arc<dyn ChannelAdapter> =
                         Arc::new(orka_adapter_discord::DiscordAdapter::new(token));
-                    start_adapter(dc.clone(), bus.clone(), shutdown.clone()).await?;
+                    start_adapter(
+                        dc.clone(),
+                        bus.clone(),
+                        shutdown.clone(),
+                        dc_config.workspace.clone(),
+                    )
+                    .await?;
                     adapters.push(dc);
                     info!("discord adapter started");
                 } else {
@@ -613,7 +677,13 @@ async fn main() -> anyhow::Result<()> {
                     let slack: Arc<dyn ChannelAdapter> = Arc::new(
                         orka_adapter_slack::SlackAdapter::new(token, slack_config.listen_port),
                     );
-                    start_adapter(slack.clone(), bus.clone(), shutdown.clone()).await?;
+                    start_adapter(
+                        slack.clone(),
+                        bus.clone(),
+                        shutdown.clone(),
+                        slack_config.workspace.clone(),
+                    )
+                    .await?;
                     adapters.push(slack);
                     info!(port = slack_config.listen_port, "slack adapter started");
                 } else {
@@ -651,7 +721,13 @@ async fn main() -> anyhow::Result<()> {
                             verify_token,
                             wa_config.listen_port,
                         ));
-                    start_adapter(wa.clone(), bus.clone(), shutdown.clone()).await?;
+                    start_adapter(
+                        wa.clone(),
+                        bus.clone(),
+                        shutdown.clone(),
+                        wa_config.workspace.clone(),
+                    )
+                    .await?;
                     adapters.push(wa);
                     info!(port = wa_config.listen_port, "whatsapp adapter started");
                 } else {
@@ -851,7 +927,7 @@ async fn main() -> anyhow::Result<()> {
                                 return axum::response::IntoResponse::into_response((
                                     axum::http::StatusCode::BAD_REQUEST,
                                     "invalid message ID",
-                                ))
+                                ));
                             }
                         };
                         match q.replay_dlq(&msg_id).await {
@@ -930,7 +1006,7 @@ async fn main() -> anyhow::Result<()> {
         bus.clone(),
         sessions.clone(),
         queue.clone(),
-        workspace.clone(),
+        workspace_registry.default_loader().clone(),
         event_sink.clone(),
         Some(&config.redis.url),
         config.gateway.rate_limit,
@@ -950,20 +1026,29 @@ async fn main() -> anyhow::Result<()> {
         skills.clone(),
         memory.clone(),
         secrets.clone(),
-        workspace.state(),
+        workspace_registry.clone(),
+        &config.agent,
     );
     let commands = Arc::new(commands);
 
+    let disabled_tools: std::collections::HashSet<String> =
+        config.tools.disabled.iter().cloned().collect();
+
     let handler: Arc<dyn orka_worker::AgentHandler> = Arc::new(WorkspaceHandler::new(
-        workspace.state(),
+        workspace_registry.clone(),
         skills.clone(),
         memory,
         secrets,
         llm_client,
         event_sink.clone(),
-        config.llm.context_window_tokens,
+        WorkspaceHandlerConfig {
+            agent_config: config.agent.clone(),
+            disabled_tools,
+            default_context_window: config.llm.context_window_tokens,
+        },
         guardrail,
         commands,
+        stream_registry.clone(),
     ));
     let worker_pool = WorkerPool::new(
         queue.clone(),

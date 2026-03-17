@@ -12,6 +12,7 @@ pub use client::{
     ContentBlockInput, LlmClient, LlmStream, LlmToolStream, StopReason, StreamEvent, ToolCall,
     ToolDefinition, ToolResult, Usage,
 };
+pub use context::TokenizerHint;
 pub use ollama::OllamaClient;
 pub use openai::OpenAiClient;
 pub use router::LlmRouter;

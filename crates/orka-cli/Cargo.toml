@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { workspace = true, features = ["env"] }
+clap_complete.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -21,7 +22,19 @@ orka-core = { workspace = true, features = ["test-util"] }
 orka-mcp.workspace = true
 orka-secrets.workspace = true
 orka-skills.workspace = true
+toml_edit = { workspace = true }
+similar = { workspace = true }
 colored = "3"
+dirs = "6"
+rustyline = "15"
+indicatif = "0.17"
 tokio-tungstenite = "0.26"
 futures-util = "0.3"
 uuid.workspace = true
+termimad = "0.30"
+syntect = { version = "5", default-features = false, features = [
+  "default-fancy",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true

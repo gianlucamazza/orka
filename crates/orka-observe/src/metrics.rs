@@ -58,6 +58,7 @@ pub fn record_event(event: &DomainEvent) {
             input_tokens,
             output_tokens,
             duration_ms,
+            estimated_cost_usd,
             ..
         } => {
             counter!("orka_llm_completions_total", "model" => model.clone()).increment(1);
@@ -67,9 +68,42 @@ pub fn record_event(event: &DomainEvent) {
                 .increment(*output_tokens as u64);
             histogram!("orka_llm_duration_seconds", "model" => model.clone())
                 .record(*duration_ms as f64 / 1000.0);
+            if let Some(cost) = estimated_cost_usd {
+                counter!("orka_llm_cost_dollars_total", "model" => model.clone())
+                    .increment((*cost * 1_000_000.0) as u64);
+            }
         }
         DomainEventKind::ErrorOccurred { source, .. } => {
             counter!("orka_errors_total", "source" => source.clone()).increment(1);
+        }
+        DomainEventKind::AgentReasoning { .. } => {
+            counter!("orka_agent_reasoning_total").increment(1);
+        }
+        DomainEventKind::AgentIteration {
+            tool_count,
+            tokens_used,
+            elapsed_ms,
+            ..
+        } => {
+            counter!("orka_agent_iterations_total").increment(1);
+            counter!("orka_agent_iteration_tools_total").increment(*tool_count as u64);
+            counter!("orka_agent_iteration_tokens_total").increment(*tokens_used);
+            histogram!("orka_agent_iteration_duration_seconds").record(*elapsed_ms as f64 / 1000.0);
+        }
+        DomainEventKind::PrivilegedCommandExecuted {
+            command,
+            success,
+            duration_ms,
+            ..
+        } => {
+            let status = if *success { "ok" } else { "error" };
+            counter!("orka_privileged_commands_total", "command" => command.clone(), "status" => status).increment(1);
+            histogram!("orka_privileged_command_duration_seconds", "command" => command.clone())
+                .record(*duration_ms as f64 / 1000.0);
+        }
+        DomainEventKind::PrivilegedCommandDenied { command, .. } => {
+            counter!("orka_privileged_commands_denied_total", "command" => command.clone())
+                .increment(1);
         }
         DomainEventKind::Heartbeat => {
             counter!("orka_heartbeats_total").increment(1);
@@ -137,10 +171,41 @@ mod tests {
                 input_tokens: 500,
                 output_tokens: 200,
                 duration_ms: 1200,
+                estimated_cost_usd: Some(0.01),
             },
             DomainEventKind::ErrorOccurred {
                 source: "adapter".into(),
                 message: "connection lost".into(),
+            },
+            DomainEventKind::AgentReasoning {
+                message_id: mid.clone(),
+                iteration: 1,
+                reasoning_text: "Thinking...".into(),
+            },
+            DomainEventKind::AgentIteration {
+                message_id: mid.clone(),
+                iteration: 1,
+                tool_count: 3,
+                tokens_used: 1000,
+                elapsed_ms: 2000,
+            },
+            DomainEventKind::PrivilegedCommandExecuted {
+                message_id: mid.clone(),
+                session_id: sid.clone(),
+                command: "systemctl".into(),
+                args: vec!["restart".into(), "nginx".into()],
+                approval_id: None,
+                approved_by: None,
+                exit_code: Some(0),
+                success: true,
+                duration_ms: 100,
+            },
+            DomainEventKind::PrivilegedCommandDenied {
+                message_id: mid.clone(),
+                session_id: sid.clone(),
+                command: "rm".into(),
+                args: vec!["-rf".into()],
+                reason: "blocked".into(),
             },
             DomainEventKind::Heartbeat,
         ]
@@ -179,6 +244,7 @@ mod tests {
                 input_tokens: 0,
                 output_tokens: 0,
                 duration_ms: 0,
+                estimated_cost_usd: None,
             },
         ];
 

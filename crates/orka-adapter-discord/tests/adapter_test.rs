@@ -14,24 +14,32 @@ fn channel_id_returns_discord() {
 /// Same channel_id string maps to the same SessionId; different strings differ.
 #[tokio::test]
 async fn session_map_consistency() {
-    let sessions: Arc<Mutex<HashMap<String, SessionId>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let sessions: Arc<Mutex<HashMap<String, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let sid1 = {
         let mut s = sessions.lock().await;
-        s.entry("ch-abc".into()).or_insert_with(SessionId::new).clone()
+        s.entry("ch-abc".into())
+            .or_insert_with(SessionId::new)
+            .clone()
     };
     let sid2 = {
         let mut s = sessions.lock().await;
-        s.entry("ch-abc".into()).or_insert_with(SessionId::new).clone()
+        s.entry("ch-abc".into())
+            .or_insert_with(SessionId::new)
+            .clone()
     };
     let sid3 = {
         let mut s = sessions.lock().await;
-        s.entry("ch-xyz".into()).or_insert_with(SessionId::new).clone()
+        s.entry("ch-xyz".into())
+            .or_insert_with(SessionId::new)
+            .clone()
     };
 
     assert_eq!(sid1, sid2, "same channel_id must produce same SessionId");
-    assert_ne!(sid1, sid3, "different channel_ids must produce different SessionIds");
+    assert_ne!(
+        sid1, sid3,
+        "different channel_ids must produce different SessionIds"
+    );
 }
 
 /// Verifies Envelope creation from a Discord MESSAGE_CREATE-style payload.
@@ -41,9 +49,10 @@ async fn envelope_from_discord_message() {
 
     let session_id = SessionId::new();
     let mut envelope = Envelope::text("discord", session_id.clone(), "Hey there");
-    envelope
-        .metadata
-        .insert("discord_channel_id".to_string(), serde_json::json!("ch-abc"));
+    envelope.metadata.insert(
+        "discord_channel_id".to_string(),
+        serde_json::json!("ch-abc"),
+    );
     envelope
         .metadata
         .insert("chat_type".to_string(), serde_json::json!("group"));
@@ -54,7 +63,10 @@ async fn envelope_from_discord_message() {
         Payload::Text(t) => assert_eq!(t, "Hey there"),
         other => panic!("expected Text payload, got {other:?}"),
     }
-    assert_eq!(envelope.metadata["discord_channel_id"], serde_json::json!("ch-abc"));
+    assert_eq!(
+        envelope.metadata["discord_channel_id"],
+        serde_json::json!("ch-abc")
+    );
     assert_eq!(envelope.metadata["chat_type"], serde_json::json!("group"));
 }
 
@@ -73,7 +85,11 @@ fn chat_type_classification() {
         "author": { "bot": false }
     });
 
-    let server_type = if server_msg.get("guild_id").and_then(|v| v.as_str()).is_some() {
+    let server_type = if server_msg
+        .get("guild_id")
+        .and_then(|v| v.as_str())
+        .is_some()
+    {
         "group"
     } else {
         "direct"

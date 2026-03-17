@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use orka_core::Session;
 use orka_core::config::{GuardrailsConfig, RedactPattern};
 use orka_core::traits::{Guardrail, GuardrailDecision};
-use orka_core::Session;
-use orka_guardrails::{create_guardrail, GuardrailChain, KeywordGuardrail, RegexGuardrail};
+use orka_guardrails::{GuardrailChain, KeywordGuardrail, RegexGuardrail, create_guardrail};
 
 fn session() -> Session {
     Session::new("test", "user1")

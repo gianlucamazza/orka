@@ -78,8 +78,8 @@ dev-rebuild:
 setup:
     ./scripts/setup-dev.sh
 
-# Install orka-server and orka CLI as a systemd service (requires sudo)
-install:
+# Build release binaries, then install as systemd service (requires sudo)
+install: build-release
     sudo ./scripts/install.sh
 
 # Uninstall orka-server and orka CLI (requires sudo)
@@ -93,6 +93,53 @@ release level:
 # Dry-run a release to preview what would happen
 release-dry level:
     cargo release {{level}}
+
+# Validate config and show version
+config-check:
+    cargo run -p orka-cli -- config check
+
+# Migrate config to current version (dry-run)
+config-migrate-dry:
+    cargo run -p orka-cli -- config migrate --dry-run
+
+# Migrate config to current version
+config-migrate:
+    cargo run -p orka-cli -- config migrate
+
+# Generate PNG icons from SVG (requires librsvg)
+icons:
+    #!/usr/bin/env bash
+    for size in 16 24 32 48 64 128 256 512; do
+        mkdir -p assets/icons/hicolor/${size}x${size}/apps
+        rsvg-convert -w $size -h $size assets/icons/orka.svg \
+            -o assets/icons/hicolor/${size}x${size}/apps/orka.png
+    done
+    mkdir -p assets/icons/hicolor/scalable/apps
+    cp assets/icons/orka.svg assets/icons/hicolor/scalable/apps/orka.svg
+
+# Install icons and desktop entries to ~/.local/share (user-local)
+install-desktop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ICON_DIR="$HOME/.local/share/icons/hicolor"
+    DESKTOP_DIR="$HOME/.local/share/applications"
+    for size_dir in assets/icons/hicolor/*/; do
+        size=$(basename "$size_dir")
+        [ -f "$size_dir/apps/orka.png" ] && \
+            install -Dm644 "$size_dir/apps/orka.png" "${ICON_DIR}/${size}/apps/orka.png"
+    done
+    install -Dm644 assets/icons/hicolor/scalable/apps/orka.svg "${ICON_DIR}/scalable/apps/orka.svg"
+    install -Dm644 assets/desktop/orka.desktop "${DESKTOP_DIR}/orka.desktop"
+    install -Dm644 assets/desktop/orka-server.desktop "${DESKTOP_DIR}/orka-server.desktop"
+    gtk-update-icon-cache -f -t "${ICON_DIR}" 2>/dev/null || true
+    echo "Desktop entries and icons installed to ~/.local/share/"
+
+# Generate sudoers NOPASSWD file for configured commands (does NOT install it)
+setup-sudoers:
+    cargo run -p orka-cli -- sudo check
+    @echo ""
+    @echo "Sudoers template: deploy/orka.sudoers"
+    @echo "To install: sudo install -m 0440 deploy/orka.sudoers /etc/sudoers.d/orka"
 
 # Regenerate CHANGELOG.md from git history
 changelog:
