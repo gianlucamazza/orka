@@ -15,7 +15,7 @@ async fn worker_pool_echo_handler() {
 
     // Create a session and a matching envelope
     let session = Session::new("test-channel", "user1");
-    let session_id = session.id.clone();
+    let session_id = session.id;
     sessions.put(&session).await.unwrap();
 
     let envelope = Envelope::text("test-channel", session_id, "hello world");

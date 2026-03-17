@@ -1,9 +1,10 @@
 use async_trait::async_trait;
 use orka_core::{Envelope, OutboundMessage, Payload, Result, Session};
-use std::collections::HashMap;
 
+/// Handler that processes an inbound envelope and produces outbound messages.
 #[async_trait]
 pub trait AgentHandler: Send + Sync + 'static {
+    /// Process an envelope within a session, returning zero or more replies.
     async fn handle(&self, envelope: &Envelope, session: &Session) -> Result<Vec<OutboundMessage>>;
 }
 
@@ -22,12 +23,11 @@ impl AgentHandler for EchoHandler {
             _ => "echo: [non-text payload]".into(),
         };
 
-        Ok(vec![OutboundMessage {
-            channel: envelope.channel.clone(),
-            session_id: envelope.session_id.clone(),
-            payload: Payload::Text(reply_text),
-            reply_to: Some(envelope.id.clone()),
-            metadata: HashMap::new(),
-        }])
+        Ok(vec![OutboundMessage::text(
+            envelope.channel.clone(),
+            envelope.session_id,
+            reply_text,
+            Some(envelope.id),
+        )])
     }
 }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::config::AgentConfig;
-use orka_core::{Envelope, OutboundMessage, Payload, Result, Session};
+use orka_core::{Envelope, OutboundMessage, Result, Session};
 use orka_workspace::WorkspaceRegistry;
 
 use super::ServerCommand;
@@ -58,12 +58,13 @@ impl ServerCommand for StatusCommand {
             session.id, session.channel, session.user_id
         );
 
-        Ok(vec![OutboundMessage {
-            channel: envelope.channel.clone(),
-            session_id: envelope.session_id.clone(),
-            payload: Payload::Text(text),
-            reply_to: Some(envelope.id.clone()),
-            metadata: envelope.metadata.clone(),
-        }])
+        let mut msg = OutboundMessage::text(
+            envelope.channel.clone(),
+            envelope.session_id,
+            text,
+            Some(envelope.id),
+        );
+        msg.metadata = envelope.metadata.clone();
+        Ok(vec![msg])
     }
 }

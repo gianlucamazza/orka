@@ -93,6 +93,7 @@ async fn make_handler(llm: Option<Arc<dyn LlmClient>>) -> WorkspaceHandler {
         None,
         Arc::new(CommandRegistry::new()),
         StreamRegistry::new(),
+        None,
     )
 }
 
@@ -102,7 +103,7 @@ async fn llm_responds_with_reply() {
     let handler = make_handler(Some(llm)).await;
 
     let session = Session::new("custom", "user1");
-    let envelope = Envelope::text("custom", session.id.clone(), "hi");
+    let envelope = Envelope::text("custom", session.id, "hi");
 
     let replies = handler.handle(&envelope, &session).await.unwrap();
     assert_eq!(replies.len(), 1);
@@ -118,7 +119,7 @@ async fn llm_failure_falls_back_to_echo() {
     let handler = make_handler(Some(llm)).await;
 
     let session = Session::new("custom", "user1");
-    let envelope = Envelope::text("custom", session.id.clone(), "hi");
+    let envelope = Envelope::text("custom", session.id, "hi");
 
     let replies = handler.handle(&envelope, &session).await.unwrap();
     assert_eq!(replies.len(), 1);
@@ -154,11 +155,12 @@ async fn multi_turn_conversation_saves_history() {
         None,
         Arc::new(CommandRegistry::new()),
         StreamRegistry::new(),
+        None,
     );
 
     let session = Session::new("custom", "user1");
-    let env1 = Envelope::text("custom", session.id.clone(), "first message");
-    let env2 = Envelope::text("custom", session.id.clone(), "second message");
+    let env1 = Envelope::text("custom", session.id, "first message");
+    let env2 = Envelope::text("custom", session.id, "second message");
 
     // First turn
     handler.handle(&env1, &session).await.unwrap();

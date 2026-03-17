@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::SecretManager;
-use orka_core::{Envelope, OutboundMessage, Payload, Result, Session, SkillContext, SkillInput};
+use orka_core::{Envelope, OutboundMessage, Result, Session, SkillContext, SkillInput};
 use orka_skills::SkillRegistry;
 
 use super::ServerCommand;
@@ -19,13 +19,14 @@ impl SkillCommand {
     }
 
     fn make_reply(&self, envelope: &Envelope, text: String) -> OutboundMessage {
-        OutboundMessage {
-            channel: envelope.channel.clone(),
-            session_id: envelope.session_id.clone(),
-            payload: Payload::Text(text),
-            reply_to: Some(envelope.id.clone()),
-            metadata: envelope.metadata.clone(),
-        }
+        let mut msg = OutboundMessage::text(
+            envelope.channel.clone(),
+            envelope.session_id,
+            text,
+            Some(envelope.id),
+        );
+        msg.metadata = envelope.metadata.clone();
+        msg
     }
 }
 
@@ -72,13 +73,8 @@ impl ServerCommand for SkillCommand {
             }
         }
 
-        let input = SkillInput {
-            args: skill_args,
-            context: Some(SkillContext {
-                secrets: self.secrets.clone(),
-                event_sink: None,
-            }),
-        };
+        let input =
+            SkillInput::new(skill_args).with_context(SkillContext::new(self.secrets.clone(), None));
 
         match self.skills.invoke(skill_name, input).await {
             Ok(output) => {

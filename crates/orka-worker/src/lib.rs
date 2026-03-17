@@ -1,6 +1,18 @@
+//! Worker pool that consumes messages from the priority queue and dispatches to handlers.
+//!
+//! - [`WorkerPool`] — concurrent worker loop with retry and dead-letter queue support
+//! - [`AgentHandler`] — trait for message handling implementations
+//! - [`WorkspaceHandler`] — LLM-powered handler with skill execution and tool loops
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 pub mod commands;
+#[allow(missing_docs)]
 pub mod handler;
+#[allow(missing_docs)]
 pub mod stream;
+#[allow(missing_docs)]
 pub mod workspace_handler;
 
 // re-exports
@@ -14,10 +26,11 @@ use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
 use orka_core::traits::{EventSink, MessageBus, PriorityQueue, SessionStore};
-use orka_core::{DomainEvent, DomainEventKind, Envelope, EventId, Payload, Priority, Session};
+use orka_core::{DomainEvent, DomainEventKind, Envelope, Payload, Priority, Session};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
+/// Concurrent worker pool that pops envelopes from a priority queue and dispatches them.
 pub struct WorkerPool {
     queue: Arc<dyn PriorityQueue>,
     sessions: Arc<dyn SessionStore>,
@@ -30,6 +43,7 @@ pub struct WorkerPool {
 }
 
 impl WorkerPool {
+    /// Create a new pool with the given concurrency level and retry policy.
     pub fn new(
         queue: Arc<dyn PriorityQueue>,
         sessions: Arc<dyn SessionStore>,
@@ -58,6 +72,7 @@ impl WorkerPool {
         self
     }
 
+    /// Start workers and process messages until `shutdown` is signalled.
     pub async fn run(&self, shutdown: CancellationToken) -> orka_core::Result<()> {
         info!(concurrency = self.concurrency, "worker pool starting");
         let mut handles = Vec::new();
@@ -97,15 +112,12 @@ impl WorkerPool {
                                     };
 
                                     // Emit HandlerInvoked
-                                    event_sink.emit(DomainEvent {
-                                        id: EventId::new(),
-                                        timestamp: Utc::now(),
-                                        kind: DomainEventKind::HandlerInvoked {
-                                            message_id: envelope.id.clone(),
-                                            session_id: envelope.session_id.clone(),
+                                    event_sink.emit(DomainEvent::new(
+                                        DomainEventKind::HandlerInvoked {
+                                            message_id: envelope.id,
+                                            session_id: envelope.session_id,
                                         },
-                                        metadata: Default::default(),
-                                    }).await;
+                                    )).await;
 
                                     let start = std::time::Instant::now();
 
@@ -119,7 +131,7 @@ impl WorkerPool {
                                                 // Wrap outbound as envelope for bus
                                                 let mut out_env = Envelope::text(
                                                     &msg.channel,
-                                                    msg.session_id.clone(),
+                                                    msg.session_id,
                                                     match &msg.payload {
                                                         Payload::Text(t) => t.clone(),
                                                         _ => "[non-text]".into(),
@@ -133,31 +145,25 @@ impl WorkerPool {
                                             }
 
                                             // Emit HandlerCompleted
-                                            event_sink.emit(DomainEvent {
-                                                id: EventId::new(),
-                                                timestamp: Utc::now(),
-                                                kind: DomainEventKind::HandlerCompleted {
-                                                    message_id: envelope.id.clone(),
-                                                    session_id: envelope.session_id.clone(),
+                                            event_sink.emit(DomainEvent::new(
+                                                DomainEventKind::HandlerCompleted {
+                                                    message_id: envelope.id,
+                                                    session_id: envelope.session_id,
                                                     duration_ms,
                                                     reply_count,
                                                 },
-                                                metadata: Default::default(),
-                                            }).await;
+                                            )).await;
 
                                             info!(worker = i, message_id = %envelope.id, "processed message");
                                         }
                                         Err(e) => {
                                             // Emit ErrorOccurred
-                                            event_sink.emit(DomainEvent {
-                                                id: EventId::new(),
-                                                timestamp: Utc::now(),
-                                                kind: DomainEventKind::ErrorOccurred {
+                                            event_sink.emit(DomainEvent::new(
+                                                DomainEventKind::ErrorOccurred {
                                                     source: "handler".into(),
                                                     message: e.to_string(),
                                                 },
-                                                metadata: Default::default(),
-                                            }).await;
+                                            )).await;
 
                                             let retry_count = envelope
                                                 .metadata

@@ -45,13 +45,12 @@ impl AgentHandler for FailNTimesHandler {
         if n < self.fail_count {
             Err(Error::Worker(format!("failure #{}", n + 1)))
         } else {
-            Ok(vec![OutboundMessage {
-                channel: envelope.channel.clone(),
-                session_id: envelope.session_id.clone(),
-                payload: orka_core::Payload::Text("ok".into()),
-                reply_to: Some(envelope.id.clone()),
-                metadata: Default::default(),
-            }])
+            Ok(vec![OutboundMessage::text(
+                envelope.channel.clone(),
+                envelope.session_id,
+                "ok",
+                Some(envelope.id),
+            )])
         }
     }
 }
@@ -65,7 +64,7 @@ async fn handler_ok_no_retry() {
 
     let session = Session::new("ch", "u1");
     sessions.put(&session).await.unwrap();
-    let envelope = Envelope::text("ch", session.id.clone(), "hello");
+    let envelope = Envelope::text("ch", session.id, "hello");
     queue.push(&envelope).await.unwrap();
 
     let mut outbound_rx = bus.subscribe("outbound").await.unwrap();
@@ -99,7 +98,7 @@ async fn handler_failure_retries_then_dlq() {
 
     let session = Session::new("ch", "u1");
     sessions.put(&session).await.unwrap();
-    let envelope = Envelope::text("ch", session.id.clone(), "hello");
+    let envelope = Envelope::text("ch", session.id, "hello");
     queue.push(&envelope).await.unwrap();
 
     let max_retries = 3;
@@ -140,7 +139,7 @@ async fn handler_fails_then_succeeds_with_retry() {
 
     let session = Session::new("ch", "u1");
     sessions.put(&session).await.unwrap();
-    let envelope = Envelope::text("ch", session.id.clone(), "hello");
+    let envelope = Envelope::text("ch", session.id, "hello");
     queue.push(&envelope).await.unwrap();
 
     let mut outbound_rx = bus.subscribe("outbound").await.unwrap();

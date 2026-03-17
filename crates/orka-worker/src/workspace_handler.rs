@@ -5,9 +5,11 @@ use async_trait::async_trait;
 use orka_core::config::AgentConfig;
 use orka_core::traits::{EventSink, Guardrail, MemoryStore, SecretManager};
 use orka_core::{
-    DomainEvent, DomainEventKind, Envelope, EventId, MemoryEntry, MessageId, OutboundMessage,
-    Payload, Result, Session, SessionId, SkillInput,
+    DomainEvent, DomainEventKind, Envelope, MemoryEntry, MessageId, OutboundMessage, Payload,
+    Result, Session, SessionId, SkillInput,
 };
+
+use orka_experience::ExperienceService;
 use orka_llm::client::{
     ChatContent, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
     ContentBlockInput, LlmClient, LlmToolStream, StopReason, StreamEvent, ToolCall, ToolDefinition,
@@ -122,6 +124,7 @@ pub struct WorkspaceHandlerConfig {
     pub default_context_window: u32,
 }
 
+/// LLM-powered agent handler with tool-use loops, guardrails, and experience learning.
 pub struct WorkspaceHandler {
     workspace_registry: Arc<WorkspaceRegistry>,
     skills: Arc<SkillRegistry>,
@@ -135,10 +138,12 @@ pub struct WorkspaceHandler {
     guardrail: Option<Arc<dyn Guardrail>>,
     commands: Arc<CommandRegistry>,
     stream_registry: StreamRegistry,
+    experience: Option<Arc<ExperienceService>>,
 }
 
 impl WorkspaceHandler {
     #[allow(clippy::too_many_arguments)]
+    /// Create a handler wired to the given registries and stores.
     pub fn new(
         workspace_registry: Arc<WorkspaceRegistry>,
         skills: Arc<SkillRegistry>,
@@ -150,6 +155,7 @@ impl WorkspaceHandler {
         guardrail: Option<Arc<dyn Guardrail>>,
         commands: Arc<CommandRegistry>,
         stream_registry: StreamRegistry,
+        experience: Option<Arc<ExperienceService>>,
     ) -> Self {
         Self {
             workspace_registry,
@@ -164,17 +170,19 @@ impl WorkspaceHandler {
             guardrail,
             commands,
             stream_registry,
+            experience,
         }
     }
 
     fn make_reply(&self, envelope: &Envelope, text: String) -> OutboundMessage {
-        OutboundMessage {
-            channel: envelope.channel.clone(),
-            session_id: envelope.session_id.clone(),
-            payload: Payload::Text(text),
-            reply_to: Some(envelope.id.clone()),
-            metadata: envelope.metadata.clone(),
-        }
+        let mut msg = OutboundMessage::text(
+            envelope.channel.clone(),
+            envelope.session_id,
+            text,
+            Some(envelope.id),
+        );
+        msg.metadata = envelope.metadata.clone();
+        msg
     }
 
     /// Build LLM tool definitions from skill registry, excluding disabled tools.
@@ -186,29 +194,29 @@ impl WorkspaceHandler {
             .iter()
             .filter(|name| !self.disabled_tools.contains(**name))
             .filter_map(|name| self.skills.get(name))
-            .map(|skill| ToolDefinition {
-                name: skill.name().to_string(),
-                description: skill.description().to_string(),
-                input_schema: skill.schema().parameters.clone(),
+            .map(|skill| {
+                ToolDefinition::new(
+                    skill.name(),
+                    skill.description(),
+                    skill.schema().parameters.clone(),
+                )
             })
             .collect();
 
         // Built-in workspace tools
-        defs.push(ToolDefinition {
-            name: "workspace_info".to_string(),
-            description:
-                "Get information about the current workspace and list all available workspaces."
-                    .to_string(),
-            input_schema: serde_json::json!({
+        defs.push(ToolDefinition::new(
+            "workspace_info",
+            "Get information about the current workspace and list all available workspaces.",
+            serde_json::json!({
                 "type": "object",
                 "properties": {},
                 "required": []
             }),
-        });
-        defs.push(ToolDefinition {
-            name: "workspace_switch".to_string(),
-            description: "Switch to a different workspace by name. Changes the active persona and tools for this session.".to_string(),
-            input_schema: serde_json::json!({
+        ));
+        defs.push(ToolDefinition::new(
+            "workspace_switch",
+            "Switch to a different workspace by name. Changes the active persona and tools for this session.",
+            serde_json::json!({
                 "type": "object",
                 "properties": {
                     "name": {
@@ -218,7 +226,7 @@ impl WorkspaceHandler {
                 },
                 "required": ["name"]
             }),
-        });
+        ));
 
         defs
     }
@@ -232,6 +240,7 @@ impl WorkspaceHandler {
         timezone: Option<&str>,
         workspace_name: &str,
         available_workspaces: &[&str],
+        principles_section: &str,
     ) -> String {
         let mut prompt = if soul_body.is_empty() {
             format!("You are {soul_name}.")
@@ -246,6 +255,11 @@ impl WorkspaceHandler {
         if !tools_body.is_empty() {
             prompt.push_str("\n\n");
             prompt.push_str(tools_body);
+        }
+
+        // Inject learned principles (if any)
+        if !principles_section.is_empty() {
+            prompt.push_str(principles_section);
         }
 
         // Workspace awareness
@@ -380,13 +394,7 @@ impl WorkspaceHandler {
                 }
                 let override_key = format!("workspace_override:{}", session.id);
                 let override_val = serde_json::json!({ "workspace_name": target });
-                let entry = MemoryEntry {
-                    key: override_key.clone(),
-                    value: override_val,
-                    created_at: chrono::Utc::now(),
-                    updated_at: chrono::Utc::now(),
-                    tags: Vec::new(),
-                };
+                let entry = MemoryEntry::new(override_key.clone(), override_val);
                 if let Err(e) = self.memory.store(&override_key, entry, None).await {
                     return Some((format!("Error storing workspace override: {e}"), true));
                 }
@@ -430,31 +438,24 @@ impl WorkspaceHandler {
             info!(skill = %call.name, id = %call.id, "invoking skill via tool call");
 
             self.event_sink
-                .emit(DomainEvent {
-                    id: EventId::new(),
-                    timestamp: chrono::Utc::now(),
-                    kind: DomainEventKind::SkillInvoked {
-                        skill_name: call.name.clone(),
-                        message_id: envelope.id.clone(),
-                    },
-                    metadata: HashMap::new(),
-                })
+                .emit(DomainEvent::new(DomainEventKind::SkillInvoked {
+                    skill_name: call.name.clone(),
+                    message_id: envelope.id,
+                }))
                 .await;
 
             let (category, input_summary) = tool_metadata(&call.name, &call.input);
-            self.stream_registry
-                .send(&StreamChunk {
-                    session_id: envelope.session_id.clone(),
-                    channel: envelope.channel.clone(),
-                    reply_to: Some(envelope.id.clone()),
-                    kind: StreamChunkKind::ToolExecStart {
-                        name: call.name.clone(),
-                        id: call.id.clone(),
-                        input_summary,
-                        category,
-                    },
-                })
-                .await;
+            self.stream_registry.send(StreamChunk::new(
+                envelope.session_id,
+                envelope.channel.clone(),
+                Some(envelope.id),
+                StreamChunkKind::ToolExecStart {
+                    name: call.name.clone(),
+                    id: call.id.clone(),
+                    input_summary,
+                    category,
+                },
+            ));
 
             let call_id = call.id.clone();
             let call_name = call.name.clone();
@@ -462,26 +463,23 @@ impl WorkspaceHandler {
             let call_input = call.input.clone();
             let skills = self.skills.clone();
             let event_sink = self.event_sink.clone();
-            let message_id = envelope.id.clone();
+            let message_id = envelope.id;
             let secrets = self.secrets.clone();
             let skill_timeout =
                 std::time::Duration::from_secs(self.agent_config.skill_timeout_secs);
             let max_result_chars = self.agent_config.max_tool_result_chars;
 
             join_set.spawn(async move {
-                let args: HashMap<String, serde_json::Value> = call_input
-                    .as_object()
-                    .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-                    .unwrap_or_default();
+                let args: HashMap<String, serde_json::Value> = match call_input {
+                    serde_json::Value::Object(map) => map.into_iter().collect(),
+                    _ => HashMap::new(),
+                };
 
                 let start = std::time::Instant::now();
-                let skill_input = SkillInput {
-                    args,
-                    context: Some(orka_core::SkillContext {
-                        secrets,
-                        event_sink: Some(event_sink.clone()),
-                    }),
-                };
+                let skill_input = SkillInput::new(args).with_context(orka_core::SkillContext::new(
+                    secrets,
+                    Some(event_sink.clone()),
+                ));
                 let result = match tokio::time::timeout(
                     skill_timeout,
                     skills.invoke(&call_name, skill_input),
@@ -505,17 +503,12 @@ impl WorkspaceHandler {
                 };
 
                 event_sink
-                    .emit(DomainEvent {
-                        id: EventId::new(),
-                        timestamp: chrono::Utc::now(),
-                        kind: DomainEventKind::SkillCompleted {
-                            skill_name: call_name,
-                            message_id,
-                            duration_ms,
-                            success: !is_error,
-                        },
-                        metadata: HashMap::new(),
-                    })
+                    .emit(DomainEvent::new(DomainEventKind::SkillCompleted {
+                        skill_name: call_name,
+                        message_id,
+                        duration_ms,
+                        success: !is_error,
+                    }))
                     .await;
 
                 let error_msg = if is_error {
@@ -539,20 +532,18 @@ impl WorkspaceHandler {
         let mut results_map: HashMap<String, (String, bool)> = HashMap::new();
         while let Some(res) = join_set.join_next().await {
             if let Ok((call_id, content, is_error, duration_ms, error_msg, result_summary)) = res {
-                self.stream_registry
-                    .send(&StreamChunk {
-                        session_id: envelope.session_id.clone(),
-                        channel: envelope.channel.clone(),
-                        reply_to: Some(envelope.id.clone()),
-                        kind: StreamChunkKind::ToolExecEnd {
-                            id: call_id.clone(),
-                            success: !is_error,
-                            duration_ms,
-                            error: error_msg,
-                            result_summary,
-                        },
-                    })
-                    .await;
+                self.stream_registry.send(StreamChunk::new(
+                    envelope.session_id,
+                    envelope.channel.clone(),
+                    Some(envelope.id),
+                    StreamChunkKind::ToolExecEnd {
+                        id: call_id.clone(),
+                        success: !is_error,
+                        duration_ms,
+                        error: error_msg,
+                        result_summary,
+                    },
+                ));
                 results_map.insert(call_id, (content, is_error));
             }
         }
@@ -597,13 +588,10 @@ impl WorkspaceHandler {
 
                 let summary_text =
                     Self::summarize_messages(llm, old_messages, summarization_model).await;
-                let mut condensed = vec![ChatMessageExt {
-                    role: "user".to_string(),
-                    content: ChatContent::Text(format!(
-                        "[Previous conversation summary: {}]",
-                        summary_text
-                    )),
-                }];
+                let mut condensed = vec![ChatMessageExt::text(
+                    "user",
+                    format!("[Previous conversation summary: {}]", summary_text),
+                )];
                 condensed.extend_from_slice(&messages[split_point..]);
                 condensed
             } else {
@@ -620,24 +608,14 @@ impl WorkspaceHandler {
                 return;
             }
         };
-        let entry = MemoryEntry {
-            key: memory_key.to_string(),
-            value: history_value,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            tags: vec!["conversation".to_string()],
-        };
+        let entry =
+            MemoryEntry::new(memory_key, history_value).with_tags(vec!["conversation".to_string()]);
         if let Err(e) = self.memory.store(memory_key, entry, None).await {
             warn!(%e, key = %memory_key, "failed to persist conversation history");
         }
 
-        let token_entry = MemoryEntry {
-            key: token_key.to_string(),
-            value: serde_json::json!(session_tokens),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            tags: vec!["token_usage".to_string()],
-        };
+        let token_entry = MemoryEntry::new(token_key, serde_json::json!(session_tokens))
+            .with_tags(vec!["token_usage".to_string()]);
         if let Err(e) = self.memory.store(token_key, token_entry, None).await {
             warn!(%e, key = %token_key, "failed to persist token usage");
         }
@@ -665,6 +643,9 @@ impl WorkspaceHandler {
                             ContentBlockInput::ToolResult { content, .. } => {
                                 parts.push(format!("[result: {content}]"))
                             }
+                            _ => {
+                                continue;
+                            }
                         }
                     }
                     if parts.is_empty() {
@@ -673,23 +654,24 @@ impl WorkspaceHandler {
                         parts.join(" ")
                     }
                 }
+                _ => {
+                    continue;
+                }
             };
             transcript.push_str(&format!("{}: {}\n", msg.role, text));
         }
 
-        let summary_prompt = vec![ChatMessage {
-            role: "user".to_string(),
-            content: format!(
+        let summary_prompt = vec![ChatMessage::new(
+            "user",
+            format!(
                 "Summarize the following conversation concisely, preserving key facts, decisions, and context:\n\n{}",
                 transcript
             ),
-        }];
+        )];
 
-        let options = CompletionOptions {
-            model: model.map(|s| s.to_string()),
-            max_tokens: Some(512),
-            response_format: None,
-        };
+        let mut options = CompletionOptions::default();
+        options.model = model.map(|s| s.to_string());
+        options.max_tokens = Some(512);
 
         match llm
             .complete_with_options(
@@ -730,28 +712,24 @@ impl WorkspaceHandler {
             let event = event?;
             match event {
                 StreamEvent::TextDelta(delta) => {
-                    stream_registry
-                        .send(&StreamChunk {
-                            session_id: session_id.clone(),
-                            channel: channel.to_string(),
-                            reply_to: reply_to.cloned(),
-                            kind: StreamChunkKind::Delta(delta.clone()),
-                        })
-                        .await;
+                    stream_registry.send(StreamChunk::new(
+                        *session_id,
+                        channel.to_string(),
+                        reply_to.copied(),
+                        StreamChunkKind::Delta(delta.clone()),
+                    ));
                     text.push_str(&delta);
                 }
                 StreamEvent::ToolUseStart { id, name } => {
-                    stream_registry
-                        .send(&StreamChunk {
-                            session_id: session_id.clone(),
-                            channel: channel.to_string(),
-                            reply_to: reply_to.cloned(),
-                            kind: StreamChunkKind::ToolStart {
-                                name: name.clone(),
-                                id: id.clone(),
-                            },
-                        })
-                        .await;
+                    stream_registry.send(StreamChunk::new(
+                        *session_id,
+                        channel.to_string(),
+                        reply_to.copied(),
+                        StreamChunkKind::ToolStart {
+                            name: name.clone(),
+                            id: id.clone(),
+                        },
+                    ));
                     current_tool_id = Some(id);
                     current_tool_name = Some(name);
                     current_tool_input.clear();
@@ -769,40 +747,33 @@ impl WorkspaceHandler {
                             serde_json::Value::Object(Default::default())
                         })
                     };
-                    stream_registry
-                        .send(&StreamChunk {
-                            session_id: session_id.clone(),
-                            channel: channel.to_string(),
-                            reply_to: reply_to.cloned(),
-                            kind: StreamChunkKind::ToolEnd {
-                                id: id.clone(),
-                                success: true,
-                            },
-                        })
-                        .await;
-                    tool_calls.push(ToolCall {
-                        id,
-                        name,
-                        input: final_input,
-                    });
+                    stream_registry.send(StreamChunk::new(
+                        *session_id,
+                        channel.to_string(),
+                        reply_to.copied(),
+                        StreamChunkKind::ToolEnd {
+                            id: id.clone(),
+                            success: true,
+                        },
+                    ));
+                    tool_calls.push(ToolCall::new(id, name, final_input));
                     current_tool_id = None;
                     current_tool_input.clear();
                 }
                 StreamEvent::Usage(u) => usage = u,
                 StreamEvent::Stop(reason) => stop_reason = Some(reason),
+                _ => {}
             }
         }
 
         // If we were mid-tool when the stream ended, treat it as incomplete
         if let Some(id) = current_tool_id {
-            stream_registry
-                .send(&StreamChunk {
-                    session_id: session_id.clone(),
-                    channel: channel.to_string(),
-                    reply_to: reply_to.cloned(),
-                    kind: StreamChunkKind::ToolEnd { id, success: false },
-                })
-                .await;
+            stream_registry.send(StreamChunk::new(
+                *session_id,
+                channel.to_string(),
+                reply_to.copied(),
+                StreamChunkKind::ToolEnd { id, success: false },
+            ));
         }
 
         let mut blocks = Vec::new();
@@ -813,11 +784,7 @@ impl WorkspaceHandler {
             blocks.push(ContentBlock::ToolUse(call));
         }
 
-        Ok(CompletionResponse {
-            blocks,
-            usage,
-            stop_reason,
-        })
+        Ok(CompletionResponse::new(blocks, usage, stop_reason))
     }
 }
 
@@ -853,13 +820,7 @@ impl AgentHandler for WorkspaceHandler {
                 .memory
                 .store(
                     &override_key,
-                    MemoryEntry {
-                        key: override_key.clone(),
-                        value: override_val,
-                        created_at: chrono::Utc::now(),
-                        updated_at: chrono::Utc::now(),
-                        tags: Vec::new(),
-                    },
+                    MemoryEntry::new(override_key.clone(), override_val),
                     None,
                 )
                 .await
@@ -919,6 +880,7 @@ impl AgentHandler for WorkspaceHandler {
                     )]);
                 }
                 orka_core::traits::GuardrailDecision::Modify(filtered) => filtered,
+                _ => text,
             }
         } else {
             text
@@ -945,9 +907,15 @@ impl AgentHandler for WorkspaceHandler {
         if let Some(ref llm) = self.llm {
             let tools = self.build_tool_definitions();
 
-            // Load conversation history from memory
+            // Load conversation history and token usage in parallel
             let memory_key = format!("conversation:{}", session.id);
-            let history: Vec<ChatMessageExt> = match self.memory.recall(&memory_key).await {
+            let token_key = format!("tokens:{}", session.id);
+            let (history_result, tokens_result) = tokio::join!(
+                self.memory.recall(&memory_key),
+                self.memory.recall(&token_key),
+            );
+
+            let history: Vec<ChatMessageExt> = match history_result {
                 Ok(Some(entry)) => {
                     serde_json::from_value(entry.value).unwrap_or_else(|e| {
                         warn!(%e, key = %memory_key, "failed to deserialize conversation history, starting fresh");
@@ -961,11 +929,23 @@ impl AgentHandler for WorkspaceHandler {
                 }
             };
 
+            let mut session_tokens: u64 = match tokens_result {
+                Ok(Some(entry)) => match entry.value.as_u64() {
+                    Some(v) => v,
+                    None => {
+                        warn!(key = %token_key, value = ?entry.value, "corrupted token count, resetting to 0");
+                        0
+                    }
+                },
+                Ok(None) => 0,
+                Err(e) => {
+                    warn!(%e, key = %token_key, "failed to recall token usage");
+                    0
+                }
+            };
+
             let mut messages = history;
-            messages.push(ChatMessageExt {
-                role: "user".to_string(),
-                content: ChatContent::Text(text.clone()),
-            });
+            messages.push(ChatMessageExt::text("user", text.clone()));
 
             let available_ws = self.workspace_registry.list_names();
             let available_ws_refs: Vec<&str> = available_ws.to_vec();
@@ -987,6 +967,41 @@ impl AgentHandler for WorkspaceHandler {
                 self.workspace_registry.default_name().to_string()
             };
 
+            // Retrieve learned principles for prompt injection
+            let principles_section = if let Some(ref exp) = self.experience {
+                match exp.retrieve_principles(&text, &resolved_workspace).await {
+                    Ok(principles) if !principles.is_empty() => {
+                        self.event_sink
+                            .emit(DomainEvent::new(DomainEventKind::PrinciplesInjected {
+                                session_id: envelope.session_id,
+                                count: principles.len(),
+                            }))
+                            .await;
+                        ExperienceService::format_principles_section(&principles)
+                    }
+                    Ok(_) => String::new(),
+                    Err(e) => {
+                        warn!(%e, "failed to retrieve principles, continuing without");
+                        String::new()
+                    }
+                }
+            } else {
+                String::new()
+            };
+
+            // Initialize trajectory collector for experience learning
+            let mut trajectory_collector = self.experience.as_ref().and_then(|exp| {
+                if exp.is_enabled() {
+                    Some(exp.collector(
+                        envelope.session_id.to_string(),
+                        resolved_workspace.clone(),
+                        text.clone(),
+                    ))
+                } else {
+                    None
+                }
+            });
+
             let system_prompt = Self::build_system_prompt(
                 &soul_name,
                 &soul_body,
@@ -994,30 +1009,12 @@ impl AgentHandler for WorkspaceHandler {
                 soul_timezone.as_deref(),
                 &resolved_workspace,
                 &available_ws_refs,
+                &principles_section,
             );
 
-            let options = CompletionOptions {
-                model: soul_model.clone(),
-                max_tokens: soul_max_tokens,
-                response_format: None,
-            };
-
-            // Load accumulated token usage from memory
-            let token_key = format!("tokens:{}", session.id);
-            let mut session_tokens: u64 = match self.memory.recall(&token_key).await {
-                Ok(Some(entry)) => match entry.value.as_u64() {
-                    Some(v) => v,
-                    None => {
-                        warn!(key = %token_key, value = ?entry.value, "corrupted token count, resetting to 0");
-                        0
-                    }
-                },
-                Ok(None) => 0,
-                Err(e) => {
-                    warn!(%e, key = %token_key, "failed to recall token usage");
-                    0
-                }
-            };
+            let mut options = CompletionOptions::default();
+            options.model = soul_model.clone();
+            options.max_tokens = soul_max_tokens;
 
             // Agent loop: call LLM, execute tool calls, feed results back
             let mut final_text = String::new();
@@ -1051,12 +1048,7 @@ impl AgentHandler for WorkspaceHandler {
                     message_id = %envelope.id,
                 );
                 let stream = match llm
-                    .complete_stream_with_tools(
-                        messages.clone(),
-                        &system_prompt,
-                        &tools,
-                        options.clone(),
-                    )
+                    .complete_stream_with_tools(&messages, &system_prompt, &tools, options.clone())
                     .instrument(llm_span.clone())
                     .await
                 {
@@ -1098,25 +1090,25 @@ impl AgentHandler for WorkspaceHandler {
                 );
 
                 self.event_sink
-                    .emit(DomainEvent {
-                        id: EventId::new(),
-                        timestamp: chrono::Utc::now(),
-                        kind: DomainEventKind::LlmCompleted {
-                            message_id: envelope.id.clone(),
-                            model: llm_model.clone(),
-                            input_tokens: completion.usage.input_tokens,
-                            output_tokens: completion.usage.output_tokens,
-                            duration_ms: llm_duration_ms,
-                            estimated_cost_usd: None,
-                        },
-                        metadata: HashMap::new(),
-                    })
+                    .emit(DomainEvent::new(DomainEventKind::LlmCompleted {
+                        message_id: envelope.id,
+                        model: llm_model.clone(),
+                        input_tokens: completion.usage.input_tokens,
+                        output_tokens: completion.usage.output_tokens,
+                        duration_ms: llm_duration_ms,
+                        estimated_cost_usd: None,
+                    }))
                     .await;
 
                 // Accumulate token usage
                 let iteration_tokens =
                     (completion.usage.input_tokens + completion.usage.output_tokens) as u64;
                 session_tokens += iteration_tokens;
+
+                // Record iteration in trajectory collector
+                if let Some(ref mut tc) = trajectory_collector {
+                    tc.record_iteration(iteration_tokens);
+                }
 
                 // Check token budget
                 if let Some(budget) = max_tokens_per_session
@@ -1140,46 +1132,34 @@ impl AgentHandler for WorkspaceHandler {
                     match block {
                         ContentBlock::Text(t) => response_text.push_str(t),
                         ContentBlock::ToolUse(call) => tool_calls.push(call.clone()),
+                        _ => {}
                     }
                 }
 
                 // R1.1: Extract and log reasoning text (text before first tool call)
                 if !response_text.is_empty() {
                     self.event_sink
-                        .emit(DomainEvent {
-                            id: EventId::new(),
-                            timestamp: chrono::Utc::now(),
-                            kind: DomainEventKind::AgentReasoning {
-                                message_id: envelope.id.clone(),
-                                iteration,
-                                reasoning_text: response_text.clone(),
-                            },
-                            metadata: HashMap::new(),
-                        })
+                        .emit(DomainEvent::new(DomainEventKind::AgentReasoning {
+                            message_id: envelope.id,
+                            iteration,
+                            reasoning_text: response_text.clone(),
+                        }))
                         .await;
                 }
 
                 if tool_calls.is_empty() {
                     // No tool calls — final response
                     final_text = response_text;
-                    messages.push(ChatMessageExt {
-                        role: "assistant".to_string(),
-                        content: ChatContent::Text(final_text.clone()),
-                    });
+                    messages.push(ChatMessageExt::text("assistant", final_text.clone()));
                     // Emit iteration event before breaking
                     self.event_sink
-                        .emit(DomainEvent {
-                            id: EventId::new(),
-                            timestamp: chrono::Utc::now(),
-                            kind: DomainEventKind::AgentIteration {
-                                message_id: envelope.id.clone(),
-                                iteration,
-                                tool_count: 0,
-                                tokens_used: iteration_tokens,
-                                elapsed_ms: iteration_start.elapsed().as_millis() as u64,
-                            },
-                            metadata: HashMap::new(),
-                        })
+                        .emit(DomainEvent::new(DomainEventKind::AgentIteration {
+                            message_id: envelope.id,
+                            iteration,
+                            tool_count: 0,
+                            tokens_used: iteration_tokens,
+                            elapsed_ms: iteration_start.elapsed().as_millis() as u64,
+                        }))
                         .await;
                     break;
                 }
@@ -1206,10 +1186,10 @@ impl AgentHandler for WorkspaceHandler {
                             input: call.input.clone(),
                         });
                     }
-                    messages.push(ChatMessageExt {
-                        role: "assistant".to_string(),
-                        content: ChatContent::Blocks(blocks),
-                    });
+                    messages.push(ChatMessageExt::new(
+                        "assistant",
+                        ChatContent::Blocks(blocks),
+                    ));
                 }
 
                 // Execute tool calls and collect results
@@ -1228,9 +1208,16 @@ impl AgentHandler for WorkspaceHandler {
                 let mut corrected_blocks = result_blocks;
                 for (block, call) in corrected_blocks.iter().zip(tool_calls.iter()) {
                     if let ContentBlockInput::ToolResult { is_error, .. } = block {
+                        // Record skill in trajectory collector
+                        if let Some(ref mut tc) = trajectory_collector {
+                            tc.record_skill(call.name.clone(), 0, !*is_error);
+                        }
                         if *is_error {
                             let count = tool_error_counts.entry(call.name.clone()).or_insert(0);
                             *count += 1;
+                            if let Some(ref mut tc) = trajectory_collector {
+                                tc.record_error(format!("skill '{}' failed", call.name));
+                            }
                         } else {
                             tool_error_counts.remove(&call.name);
                         }
@@ -1252,25 +1239,20 @@ impl AgentHandler for WorkspaceHandler {
                 }
 
                 // Add tool results as a user message
-                messages.push(ChatMessageExt {
-                    role: "user".to_string(),
-                    content: ChatContent::Blocks(corrected_blocks),
-                });
+                messages.push(ChatMessageExt::new(
+                    "user",
+                    ChatContent::Blocks(corrected_blocks),
+                ));
 
                 // R1.4: Emit iteration-level event
                 self.event_sink
-                    .emit(DomainEvent {
-                        id: EventId::new(),
-                        timestamp: chrono::Utc::now(),
-                        kind: DomainEventKind::AgentIteration {
-                            message_id: envelope.id.clone(),
-                            iteration,
-                            tool_count: tool_calls.len(),
-                            tokens_used: iteration_tokens,
-                            elapsed_ms: iteration_start.elapsed().as_millis() as u64,
-                        },
-                        metadata: HashMap::new(),
-                    })
+                    .emit(DomainEvent::new(DomainEventKind::AgentIteration {
+                        message_id: envelope.id,
+                        iteration,
+                        tool_count: tool_calls.len(),
+                        tokens_used: iteration_tokens,
+                        elapsed_ms: iteration_start.elapsed().as_millis() as u64,
+                    }))
                     .await;
 
                 if iteration == max_iterations - 1 {
@@ -1282,14 +1264,12 @@ impl AgentHandler for WorkspaceHandler {
             }
 
             // Emit Done chunk to signal stream completion
-            self.stream_registry
-                .send(&StreamChunk {
-                    session_id: envelope.session_id.clone(),
-                    channel: envelope.channel.clone(),
-                    reply_to: Some(envelope.id.clone()),
-                    kind: StreamChunkKind::Done,
-                })
-                .await;
+            self.stream_registry.send(StreamChunk::new(
+                envelope.session_id,
+                envelope.channel.clone(),
+                Some(envelope.id),
+                StreamChunkKind::Done,
+            ));
 
             if !final_text.is_empty() {
                 // Save conversation history and token usage
@@ -1304,6 +1284,44 @@ impl AgentHandler for WorkspaceHandler {
                 )
                 .await;
 
+                // Post-handler experience reflection (async, non-blocking for user response)
+                if let (Some(exp), Some(mut tc)) = (&self.experience, trajectory_collector.take()) {
+                    tc.set_response(final_text.clone());
+                    let trajectory = tc.finish();
+                    let exp = exp.clone();
+                    let event_sink = self.event_sink.clone();
+                    let session_id = envelope.session_id;
+                    let trajectory_id = trajectory.id.clone();
+                    tokio::spawn(async move {
+                        // Persist trajectory for offline distillation
+                        if let Err(e) = exp.record_trajectory(&trajectory).await {
+                            warn!(%e, "failed to record trajectory");
+                        } else {
+                            event_sink
+                                .emit(DomainEvent::new(DomainEventKind::TrajectoryRecorded {
+                                    session_id,
+                                    trajectory_id: trajectory_id.clone(),
+                                }))
+                                .await;
+                        }
+                        match exp.maybe_reflect(&trajectory).await {
+                            Ok(count) if count > 0 => {
+                                event_sink
+                                    .emit(DomainEvent::new(DomainEventKind::ReflectionCompleted {
+                                        session_id,
+                                        principles_created: count,
+                                        trajectory_id,
+                                    }))
+                                    .await;
+                            }
+                            Err(e) => {
+                                warn!(%e, "experience reflection failed");
+                            }
+                            _ => {}
+                        }
+                    });
+                }
+
                 // Apply output guardrail
                 let final_text = if let Some(ref guardrail) = self.guardrail {
                     match guardrail.check_output(&final_text, session).await? {
@@ -1312,6 +1330,7 @@ impl AgentHandler for WorkspaceHandler {
                             format!("I generated a response but it was filtered: {reason}")
                         }
                         orka_core::traits::GuardrailDecision::Modify(filtered) => filtered,
+                        _ => final_text,
                     }
                 } else {
                     final_text
@@ -1413,6 +1432,7 @@ mod tests {
             None,
             commands,
             StreamRegistry::new(),
+            None,
         )
     }
 
@@ -1482,10 +1502,7 @@ mod tests {
 
         let session = Session::new("custom", "user1");
         let mut envelope = Envelope::text("custom", SessionId::new(), "");
-        envelope.payload = Payload::Command(orka_core::CommandPayload {
-            name: "test".into(),
-            args: HashMap::new(),
-        });
+        envelope.payload = Payload::Command(orka_core::CommandPayload::new("test", HashMap::new()));
 
         let replies = handler.handle(&envelope, &session).await.unwrap();
         assert_eq!(replies.len(), 1);
@@ -1549,12 +1566,36 @@ mod tests {
             None,
             "main",
             &["main", "support"],
+            "",
         );
         assert!(prompt.contains("You are TestBot."));
         assert!(prompt.contains("workspace \"main\""));
         assert!(prompt.contains("main, support"));
         assert!(prompt.contains("workspace_info"));
         assert!(prompt.contains("workspace_switch"));
+    }
+
+    #[test]
+    fn system_prompt_includes_principles_when_provided() {
+        let principles = "\n\n## Learned Principles\n\n1. [DO] Use web_search for current info.\n";
+        let prompt = WorkspaceHandler::build_system_prompt(
+            "TestBot",
+            "",
+            "",
+            None,
+            "main",
+            &["main"],
+            principles,
+        );
+        assert!(prompt.contains("Learned Principles"));
+        assert!(prompt.contains("Use web_search"));
+    }
+
+    #[test]
+    fn system_prompt_omits_principles_when_empty() {
+        let prompt =
+            WorkspaceHandler::build_system_prompt("TestBot", "", "", None, "main", &["main"], "");
+        assert!(!prompt.contains("Learned Principles"));
     }
 
     async fn multi_workspace_registry() -> Arc<WorkspaceRegistry> {
@@ -1599,11 +1640,7 @@ mod tests {
         let handler = test_handler(registry);
 
         let session = Session::new("custom", "user1");
-        let call = ToolCall {
-            id: "call_1".into(),
-            name: "workspace_info".into(),
-            input: serde_json::json!({}),
-        };
+        let call = ToolCall::new("call_1", "workspace_info", serde_json::json!({}));
 
         let result = handler.handle_builtin_tool(&call, &session, "main").await;
         assert!(result.is_some());
@@ -1621,11 +1658,11 @@ mod tests {
         let handler = test_handler(registry);
 
         let session = Session::new("custom", "user1");
-        let call = ToolCall {
-            id: "call_1".into(),
-            name: "workspace_switch".into(),
-            input: serde_json::json!({"name": "support"}),
-        };
+        let call = ToolCall::new(
+            "call_1",
+            "workspace_switch",
+            serde_json::json!({"name": "support"}),
+        );
 
         let result = handler.handle_builtin_tool(&call, &session, "main").await;
         assert!(result.is_some());
@@ -1648,11 +1685,11 @@ mod tests {
         let handler = test_handler(registry);
 
         let session = Session::new("custom", "user1");
-        let call = ToolCall {
-            id: "call_1".into(),
-            name: "workspace_switch".into(),
-            input: serde_json::json!({"name": "nonexistent"}),
-        };
+        let call = ToolCall::new(
+            "call_1",
+            "workspace_switch",
+            serde_json::json!({"name": "nonexistent"}),
+        );
 
         let result = handler.handle_builtin_tool(&call, &session, "main").await;
         assert!(result.is_some());
@@ -1667,11 +1704,7 @@ mod tests {
         let handler = test_handler(registry);
 
         let session = Session::new("custom", "user1");
-        let call = ToolCall {
-            id: "call_1".into(),
-            name: "echo".into(),
-            input: serde_json::json!({"greeting": "hello"}),
-        };
+        let call = ToolCall::new("call_1", "echo", serde_json::json!({"greeting": "hello"}));
 
         let result = handler.handle_builtin_tool(&call, &session, "main").await;
         assert!(result.is_none());
