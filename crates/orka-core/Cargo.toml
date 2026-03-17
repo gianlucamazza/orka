@@ -12,6 +12,7 @@ test-util = []
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
+dashmap = "6"
 config.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -5,6 +5,7 @@ use thiserror::Error;
 /// Each variant corresponds to a subsystem; structured variants carry
 /// a boxed source error for chaining and a human-readable context string.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub enum Error {
     #[error("configuration error: {0}")]

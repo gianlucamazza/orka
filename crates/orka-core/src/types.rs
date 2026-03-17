@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::traits::{EventSink, SecretManager};
 
 /// Unique identifier for a message flowing through the system.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MessageId(pub Uuid);
 
 impl MessageId {
@@ -30,7 +30,7 @@ impl std::fmt::Display for MessageId {
 }
 
 /// Unique identifier for a user session.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SessionId(pub Uuid);
 
 impl SessionId {
@@ -53,7 +53,7 @@ impl std::fmt::Display for SessionId {
 }
 
 /// Unique identifier for a domain event.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EventId(pub Uuid);
 
 impl EventId {
@@ -77,6 +77,7 @@ impl std::fmt::Display for EventId {
 
 /// A domain-level event for observability.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct DomainEvent {
     pub id: EventId,
@@ -87,6 +88,7 @@ pub struct DomainEvent {
 
 /// The kind of domain event that occurred.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[serde(tag = "type")]
 #[allow(missing_docs)]
 pub enum DomainEventKind {
@@ -165,11 +167,33 @@ pub enum DomainEventKind {
         args: Vec<String>,
         reason: String,
     },
+    /// Principles were retrieved and injected into the system prompt.
+    PrinciplesInjected {
+        session_id: SessionId,
+        count: usize,
+    },
+    /// Post-task reflection completed, producing new or updated principles.
+    ReflectionCompleted {
+        session_id: SessionId,
+        principles_created: usize,
+        trajectory_id: String,
+    },
+    /// A trajectory was persisted for future offline distillation.
+    TrajectoryRecorded {
+        session_id: SessionId,
+        trajectory_id: String,
+    },
+    /// Offline distillation completed, synthesizing cross-trajectory patterns.
+    DistillationCompleted {
+        workspace: String,
+        principles_created: usize,
+    },
     Heartbeat,
 }
 
 /// Context available to skills during execution.
 #[derive(Clone)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct SkillContext {
     pub secrets: Arc<dyn SecretManager>,
@@ -184,6 +208,7 @@ impl std::fmt::Debug for SkillContext {
 
 /// Input passed to a skill invocation.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct SkillInput {
     pub args: HashMap<String, serde_json::Value>,
@@ -192,8 +217,40 @@ pub struct SkillInput {
     pub context: Option<SkillContext>,
 }
 
+impl SkillInput {
+    /// Get a required string argument, returning a `Skill` error if missing or not a string.
+    pub fn get_string(&self, key: &str) -> crate::Result<&str> {
+        self.args
+            .get(key)
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| crate::Error::Skill(format!("{key} is required")))
+    }
+
+    /// Get an optional string argument.
+    pub fn get_optional_string(&self, key: &str) -> Option<&str> {
+        self.args.get(key).and_then(|v| v.as_str())
+    }
+
+    /// Get a required i64 argument.
+    pub fn get_i64(&self, key: &str) -> crate::Result<i64> {
+        self.args
+            .get(key)
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| crate::Error::Skill(format!("{key} is required")))
+    }
+
+    /// Get a required bool argument.
+    pub fn get_bool(&self, key: &str) -> crate::Result<bool> {
+        self.args
+            .get(key)
+            .and_then(|v| v.as_bool())
+            .ok_or_else(|| crate::Error::Skill(format!("{key} is required")))
+    }
+}
+
 /// Output returned from a skill invocation.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct SkillOutput {
     pub data: serde_json::Value,
@@ -201,6 +258,7 @@ pub struct SkillOutput {
 
 /// JSON Schema describing a skill's parameters.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct SkillSchema {
     pub parameters: serde_json::Value,
@@ -221,6 +279,7 @@ pub struct SkillSchema {
     Deserialize,
     utoipa::ToSchema,
 )]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub enum Priority {
     Background = 0,
@@ -231,6 +290,7 @@ pub enum Priority {
 
 /// Message payload variants.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[serde(tag = "type", content = "data")]
 #[allow(missing_docs)]
 pub enum Payload {
@@ -242,6 +302,7 @@ pub enum Payload {
 
 /// Media attachment info.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct MediaPayload {
     pub mime_type: String,
@@ -252,6 +313,7 @@ pub struct MediaPayload {
 
 /// Structured command from a channel or internal system.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct CommandPayload {
     pub name: String,
@@ -260,6 +322,7 @@ pub struct CommandPayload {
 
 /// System or lifecycle event.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct EventPayload {
     pub kind: String,
@@ -268,6 +331,7 @@ pub struct EventPayload {
 
 /// W3C Trace Context for distributed tracing propagation.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct TraceContext {
     pub trace_id: Option<String>,
@@ -277,6 +341,7 @@ pub struct TraceContext {
 
 /// Universal message envelope that flows through the entire system.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct Envelope {
     pub id: MessageId,
@@ -289,7 +354,150 @@ pub struct Envelope {
     pub trace_context: TraceContext,
 }
 
+impl DomainEvent {
+    /// Create a new domain event with the given kind.
+    pub fn new(kind: DomainEventKind) -> Self {
+        Self {
+            id: EventId::new(),
+            timestamp: Utc::now(),
+            kind,
+            metadata: HashMap::new(),
+        }
+    }
+}
+
+impl SkillContext {
+    /// Create a new skill context.
+    pub fn new(secrets: Arc<dyn SecretManager>, event_sink: Option<Arc<dyn EventSink>>) -> Self {
+        Self {
+            secrets,
+            event_sink,
+        }
+    }
+}
+
+impl SkillOutput {
+    /// Create a new skill output.
+    pub fn new(data: serde_json::Value) -> Self {
+        Self { data }
+    }
+}
+
+impl SkillSchema {
+    /// Create a new skill schema.
+    pub fn new(parameters: serde_json::Value) -> Self {
+        Self { parameters }
+    }
+}
+
+impl SkillInput {
+    /// Create a new skill input with the given arguments.
+    pub fn new(args: HashMap<String, serde_json::Value>) -> Self {
+        Self {
+            args,
+            context: None,
+        }
+    }
+
+    /// Set the skill context.
+    pub fn with_context(mut self, context: SkillContext) -> Self {
+        self.context = Some(context);
+        self
+    }
+}
+
+impl MediaPayload {
+    /// Create a new media payload.
+    pub fn new(mime_type: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            mime_type: mime_type.into(),
+            url: url.into(),
+            caption: None,
+            size_bytes: None,
+        }
+    }
+}
+
+impl CommandPayload {
+    /// Create a new command payload.
+    pub fn new(name: impl Into<String>, args: HashMap<String, serde_json::Value>) -> Self {
+        Self {
+            name: name.into(),
+            args,
+        }
+    }
+}
+
+impl EventPayload {
+    /// Create a new event payload.
+    pub fn new(kind: impl Into<String>, data: serde_json::Value) -> Self {
+        Self {
+            kind: kind.into(),
+            data,
+        }
+    }
+}
+
+impl OutboundMessage {
+    /// Create a new text outbound message.
+    pub fn text(
+        channel: impl Into<String>,
+        session_id: SessionId,
+        text: impl Into<String>,
+        reply_to: Option<MessageId>,
+    ) -> Self {
+        Self {
+            channel: channel.into(),
+            session_id,
+            payload: Payload::Text(text.into()),
+            reply_to,
+            metadata: HashMap::new(),
+        }
+    }
+
+    /// Create a new outbound message with the given payload.
+    pub fn new(
+        channel: impl Into<String>,
+        session_id: SessionId,
+        payload: Payload,
+        reply_to: Option<MessageId>,
+    ) -> Self {
+        Self {
+            channel: channel.into(),
+            session_id,
+            payload,
+            reply_to,
+            metadata: HashMap::new(),
+        }
+    }
+}
+
+impl MemoryEntry {
+    /// Create a new memory entry.
+    pub fn new(key: impl Into<String>, value: serde_json::Value) -> Self {
+        let now = Utc::now();
+        Self {
+            key: key.into(),
+            value,
+            created_at: now,
+            updated_at: now,
+            tags: Vec::new(),
+        }
+    }
+
+    /// Set tags on this entry.
+    pub fn with_tags(mut self, tags: Vec<String>) -> Self {
+        self.tags = tags;
+        self
+    }
+}
+
 impl Envelope {
+    /// Insert a metadata key-value pair.
+    pub fn insert_meta(&mut self, key: impl Into<String>, value: impl Into<serde_json::Value>) {
+        self.metadata.insert(key.into(), value.into());
+    }
+
     /// Create a text envelope with default priority and no metadata.
     pub fn text(
         channel: impl Into<String>,
@@ -311,6 +519,7 @@ impl Envelope {
 
 /// Outbound message sent back to a channel.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct OutboundMessage {
     pub channel: String,
@@ -320,8 +529,27 @@ pub struct OutboundMessage {
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
+impl OutboundMessage {
+    /// Get a required string from metadata, returning an error if missing.
+    pub fn require_meta_str(&self, key: &str) -> crate::Result<&str> {
+        self.metadata
+            .get(key)
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| crate::Error::Other(format!("missing metadata key: {key}")))
+    }
+
+    /// Get a required i64 from metadata, returning an error if missing.
+    pub fn require_meta_i64(&self, key: &str) -> crate::Result<i64> {
+        self.metadata
+            .get(key)
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| crate::Error::Other(format!("missing metadata key: {key}")))
+    }
+}
+
 /// A stored session with associated state.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct Session {
     pub id: SessionId,
@@ -365,6 +593,7 @@ impl Session {
 
 /// An entry in the memory store.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
 #[allow(missing_docs)]
 pub struct MemoryEntry {
     pub key: String,

@@ -24,6 +24,8 @@ pub mod traits;
 /// Core data types: envelopes, sessions, events, payloads, and IDs.
 pub mod types;
 
+/// Generic retry-with-backoff executor.
+pub mod retry;
 /// Streaming infrastructure for real-time LLM response delivery.
 pub mod stream;
 
@@ -34,4 +36,23 @@ pub mod testing;
 pub use error::{Error, Result};
 pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
-pub use types::*;
+pub use types::{
+    CommandPayload, DomainEvent, DomainEventKind, Envelope, EventId, EventPayload, MediaPayload,
+    MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage, Payload, Priority,
+    SecretValue, Session, SessionId, SkillContext, SkillInput, SkillOutput, SkillSchema,
+    TraceContext, backoff_delay,
+};
+
+/// Prelude for channel adapter implementations.
+///
+/// ```ignore
+/// use orka_core::adapter_prelude::*;
+/// ```
+pub mod adapter_prelude {
+    pub use crate::error::{Error, Result};
+    pub use crate::stream::{StreamChunk, StreamChunkKind, StreamRegistry};
+    pub use crate::traits::{ChannelAdapter, EventSink};
+    pub use crate::types::{
+        Envelope, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay,
+    };
+}

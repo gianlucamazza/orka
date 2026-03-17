@@ -147,6 +147,7 @@ pub trait SecretManager: Send + Sync + 'static {
 
 /// Decision from a guardrail check.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum GuardrailDecision {
     /// Allow the content through unchanged.
     Allow,

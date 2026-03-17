@@ -3,16 +3,17 @@
 //! [`StreamRegistry`] routes [`StreamChunk`]s to WebSocket subscribers keyed by session ID.
 //! The worker emits chunks as the LLM streams tokens; adapters subscribe to forward them.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
 use crate::{MessageId, SessionId};
 
 /// A chunk of streaming data from an LLM response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct StreamChunk {
     /// The session this chunk belongs to.
     pub session_id: SessionId,
@@ -26,6 +27,7 @@ pub struct StreamChunk {
 
 /// The kind of stream chunk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 #[serde(tag = "type", content = "data")]
 pub enum StreamChunkKind {
     /// A text delta from the LLM response.
@@ -76,11 +78,31 @@ pub enum StreamChunkKind {
     Done,
 }
 
+impl StreamChunk {
+    /// Create a new stream chunk.
+    pub fn new(
+        session_id: SessionId,
+        channel: impl Into<String>,
+        reply_to: Option<MessageId>,
+        kind: StreamChunkKind,
+    ) -> Self {
+        Self {
+            session_id,
+            channel: channel.into(),
+            reply_to,
+            kind,
+        }
+    }
+}
+
 /// Registry that maps session IDs to stream chunk senders.
 /// Used to route streaming LLM output to WebSocket connections.
+///
+/// Uses `DashMap` for shard-level locking instead of a global `Mutex`,
+/// reducing contention during high-frequency LLM streaming.
 #[derive(Clone, Default)]
 pub struct StreamRegistry {
-    inner: Arc<Mutex<HashMap<SessionId, Vec<mpsc::UnboundedSender<StreamChunk>>>>>,
+    inner: Arc<DashMap<SessionId, Vec<mpsc::UnboundedSender<Arc<StreamChunk>>>>>,
 }
 
 impl StreamRegistry {
@@ -90,24 +112,27 @@ impl StreamRegistry {
     }
 
     /// Subscribe to stream chunks for a session. Returns a receiver that yields chunks.
-    pub async fn subscribe(&self, session_id: SessionId) -> mpsc::UnboundedReceiver<StreamChunk> {
+    pub fn subscribe(&self, session_id: SessionId) -> mpsc::UnboundedReceiver<Arc<StreamChunk>> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let mut map = self.inner.lock().await;
-        map.entry(session_id).or_default().push(tx);
+        self.inner.entry(session_id).or_default().push(tx);
         rx
     }
 
     /// Send a chunk to all subscribers of the chunk's session. Returns the number of
     /// subscribers that received the chunk. Disconnected senders are pruned automatically.
-    pub async fn send(&self, chunk: &StreamChunk) -> usize {
-        let mut map = self.inner.lock().await;
-        let senders = match map.get_mut(&chunk.session_id) {
-            Some(s) => s,
+    ///
+    /// The chunk is wrapped in `Arc` once before broadcasting, so cloning is O(1)
+    /// regardless of subscriber count.
+    pub fn send(&self, chunk: StreamChunk) -> usize {
+        let mut entry = match self.inner.get_mut(&chunk.session_id) {
+            Some(e) => e,
             None => return 0,
         };
+        let senders = entry.value_mut();
 
+        let shared = Arc::new(chunk);
         let mut delivered = 0;
-        senders.retain(|tx| match tx.send(chunk.clone()) {
+        senders.retain(|tx| match tx.send(Arc::clone(&shared)) {
             Ok(()) => {
                 delivered += 1;
                 true
@@ -115,17 +140,18 @@ impl StreamRegistry {
             Err(_) => false,
         });
 
+        let session_id = shared.session_id;
         if senders.is_empty() {
-            map.remove(&chunk.session_id);
+            drop(entry);
+            self.inner.remove(&session_id);
         }
 
         delivered
     }
 
     /// Check whether any subscribers exist for a session.
-    pub async fn has_subscribers(&self, session_id: &SessionId) -> bool {
-        let map = self.inner.lock().await;
-        map.contains_key(session_id)
+    pub fn has_subscribers(&self, session_id: &SessionId) -> bool {
+        self.inner.contains_key(session_id)
     }
 }
 
@@ -147,9 +173,9 @@ mod tests {
         let reg = StreamRegistry::new();
         let sid = SessionId::new();
 
-        let mut rx = reg.subscribe(sid.clone()).await;
-        let chunk = make_chunk(sid.clone(), StreamChunkKind::Delta("hello".into()));
-        let delivered = reg.send(&chunk).await;
+        let mut rx = reg.subscribe(sid);
+        let chunk = make_chunk(sid, StreamChunkKind::Delta("hello".into()));
+        let delivered = reg.send(chunk);
 
         assert_eq!(delivered, 1);
         let received = rx.try_recv().unwrap();
@@ -161,7 +187,7 @@ mod tests {
         let reg = StreamRegistry::new();
         let sid = SessionId::new();
         let chunk = make_chunk(sid, StreamChunkKind::Done);
-        assert_eq!(reg.send(&chunk).await, 0);
+        assert_eq!(reg.send(chunk), 0);
     }
 
     #[tokio::test]
@@ -169,14 +195,14 @@ mod tests {
         let reg = StreamRegistry::new();
         let sid = SessionId::new();
 
-        let rx = reg.subscribe(sid.clone()).await;
-        assert!(reg.has_subscribers(&sid).await);
+        let rx = reg.subscribe(sid);
+        assert!(reg.has_subscribers(&sid));
 
         drop(rx);
 
-        let chunk = make_chunk(sid.clone(), StreamChunkKind::Done);
-        assert_eq!(reg.send(&chunk).await, 0);
-        assert!(!reg.has_subscribers(&sid).await);
+        let chunk = make_chunk(sid, StreamChunkKind::Done);
+        assert_eq!(reg.send(chunk), 0);
+        assert!(!reg.has_subscribers(&sid));
     }
 
     #[tokio::test]
@@ -184,11 +210,11 @@ mod tests {
         let reg = StreamRegistry::new();
         let sid = SessionId::new();
 
-        let mut rx1 = reg.subscribe(sid.clone()).await;
-        let mut rx2 = reg.subscribe(sid.clone()).await;
+        let mut rx1 = reg.subscribe(sid);
+        let mut rx2 = reg.subscribe(sid);
 
-        let chunk = make_chunk(sid.clone(), StreamChunkKind::Delta("x".into()));
-        assert_eq!(reg.send(&chunk).await, 2);
+        let chunk = make_chunk(sid, StreamChunkKind::Delta("x".into()));
+        assert_eq!(reg.send(chunk), 2);
 
         assert!(rx1.try_recv().is_ok());
         assert!(rx2.try_recv().is_ok());

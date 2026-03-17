@@ -75,6 +75,8 @@ pub struct OrkaConfig {
     pub scheduler: SchedulerConfig,
     #[serde(default)]
     pub http: HttpClientConfig,
+    #[serde(default)]
+    pub experience: ExperienceConfig,
 }
 
 /// Web search and read configuration.
@@ -159,6 +161,18 @@ pub struct ServerConfig {
 pub struct BusConfig {
     #[serde(default = "default_bus_backend")]
     pub backend: String,
+    /// XREADGROUP BLOCK timeout in milliseconds.
+    #[serde(default = "default_bus_block_ms")]
+    pub block_ms: u64,
+    /// XREADGROUP COUNT per read.
+    #[serde(default = "default_bus_batch_size")]
+    pub batch_size: usize,
+    /// Initial backoff on connection error (seconds).
+    #[serde(default = "default_bus_backoff_initial_secs")]
+    pub backoff_initial_secs: u64,
+    /// Maximum backoff cap (seconds).
+    #[serde(default = "default_bus_backoff_max_secs")]
+    pub backoff_max_secs: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -767,8 +781,28 @@ impl Default for BusConfig {
     fn default() -> Self {
         Self {
             backend: default_bus_backend(),
+            block_ms: default_bus_block_ms(),
+            batch_size: default_bus_batch_size(),
+            backoff_initial_secs: default_bus_backoff_initial_secs(),
+            backoff_max_secs: default_bus_backoff_max_secs(),
         }
     }
+}
+
+fn default_bus_block_ms() -> u64 {
+    5000
+}
+
+fn default_bus_batch_size() -> usize {
+    10
+}
+
+fn default_bus_backoff_initial_secs() -> u64 {
+    1
+}
+
+fn default_bus_backoff_max_secs() -> u64 {
+    30
 }
 
 impl Default for RedisConfig {
@@ -1209,6 +1243,105 @@ fn default_webhook_path_prefix() -> String {
     "/webhooks".into()
 }
 
+/// Experience & self-learning configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExperienceConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum number of principles to inject into the system prompt.
+    #[serde(default = "default_experience_max_principles")]
+    pub max_principles: usize,
+    /// Minimum relevance score (0.0–1.0) for a principle to be injected.
+    #[serde(default = "default_experience_min_relevance")]
+    pub min_relevance_score: f32,
+    /// When to trigger reflection: "failures", "all", or "sampled".
+    #[serde(default = "default_experience_reflect_on")]
+    pub reflect_on: String,
+    /// Sampling rate for reflection when reflect_on = "sampled" (0.0–1.0).
+    #[serde(default = "default_experience_sample_rate")]
+    pub sample_rate: f64,
+    /// Qdrant collection name for principles.
+    #[serde(default = "default_experience_principles_collection")]
+    pub principles_collection: String,
+    /// Qdrant collection name for raw trajectories.
+    #[serde(default = "default_experience_trajectories_collection")]
+    pub trajectories_collection: String,
+    /// LLM model override for reflection calls (uses default if unset).
+    #[serde(default)]
+    pub reflection_model: Option<String>,
+    /// Maximum tokens for the reflection LLM call.
+    #[serde(default = "default_experience_reflection_max_tokens")]
+    pub reflection_max_tokens: u32,
+    /// Number of trajectories to load per offline distillation run.
+    #[serde(default = "default_experience_distillation_batch_size")]
+    pub distillation_batch_size: usize,
+    /// Similarity threshold for principle deduplication (0.0–1.0).
+    #[serde(default = "default_experience_dedup_threshold")]
+    pub dedup_threshold: f32,
+    /// How often to run offline distillation, in seconds (0 = disabled).
+    #[serde(default = "default_experience_distillation_interval_secs")]
+    pub distillation_interval_secs: u64,
+}
+
+impl Default for ExperienceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_principles: default_experience_max_principles(),
+            min_relevance_score: default_experience_min_relevance(),
+            reflect_on: default_experience_reflect_on(),
+            sample_rate: default_experience_sample_rate(),
+            principles_collection: default_experience_principles_collection(),
+            trajectories_collection: default_experience_trajectories_collection(),
+            reflection_model: None,
+            reflection_max_tokens: default_experience_reflection_max_tokens(),
+            distillation_batch_size: default_experience_distillation_batch_size(),
+            dedup_threshold: default_experience_dedup_threshold(),
+            distillation_interval_secs: default_experience_distillation_interval_secs(),
+        }
+    }
+}
+
+fn default_experience_max_principles() -> usize {
+    5
+}
+
+fn default_experience_min_relevance() -> f32 {
+    0.6
+}
+
+fn default_experience_reflect_on() -> String {
+    "failures".into()
+}
+
+fn default_experience_sample_rate() -> f64 {
+    0.1
+}
+
+fn default_experience_principles_collection() -> String {
+    "orka_principles".into()
+}
+
+fn default_experience_trajectories_collection() -> String {
+    "orka_trajectories".into()
+}
+
+fn default_experience_reflection_max_tokens() -> u32 {
+    1024
+}
+
+fn default_experience_distillation_batch_size() -> usize {
+    20
+}
+
+fn default_experience_dedup_threshold() -> f32 {
+    0.85
+}
+
+fn default_experience_distillation_interval_secs() -> u64 {
+    3600 // 1 hour
+}
+
 impl OrkaConfig {
     /// Validate the loaded configuration.
     ///
@@ -1259,6 +1392,118 @@ impl OrkaConfig {
             return Err(crate::Error::Config(format!(
                 "workspace_dir '{}' does not exist or is not a directory",
                 self.workspace_dir
+            )));
+        }
+
+        // --- Empty strings ---
+        if self.server.host.is_empty() {
+            return Err(crate::Error::Config("server.host must not be empty".into()));
+        }
+        if self.agent.id.is_empty() {
+            return Err(crate::Error::Config("agent.id must not be empty".into()));
+        }
+        for p in &self.llm.providers {
+            if p.name.is_empty() {
+                return Err(crate::Error::Config(
+                    "llm.providers[].name must not be empty".into(),
+                ));
+            }
+        }
+
+        // --- Enum-like values ---
+        if !matches!(
+            self.logging.level.to_ascii_lowercase().as_str(),
+            "trace" | "debug" | "info" | "warn" | "error"
+        ) {
+            return Err(crate::Error::Config(format!(
+                "logging.level must be one of trace/debug/info/warn/error, got: '{}'",
+                self.logging.level
+            )));
+        }
+        if !matches!(self.bus.backend.as_str(), "redis" | "nats" | "memory") {
+            return Err(crate::Error::Config(format!(
+                "bus.backend must be one of redis/nats/memory, got: '{}'",
+                self.bus.backend
+            )));
+        }
+        if !matches!(self.sandbox.backend.as_str(), "process" | "wasm") {
+            return Err(crate::Error::Config(format!(
+                "sandbox.backend must be one of process/wasm, got: '{}'",
+                self.sandbox.backend
+            )));
+        }
+        for p in &self.llm.providers {
+            if !matches!(p.provider.as_str(), "anthropic" | "openai" | "ollama") {
+                return Err(crate::Error::Config(format!(
+                    "llm.providers[{}].provider must be one of anthropic/openai/ollama, got: '{}'",
+                    p.name, p.provider
+                )));
+            }
+        }
+
+        // --- Numeric upper bounds ---
+        if self.worker.concurrency > 1024 {
+            return Err(crate::Error::Config(format!(
+                "worker.concurrency must be <= 1024, got: {}",
+                self.worker.concurrency
+            )));
+        }
+        if self.scheduler.max_concurrent > 1024 {
+            return Err(crate::Error::Config(format!(
+                "scheduler.max_concurrent must be <= 1024, got: {}",
+                self.scheduler.max_concurrent
+            )));
+        }
+        if self.llm.max_tokens == 0 {
+            return Err(crate::Error::Config(
+                "llm.max_tokens must be greater than 0".into(),
+            ));
+        }
+        for p in &self.llm.providers {
+            if p.max_tokens == Some(0) {
+                return Err(crate::Error::Config(format!(
+                    "llm.providers[{}].max_tokens must be greater than 0",
+                    p.name
+                )));
+            }
+        }
+
+        // --- Timeouts > 0 ---
+        if self.llm.timeout_secs == 0 {
+            return Err(crate::Error::Config(
+                "llm.timeout_secs must be greater than 0".into(),
+            ));
+        }
+        if self.sandbox.limits.timeout_secs == 0 {
+            return Err(crate::Error::Config(
+                "sandbox.limits.timeout_secs must be greater than 0".into(),
+            ));
+        }
+        if self.http.default_timeout_secs == 0 {
+            return Err(crate::Error::Config(
+                "http.default_timeout_secs must be greater than 0".into(),
+            ));
+        }
+
+        // --- Float ranges ---
+        if !(0.0..=1.0).contains(&self.experience.min_relevance_score) {
+            return Err(crate::Error::Config(format!(
+                "experience.min_relevance must be in 0.0..=1.0, got: {}",
+                self.experience.min_relevance_score
+            )));
+        }
+        if !(0.0..=1.0).contains(&self.experience.sample_rate) {
+            return Err(crate::Error::Config(format!(
+                "experience.sample_rate must be in 0.0..=1.0, got: {}",
+                self.experience.sample_rate
+            )));
+        }
+
+        // --- Cross-field invariants ---
+        if self.knowledge.chunking.chunk_overlap >= self.knowledge.chunking.chunk_size {
+            return Err(crate::Error::Config(format!(
+                "knowledge.chunking.chunk_overlap ({}) must be less than chunk_size ({})",
+                self.knowledge.chunking.chunk_overlap, self.knowledge.chunking.chunk_size
             )));
         }
 
@@ -1386,6 +1631,7 @@ mod tests {
             knowledge: KnowledgeConfig::default(),
             scheduler: SchedulerConfig::default(),
             http: HttpClientConfig::default(),
+            experience: ExperienceConfig::default(),
         });
         assert_eq!(cfg.server.port, 8080);
         assert_eq!(cfg.bus.backend, "redis");
@@ -1425,6 +1671,7 @@ mod tests {
             knowledge: KnowledgeConfig::default(),
             scheduler: SchedulerConfig::default(),
             http: HttpClientConfig::default(),
+            experience: ExperienceConfig::default(),
         }
     }
 

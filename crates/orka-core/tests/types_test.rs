@@ -23,7 +23,7 @@ fn priority_ordering() {
 #[test]
 fn envelope_text_constructor() {
     let sid = SessionId::new();
-    let env = Envelope::text("telegram", sid.clone(), "hello");
+    let env = Envelope::text("telegram", sid, "hello");
     assert_eq!(env.channel, "telegram");
     assert_eq!(env.session_id, sid);
     assert!(matches!(env.payload, Payload::Text(ref s) if s == "hello"));
@@ -69,10 +69,7 @@ fn payload_variants_serialize() {
     let json = serde_json::to_value(&text).unwrap();
     assert_eq!(json["type"], "Text");
 
-    let cmd = Payload::Command(CommandPayload {
-        name: "ping".into(),
-        args: Default::default(),
-    });
+    let cmd = Payload::Command(CommandPayload::new("ping", Default::default()));
     let json = serde_json::to_value(&cmd).unwrap();
     assert_eq!(json["type"], "Command");
 }

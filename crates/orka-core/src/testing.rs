@@ -90,7 +90,7 @@ impl SessionStore for InMemorySessionStore {
 
     async fn put(&self, session: &Session) -> Result<()> {
         let mut sessions = self.sessions.lock().await;
-        sessions.insert(session.id.clone(), session.clone());
+        sessions.insert(session.id, session.clone());
         Ok(())
     }
 
