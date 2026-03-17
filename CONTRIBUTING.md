@@ -6,9 +6,10 @@ Thank you for your interest in contributing to Orka!
 
 ### Prerequisites
 
-- Rust 1.75+
-- Redis 7+
-- Docker (for integration tests)
+- Rust 1.75+ (MSRV)
+- Redis 7+ (for integration tests)
+- Docker (for `testcontainers`-based integration tests)
+- [just](https://github.com/casey/just) command runner
 
 ### Setup
 
@@ -23,37 +24,54 @@ just setup
 cargo build --workspace
 ```
 
-### Running Tests
+### Running Checks
 
 ```bash
-# Unit tests
-cargo test --workspace
+just ci           # Full check suite: fmt + clippy + test
+just test         # Unit tests only
+just clippy       # Lint (warnings are errors)
+just fmt          # Auto-format
 
-# Including integration tests (requires Redis)
-cargo test --workspace -- --include-ignored
+cargo test -p orka-core        # Test a single crate
+cargo test -- --include-ignored # Integration tests (requires Redis)
 ```
 
 ## Development Workflow
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Make your changes
-4. Run checks:
-   ```bash
-   cargo fmt --all -- --check
-   cargo clippy --workspace --all-targets
-   cargo test --workspace
-   ```
-5. Commit with a clear message
-6. Open a pull request
+2. Create a feature branch from `main`
+3. Make your changes — keep PRs focused on a single concern
+4. Add tests for new functionality
+5. Run `just ci` to verify everything passes
+6. Open a pull request with a clear description
+
+### Commit Messages
+
+We use [Conventional Commits](https://www.conventionalcommits.org/). CI enforces this via [commitlint](https://commitlint.js.org/).
+
+```
+feat: add new adapter for Matrix
+fix: correct session expiry in Redis store
+docs: update README with new CLI commands
+refactor: simplify LLM client initialization
+test: add coverage for priority queue DLQ
+chore: bump dependencies
+```
+
+### PR Guidelines
+
+- Keep PRs small and focused
+- Include tests for new code paths
+- Update documentation if the public API changes
+- Ensure `just ci` passes before requesting review
 
 ## Code Style
 
-- Follow standard Rust conventions (`rustfmt` defaults)
-- Keep functions focused and small
-- Use `thiserror` for error types, `anyhow` sparingly
-- Add tests for new functionality
-- Comments in English
+- Follow standard Rust conventions (`rustfmt` defaults, no `rustfmt.toml`)
+- Lint with `cargo clippy -- -D warnings`
+- Use `thiserror` for error types in library crates, `anyhow` sparingly in binaries
+- Add tests for new functionality in `#[cfg(test)] mod tests` blocks
+- Comments and documentation in English
 
 ## Architecture
 
@@ -64,15 +82,20 @@ Orka is organized as a Cargo workspace with ~30 crates. Each crate has a single 
 - **orka-queue**: Priority queue (Redis Sorted Sets)
 - **orka-worker**: Worker pool and message handlers
 - **orka-gateway**: Inbound message routing
-- **orka-llm**: LLM provider integrations
+- **orka-llm**: LLM provider integrations (Anthropic, OpenAI)
 - **orka-skills**: Skill registry and execution
+- **orka-adapter-\***: Platform adapters (Telegram, Discord, Slack, WhatsApp)
+- **orka-os**: Linux OS integration skills
+- **orka-web**: Web search and page reading skills
+- **orka-knowledge**: RAG/vector store skills
+- **orka-observe**: Observability (Prometheus metrics, Redis/OTel event sinks)
 
 See the [README](README.md) for the full project structure.
 
 ## Reporting Issues
 
-Use GitHub Issues with the provided templates for bug reports and feature requests.
+Use [GitHub Issues](https://github.com/gianlucamazza/orka/issues) for bug reports and feature requests. For security vulnerabilities, see [SECURITY.md](SECURITY.md).
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
