@@ -11,6 +11,16 @@ env:
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
+  commits:
+    name: Lint commit messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: wagoid/commitlint-github-action@v6
+
   check:
     name: Check & Test
     runs-on: ubuntu-latest

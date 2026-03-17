@@ -85,3 +85,15 @@ install:
 # Uninstall orka-server and orka CLI (requires sudo)
 uninstall:
     sudo ./scripts/install.sh --uninstall
+
+# Release a new version (usage: just release patch|minor|major)
+release level:
+    cargo release {{level}} --execute
+
+# Dry-run a release to preview what would happen
+release-dry level:
+    cargo release {{level}}
+
+# Regenerate CHANGELOG.md from git history
+changelog:
+    git-cliff --output CHANGELOG.md
