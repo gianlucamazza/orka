@@ -14,10 +14,12 @@ pub struct OllamaClient {
 }
 
 impl OllamaClient {
+    /// Create a client with defaults (localhost:11434, 120s timeout).
     pub fn new(model: String) -> Self {
         Self::with_options(model, 120, 4096, 1, "http://localhost:11434/v1".into())
     }
 
+    /// Create a client with full configuration.
     pub fn with_options(
         model: String,
         timeout_secs: u64,
@@ -62,7 +64,7 @@ impl LlmClient for OllamaClient {
 
     async fn complete_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -74,7 +76,7 @@ impl LlmClient for OllamaClient {
 
     async fn complete_stream_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,

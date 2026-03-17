@@ -12,8 +12,9 @@ use crate::client::{
 };
 use orka_core::{Error, Result};
 
-const API_URL: &str = "https://api.anthropic.com/v1/messages";
+const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1/messages";
 
+/// Anthropic Messages API client with retry and streaming support.
 pub struct AnthropicClient {
     client: Client,
     api_key: String,
@@ -21,13 +22,30 @@ pub struct AnthropicClient {
     max_tokens: u32,
     max_retries: u32,
     api_version: String,
+    base_url: String,
 }
 
 impl AnthropicClient {
-    pub fn new(api_key: String, model: String) -> Self {
-        Self::with_options(api_key, model, 30, 4096, 2, "2023-06-01".into())
+    /// Create a client with default max_tokens (8192) and no custom base URL.
+    pub fn new(
+        api_key: String,
+        model: String,
+        timeout_secs: u64,
+        max_retries: u32,
+        api_version: String,
+    ) -> Self {
+        Self::with_options(
+            api_key,
+            model,
+            timeout_secs,
+            8192,
+            max_retries,
+            api_version,
+            None,
+        )
     }
 
+    /// Create a client with full configuration including max_tokens and custom base URL.
     pub fn with_options(
         api_key: String,
         model: String,
@@ -35,6 +53,7 @@ impl AnthropicClient {
         max_tokens: u32,
         max_retries: u32,
         api_version: String,
+        base_url: Option<String>,
     ) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
@@ -47,6 +66,7 @@ impl AnthropicClient {
             max_tokens,
             max_retries,
             api_version,
+            base_url: base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
         }
     }
 
@@ -67,7 +87,7 @@ impl AnthropicClient {
 
             let result = self
                 .client
-                .post(API_URL)
+                .post(&self.base_url)
                 .header("x-api-key", &self.api_key)
                 .header("anthropic-version", &self.api_version)
                 .header("content-type", "application/json")
@@ -231,14 +251,14 @@ impl LlmClient for AnthropicClient {
 
     async fn complete_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
     ) -> Result<CompletionResponse> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
-        let api_messages = Self::build_ext_messages(&messages);
+        let api_messages = Self::build_ext_messages(messages);
 
         let api_tools: Vec<serde_json::Value> = tools
             .iter()
@@ -367,14 +387,14 @@ impl LlmClient for AnthropicClient {
 
     async fn complete_stream_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
     ) -> Result<LlmToolStream> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
-        let api_messages = Self::build_ext_messages(&messages);
+        let api_messages = Self::build_ext_messages(messages);
 
         let api_tools: Vec<serde_json::Value> = tools
             .iter()

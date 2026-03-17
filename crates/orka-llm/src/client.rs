@@ -4,10 +4,97 @@ use async_trait::async_trait;
 use orka_core::Result;
 use serde::{Deserialize, Serialize};
 
+/// A simple chat message with a role and text content.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChatMessage {
     pub role: String, // "user" or "assistant"
     pub content: String,
+}
+
+impl ChatMessage {
+    /// Create a new chat message.
+    pub fn new(role: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            role: role.into(),
+            content: content.into(),
+        }
+    }
+}
+
+impl ChatMessageExt {
+    /// Create a new extended chat message.
+    pub fn new(role: impl Into<String>, content: ChatContent) -> Self {
+        Self {
+            role: role.into(),
+            content,
+        }
+    }
+
+    /// Create a text message.
+    pub fn text(role: impl Into<String>, content: impl Into<String>) -> Self {
+        Self::new(role, ChatContent::Text(content.into()))
+    }
+}
+
+impl ToolDefinition {
+    /// Create a new tool definition.
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: serde_json::Value,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+        }
+    }
+}
+
+impl ToolCall {
+    /// Create a new tool call.
+    pub fn new(id: impl Into<String>, name: impl Into<String>, input: serde_json::Value) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            input,
+        }
+    }
+}
+
+impl ToolResult {
+    /// Create a new tool result.
+    pub fn new(tool_use_id: impl Into<String>, content: impl Into<String>, is_error: bool) -> Self {
+        Self {
+            tool_use_id: tool_use_id.into(),
+            content: content.into(),
+            is_error,
+        }
+    }
+}
+
+impl Usage {
+    /// Create a new usage with the given token counts.
+    pub fn new(input_tokens: u32, output_tokens: u32) -> Self {
+        Self {
+            input_tokens,
+            output_tokens,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+        }
+    }
+}
+
+impl CompletionResponse {
+    /// Create a new completion response.
+    pub fn new(blocks: Vec<ContentBlock>, usage: Usage, stop_reason: Option<StopReason>) -> Self {
+        Self {
+            blocks,
+            usage,
+            stop_reason,
+        }
+    }
 }
 
 /// A stream of text chunks from an LLM response.
@@ -15,6 +102,7 @@ pub type LlmStream = Pin<Box<dyn futures_util::Stream<Item = Result<String>> + S
 
 /// Structured output format.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ResponseFormat {
     /// Request JSON output matching this schema.
     JsonSchema {
@@ -25,7 +113,9 @@ pub enum ResponseFormat {
     Json,
 }
 
+/// Per-call overrides for model, token limit, and output format.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct CompletionOptions {
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
@@ -35,6 +125,7 @@ pub struct CompletionOptions {
 
 /// A tool definition sent to the LLM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
@@ -43,6 +134,7 @@ pub struct ToolDefinition {
 
 /// A tool call requested by the LLM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
@@ -51,6 +143,7 @@ pub struct ToolCall {
 
 /// A tool result to feed back to the LLM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ToolResult {
     pub tool_use_id: String,
     pub content: String,
@@ -59,6 +152,7 @@ pub struct ToolResult {
 
 /// A content block in an LLM response — either text or a tool call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum ContentBlock {
     Text(String),
     ToolUse(ToolCall),
@@ -66,6 +160,7 @@ pub enum ContentBlock {
 
 /// Extended chat message supporting tool results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ChatMessageExt {
     pub role: String,
     pub content: ChatContent,
@@ -73,6 +168,7 @@ pub struct ChatMessageExt {
 
 /// Content can be simple text or a list of content blocks (for tool results).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 #[serde(untagged)]
 pub enum ChatContent {
     Text(String),
@@ -81,6 +177,7 @@ pub enum ChatContent {
 
 /// Input content block for messages with tool use/results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 #[serde(tag = "type")]
 pub enum ContentBlockInput {
     #[serde(rename = "text")]
@@ -102,6 +199,7 @@ pub enum ContentBlockInput {
 
 /// Token usage from an LLM response.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Usage {
     pub input_tokens: u32,
     pub output_tokens: u32,
@@ -115,6 +213,7 @@ pub struct Usage {
 
 /// Why the model stopped generating.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum StopReason {
     EndTurn,
@@ -125,6 +224,7 @@ pub enum StopReason {
 
 /// Full response from `complete_with_tools`.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CompletionResponse {
     pub blocks: Vec<ContentBlock>,
     pub usage: Usage,
@@ -133,6 +233,7 @@ pub struct CompletionResponse {
 
 /// A streaming event from an LLM response with tool support.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum StreamEvent {
     TextDelta(String),
     ToolUseStart {
@@ -151,8 +252,10 @@ pub enum StreamEvent {
 /// A stream of tool-aware events from an LLM response.
 pub type LlmToolStream = Pin<Box<dyn futures_util::Stream<Item = Result<StreamEvent>> + Send>>;
 
+/// Async LLM client supporting text completion, streaming, and tool use.
 #[async_trait]
 pub trait LlmClient: Send + Sync + 'static {
+    /// Complete a chat conversation, returning the assistant's reply.
     async fn complete(&self, messages: Vec<ChatMessage>, system: &str) -> Result<String>;
 
     /// Complete with per-call overrides for model/max_tokens.
@@ -182,18 +285,18 @@ pub trait LlmClient: Send + Sync + 'static {
     /// Default implementation ignores tools and returns text only.
     async fn complete_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
     ) -> Result<CompletionResponse> {
         let _ = tools;
         let simple_messages: Vec<ChatMessage> = messages
-            .into_iter()
-            .filter_map(|m| match m.content {
+            .iter()
+            .filter_map(|m| match &m.content {
                 ChatContent::Text(t) => Some(ChatMessage {
-                    role: m.role,
-                    content: t,
+                    role: m.role.clone(),
+                    content: t.clone(),
                 }),
                 _ => None,
             })
@@ -212,7 +315,7 @@ pub trait LlmClient: Send + Sync + 'static {
     /// Default implementation calls `complete_with_tools()` and yields events from the full response.
     async fn complete_stream_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,

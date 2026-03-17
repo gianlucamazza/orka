@@ -18,6 +18,7 @@ pub struct SwappableLlmClient {
 }
 
 impl SwappableLlmClient {
+    /// Wrap an existing client for hot-swapping.
     pub fn new(client: Arc<dyn LlmClient>) -> Self {
         Self {
             inner: ArcSwap::from_pointee(client),
@@ -57,7 +58,7 @@ impl LlmClient for SwappableLlmClient {
 
     async fn complete_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -69,7 +70,7 @@ impl LlmClient for SwappableLlmClient {
 
     async fn complete_stream_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,

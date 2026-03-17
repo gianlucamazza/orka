@@ -31,6 +31,7 @@ pub struct LlmRouter {
 }
 
 impl LlmRouter {
+    /// Create a router with a default (fallback) provider.
     pub fn new(default_provider: Arc<dyn LlmClient>) -> Self {
         let config = CircuitBreakerConfig::default();
         let default_breaker = Arc::new(CircuitBreaker::new(config.clone()));
@@ -52,6 +53,7 @@ impl LlmRouter {
         self
     }
 
+    /// Register a provider with model-name prefixes for routing.
     pub fn add_provider(
         mut self,
         name: impl Into<String>,
@@ -113,6 +115,7 @@ fn map_cb_err(e: CircuitBreakerError<orka_core::Error>) -> orka_core::Error {
             )
         }
         CircuitBreakerError::Inner(inner) => inner,
+        _ => orka_core::Error::Llm("unknown circuit breaker error".into()),
     }
 }
 
@@ -178,7 +181,7 @@ impl LlmClient for LlmRouter {
 
     async fn complete_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -188,6 +191,7 @@ impl LlmClient for LlmRouter {
         let provider = self.resolve_provider_arc(options.model.as_deref());
         let system = system.to_string();
         let tools = tools.to_vec();
+        let messages = messages.to_vec();
         breaker
             .call(|| {
                 let provider = provider.clone();
@@ -197,7 +201,7 @@ impl LlmClient for LlmRouter {
                 let options = options.clone();
                 async move {
                     provider
-                        .complete_with_tools(messages, &system, &tools, options)
+                        .complete_with_tools(&messages, &system, &tools, options)
                         .await
                 }
             })
@@ -207,7 +211,7 @@ impl LlmClient for LlmRouter {
 
     async fn complete_stream_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -217,6 +221,7 @@ impl LlmClient for LlmRouter {
         let provider = self.resolve_provider_arc(options.model.as_deref());
         let system = system.to_string();
         let tools = tools.to_vec();
+        let messages = messages.to_vec();
         breaker
             .call(|| {
                 let provider = provider.clone();
@@ -226,7 +231,7 @@ impl LlmClient for LlmRouter {
                 let options = options.clone();
                 async move {
                     provider
-                        .complete_stream_with_tools(messages, &system, &tools, options)
+                        .complete_stream_with_tools(&messages, &system, &tools, options)
                         .await
                 }
             })

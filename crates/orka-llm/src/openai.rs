@@ -12,6 +12,7 @@ use crate::client::{
 };
 use orka_core::{Error, Result};
 
+/// OpenAI Chat Completions API client with retry and streaming support.
 pub struct OpenAiClient {
     client: Client,
     api_key: String,
@@ -22,6 +23,7 @@ pub struct OpenAiClient {
 }
 
 impl OpenAiClient {
+    /// Create a client with default settings (30s timeout, 4096 max tokens, 2 retries).
     pub fn new(api_key: String, model: String) -> Self {
         Self::with_options(
             api_key,
@@ -33,6 +35,7 @@ impl OpenAiClient {
         )
     }
 
+    /// Create a client with full configuration.
     pub fn with_options(
         api_key: String,
         model: String,
@@ -332,7 +335,7 @@ impl LlmClient for OpenAiClient {
 
     async fn complete_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -341,7 +344,7 @@ impl LlmClient for OpenAiClient {
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
 
         let mut api_messages = vec![json!({"role": "system", "content": system})];
-        api_messages.extend(Self::build_messages(&messages));
+        api_messages.extend(Self::build_messages(messages));
 
         let mut body = json!({
             "model": model,
@@ -388,7 +391,7 @@ impl LlmClient for OpenAiClient {
 
     async fn complete_stream_with_tools(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: &[ChatMessageExt],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -397,7 +400,7 @@ impl LlmClient for OpenAiClient {
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
 
         let mut api_messages = vec![json!({"role": "system", "content": system})];
-        api_messages.extend(Self::build_messages(&messages));
+        api_messages.extend(Self::build_messages(messages));
 
         let mut body = json!({
             "model": model,
