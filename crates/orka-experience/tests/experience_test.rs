@@ -71,11 +71,16 @@ impl VectorStore for MockVectorStore {
         _vector: &[f32],
         limit: usize,
         _score_threshold: Option<f32>,
-        _filter: Option<HashMap<String, String>>,
+        filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<SearchResult>> {
         let data = self.data.lock().await;
         let results = data
             .iter()
+            .filter(|p| {
+                filter.as_ref().is_none_or(|f| {
+                    f.iter().all(|(k, v)| p.get(k).is_some_and(|pv| pv == v))
+                })
+            })
             .take(limit)
             .map(|p| SearchResult {
                 content: p.get("text").cloned().unwrap_or_default(),
@@ -91,9 +96,15 @@ impl VectorStore for MockVectorStore {
         &self,
         _collection: &str,
         limit: usize,
+        filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<HashMap<String, String>>> {
         let data = self.data.lock().await;
-        Ok(data.iter().take(limit).cloned().collect())
+        let iter = data.iter().filter(|entry| {
+            filter.as_ref().is_none_or(|f| {
+                f.iter().all(|(k, v)| entry.get(k).is_some_and(|ev| ev == v))
+            })
+        });
+        Ok(iter.take(limit).cloned().collect())
     }
 }
 
