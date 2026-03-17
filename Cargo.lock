@@ -4116,6 +4116,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "config",
+ "dashmap",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -4125,6 +4126,23 @@ dependencies = [
  "utoipa",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "orka-experience"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "orka-core",
+ "orka-knowledge",
+ "orka-llm",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4393,6 +4411,7 @@ dependencies = [
  "orka-auth",
  "orka-bus",
  "orka-core",
+ "orka-experience",
  "orka-gateway",
  "orka-guardrails",
  "orka-http",
@@ -4483,6 +4502,7 @@ dependencies = [
  "futures-util",
  "orka-bus",
  "orka-core",
+ "orka-experience",
  "orka-guardrails",
  "orka-llm",
  "orka-queue",

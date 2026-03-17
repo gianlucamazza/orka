@@ -1,0 +1,229 @@
+use std::sync::Arc;
+
+use orka_core::Result;
+use orka_core::config::ExperienceConfig;
+use orka_llm::client::LlmClient;
+use tracing::{debug, info, warn};
+
+use crate::collector::TrajectoryCollector;
+use crate::distiller::Distiller;
+use crate::reflector::PrincipleReflector;
+use crate::store::PrincipleStore;
+use crate::trajectory_store::TrajectoryStore;
+use crate::types::{Principle, Trajectory};
+
+/// High-level facade combining trajectory collection, principle reflection, retrieval,
+/// trajectory persistence, and offline distillation.
+pub struct ExperienceService {
+    store: Arc<PrincipleStore>,
+    trajectory_store: Arc<TrajectoryStore>,
+    reflector: PrincipleReflector,
+    distiller: Distiller,
+    config: ExperienceConfig,
+}
+
+impl ExperienceService {
+    /// Create a new experience service from its dependencies.
+    pub fn new(
+        store: Arc<PrincipleStore>,
+        trajectory_store: Arc<TrajectoryStore>,
+        llm: Arc<dyn LlmClient>,
+        config: ExperienceConfig,
+    ) -> Self {
+        let reflector = PrincipleReflector::new(
+            Arc::clone(&llm),
+            config.reflection_model.clone(),
+            config.reflection_max_tokens,
+        );
+        let distiller = Distiller::new(
+            llm,
+            config.reflection_model.clone(),
+            config.reflection_max_tokens * 4, // distillation needs more tokens
+        );
+        Self {
+            store,
+            trajectory_store,
+            reflector,
+            distiller,
+            config,
+        }
+    }
+
+    /// Retrieve relevant principles for a user message in the given workspace.
+    pub async fn retrieve_principles(
+        &self,
+        user_message: &str,
+        workspace: &str,
+    ) -> Result<Vec<Principle>> {
+        if !self.config.enabled {
+            return Ok(Vec::new());
+        }
+
+        // Search for principles matching both the workspace scope and "global"
+        let mut principles = self
+            .store
+            .retrieve(
+                user_message,
+                self.config.max_principles * 2, // fetch extra to filter
+                self.config.min_relevance_score,
+                None, // no scope filter — we'll filter in code
+            )
+            .await?;
+
+        // Keep only principles that match the workspace or are global
+        principles.retain(|p| p.scope == workspace || p.scope == "global");
+
+        // Truncate to max
+        principles.truncate(self.config.max_principles);
+
+        debug!(
+            count = principles.len(),
+            workspace, "retrieved principles for prompt injection"
+        );
+        Ok(principles)
+    }
+
+    /// Format principles for injection into the system prompt.
+    pub fn format_principles_section(principles: &[Principle]) -> String {
+        if principles.is_empty() {
+            return String::new();
+        }
+
+        let mut section = String::from("\n\n## Learned Principles\n\n");
+        section.push_str(
+            "The following principles were learned from past interactions. Apply them when relevant:\n\n",
+        );
+
+        for (i, p) in principles.iter().enumerate() {
+            let prefix = match p.kind {
+                crate::types::PrincipleKind::Do => "DO",
+                crate::types::PrincipleKind::Avoid => "AVOID",
+            };
+            section.push_str(&format!("{}. [{}] {}\n", i + 1, prefix, p.text));
+        }
+
+        section
+    }
+
+    /// Persist a trajectory to the trajectory store for future distillation.
+    pub async fn record_trajectory(&self, trajectory: &Trajectory) -> Result<()> {
+        if !self.config.enabled {
+            return Ok(());
+        }
+        self.trajectory_store.store(trajectory).await
+    }
+
+    /// Decide whether to reflect on a trajectory and, if so, perform reflection.
+    /// Returns the number of principles created.
+    pub async fn maybe_reflect(&self, trajectory: &Trajectory) -> Result<usize> {
+        if !self.config.enabled {
+            return Ok(0);
+        }
+
+        if !self.should_reflect(trajectory) {
+            return Ok(0);
+        }
+
+        let principles = self
+            .reflector
+            .reflect(trajectory, &trajectory.workspace)
+            .await?;
+
+        if principles.is_empty() {
+            return Ok(0);
+        }
+
+        let stored = self
+            .store
+            .store_batch(&principles, self.config.dedup_threshold)
+            .await?;
+
+        info!(
+            trajectory_id = %trajectory.id,
+            principles_created = stored,
+            "reflection completed"
+        );
+
+        Ok(stored)
+    }
+
+    /// Run offline distillation over recent trajectories.
+    ///
+    /// Loads up to `distillation_batch_size` recent trajectories from the workspace,
+    /// synthesizes cross-trajectory patterns, and stores the resulting principles.
+    ///
+    /// Returns the number of new principles created.
+    pub async fn distill(&self, workspace: &str) -> Result<usize> {
+        if !self.config.enabled {
+            return Ok(0);
+        }
+
+        let trajectories = self
+            .trajectory_store
+            .load_recent(Some(workspace), self.config.distillation_batch_size)
+            .await?;
+
+        if trajectories.is_empty() {
+            debug!(workspace, "no trajectories available for distillation");
+            return Ok(0);
+        }
+
+        let principles = self.distiller.distill(&trajectories, workspace).await?;
+
+        if principles.is_empty() {
+            return Ok(0);
+        }
+
+        let created = self
+            .store
+            .store_batch(&principles, self.config.dedup_threshold)
+            .await?;
+
+        info!(
+            workspace,
+            trajectory_count = trajectories.len(),
+            principles_created = created,
+            "offline distillation completed"
+        );
+
+        Ok(created)
+    }
+
+    fn should_reflect(&self, trajectory: &Trajectory) -> bool {
+        match self.config.reflect_on.as_str() {
+            "all" => true,
+            "failures" => !trajectory.success,
+            "sampled" => {
+                if !trajectory.success {
+                    // Always reflect on failures
+                    true
+                } else {
+                    let sample: f64 = rand::random();
+                    sample < self.config.sample_rate
+                }
+            }
+            other => {
+                warn!(
+                    reflect_on = other,
+                    "unknown reflect_on value, defaulting to failures-only"
+                );
+                !trajectory.success
+            }
+        }
+    }
+
+    /// Create a trajectory collector for a new handler invocation.
+    pub fn collector(
+        &self,
+        session_id: String,
+        workspace: String,
+        user_message: String,
+    ) -> TrajectoryCollector {
+        TrajectoryCollector::new(session_id, workspace, user_message)
+    }
+
+    /// Check if the experience system is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.config.enabled
+    }
+}
