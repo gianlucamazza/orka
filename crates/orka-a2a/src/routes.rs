@@ -91,13 +91,8 @@ async fn handle_task_send(
     let response_text = if let Some(skill_name) = find_matching_skill(&state.skills, &text) {
         let args: HashMap<String, serde_json::Value> =
             HashMap::from([("input".to_string(), serde_json::Value::String(text.clone()))]);
-        let input = SkillInput {
-            args,
-            context: Some(SkillContext {
-                secrets: state.secrets.clone(),
-                event_sink: None,
-            }),
-        };
+        let input =
+            SkillInput::new(args).with_context(SkillContext::new(state.secrets.clone(), None));
         match state.skills.invoke(&skill_name, input).await {
             Ok(output) => output.data.to_string(),
             Err(_e) => {

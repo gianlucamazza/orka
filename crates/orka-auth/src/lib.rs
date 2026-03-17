@@ -1,7 +1,20 @@
+//! Authentication and authorization for API and WebSocket endpoints.
+//!
+//! - [`Authenticator`] — async trait for credential verification
+//! - [`ApiKeyAuthenticator`], [`JwtAuthenticator`] — built-in implementations
+//! - [`AuthLayer`] / [`AuthService`] — tower middleware for request authentication
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 pub mod api_key;
+#[allow(missing_docs)]
 pub mod authenticator;
+#[allow(missing_docs)]
 pub mod jwt;
+#[allow(missing_docs)]
 pub mod middleware;
+#[allow(missing_docs)]
 pub mod types;
 
 #[cfg(feature = "test-util")]

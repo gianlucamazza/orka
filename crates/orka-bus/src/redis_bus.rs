@@ -8,15 +8,21 @@ use tracing::{debug, error, warn};
 use orka_core::traits::MessageBus;
 use orka_core::{Envelope, Error, MessageId, MessageStream, Result};
 
+/// Redis Streams implementation of [`orka_core::traits::MessageBus`].
 pub struct RedisBus {
     pool: Pool,
     group: String,
     consumer: String,
     pending: Arc<Mutex<HashMap<String, (String, String)>>>, // message_id_str -> (stream_key, redis_entry_id)
+    block_ms: u64,
+    batch_size: usize,
+    backoff_initial_secs: u64,
+    backoff_max_secs: u64,
 }
 
 impl RedisBus {
-    pub fn new(redis_url: &str) -> Result<Self> {
+    /// Connect to Redis and create a new bus with the given configuration.
+    pub fn new(redis_url: &str, config: &orka_core::config::BusConfig) -> Result<Self> {
         let cfg = DeadpoolConfig::from_url(redis_url);
         let pool = cfg
             .create_pool(Some(Runtime::Tokio1))
@@ -28,14 +34,20 @@ impl RedisBus {
             group: "orka".to_string(),
             consumer,
             pending: Arc::new(Mutex::new(HashMap::new())),
+            block_ms: config.block_ms,
+            batch_size: config.batch_size,
+            backoff_initial_secs: config.backoff_initial_secs,
+            backoff_max_secs: config.backoff_max_secs,
         })
     }
 
+    /// Override the consumer group name (default: `"orka"`).
     pub fn with_group(mut self, group: impl Into<String>) -> Self {
         self.group = group.into();
         self
     }
 
+    /// Return the Redis key used for a given topic's stream.
     pub fn stream_key(topic: &str) -> String {
         format!("orka:bus:{topic}")
     }
@@ -94,10 +106,13 @@ impl MessageBus for RedisBus {
 
         let (tx, rx) = mpsc::channel::<Envelope>(256);
         let pool = self.pool.clone();
+        let block_ms = self.block_ms;
+        let batch_size = self.batch_size;
+        let initial_backoff = std::time::Duration::from_secs(self.backoff_initial_secs);
+        let max_backoff = std::time::Duration::from_secs(self.backoff_max_secs);
 
         tokio::spawn(async move {
-            let mut backoff = std::time::Duration::from_secs(1);
-            let max_backoff = std::time::Duration::from_secs(30);
+            let mut backoff = initial_backoff;
             loop {
                 let mut conn = match pool.get().await {
                     Ok(c) => c,
@@ -114,9 +129,9 @@ impl MessageBus for RedisBus {
                     .arg(&group)
                     .arg(&consumer)
                     .arg("BLOCK")
-                    .arg(5000)
+                    .arg(block_ms)
                     .arg("COUNT")
-                    .arg(10)
+                    .arg(batch_size)
                     .arg("STREAMS")
                     .arg(&key)
                     .arg(">")
@@ -127,7 +142,7 @@ impl MessageBus for RedisBus {
                     Ok(redis::Value::Nil) => continue,
                     Ok(value) => {
                         if let Some(entries) = parse_xreadgroup_response(&value) {
-                            backoff = std::time::Duration::from_secs(1);
+                            backoff = initial_backoff;
                             for (entry_id, envelope_json) in entries {
                                 match serde_json::from_str::<Envelope>(&envelope_json) {
                                     Ok(envelope) => {

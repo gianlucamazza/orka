@@ -1,10 +1,17 @@
+//! Inbound message gateway with deduplication, rate limiting, and priority routing.
+//!
+//! The [`Gateway`] subscribes to the message bus, resolves sessions, applies
+//! rate limits and idempotency checks, then enqueues messages for worker processing.
+
+#![warn(missing_docs)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Utc;
 use deadpool_redis::Pool;
 use orka_core::traits::{EventSink, MessageBus, PriorityQueue, SessionStore};
-use orka_core::{DomainEvent, DomainEventKind, Envelope, EventId, Session};
+use orka_core::{DomainEvent, DomainEventKind, Envelope, Session};
 use orka_workspace::WorkspaceLoader;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -12,6 +19,7 @@ use tracing::{debug, error, info, warn};
 
 const DEDUP_KEY_PREFIX: &str = "orka:dedup:";
 
+/// Central message gateway that bridges adapters to the worker queue.
 pub struct Gateway {
     bus: Arc<dyn MessageBus>,
     sessions: Arc<dyn SessionStore>,
@@ -27,6 +35,7 @@ pub struct Gateway {
 
 impl Gateway {
     #[allow(clippy::too_many_arguments)]
+    /// Create a new gateway with the given dependencies.
     pub fn new(
         bus: Arc<dyn MessageBus>,
         sessions: Arc<dyn SessionStore>,
@@ -54,6 +63,7 @@ impl Gateway {
         }
     }
 
+    /// Start the gateway loop, processing messages until `shutdown` is signalled.
     pub async fn run(&self, shutdown: CancellationToken) -> orka_core::Result<()> {
         info!("gateway starting");
         let mut rx = self.bus.subscribe("inbound").await?;
@@ -224,44 +234,30 @@ impl Gateway {
 
         // Emit MessageReceived
         self.event_sink
-            .emit(DomainEvent {
-                id: EventId::new(),
-                timestamp: Utc::now(),
-                kind: DomainEventKind::MessageReceived {
-                    message_id: envelope.id.clone(),
-                    channel: envelope.channel.clone(),
-                    session_id: envelope.session_id.clone(),
-                },
-                metadata: Default::default(),
-            })
+            .emit(DomainEvent::new(DomainEventKind::MessageReceived {
+                message_id: envelope.id,
+                channel: envelope.channel.clone(),
+                session_id: envelope.session_id,
+            }))
             .await;
 
         // Session resolution: get or create
         let session = match self.sessions.get(&envelope.session_id).await? {
             Some(s) => s,
             None => {
-                let s = Session {
-                    id: envelope.session_id.clone(),
-                    channel: envelope.channel.clone(),
-                    user_id: "anonymous".into(),
-                    created_at: envelope.timestamp,
-                    updated_at: envelope.timestamp,
-                    state: Default::default(),
-                };
+                let mut s = Session::new(envelope.channel.clone(), "anonymous");
+                s.id = envelope.session_id;
+                s.created_at = envelope.timestamp;
+                s.updated_at = envelope.timestamp;
                 self.sessions.put(&s).await?;
                 info!(session_id = %s.id, "gateway: created new session");
 
                 // Emit SessionCreated
                 self.event_sink
-                    .emit(DomainEvent {
-                        id: EventId::new(),
-                        timestamp: Utc::now(),
-                        kind: DomainEventKind::SessionCreated {
-                            session_id: s.id.clone(),
-                            channel: s.channel.clone(),
-                        },
-                        metadata: Default::default(),
-                    })
+                    .emit(DomainEvent::new(DomainEventKind::SessionCreated {
+                        session_id: s.id,
+                        channel: s.channel.clone(),
+                    }))
                     .await;
 
                 s

@@ -1,3 +1,11 @@
+//! Encrypted secret storage backed by Redis.
+//!
+//! Provides [`RedisSecretManager`], an implementation of [`orka_core::traits::SecretManager`]
+//! with optional AES-256-GCM encryption, and a [`create_secret_manager`] factory.
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 pub mod redis_secret;
 
 pub use crate::redis_secret::RedisSecretManager;
@@ -7,6 +15,7 @@ use std::sync::Arc;
 use orka_core::traits::SecretManager;
 use tracing::warn;
 
+/// Create a [`SecretManager`] from the given configuration.
 pub fn create_secret_manager(
     config: &orka_core::config::OrkaConfig,
 ) -> orka_core::Result<Arc<dyn SecretManager>> {

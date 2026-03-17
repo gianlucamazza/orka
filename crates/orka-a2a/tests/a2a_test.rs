@@ -43,7 +43,7 @@ async fn agent_card_serialization() {
     assert_eq!(json["description"], "A test agent");
     assert_eq!(json["url"], "http://localhost:8080/a2a");
     assert!(json["capabilities"]["streaming"].as_bool().unwrap());
-    assert!(json["skills"].as_array().unwrap().len() > 0);
+    assert!(!json["skills"].as_array().unwrap().is_empty());
     assert_eq!(json["defaultInputModes"][0], "text/plain");
     assert_eq!(json["defaultOutputModes"][0], "text/plain");
 }

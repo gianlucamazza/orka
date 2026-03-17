@@ -32,8 +32,8 @@ async fn gateway_creates_session_and_enqueues() {
     let cancel2 = cancel.clone();
 
     let env = Envelope::text("custom", SessionId::new(), "hello gateway");
-    let session_id = env.session_id.clone();
-    let env_id = env.id.clone();
+    let session_id = env.session_id;
+    let env_id = env.id;
 
     // Spawn gateway first so it subscribes before we publish
     let handle = tokio::spawn(async move { gateway.run(cancel2).await });

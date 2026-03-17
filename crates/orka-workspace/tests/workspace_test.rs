@@ -179,10 +179,10 @@ async fn watcher_detects_change() {
     // Wait for the event (up to 2s)
     let result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            if let Ok(WorkspaceEvent::FileChanged(f)) = rx.recv().await {
-                if f == "SOUL.md" {
-                    return true;
-                }
+            if let Ok(WorkspaceEvent::FileChanged(f)) = rx.recv().await
+                && f == "SOUL.md"
+            {
+                return true;
             }
         }
     })

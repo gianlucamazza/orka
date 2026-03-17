@@ -232,6 +232,9 @@ pub async fn run(
                             println!();
                             let _ = done_tx.send(());
                         }
+                        WsMessage::Stream(_) => {
+                            // Unknown stream chunk kind — ignore
+                        }
                         WsMessage::Unknown(raw) => {
                             println!("\n{raw}");
                             let _ = done_tx.send(());

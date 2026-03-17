@@ -7,12 +7,14 @@ use tracing::debug;
 use orka_core::traits::SessionStore;
 use orka_core::{Error, Result, Session, SessionId};
 
+/// Redis implementation of [`orka_core::traits::SessionStore`].
 pub struct RedisSessionStore {
     pool: Pool,
     ttl_secs: u64,
 }
 
 impl RedisSessionStore {
+    /// Connect to Redis and create a new session store with the given TTL.
     pub fn new(redis_url: &str, ttl_secs: u64) -> Result<Self> {
         let cfg = DeadpoolConfig::from_url(redis_url);
         let pool = cfg

@@ -19,13 +19,13 @@ async fn push_pop_priority_order() {
     let session = SessionId::new();
 
     // Create envelopes with different priorities.
-    let mut bg = Envelope::text("test", session.clone(), "background");
+    let mut bg = Envelope::text("test", session, "background");
     bg.priority = Priority::Background;
 
-    let mut normal = Envelope::text("test", session.clone(), "normal");
+    let mut normal = Envelope::text("test", session, "normal");
     normal.priority = Priority::Normal;
 
-    let mut urgent = Envelope::text("test", session.clone(), "urgent");
+    let mut urgent = Envelope::text("test", session, "urgent");
     urgent.priority = Priority::Urgent;
 
     // Push in non-priority order: background, normal, urgent.

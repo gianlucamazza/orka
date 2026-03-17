@@ -43,6 +43,7 @@ impl Guardrail for GuardrailChain {
                     current = modified;
                     was_modified = true;
                 }
+                _ => {}
             }
         }
 
@@ -65,6 +66,7 @@ impl Guardrail for GuardrailChain {
                     current = modified;
                     was_modified = true;
                 }
+                _ => {}
             }
         }
 

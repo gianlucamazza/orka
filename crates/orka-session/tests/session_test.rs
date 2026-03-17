@@ -15,7 +15,7 @@ async fn put_get_roundtrip() {
     let store = RedisSessionStore::new(&url, 86400).expect("create store");
 
     let session = Session::new("telegram", "user-42");
-    let id = session.id.clone();
+    let id = session.id;
 
     store.put(&session).await.expect("put session");
 
@@ -39,7 +39,7 @@ async fn delete_then_get_returns_none() {
     let store = RedisSessionStore::new(&url, 86400).expect("create store");
 
     let session = Session::new("discord", "user-99");
-    let id = session.id.clone();
+    let id = session.id;
 
     store.put(&session).await.expect("put session");
     store.delete(&id).await.expect("delete session");
@@ -62,7 +62,7 @@ async fn full_crud_cycle() {
 
     // Create
     let mut session = Session::new("slack", "user-7");
-    let id = session.id.clone();
+    let id = session.id;
 
     // Read before create returns None
     let result = store.get(&id).await.expect("get before put");

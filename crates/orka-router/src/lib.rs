@@ -1,3 +1,10 @@
+//! Prefix-based message routing to multiple [`AgentHandler`] implementations.
+//!
+//! - [`AgentRouter`] — first-match prefix router with a default fallback
+//! - [`DelegateHandler`] — wraps replies with a name tag for multi-agent pipelines
+
+#![warn(missing_docs)]
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -81,6 +88,7 @@ pub struct DelegateHandler {
 }
 
 impl DelegateHandler {
+    /// Create a delegate that tags replies with `name`.
     pub fn new(name: impl Into<String>, inner: Arc<dyn AgentHandler>) -> Self {
         Self {
             name: name.into(),

@@ -28,7 +28,7 @@ async fn publish_subscribe_ack_roundtrip() {
     let port = container.get_host_port_ipv4(6379).await.unwrap();
     let url = format!("redis://127.0.0.1:{port}");
 
-    let bus = RedisBus::new(&url).expect("create bus");
+    let bus = RedisBus::new(&url, &orka_core::config::BusConfig::default()).expect("create bus");
     let topic = "test-topic";
 
     // Subscribe first
@@ -36,7 +36,7 @@ async fn publish_subscribe_ack_roundtrip() {
 
     // Publish an envelope
     let envelope = Envelope::text("test-channel", SessionId::new(), "integration test");
-    let expected_id = envelope.id.clone();
+    let expected_id = envelope.id;
     bus.publish(topic, &envelope).await.expect("publish");
 
     // Receive it
@@ -67,7 +67,7 @@ async fn ack_unknown_message_errors() {
     let port = container.get_host_port_ipv4(6379).await.unwrap();
     let url = format!("redis://127.0.0.1:{port}");
 
-    let bus = RedisBus::new(&url).expect("create bus");
+    let bus = RedisBus::new(&url, &orka_core::config::BusConfig::default()).expect("create bus");
     let random_id = MessageId::new();
     let result = bus.ack(&random_id).await;
     assert!(result.is_err(), "acking unknown message should error");

@@ -1,3 +1,11 @@
+//! Priority queue for ordered message processing.
+//!
+//! Provides [`RedisPriorityQueue`], a Redis sorted-set implementation of
+//! [`orka_core::traits::PriorityQueue`], and a [`create_queue`] factory.
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 pub mod redis_queue;
 
 pub use redis_queue::RedisPriorityQueue;

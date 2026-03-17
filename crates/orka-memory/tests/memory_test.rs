@@ -12,18 +12,13 @@ async fn setup() -> (
     let container = Redis::default().start().await.unwrap();
     let port = container.get_host_port_ipv4(6379).await.unwrap();
     let url = format!("redis://127.0.0.1:{port}");
-    let store = RedisMemoryStore::new(&url).expect("create store");
+    let store = RedisMemoryStore::new(&url, 10_000).expect("create store");
     (store, container)
 }
 
 fn make_entry(key: &str, tags: Vec<&str>) -> MemoryEntry {
-    MemoryEntry {
-        key: key.into(),
-        value: serde_json::json!({"data": key}),
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-        tags: tags.into_iter().map(String::from).collect(),
-    }
+    MemoryEntry::new(key, serde_json::json!({"data": key}))
+        .with_tags(tags.into_iter().map(String::from).collect())
 }
 
 #[tokio::test]

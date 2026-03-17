@@ -6,18 +6,21 @@ use tracing::debug;
 use orka_core::traits::MemoryStore;
 use orka_core::{Error, MemoryEntry, Result};
 
+/// Redis implementation of [`orka_core::traits::MemoryStore`].
 pub struct RedisMemoryStore {
     pool: Pool,
+    max_entries: usize,
 }
 
 impl RedisMemoryStore {
-    pub fn new(redis_url: &str) -> Result<Self> {
+    /// Connect to Redis and create a new memory store with the given capacity.
+    pub fn new(redis_url: &str, max_entries: usize) -> Result<Self> {
         let cfg = DeadpoolConfig::from_url(redis_url);
         let pool = cfg
             .create_pool(Some(Runtime::Tokio1))
             .map_err(|e| Error::memory(format!("failed to create Redis pool: {e}")))?;
 
-        Ok(Self { pool })
+        Ok(Self { pool, max_entries })
     }
 
     fn key(k: &str) -> String {
@@ -207,16 +210,15 @@ impl MemoryStore for RedisMemoryStore {
             cursor = next_cursor;
         }
 
-        // Keep the most recent 10_000 entries, delete the rest
-        const MAX_ENTRIES: usize = 10_000;
-        if entries.len() <= MAX_ENTRIES {
+        // Keep the most recent N entries, delete the rest
+        if entries.len() <= self.max_entries {
             return Ok(0);
         }
 
         // Sort by updated_at descending (newest first)
         entries.sort_by(|a, b| b.1.cmp(&a.1));
 
-        let to_delete: Vec<String> = entries[MAX_ENTRIES..]
+        let to_delete: Vec<String> = entries[self.max_entries..]
             .iter()
             .map(|(k, _)| k.clone())
             .collect();

@@ -1,5 +1,16 @@
+//! Input/output guardrails for content safety filtering.
+//!
+//! - [`GuardrailChain`] — composable chain of [`Guardrail`] checks
+//! - [`KeywordGuardrail`] — blocklist-based keyword filter
+//! - [`RegexGuardrail`] — regex-based block/redact filter with PII support
+
+#![warn(missing_docs)]
+
+#[allow(missing_docs)]
 pub mod chain;
+#[allow(missing_docs)]
 pub mod keyword;
+#[allow(missing_docs)]
 pub mod regex_filter;
 
 pub use chain::GuardrailChain;

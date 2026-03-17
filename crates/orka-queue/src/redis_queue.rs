@@ -40,6 +40,7 @@ pub fn priority_score(priority: &Priority, timestamp: DateTime<Utc>) -> f64 {
         Priority::Urgent => 0,
         Priority::Normal => 1,
         Priority::Background => 2,
+        _ => 1, // default to Normal bucket for unknown priorities
     };
     let ts_micros = timestamp.timestamp_micros() as u64;
     (bucket * 1_000_000_000_000_000 + ts_micros) as f64

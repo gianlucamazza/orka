@@ -1,3 +1,10 @@
+//! Circuit breaker pattern for protecting remote service calls.
+//!
+//! [`CircuitBreaker`] tracks consecutive failures and trips open after a threshold,
+//! rejecting calls immediately until a cooldown period allows a half-open probe.
+
+#![warn(missing_docs)]
+
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use std::time::Duration;
@@ -6,10 +13,14 @@ use tokio::time::Instant;
 
 /// Circuit breaker states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum CircuitState {
+    /// Normal operation — requests pass through.
     Closed = 0,
+    /// Tripped — all requests are rejected immediately.
     Open = 1,
+    /// Probing — a single request is allowed to test recovery.
     HalfOpen = 2,
 }
 
@@ -26,6 +37,7 @@ impl CircuitState {
 
 /// Error returned by [`CircuitBreaker::call`].
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum CircuitBreakerError<E> {
     /// The circuit is open; the call was not attempted.
     #[error("circuit breaker is open")]
