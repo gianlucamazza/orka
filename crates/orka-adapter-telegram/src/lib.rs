@@ -1,82 +1,93 @@
 //! Telegram Bot API adapter for receiving and sending messages.
+//!
+//! Supports long polling (default) and webhook mode. Handles text, media,
+//! slash commands, and callback queries.
 
 #![warn(missing_docs)]
 
-use std::collections::HashMap;
+mod api;
+mod media;
+mod polling;
+mod types;
+mod webhook;
+
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use orka_core::config::TelegramAdapterConfig;
 use orka_core::traits::ChannelAdapter;
-use orka_core::types::{Envelope, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay};
+use orka_core::types::{MessageSink, OutboundMessage, Payload, SessionId};
 use orka_core::{Error, Result};
-use reqwest::Client;
-use serde::Deserialize;
+use serde_json::json;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
-/// Telegram Bot API [`ChannelAdapter`] using long polling.
+use api::TelegramApi;
+use media::SendMethod;
+use media::select_send_method;
+
+/// Authorization guard for restricting bot access to specific Telegram user IDs.
+#[derive(Clone, Debug)]
+pub(crate) struct TelegramAuthGuard {
+    allowed: Option<HashSet<i64>>,
+}
+
+impl TelegramAuthGuard {
+    pub(crate) fn from_config(config: &TelegramAdapterConfig) -> Self {
+        let has_owner = config.owner_id.is_some();
+        let has_users = config
+            .allowed_users
+            .as_ref()
+            .is_some_and(|v| !v.is_empty());
+
+        if !has_owner && !has_users {
+            return Self { allowed: None };
+        }
+
+        let mut set = HashSet::new();
+        if let Some(id) = config.owner_id {
+            set.insert(id);
+        }
+        if let Some(ref users) = config.allowed_users {
+            set.extend(users.iter().copied());
+        }
+        Self { allowed: Some(set) }
+    }
+
+    pub(crate) fn is_allowed(&self, user_id: i64) -> bool {
+        match &self.allowed {
+            None => true,
+            Some(set) => set.contains(&user_id),
+        }
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        self.allowed.is_none()
+    }
+}
+
+/// Telegram Bot API [`ChannelAdapter`].
 pub struct TelegramAdapter {
-    bot_token: String,
-    client: Client,
+    api: Arc<TelegramApi>,
+    config: TelegramAdapterConfig,
     sink: Arc<Mutex<Option<MessageSink>>>,
     shutdown: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
-    /// Maps chat_id to SessionId for consistent session routing
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
 }
 
 impl TelegramAdapter {
-    /// Create an adapter with the given bot token.
-    pub fn new(bot_token: String) -> Self {
+    /// Create an adapter with the given config and bot token.
+    pub fn new(config: TelegramAdapterConfig, bot_token: String) -> Self {
+        let api = Arc::new(TelegramApi::new(bot_token));
         Self {
-            bot_token,
-            client: Client::new(),
+            api,
+            config,
             sink: Arc::new(Mutex::new(None)),
             shutdown: Arc::new(Mutex::new(None)),
             sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
-
-    fn api_url(&self, method: &str) -> String {
-        format!("https://api.telegram.org/bot{}/{}", self.bot_token, method)
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct TelegramResponse<T> {
-    ok: bool,
-    result: Option<T>,
-    description: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Update {
-    update_id: i64,
-    message: Option<TelegramMessage>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TelegramMessage {
-    #[allow(dead_code)]
-    message_id: i64,
-    chat: Chat,
-    text: Option<String>,
-    #[allow(dead_code)]
-    from: Option<User>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Chat {
-    id: i64,
-    #[serde(default)]
-    r#type: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct User {
-    #[allow(dead_code)]
-    id: i64,
-    #[allow(dead_code)]
-    first_name: String,
 }
 
 #[async_trait]
@@ -88,103 +99,52 @@ impl ChannelAdapter for TelegramAdapter {
     async fn start(&self, sink: MessageSink) -> Result<()> {
         *self.sink.lock().await = Some(sink.clone());
 
-        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
         *self.shutdown.lock().await = Some(shutdown_tx);
 
-        let client = self.client.clone();
-        let api_url = self.api_url("getUpdates");
-        let send_sink = sink;
+        let api = self.api.clone();
         let sessions = self.sessions.clone();
+        let mode = self.config.mode.as_deref().unwrap_or("polling").to_string();
 
-        tokio::spawn(async move {
-            let mut offset: i64 = 0;
-            let mut error_count: u32 = 0;
+        let auth_guard = Arc::new(TelegramAuthGuard::from_config(&self.config));
+        if !auth_guard.is_open() {
+            let n = auth_guard
+                .allowed
+                .as_ref()
+                .map_or(0, |s| s.len());
+            info!(authorized_users = n, "Telegram auth enabled");
+        }
 
-            loop {
-                // Check shutdown
-                if shutdown_rx.try_recv().is_ok() {
-                    info!("Telegram adapter shutting down");
-                    break;
-                }
-
-                let params = serde_json::json!({
-                    "offset": offset,
-                    "timeout": 30,
-                    "allowed_updates": ["message"],
+        match mode.as_str() {
+            "webhook" => {
+                let webhook_url =
+                    self.config.webhook_url.clone().ok_or_else(|| {
+                        Error::Other("webhook_url required for webhook mode".into())
+                    })?;
+                let port = self.config.webhook_port.unwrap_or(8443);
+                let sink_arc = self.sink.clone();
+                tokio::spawn(async move {
+                    webhook::run_webhook_server(
+                        api,
+                        sink_arc,
+                        sessions,
+                        webhook_url,
+                        port,
+                        shutdown_rx,
+                        auth_guard,
+                    )
+                    .await;
                 });
-
-                let result = client.post(api_url.as_str()).json(&params).send().await;
-
-                match result {
-                    Ok(response) => {
-                        match response.json::<TelegramResponse<Vec<Update>>>().await {
-                            Ok(resp) if resp.ok => {
-                                error_count = 0;
-                                if let Some(updates) = resp.result {
-                                    for update in updates {
-                                        offset = update.update_id + 1;
-
-                                        if let Some(msg) = update.message
-                                            && let Some(text) = msg.text
-                                        {
-                                            let session_id = {
-                                                let mut s = sessions.lock().await;
-                                                *s.entry(msg.chat.id).or_insert_with(SessionId::new)
-                                            };
-
-                                            let mut envelope =
-                                                Envelope::text("telegram", session_id, text);
-
-                                            // Store chat_id in metadata for outbound routing
-                                            envelope.metadata.insert(
-                                                "telegram_chat_id".to_string(),
-                                                serde_json::json!(msg.chat.id),
-                                            );
-
-                                            // Propagate chat type for priority routing
-                                            let chat_type = match msg.chat.r#type.as_deref() {
-                                                Some("private") => "direct",
-                                                Some("group" | "supergroup" | "channel") => "group",
-                                                _ => "group",
-                                            };
-                                            envelope.metadata.insert(
-                                                "chat_type".to_string(),
-                                                serde_json::json!(chat_type),
-                                            );
-
-                                            if send_sink.send(envelope).await.is_err() {
-                                                debug!("sink closed, stopping Telegram polling");
-                                                return;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Ok(resp) => {
-                                warn!(
-                                    description = resp.description.as_deref().unwrap_or("unknown"),
-                                    "Telegram API error"
-                                );
-                                tokio::time::sleep(backoff_delay(error_count, 1, 60)).await;
-                                error_count = error_count.saturating_add(1);
-                            }
-                            Err(e) => {
-                                error!(%e, "failed to parse Telegram response");
-                                tokio::time::sleep(backoff_delay(error_count, 1, 60)).await;
-                                error_count = error_count.saturating_add(1);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!(%e, "Telegram getUpdates request failed");
-                        tokio::time::sleep(backoff_delay(error_count, 1, 60)).await;
-                        error_count = error_count.saturating_add(1);
-                    }
-                }
+                info!("Telegram adapter started (webhook mode)");
             }
-        });
+            _ => {
+                tokio::spawn(async move {
+                    polling::run_polling_loop(api, sink, sessions, shutdown_rx, auth_guard).await;
+                });
+                info!("Telegram adapter started (long polling)");
+            }
+        }
 
-        info!("Telegram adapter started (long polling)");
         Ok(())
     }
 
@@ -198,36 +158,131 @@ impl ChannelAdapter for TelegramAdapter {
                 context: "missing telegram_chat_id in outbound metadata".into(),
             })?;
 
-        let text = match &msg.payload {
-            Payload::Text(t) => t.clone(),
-            _ => "[unsupported payload type]".into(),
+        let reply_to_message_id = msg
+            .metadata
+            .get("telegram_message_id")
+            .and_then(|v| v.as_i64());
+
+        let message_thread_id = msg
+            .metadata
+            .get("telegram_message_thread_id")
+            .and_then(|v| v.as_i64());
+
+        let parse_mode = msg
+            .metadata
+            .get("telegram_parse_mode")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| self.config.parse_mode.clone());
+        let parse_mode_ref = match parse_mode.as_deref() {
+            None | Some("HTML") => Some("HTML"),
+            Some("MarkdownV2") => Some("MarkdownV2"),
+            Some("none") => None,
+            Some(other) => {
+                warn!(parse_mode = other, "unknown parse_mode, defaulting to HTML");
+                Some("HTML")
+            }
         };
 
-        let params = serde_json::json!({
-            "chat_id": chat_id,
-            "text": text,
-        });
+        let inline_keyboard = msg.metadata.get("telegram_inline_keyboard").cloned();
 
-        let response = self
-            .client
-            .post(self.api_url("sendMessage"))
-            .json(&params)
-            .send()
-            .await
-            .map_err(|e| Error::Adapter {
-                source: Box::new(e),
-                context: "Telegram sendMessage request failed".into(),
-            })?;
+        let reply_markup = inline_keyboard.map(|kb| json!({ "inline_keyboard": kb }));
 
-        if !response.status().is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::Adapter {
-                source: Box::new(std::io::Error::other(body.clone())),
-                context: format!("Telegram sendMessage failed: {body}"),
-            });
+        // Edit mode: update an existing message instead of sending a new one
+        if let Some(edit_msg_id) = msg
+            .metadata
+            .get("telegram_edit_message_id")
+            .and_then(|v| v.as_i64())
+            && let Payload::Text(text) = &msg.payload
+        {
+            self.api
+                .edit_message_text(chat_id, edit_msg_id, text, parse_mode_ref)
+                .await?;
+            debug!(chat_id, edit_msg_id, "edited message on Telegram");
+            return Ok(());
         }
 
-        debug!(chat_id, "sent message to Telegram");
+        match &msg.payload {
+            Payload::Text(text) => {
+                // Fire-and-forget typing indicator
+                {
+                    let api = self.api.clone();
+                    tokio::spawn(async move {
+                        let _ = api.send_chat_action(chat_id, "typing").await;
+                    });
+                }
+
+                self.api
+                    .send_message(
+                        chat_id,
+                        text,
+                        parse_mode_ref,
+                        reply_to_message_id,
+                        reply_markup.as_ref(),
+                        message_thread_id,
+                    )
+                    .await?;
+                debug!(chat_id, "sent text message to Telegram");
+            }
+            Payload::Media(media) => {
+                let method = select_send_method(&media.mime_type);
+                let caption = media.caption.as_deref();
+                match method {
+                    SendMethod::Photo => {
+                        self.api
+                            .send_photo(
+                                chat_id,
+                                &media.url,
+                                caption,
+                                reply_to_message_id,
+                                message_thread_id,
+                            )
+                            .await?;
+                    }
+                    SendMethod::Audio => {
+                        self.api
+                            .send_audio(
+                                chat_id,
+                                &media.url,
+                                caption,
+                                reply_to_message_id,
+                                message_thread_id,
+                            )
+                            .await?;
+                    }
+                    SendMethod::Video => {
+                        self.api
+                            .send_video(
+                                chat_id,
+                                &media.url,
+                                caption,
+                                reply_to_message_id,
+                                message_thread_id,
+                            )
+                            .await?;
+                    }
+                    SendMethod::Document => {
+                        self.api
+                            .send_document(
+                                chat_id,
+                                &media.url,
+                                caption,
+                                reply_to_message_id,
+                                message_thread_id,
+                            )
+                            .await?;
+                    }
+                }
+                debug!(chat_id, mime = %media.mime_type, "sent media to Telegram");
+            }
+            Payload::Command(_) | Payload::Event(_) => {
+                debug!("outbound Command/Event payload ignored by Telegram adapter");
+            }
+            _ => {
+                debug!("unknown outbound payload type ignored by Telegram adapter");
+            }
+        }
+
         Ok(())
     }
 
@@ -243,29 +298,17 @@ impl ChannelAdapter for TelegramAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use orka_core::config::TelegramAdapterConfig;
+    use orka_core::types::SessionId;
 
     fn make_adapter() -> TelegramAdapter {
-        TelegramAdapter::new("TEST_TOKEN".into())
+        TelegramAdapter::new(TelegramAdapterConfig::default(), "TEST_TOKEN".into())
     }
 
     #[test]
     fn channel_id_returns_telegram() {
         let adapter = make_adapter();
         assert_eq!(adapter.channel_id(), "telegram");
-    }
-
-    #[test]
-    fn api_url_constructs_correct_url() {
-        let adapter = make_adapter();
-        assert_eq!(
-            adapter.api_url("sendMessage"),
-            "https://api.telegram.org/botTEST_TOKEN/sendMessage"
-        );
-        assert_eq!(
-            adapter.api_url("getUpdates"),
-            "https://api.telegram.org/botTEST_TOKEN/getUpdates"
-        );
     }
 
     #[tokio::test]
@@ -281,70 +324,59 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_telegram_response_ok() {
-        let data = json!({
-            "ok": true,
-            "result": [{"update_id": 1, "message": null}],
-            "description": null
-        });
-        let resp: TelegramResponse<Vec<Update>> = serde_json::from_value(data).unwrap();
-        assert!(resp.ok);
-        assert_eq!(resp.result.unwrap().len(), 1);
+    fn config_mode_defaults() {
+        let config = TelegramAdapterConfig::default();
+        assert!(config.mode.is_none());
+        assert!(config.webhook_url.is_none());
+        assert!(config.webhook_port.is_none());
+        assert!(config.parse_mode.is_none());
+        assert!(config.streaming.is_none());
     }
 
     #[test]
-    fn deserialize_telegram_response_error() {
-        let data = json!({
-            "ok": false,
-            "description": "Unauthorized"
-        });
-        let resp: TelegramResponse<Vec<Update>> = serde_json::from_value(data).unwrap();
-        assert!(!resp.ok);
-        assert!(resp.result.is_none());
-        assert_eq!(resp.description.unwrap(), "Unauthorized");
+    fn auth_guard_open_when_no_config() {
+        let config = TelegramAdapterConfig::default();
+        let guard = TelegramAuthGuard::from_config(&config);
+        assert!(guard.is_open());
+        assert!(guard.is_allowed(12345));
+        assert!(guard.is_allowed(0));
     }
 
     #[test]
-    fn deserialize_update_with_message() {
-        let data = json!({
-            "update_id": 42,
-            "message": {
-                "message_id": 100,
-                "chat": {"id": 7, "type": "private"},
-                "text": "ping",
-                "from": {"id": 1, "first_name": "Alice"}
-            }
-        });
-        let update: Update = serde_json::from_value(data).unwrap();
-        assert_eq!(update.update_id, 42);
-        let msg = update.message.unwrap();
-        assert_eq!(msg.message_id, 100);
-        assert_eq!(msg.chat.id, 7);
-        assert_eq!(msg.text.as_deref(), Some("ping"));
-        let user = msg.from.unwrap();
-        assert_eq!(user.id, 1);
-        assert_eq!(user.first_name, "Alice");
+    fn auth_guard_owner_only() {
+        let config = TelegramAdapterConfig {
+            owner_id: Some(42),
+            ..Default::default()
+        };
+        let guard = TelegramAuthGuard::from_config(&config);
+        assert!(!guard.is_open());
+        assert!(guard.is_allowed(42));
+        assert!(!guard.is_allowed(99));
     }
 
     #[test]
-    fn deserialize_update_without_message() {
-        let data = json!({"update_id": 99});
-        let update: Update = serde_json::from_value(data).unwrap();
-        assert_eq!(update.update_id, 99);
-        assert!(update.message.is_none());
+    fn auth_guard_owner_plus_allowed() {
+        let config = TelegramAdapterConfig {
+            owner_id: Some(1),
+            allowed_users: Some(vec![2, 3]),
+            ..Default::default()
+        };
+        let guard = TelegramAuthGuard::from_config(&config);
+        assert!(!guard.is_open());
+        assert!(guard.is_allowed(1));
+        assert!(guard.is_allowed(2));
+        assert!(guard.is_allowed(3));
+        assert!(!guard.is_allowed(4));
     }
 
     #[test]
-    fn deserialize_telegram_message_minimal() {
-        let data = json!({
-            "message_id": 5,
-            "chat": {"id": 10}
-        });
-        let msg: TelegramMessage = serde_json::from_value(data).unwrap();
-        assert_eq!(msg.message_id, 5);
-        assert_eq!(msg.chat.id, 10);
-        assert!(msg.text.is_none());
-        assert!(msg.from.is_none());
-        assert!(msg.chat.r#type.is_none());
+    fn auth_guard_empty_allowed_is_open() {
+        let config = TelegramAdapterConfig {
+            allowed_users: Some(vec![]),
+            ..Default::default()
+        };
+        let guard = TelegramAuthGuard::from_config(&config);
+        assert!(guard.is_open());
+        assert!(guard.is_allowed(99999));
     }
 }

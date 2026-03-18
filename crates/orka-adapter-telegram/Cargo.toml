@@ -8,6 +8,8 @@ license.workspace = true
 [dependencies]
 orka-core.workspace = true
 async-trait.workspace = true
+axum.workspace = true
+chrono.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
