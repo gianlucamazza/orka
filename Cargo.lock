@@ -4036,6 +4036,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "orka-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures-util",
+ "orka-core",
+ "orka-experience",
+ "orka-guardrails",
+ "orka-llm",
+ "orka-skills",
+ "orka-workspace",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "orka-auth"
 version = "0.1.0"
 dependencies = [
@@ -4096,6 +4118,7 @@ dependencies = [
  "orka-mcp",
  "orka-secrets",
  "orka-skills",
+ "orka-wasm",
  "reqwest",
  "rustyline",
  "serde",
@@ -4331,30 +4354,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "orka-router"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "orka-core",
- "orka-worker",
- "regex",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "orka-sandbox"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "orka-core",
+ "orka-wasm",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tracing",
- "wasmtime",
- "wasmtime-wasi",
 ]
 
 [[package]]
@@ -4412,6 +4422,7 @@ dependencies = [
  "orka-adapter-slack",
  "orka-adapter-telegram",
  "orka-adapter-whatsapp",
+ "orka-agent",
  "orka-auth",
  "orka-bus",
  "orka-core",
@@ -4426,12 +4437,12 @@ dependencies = [
  "orka-observe",
  "orka-os",
  "orka-queue",
- "orka-router",
  "orka-sandbox",
  "orka-scheduler",
  "orka-secrets",
  "orka-session",
  "orka-skills",
+ "orka-wasm",
  "orka-web",
  "orka-worker",
  "orka-workspace",
@@ -4473,9 +4484,18 @@ dependencies = [
  "async-trait",
  "jsonschema",
  "orka-core",
+ "orka-wasm",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "orka-wasm"
+version = "0.1.0"
+dependencies = [
+ "orka-core",
  "tracing",
  "wasmtime",
  "wasmtime-wasi",
@@ -4505,6 +4525,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "futures-util",
+ "orka-agent",
  "orka-bus",
  "orka-core",
  "orka-experience",
@@ -5552,6 +5573,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "native-tls",
  "percent-encoding",
  "pin-project-lite",
