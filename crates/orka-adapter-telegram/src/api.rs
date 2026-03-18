@@ -240,15 +240,20 @@ impl TelegramApi {
     }
 
     /// Send a chat action (e.g. "typing").
-    pub async fn send_chat_action(&self, chat_id: i64, action: &str) -> Result<bool> {
-        self.call(
-            "sendChatAction",
-            &json!({
-                "chat_id": chat_id,
-                "action": action,
-            }),
-        )
-        .await
+    pub async fn send_chat_action(
+        &self,
+        chat_id: i64,
+        action: &str,
+        message_thread_id: Option<i64>,
+    ) -> Result<bool> {
+        let mut body = json!({
+            "chat_id": chat_id,
+            "action": action,
+        });
+        if let Some(tid) = message_thread_id {
+            body["message_thread_id"] = json!(tid);
+        }
+        self.call("sendChatAction", &body).await
     }
 
     /// Resolve a file_id to a download URL.

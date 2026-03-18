@@ -220,7 +220,9 @@ impl ChannelAdapter for TelegramAdapter {
                 {
                     let api = self.api.clone();
                     tokio::spawn(async move {
-                        let _ = api.send_chat_action(chat_id, "typing").await;
+                        let _ = api
+                            .send_chat_action(chat_id, "typing", message_thread_id)
+                            .await;
                     });
                 }
 

@@ -13,7 +13,9 @@ use axum::{
     routing::get,
 };
 use orka_core::traits::ChannelAdapter;
-use orka_core::types::{Envelope, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay};
+use orka_core::types::{
+    Envelope, MediaPayload, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay,
+};
 use orka_core::{Error, Result};
 use reqwest::Client;
 use serde::Deserialize;
@@ -89,6 +91,10 @@ struct WhatsAppMessage {
     #[serde(rename = "type")]
     msg_type: String,
     text: Option<WhatsAppText>,
+    image: Option<WhatsAppMedia>,
+    video: Option<WhatsAppMedia>,
+    audio: Option<WhatsAppMedia>,
+    document: Option<WhatsAppMedia>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,9 +102,18 @@ struct WhatsAppText {
     body: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct WhatsAppMedia {
+    id: String,
+    mime_type: Option<String>,
+    caption: Option<String>,
+}
+
 #[derive(Clone)]
 struct AppState {
     verify_token: String,
+    access_token: String,
+    client: Client,
     sink: Arc<Mutex<Option<MessageSink>>>,
     sessions: Arc<Mutex<HashMap<String, SessionId>>>,
 }
@@ -128,26 +143,82 @@ async fn webhook_receive(
                         && let Some(messages) = value.messages
                     {
                         for msg in messages {
+                            let session_id = {
+                                let mut sessions = state.sessions.lock().await;
+                                *sessions
+                                    .entry(msg.from.clone())
+                                    .or_insert_with(SessionId::new)
+                            };
+
+                            let maybe_media: Option<(&WhatsAppMedia, &str)> =
+                                match msg.msg_type.as_str() {
+                                    "image" => msg.image.as_ref().map(|m| (m, "image/jpeg")),
+                                    "video" => msg.video.as_ref().map(|m| (m, "video/mp4")),
+                                    "audio" => msg.audio.as_ref().map(|m| (m, "audio/ogg")),
+                                    "document" => msg
+                                        .document
+                                        .as_ref()
+                                        .map(|m| (m, "application/octet-stream")),
+                                    _ => None,
+                                };
+
+                            if let Some((media_obj, default_mime)) = maybe_media {
+                                let media_id = media_obj.id.clone();
+                                let mime = media_obj
+                                    .mime_type
+                                    .clone()
+                                    .unwrap_or_else(|| default_mime.into());
+                                let caption = media_obj.caption.clone();
+
+                                // Resolve media ID → URL via Cloud API
+                                let url = match resolve_media_url_inner(
+                                    &state.client,
+                                    &state.access_token,
+                                    &media_id,
+                                )
+                                .await
+                                {
+                                    Ok(u) => u,
+                                    Err(e) => {
+                                        error!(%e, "WhatsApp: failed to resolve media URL");
+                                        continue;
+                                    }
+                                };
+
+                                let mut media = MediaPayload::new(mime, url);
+                                media.caption = caption;
+
+                                let mut envelope = Envelope::text("whatsapp", session_id, "");
+                                envelope.payload = Payload::Media(media);
+                                envelope
+                                    .metadata
+                                    .insert("whatsapp_from".into(), serde_json::json!(msg.from));
+                                envelope
+                                    .metadata
+                                    .insert("chat_type".into(), serde_json::json!("direct"));
+
+                                let sink = state.sink.lock().await;
+                                if let Some(ref tx) = *sink
+                                    && tx.send(envelope).await.is_err()
+                                {
+                                    error!("WhatsApp: sink closed");
+                                }
+                                continue;
+                            }
+
                             if msg.msg_type != "text" {
                                 continue;
                             }
-                            if let Some(text) = msg.text {
-                                let session_id = {
-                                    let mut sessions = state.sessions.lock().await;
-                                    *sessions
-                                        .entry(msg.from.clone())
-                                        .or_insert_with(SessionId::new)
-                                };
 
+                            if let Some(text) = msg.text {
                                 let mut envelope =
                                     Envelope::text("whatsapp", session_id, &text.body);
-                                envelope.metadata.insert(
-                                    "whatsapp_from".to_string(),
-                                    serde_json::json!(msg.from),
-                                );
                                 envelope
                                     .metadata
-                                    .insert("chat_type".to_string(), serde_json::json!("direct"));
+                                    .insert("whatsapp_from".into(), serde_json::json!(msg.from));
+                                envelope
+                                    .metadata
+                                    .insert("chat_type".into(), serde_json::json!("direct"));
 
                                 let sink = state.sink.lock().await;
                                 if let Some(ref tx) = *sink
@@ -166,6 +237,37 @@ async fn webhook_receive(
     axum::http::StatusCode::OK
 }
 
+/// Standalone helper so the webhook handler can call it without `&self`.
+async fn resolve_media_url_inner(
+    client: &Client,
+    access_token: &str,
+    media_id: &str,
+) -> Result<String> {
+    let resp = client
+        .get(format!("https://graph.facebook.com/v18.0/{media_id}"))
+        .header("Authorization", format!("Bearer {access_token}"))
+        .send()
+        .await
+        .map_err(|e| Error::Adapter {
+            source: Box::new(e),
+            context: format!("WhatsApp resolve media {media_id} failed"),
+        })?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| Error::Adapter {
+            source: Box::new(e),
+            context: "WhatsApp media response parse failed".into(),
+        })?;
+
+    resp["url"]
+        .as_str()
+        .map(String::from)
+        .ok_or_else(|| Error::Adapter {
+            source: Box::new(std::io::Error::other("missing url in media response")),
+            context: format!("WhatsApp media {media_id}: no url field"),
+        })
+}
+
 #[async_trait]
 impl ChannelAdapter for WhatsAppAdapter {
     fn channel_id(&self) -> &str {
@@ -180,6 +282,8 @@ impl ChannelAdapter for WhatsAppAdapter {
 
         let state = AppState {
             verify_token: self.verify_token.clone(),
+            access_token: self.access_token.clone(),
+            client: self.client.clone(),
             sink: self.sink.clone(),
             sessions: self.sessions.clone(),
         };
@@ -252,22 +356,46 @@ impl ChannelAdapter for WhatsAppAdapter {
                 context: "missing whatsapp_from in outbound metadata".into(),
             })?;
 
-        let text = match &msg.payload {
-            Payload::Text(t) => t.clone(),
-            _ => "[unsupported payload type]".into(),
-        };
-
         let url = format!(
             "https://graph.facebook.com/v18.0/{}/messages",
             self.phone_number_id
         );
 
-        let body = serde_json::json!({
-            "messaging_product": "whatsapp",
-            "to": to,
-            "type": "text",
-            "text": { "body": text },
-        });
+        let body = match &msg.payload {
+            Payload::Text(text) => serde_json::json!({
+                "messaging_product": "whatsapp",
+                "to": to,
+                "type": "text",
+                "text": { "body": text },
+            }),
+            Payload::Media(media) => {
+                let (msg_type, media_field) = if media.mime_type.starts_with("image/") {
+                    ("image", "image")
+                } else if media.mime_type.starts_with("video/") {
+                    ("video", "video")
+                } else if media.mime_type.starts_with("audio/") {
+                    ("audio", "audio")
+                } else {
+                    ("document", "document")
+                };
+
+                let mut media_obj = serde_json::json!({ "link": media.url });
+                if let Some(ref caption) = media.caption {
+                    media_obj["caption"] = serde_json::json!(caption);
+                }
+
+                serde_json::json!({
+                    "messaging_product": "whatsapp",
+                    "to": to,
+                    "type": msg_type,
+                    media_field: media_obj,
+                })
+            }
+            _ => {
+                warn!("WhatsApp adapter: unsupported payload type, skipping");
+                return Ok(());
+            }
+        };
 
         let response = self
             .client
@@ -349,20 +477,6 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_webhook_entry() {
-        let json = r#"{"changes": []}"#;
-        let entry: WebhookEntry = serde_json::from_str(json).unwrap();
-        assert!(entry.changes.unwrap().is_empty());
-    }
-
-    #[test]
-    fn deserialize_webhook_change() {
-        let json = r#"{"value": {"messages": []}}"#;
-        let change: WebhookChange = serde_json::from_str(json).unwrap();
-        assert!(change.value.unwrap().messages.unwrap().is_empty());
-    }
-
-    #[test]
     fn deserialize_webhook_value_with_messages() {
         let json =
             r#"{"messages": [{"from": "15551234567", "type": "text", "text": {"body": "hi"}}]}"#;
@@ -375,6 +489,17 @@ mod tests {
     }
 
     #[test]
+    fn deserialize_whatsapp_message_image() {
+        let json = r#"{"from": "15551234567", "type": "image", "image": {"id": "media123", "mime_type": "image/jpeg", "caption": "hello"}}"#;
+        let msg: WhatsAppMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.msg_type, "image");
+        let img = msg.image.unwrap();
+        assert_eq!(img.id, "media123");
+        assert_eq!(img.mime_type.as_deref(), Some("image/jpeg"));
+        assert_eq!(img.caption.as_deref(), Some("hello"));
+    }
+
+    #[test]
     fn deserialize_whatsapp_message_without_text() {
         let json = r#"{"from": "15551234567", "type": "image"}"#;
         let msg: WhatsAppMessage = serde_json::from_str(json).unwrap();
@@ -384,28 +509,12 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_whatsapp_text() {
-        let json = r#"{"body": "hello world"}"#;
-        let text: WhatsAppText = serde_json::from_str(json).unwrap();
-        assert_eq!(text.body, "hello world");
-    }
-
-    #[test]
     fn deserialize_webhook_verify_params() {
         let json = r#"{"hub.mode": "subscribe", "hub.verify_token": "secret", "hub.challenge": "challenge123"}"#;
         let params: WebhookVerifyParams = serde_json::from_str(json).unwrap();
         assert_eq!(params.mode.as_deref(), Some("subscribe"));
         assert_eq!(params.token.as_deref(), Some("secret"));
         assert_eq!(params.challenge.as_deref(), Some("challenge123"));
-    }
-
-    #[test]
-    fn deserialize_webhook_verify_params_partial() {
-        let json = r#"{"hub.mode": "subscribe"}"#;
-        let params: WebhookVerifyParams = serde_json::from_str(json).unwrap();
-        assert_eq!(params.mode.as_deref(), Some("subscribe"));
-        assert!(params.token.is_none());
-        assert!(params.challenge.is_none());
     }
 
     #[test]

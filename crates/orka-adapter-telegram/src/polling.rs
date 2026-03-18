@@ -122,10 +122,7 @@ pub(crate) async fn process_message(
         let api = api.clone();
         let thread_id = msg.message_thread_id;
         tokio::spawn(async move {
-            // We can't pass thread_id to send_chat_action in this API, but that's ok
-            let _ = api.send_chat_action(chat_id, "typing").await;
-            // TODO(telegram): pass thread_id to send_message_opts when forum topic support is added
-            let _ = thread_id;
+            let _ = api.send_chat_action(chat_id, "typing", thread_id).await;
         });
     }
 

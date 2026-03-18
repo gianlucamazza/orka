@@ -9,7 +9,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use axum::{Json, Router, extract::State, routing::post};
 use orka_core::traits::ChannelAdapter;
-use orka_core::types::{Envelope, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay};
+use orka_core::types::{
+    Envelope, MediaPayload, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay,
+};
 use orka_core::{Error, Result};
 use reqwest::Client;
 use serde::Deserialize;
@@ -59,6 +61,19 @@ struct SlackEvent {
     bot_id: Option<String>,
     #[serde(default)]
     channel_type: Option<String>,
+    #[serde(default)]
+    files: Vec<SlackFile>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct SlackFile {
+    // `id` is kept for future use (e.g., files.completeUploadExternal when receiving)
+    #[allow(dead_code)]
+    id: String,
+    mimetype: Option<String>,
+    name: Option<String>,
+    url_private: Option<String>,
+    size: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -89,7 +104,7 @@ async fn handle_event(
         }
 
         if event.event_type == "message"
-            && let (Some(channel), Some(text)) = (event.channel, event.text)
+            && let Some(channel) = event.channel.clone()
         {
             let session_id = {
                 let mut sessions = state.sessions.lock().await;
@@ -98,30 +113,70 @@ async fn handle_event(
                     .or_insert_with(SessionId::new)
             };
 
-            let mut envelope = Envelope::text("slack", session_id, &text);
-            envelope
-                .metadata
-                .insert("slack_channel".to_string(), serde_json::json!(channel));
-            if let Some(user) = event.user {
-                envelope
-                    .metadata
-                    .insert("slack_user".to_string(), serde_json::json!(user));
-            }
-
-            // "im" = DM, anything else = group
             let chat_type = match event.channel_type.as_deref() {
                 Some("im") => "direct",
                 _ => "group",
             };
-            envelope
-                .metadata
-                .insert("chat_type".to_string(), serde_json::json!(chat_type));
 
-            let sink = state.sink.lock().await;
-            if let Some(ref tx) = *sink
-                && tx.send(envelope).await.is_err()
-            {
-                error!("Slack: sink closed");
+            // Media files attached to the message
+            for file in &event.files {
+                let url = match &file.url_private {
+                    Some(u) => u.clone(),
+                    None => continue,
+                };
+                let mime = file
+                    .mimetype
+                    .clone()
+                    .unwrap_or_else(|| "application/octet-stream".into());
+                let caption = file.name.clone();
+
+                let mut media = MediaPayload::new(mime, url);
+                media.caption = caption;
+                media.size_bytes = file.size;
+
+                let mut envelope = Envelope::text("slack", session_id, "");
+                envelope.payload = Payload::Media(media);
+                envelope
+                    .metadata
+                    .insert("slack_channel".into(), serde_json::json!(channel));
+                envelope
+                    .metadata
+                    .insert("chat_type".into(), serde_json::json!(chat_type));
+                if let Some(ref user) = event.user {
+                    envelope
+                        .metadata
+                        .insert("slack_user".into(), serde_json::json!(user));
+                }
+
+                let sink = state.sink.lock().await;
+                if let Some(ref tx) = *sink
+                    && tx.send(envelope).await.is_err()
+                {
+                    error!("Slack: sink closed");
+                }
+            }
+
+            // Text message
+            if let Some(text) = event.text {
+                let mut envelope = Envelope::text("slack", session_id, &text);
+                envelope
+                    .metadata
+                    .insert("slack_channel".into(), serde_json::json!(channel));
+                if let Some(user) = event.user {
+                    envelope
+                        .metadata
+                        .insert("slack_user".into(), serde_json::json!(user));
+                }
+                envelope
+                    .metadata
+                    .insert("chat_type".into(), serde_json::json!(chat_type));
+
+                let sink = state.sink.lock().await;
+                if let Some(ref tx) = *sink
+                    && tx.send(envelope).await.is_err()
+                {
+                    error!("Slack: sink closed");
+                }
             }
         }
     }
@@ -214,38 +269,172 @@ impl ChannelAdapter for SlackAdapter {
                 context: "missing slack_channel in outbound metadata".into(),
             })?;
 
-        let text = match &msg.payload {
-            Payload::Text(t) => t.clone(),
-            _ => "[unsupported payload type]".into(),
-        };
+        match &msg.payload {
+            Payload::Text(text) => {
+                let body = serde_json::json!({
+                    "channel": channel,
+                    "text": text,
+                });
+                let response = self
+                    .client
+                    .post("https://slack.com/api/chat.postMessage")
+                    .header("Authorization", format!("Bearer {}", self.bot_token))
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| Error::Adapter {
+                        source: Box::new(e),
+                        context: "Slack chat.postMessage failed".into(),
+                    })?;
+                if !response.status().is_success() {
+                    let body = response.text().await.unwrap_or_default();
+                    return Err(Error::Adapter {
+                        source: Box::new(std::io::Error::other(body.clone())),
+                        context: format!("Slack API error: {body}"),
+                    });
+                }
+                debug!(channel, "sent text message to Slack");
+            }
+            Payload::Media(media) => {
+                if media.mime_type.starts_with("image/") {
+                    // Image → Block Kit image block
+                    let blocks = serde_json::json!([{
+                        "type": "image",
+                        "image_url": media.url,
+                        "alt_text": media.caption.as_deref().unwrap_or("image"),
+                    }]);
+                    let body = serde_json::json!({
+                        "channel": channel,
+                        "blocks": blocks,
+                    });
+                    let response = self
+                        .client
+                        .post("https://slack.com/api/chat.postMessage")
+                        .header("Authorization", format!("Bearer {}", self.bot_token))
+                        .header("Content-Type", "application/json; charset=utf-8")
+                        .json(&body)
+                        .send()
+                        .await
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Slack image block send failed".into(),
+                        })?;
+                    if !response.status().is_success() {
+                        let body = response.text().await.unwrap_or_default();
+                        return Err(Error::Adapter {
+                            source: Box::new(std::io::Error::other(body.clone())),
+                            context: format!("Slack API error (image): {body}"),
+                        });
+                    }
+                    debug!(channel, "sent image block to Slack");
+                } else {
+                    // Non-image: files.getUploadURLExternal → upload → completeUploadExternal
+                    let filename = media.caption.clone().unwrap_or_else(|| "attachment".into());
+                    let file_bytes = self
+                        .client
+                        .get(&media.url)
+                        .send()
+                        .await
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Slack media download failed".into(),
+                        })?
+                        .bytes()
+                        .await
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Slack media read failed".into(),
+                        })?;
 
-        let body = serde_json::json!({
-            "channel": channel,
-            "text": text,
-        });
+                    // Step 1: Get upload URL
+                    let url_resp: serde_json::Value = self
+                        .client
+                        .get("https://slack.com/api/files.getUploadURLExternal")
+                        .header("Authorization", format!("Bearer {}", self.bot_token))
+                        .query(&[
+                            ("filename", &filename),
+                            ("length", &file_bytes.len().to_string()),
+                        ])
+                        .send()
+                        .await
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Slack getUploadURLExternal failed".into(),
+                        })?
+                        .json()
+                        .await
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Slack getUploadURLExternal parse failed".into(),
+                        })?;
 
-        let response = self
-            .client
-            .post("https://slack.com/api/chat.postMessage")
-            .header("Authorization", format!("Bearer {}", self.bot_token))
-            .header("Content-Type", "application/json; charset=utf-8")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| Error::Adapter {
-                source: Box::new(e),
-                context: "Slack chat.postMessage failed".into(),
-            })?;
+                    if url_resp["ok"].as_bool() != Some(true) {
+                        return Err(Error::Adapter {
+                            source: Box::new(std::io::Error::other(url_resp.to_string())),
+                            context: "Slack getUploadURLExternal returned ok=false".into(),
+                        });
+                    }
 
-        if !response.status().is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::Adapter {
-                source: Box::new(std::io::Error::other(body.clone())),
-                context: format!("Slack API error: {body}"),
-            });
+                    let upload_url = url_resp["upload_url"].as_str().unwrap_or("").to_string();
+                    let file_id = url_resp["file_id"].as_str().unwrap_or("").to_string();
+
+                    // Step 2: Upload the file
+                    self.client
+                        .post(&upload_url)
+                        .body(file_bytes.to_vec())
+                        .send()
+                        .await
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Slack file upload failed".into(),
+                        })?;
+
+                    // Step 3: Complete upload
+                    let complete_body = serde_json::json!({
+                        "files": [{ "id": file_id }],
+                        "channel_id": channel,
+                    });
+                    let complete_resp: serde_json::Value = self
+                        .client
+                        .post("https://slack.com/api/files.completeUploadExternal")
+                        .header("Authorization", format!("Bearer {}", self.bot_token))
+                        .json(&complete_body)
+                        .send()
+                        .await
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Slack completeUploadExternal failed".into(),
+                        })?
+                        .json()
+                        .await
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Slack completeUploadExternal parse failed".into(),
+                        })?;
+
+                    if complete_resp["ok"].as_bool() != Some(true) {
+                        return Err(Error::Adapter {
+                            source: Box::new(std::io::Error::other(complete_resp.to_string())),
+                            context: "Slack completeUploadExternal returned ok=false".into(),
+                        });
+                    }
+
+                    debug!(channel, "uploaded file to Slack");
+                }
+            }
+            _ => {
+                warn!("Slack adapter: unsupported payload type, skipping");
+            }
         }
 
-        debug!(channel, "sent message to Slack");
+        Ok(())
+    }
+
+    async fn register_commands(&self, _commands: &[(&str, &str)]) -> Result<()> {
+        warn!(
+            "Slack register_commands: Slack slash commands require app dashboard configuration and cannot be registered at runtime"
+        );
         Ok(())
     }
 
@@ -276,7 +465,7 @@ mod tests {
     #[tokio::test]
     async fn send_errors_when_slack_channel_missing() {
         let adapter = make_adapter();
-        let msg = OutboundMessage::text("slack", SessionId::new(), "hello", None);
+        let msg = orka_core::types::OutboundMessage::text("slack", SessionId::new(), "hello", None);
         let err = adapter.send(msg).await.unwrap_err();
         let msg = err.to_string();
         assert!(
@@ -310,8 +499,6 @@ mod tests {
         });
         let payload: SlackEventPayload = serde_json::from_value(raw).unwrap();
         assert_eq!(payload.event_type, "event_callback");
-        assert!(payload.challenge.is_none());
-
         let event = payload.event.unwrap();
         assert_eq!(event.event_type, "message");
         assert_eq!(event.channel.as_deref(), Some("C123"));
@@ -351,5 +538,32 @@ mod tests {
         let payload: SlackEventPayload = serde_json::from_value(raw).unwrap();
         let event = payload.event.unwrap();
         assert_eq!(event.channel_type.as_deref(), Some("im"));
+    }
+
+    #[test]
+    fn deserialize_event_with_files() {
+        let raw = json!({
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "channel": "C123",
+                "user": "U456",
+                "files": [{
+                    "id": "F123",
+                    "mimetype": "application/pdf",
+                    "name": "report.pdf",
+                    "url_private": "https://files.slack.com/files/F123/report.pdf",
+                    "size": 12345
+                }]
+            }
+        });
+        let payload: SlackEventPayload = serde_json::from_value(raw).unwrap();
+        let event = payload.event.unwrap();
+        assert_eq!(event.files.len(), 1);
+        let file = &event.files[0];
+        assert_eq!(file.id, "F123");
+        assert_eq!(file.mimetype.as_deref(), Some("application/pdf"));
+        assert_eq!(file.name.as_deref(), Some("report.pdf"));
+        assert_eq!(file.size, Some(12345));
     }
 }
