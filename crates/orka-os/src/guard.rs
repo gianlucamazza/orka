@@ -22,7 +22,8 @@ pub struct PermissionGuard {
 impl PermissionGuard {
     /// Build a guard from the given OS configuration.
     pub fn new(config: &OsConfig) -> Self {
-        let level = PermissionLevel::from_str_config(&config.permission_level);
+        let level = PermissionLevel::from_str_config(&config.permission_level)
+            .expect("permission_level already validated by OrkaConfig::validate");
         let allowed_paths = config
             .allowed_paths
             .iter()

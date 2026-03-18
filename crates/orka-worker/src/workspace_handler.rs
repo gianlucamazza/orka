@@ -795,6 +795,14 @@ impl AgentHandler for WorkspaceHandler {
     async fn handle(&self, envelope: &Envelope, session: &Session) -> Result<Vec<OutboundMessage>> {
         let text = match &envelope.payload {
             Payload::Text(t) => t.clone(),
+            Payload::Command(cmd) => {
+                let mut s = format!("/{}", cmd.name);
+                if let Some(arg) = cmd.args.get("text").and_then(|v| v.as_str()) {
+                    s.push(' ');
+                    s.push_str(arg);
+                }
+                s
+            }
             _ => {
                 return Ok(vec![self.make_reply(
                     envelope,
@@ -1509,12 +1517,31 @@ mod tests {
 
         let session = Session::new("custom", "user1");
         let mut envelope = Envelope::text("custom", SessionId::new(), "");
-        envelope.payload = Payload::Command(orka_core::CommandPayload::new("test", HashMap::new()));
+        envelope.payload =
+            orka_core::Payload::Event(orka_core::EventPayload::new("test", Default::default()));
 
         let replies = handler.handle(&envelope, &session).await.unwrap();
         assert_eq!(replies.len(), 1);
         match &replies[0].payload {
             Payload::Text(t) => assert!(t.contains("only process text")),
+            other => panic!("expected text payload, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn command_payload_routed_as_slash_command() {
+        let state = test_workspace_registry(Some("Bot"), "").await;
+        let handler = test_handler(state);
+
+        let session = Session::new("custom", "user1");
+        let mut envelope = Envelope::text("custom", SessionId::new(), "");
+        envelope.payload = Payload::Command(orka_core::CommandPayload::new("test", HashMap::new()));
+
+        let replies = handler.handle(&envelope, &session).await.unwrap();
+        assert_eq!(replies.len(), 1);
+        // /test is not a registered command, so it returns the "Unknown command" error
+        match &replies[0].payload {
+            Payload::Text(t) => assert!(t.contains("Unknown command")),
             other => panic!("expected text payload, got {other:?}"),
         }
     }

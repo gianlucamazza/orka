@@ -209,6 +209,9 @@ cron = "0.13"
 toml_edit = "0.22"
 similar = "2"
 
+# Markdown parsing
+pulldown-cmark = "0.12"
+
 # URL parsing
 url = "2"
 

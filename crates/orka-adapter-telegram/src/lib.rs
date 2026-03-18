@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 
 mod api;
+mod markdown;
 mod media;
 mod polling;
 mod types;
@@ -36,10 +37,7 @@ pub(crate) struct TelegramAuthGuard {
 impl TelegramAuthGuard {
     pub(crate) fn from_config(config: &TelegramAdapterConfig) -> Self {
         let has_owner = config.owner_id.is_some();
-        let has_users = config
-            .allowed_users
-            .as_ref()
-            .is_some_and(|v| !v.is_empty());
+        let has_users = config.allowed_users.as_ref().is_some_and(|v| !v.is_empty());
 
         if !has_owner && !has_users {
             return Self { allowed: None };
@@ -108,10 +106,7 @@ impl ChannelAdapter for TelegramAdapter {
 
         let auth_guard = Arc::new(TelegramAuthGuard::from_config(&self.config));
         if !auth_guard.is_open() {
-            let n = auth_guard
-                .allowed
-                .as_ref()
-                .map_or(0, |s| s.len());
+            let n = auth_guard.allowed.as_ref().map_or(0, |s| s.len());
             info!(authorized_users = n, "Telegram auth enabled");
         }
 
@@ -195,15 +190,32 @@ impl ChannelAdapter for TelegramAdapter {
             .and_then(|v| v.as_i64())
             && let Payload::Text(text) = &msg.payload
         {
+            let (final_text, effective_pm) = if parse_mode_ref == Some("HTML") {
+                let html = markdown::md_to_telegram_html(text);
+                // edit cannot be split — truncate to first chunk if needed
+                let truncated = if html.len() > 4096 {
+                    let mut first = markdown::split_html(&html, 4090)
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| html[..4090].to_string());
+                    first.push('…');
+                    first
+                } else {
+                    html
+                };
+                (truncated, Some("HTML"))
+            } else {
+                (text.clone(), parse_mode_ref)
+            };
             self.api
-                .edit_message_text(chat_id, edit_msg_id, text, parse_mode_ref)
+                .edit_message_text(chat_id, edit_msg_id, &final_text, effective_pm)
                 .await?;
             debug!(chat_id, edit_msg_id, "edited message on Telegram");
             return Ok(());
         }
 
         match &msg.payload {
-            Payload::Text(text) => {
+            Payload::Text(raw_text) => {
                 // Fire-and-forget typing indicator
                 {
                     let api = self.api.clone();
@@ -212,16 +224,27 @@ impl ChannelAdapter for TelegramAdapter {
                     });
                 }
 
-                self.api
-                    .send_message(
-                        chat_id,
-                        text,
-                        parse_mode_ref,
-                        reply_to_message_id,
-                        reply_markup.as_ref(),
-                        message_thread_id,
-                    )
-                    .await?;
+                let (final_text, effective_pm) = if parse_mode_ref == Some("HTML") {
+                    (markdown::md_to_telegram_html(raw_text), Some("HTML"))
+                } else {
+                    (raw_text.clone(), parse_mode_ref)
+                };
+
+                let chunks = markdown::split_html(&final_text, 4096);
+                for (i, chunk) in chunks.iter().enumerate() {
+                    let reply = if i == 0 { reply_to_message_id } else { None };
+                    let markup = if i == 0 { reply_markup.as_ref() } else { None };
+                    self.api
+                        .send_message(
+                            chat_id,
+                            chunk,
+                            effective_pm,
+                            reply,
+                            markup,
+                            message_thread_id,
+                        )
+                        .await?;
+                }
                 debug!(chat_id, "sent text message to Telegram");
             }
             Payload::Media(media) => {
@@ -291,6 +314,16 @@ impl ChannelAdapter for TelegramAdapter {
             let _ = tx.send(());
         }
         info!("Telegram adapter shut down");
+        Ok(())
+    }
+
+    async fn register_commands(&self, commands: &[(&str, &str)]) -> Result<()> {
+        let owned: Vec<(String, String)> = commands
+            .iter()
+            .map(|(n, d)| (n.to_string(), d.to_string()))
+            .collect();
+        self.api.set_my_commands(&owned).await?;
+        info!(count = owned.len(), "registered Telegram bot commands");
         Ok(())
     }
 }

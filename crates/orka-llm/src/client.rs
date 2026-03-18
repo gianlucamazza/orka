@@ -218,7 +218,7 @@ pub enum ContentBlock {
 }
 
 /// Content can be simple text or a list of content blocks (for tool results).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 #[serde(untagged)]
 pub enum ChatContent {
@@ -226,6 +226,25 @@ pub enum ChatContent {
     Text(String),
     /// A sequence of typed content blocks (text, tool use, tool results).
     Blocks(Vec<ContentBlockInput>),
+}
+
+impl<'de> Deserialize<'de> for ChatContent {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::Null => Ok(ChatContent::Text(String::new())),
+            serde_json::Value::String(s) => Ok(ChatContent::Text(s)),
+            serde_json::Value::Array(_) => {
+                let blocks = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                Ok(ChatContent::Blocks(blocks))
+            }
+            other => Err(serde::de::Error::custom(format!(
+                "unexpected ChatContent value: {other}"
+            ))),
+        }
+    }
 }
 
 /// Input content block for messages with tool use/results.
@@ -260,6 +279,10 @@ pub enum ContentBlockInput {
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         is_error: bool,
     },
+    /// Unknown block type — ignored gracefully to avoid deserialization failures
+    /// when the API introduces new block types (e.g. `"thinking"`).
+    #[serde(other)]
+    Unknown,
 }
 
 /// Token usage from an LLM response.
@@ -430,5 +453,54 @@ pub trait LlmClient: Send + Sync + 'static {
             events.push(Ok(StreamEvent::Stop(reason)));
         }
         Ok(Box::pin(futures_util::stream::iter(events)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chat_content_deserializes_null_as_empty_text() {
+        let c: ChatContent = serde_json::from_str("null").unwrap();
+        assert!(matches!(c, ChatContent::Text(s) if s.is_empty()));
+    }
+
+    #[test]
+    fn chat_content_deserializes_string() {
+        let c: ChatContent = serde_json::from_str("\"hello\"").unwrap();
+        assert!(matches!(c, ChatContent::Text(s) if s == "hello"));
+    }
+
+    #[test]
+    fn chat_content_deserializes_known_blocks() {
+        let json =
+            r#"[{"type":"text","text":"hi"},{"type":"tool_use","id":"1","name":"foo","input":{}}]"#;
+        let c: ChatContent = serde_json::from_str(json).unwrap();
+        assert!(matches!(c, ChatContent::Blocks(_)));
+    }
+
+    #[test]
+    fn content_block_input_unknown_type_is_ignored() {
+        let json = r#"{"type":"thinking","thinking":"some internal thought"}"#;
+        let b: ContentBlockInput = serde_json::from_str(json).unwrap();
+        assert!(matches!(b, ContentBlockInput::Unknown));
+    }
+
+    #[test]
+    fn chat_content_with_mixed_blocks_including_unknown() {
+        let json = r#"[
+            {"type":"text","text":"hello"},
+            {"type":"thinking","thinking":"internal"},
+            {"type":"tool_use","id":"x","name":"bar","input":{}}
+        ]"#;
+        let c: ChatContent = serde_json::from_str(json).unwrap();
+        let ChatContent::Blocks(blocks) = c else {
+            panic!("expected Blocks")
+        };
+        assert_eq!(blocks.len(), 3);
+        assert!(matches!(&blocks[0], ContentBlockInput::Text { .. }));
+        assert!(matches!(&blocks[1], ContentBlockInput::Unknown));
+        assert!(matches!(&blocks[2], ContentBlockInput::ToolUse { .. }));
     }
 }

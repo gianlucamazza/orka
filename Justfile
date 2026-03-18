@@ -84,7 +84,30 @@ install: build-release
 
 # Uninstall orka-server and orka CLI (requires sudo)
 uninstall:
-    sudo ./scripts/install.sh --uninstall
+    sudo ./scripts/install.sh --uninstall --yes
+
+# Preview what uninstall would remove without touching anything
+uninstall-dry:
+    sudo ./scripts/install.sh --uninstall --dry-run
+
+# Uninstall and purge config, data, and system user (requires sudo; prompts for confirmation)
+uninstall-purge:
+    sudo ./scripts/install.sh --uninstall --purge
+
+# Remove user-local icons and desktop entries (mirrors install-desktop)
+uninstall-desktop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ICON_DIR="$HOME/.local/share/icons/hicolor"
+    DESKTOP_DIR="$HOME/.local/share/applications"
+    for size in 16 24 32 48 64 128 256 512; do
+        rm -f "${ICON_DIR}/${size}x${size}/apps/orka.png"
+    done
+    rm -f "${ICON_DIR}/scalable/apps/orka.svg"
+    rm -f "${DESKTOP_DIR}/orka.desktop"
+    rm -f "${DESKTOP_DIR}/orka-server.desktop"
+    gtk-update-icon-cache -f -t "${ICON_DIR}" 2>/dev/null || true
+    echo "Desktop entries and icons removed from ~/.local/share/"
 
 # Release a new version (usage: just release patch|minor|major)
 release level:

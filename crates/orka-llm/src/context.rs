@@ -72,6 +72,7 @@ pub fn estimate_message_tokens_with_hint(msg: &ChatMessageExt, hint: TokenizerHi
                 ContentBlockInput::ToolResult { content, .. } => {
                     estimate_tokens_with_hint(content, hint)
                 }
+                ContentBlockInput::Unknown => 0,
             })
             .sum(),
     };

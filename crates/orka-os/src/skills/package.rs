@@ -67,7 +67,7 @@ impl Skill for PackageSearchSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        self.guard.check_permission(PermissionLevel::Admin)?;
+        self.guard.check_permission(PermissionLevel::ReadOnly)?;
 
         let query = input
             .args
@@ -145,7 +145,7 @@ impl Skill for PackageInfoSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        self.guard.check_permission(PermissionLevel::Admin)?;
+        self.guard.check_permission(PermissionLevel::ReadOnly)?;
 
         let name = input
             .args
@@ -223,7 +223,7 @@ impl Skill for PackageListSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        self.guard.check_permission(PermissionLevel::Admin)?;
+        self.guard.check_permission(PermissionLevel::ReadOnly)?;
 
         let filter = input.args.get("filter").and_then(|v| v.as_str());
 
@@ -322,7 +322,7 @@ impl Skill for PackageUpdatesSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        self.guard.check_permission(PermissionLevel::Admin)?;
+        self.guard.check_permission(PermissionLevel::ReadOnly)?;
 
         let filter = input.args.get("filter").and_then(|v| v.as_str());
 
@@ -534,12 +534,18 @@ impl Skill for PackageInstallSkill {
         )
         .await;
 
+        if !output.status.success() {
+            return Err(Error::Skill(format!(
+                "package install failed (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                stderr.trim()
+            )));
+        }
+
         Ok(SkillOutput::new(serde_json::json!({
             "stdout": stdout,
             "stderr": stderr,
-            "exit_code": output.status.code(),
             "package_manager": format!("{:?}", pm).to_lowercase(),
-            "success": output.status.success(),
         })))
     }
 }
@@ -622,31 +628,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn package_search_requires_admin() {
+    async fn package_search_allowed_at_read_only() {
         use orka_core::config::OsConfig;
         let guard = Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "execute".into(),
+            permission_level: "read-only".into(),
             ..OsConfig::default()
         }));
         let skill = PackageSearchSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("query".into(), serde_json::json!("test"));
-        assert!(skill.execute(SkillInput::new(args)).await.is_err());
+        // Permission check passes; any error here is from the missing package manager binary.
+        let result = skill.execute(SkillInput::new(args)).await;
+        assert!(
+            result.is_ok()
+                || result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("no supported package manager"),
+            "should not fail with a permission error at read-only level"
+        );
     }
 
     #[tokio::test]
-    async fn package_updates_requires_admin() {
+    async fn package_updates_allowed_at_read_only() {
         use orka_core::config::OsConfig;
         let guard = Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "execute".into(),
+            permission_level: "read-only".into(),
             ..OsConfig::default()
         }));
         let skill = PackageUpdatesSkill::new(guard);
+        let result = skill.execute(SkillInput::new(Default::default())).await;
         assert!(
-            skill
-                .execute(SkillInput::new(Default::default()))
-                .await
-                .is_err()
+            result.is_ok()
+                || result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("no supported package manager"),
+            "should not fail with a permission error at read-only level"
         );
     }
 

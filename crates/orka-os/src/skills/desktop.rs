@@ -71,8 +71,17 @@ impl Skill for DesktopOpenSkill {
             .await
             .map_err(|e| Error::Skill(format!("xdg-open failed: {}", e)))?;
 
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::Skill(format!(
+                "xdg-open failed (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                stderr.trim()
+            )));
+        }
+
         Ok(SkillOutput::new(serde_json::json!({
-            "success": output.status.success(),
+            "success": true,
             "target": target,
         })))
     }
@@ -160,8 +169,17 @@ impl Skill for DesktopScreenshotSkill {
 
         let output = output.map_err(|e| Error::Skill(format!("screenshot failed: {}", e)))?;
 
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::Skill(format!(
+                "screenshot command failed (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                stderr.trim()
+            )));
+        }
+
         Ok(SkillOutput::new(serde_json::json!({
-            "success": output.status.success(),
+            "success": true,
             "path": output_path,
             "backend": if is_wayland() { "grim" } else { "scrot" },
             "region": region,

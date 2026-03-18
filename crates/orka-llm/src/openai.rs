@@ -201,6 +201,7 @@ impl OpenAiClient {
                                     "content": content,
                                 }));
                             }
+                            crate::client::ContentBlockInput::Unknown => {}
                         }
                     }
                     // Emit assistant message with text and/or tool_calls

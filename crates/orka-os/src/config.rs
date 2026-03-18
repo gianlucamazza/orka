@@ -3,24 +3,34 @@ use std::fmt;
 /// Permission levels for OS skills, ordered from least to most permissive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PermissionLevel {
-    /// Read-only access: file reads, process listing, environment inspection.
+    /// Read-only access: file reads, process listing, environment inspection,
+    /// package queries, and systemd status/journal reads.
     ReadOnly,
-    /// Adds file writes and clipboard access.
+    /// Adds low-risk desktop side effects: clipboard read/write, notifications.
+    Interact,
+    /// Adds filesystem mutations (`fs_write`).
     Write,
-    /// Adds shell execution, process signalling, and file watching.
+    /// Adds shell execution, process signalling, file watching, and desktop open/screenshot.
     Execute,
-    /// Adds package management and systemd service control.
+    /// Adds sudo-only operations: package install, service control.
     Admin,
 }
 
 impl PermissionLevel {
     /// Parse a permission level from the TOML config string representation.
-    pub fn from_str_config(s: &str) -> Self {
-        match s {
-            "write" => Self::Write,
-            "execute" => Self::Execute,
-            "admin" => Self::Admin,
-            _ => Self::ReadOnly,
+    ///
+    /// Returns `Err` for unrecognised values. Parsing is case-insensitive.
+    pub fn from_str_config(s: &str) -> Result<Self, String> {
+        match s.to_ascii_lowercase().as_str() {
+            "read-only" | "readonly" => Ok(Self::ReadOnly),
+            "interact" => Ok(Self::Interact),
+            "write" => Ok(Self::Write),
+            "execute" => Ok(Self::Execute),
+            "admin" => Ok(Self::Admin),
+            other => Err(format!(
+                "unknown permission level '{}': must be one of read-only, interact, write, execute, admin",
+                other
+            )),
         }
     }
 }
@@ -29,6 +39,7 @@ impl fmt::Display for PermissionLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ReadOnly => write!(f, "read-only"),
+            Self::Interact => write!(f, "interact"),
             Self::Write => write!(f, "write"),
             Self::Execute => write!(f, "execute"),
             Self::Admin => write!(f, "admin"),
@@ -42,7 +53,8 @@ mod tests {
 
     #[test]
     fn permission_ordering() {
-        assert!(PermissionLevel::ReadOnly < PermissionLevel::Write);
+        assert!(PermissionLevel::ReadOnly < PermissionLevel::Interact);
+        assert!(PermissionLevel::Interact < PermissionLevel::Write);
         assert!(PermissionLevel::Write < PermissionLevel::Execute);
         assert!(PermissionLevel::Execute < PermissionLevel::Admin);
     }
@@ -50,24 +62,37 @@ mod tests {
     #[test]
     fn parse_from_string() {
         assert_eq!(
-            PermissionLevel::from_str_config("read-only"),
+            PermissionLevel::from_str_config("read-only").unwrap(),
             PermissionLevel::ReadOnly
         );
         assert_eq!(
-            PermissionLevel::from_str_config("write"),
+            PermissionLevel::from_str_config("readonly").unwrap(),
+            PermissionLevel::ReadOnly
+        );
+        assert_eq!(
+            PermissionLevel::from_str_config("READ-ONLY").unwrap(),
+            PermissionLevel::ReadOnly
+        );
+        assert_eq!(
+            PermissionLevel::from_str_config("interact").unwrap(),
+            PermissionLevel::Interact
+        );
+        assert_eq!(
+            PermissionLevel::from_str_config("INTERACT").unwrap(),
+            PermissionLevel::Interact
+        );
+        assert_eq!(
+            PermissionLevel::from_str_config("write").unwrap(),
             PermissionLevel::Write
         );
         assert_eq!(
-            PermissionLevel::from_str_config("execute"),
+            PermissionLevel::from_str_config("execute").unwrap(),
             PermissionLevel::Execute
         );
         assert_eq!(
-            PermissionLevel::from_str_config("admin"),
+            PermissionLevel::from_str_config("admin").unwrap(),
             PermissionLevel::Admin
         );
-        assert_eq!(
-            PermissionLevel::from_str_config("unknown"),
-            PermissionLevel::ReadOnly
-        );
+        assert!(PermissionLevel::from_str_config("unknown").is_err());
     }
 }

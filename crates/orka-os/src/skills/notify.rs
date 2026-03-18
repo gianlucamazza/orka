@@ -48,7 +48,7 @@ impl Skill for NotifySendSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        self.guard.check_permission(PermissionLevel::Write)?;
+        self.guard.check_permission(PermissionLevel::Interact)?;
 
         let title = input
             .args
@@ -86,8 +86,16 @@ impl Skill for NotifySendSkill {
             .await
             .map_err(|e| Error::Skill(format!("notify-send failed: {}", e)))?;
 
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::Skill(format!(
+                "notify-send failed (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                stderr.trim()
+            )));
+        }
+
         Ok(SkillOutput::new(serde_json::json!({
-            "success": output.status.success(),
             "title": title,
         })))
     }
@@ -100,7 +108,7 @@ mod tests {
     fn make_guard() -> Arc<PermissionGuard> {
         use orka_core::config::OsConfig;
         Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "write".into(),
+            permission_level: "interact".into(),
             ..OsConfig::default()
         }))
     }

@@ -57,6 +57,8 @@ pub fn create_os_skills_with_approval(
 ) -> Result<Vec<Arc<dyn Skill>>> {
     let guard = Arc::new(PermissionGuard::new(config));
     let level = guard.level();
+
+    // ReadOnly skills — always included
     let mut result: Vec<Arc<dyn Skill>> = vec![
         Arc::new(skills::system_info::SystemInfoSkill::new(guard.clone())),
         Arc::new(skills::fs::FsReadSkill::new(guard.clone(), config)),
@@ -69,12 +71,27 @@ pub fn create_os_skills_with_approval(
         Arc::new(skills::env::EnvListSkill::new(guard.clone())),
         Arc::new(skills::network::NetworkInfoSkill::new(guard.clone())),
         Arc::new(skills::network::NetworkCheckSkill::new(guard.clone())),
+        Arc::new(skills::package::PackageSearchSkill::new(guard.clone())),
+        Arc::new(skills::package::PackageInfoSkill::new(guard.clone())),
+        Arc::new(skills::package::PackageListSkill::new(guard.clone())),
+        Arc::new(skills::package::PackageUpdatesSkill::new(guard.clone())),
     ];
 
-    // Write skills
-    if level >= PermissionLevel::Write {
-        result.push(Arc::new(skills::fs::FsWriteSkill::new(guard.clone())));
+    #[cfg(feature = "systemd")]
+    {
+        result.push(Arc::new(skills::systemd::ServiceStatusSkill::new(
+            guard.clone(),
+        )));
+        result.push(Arc::new(skills::systemd::ServiceListSkill::new(
+            guard.clone(),
+        )));
+        result.push(Arc::new(skills::systemd::JournalReadSkill::new(
+            guard.clone(),
+        )));
+    }
 
+    // Interact skills — clipboard and desktop notifications
+    if level >= PermissionLevel::Interact {
         #[cfg(feature = "clipboard")]
         {
             result.push(Arc::new(skills::clipboard::ClipboardReadSkill::new(
@@ -91,6 +108,11 @@ pub fn create_os_skills_with_approval(
                 guard.clone(),
             )));
         }
+    }
+
+    // Write skills
+    if level >= PermissionLevel::Write {
+        result.push(Arc::new(skills::fs::FsWriteSkill::new(guard.clone())));
     }
 
     // Execute skills
@@ -116,20 +138,8 @@ pub fn create_os_skills_with_approval(
         }
     }
 
-    // Admin skills
+    // Admin skills — sudo-only operations
     if level >= PermissionLevel::Admin {
-        result.push(Arc::new(skills::package::PackageSearchSkill::new(
-            guard.clone(),
-        )));
-        result.push(Arc::new(skills::package::PackageInfoSkill::new(
-            guard.clone(),
-        )));
-        result.push(Arc::new(skills::package::PackageListSkill::new(
-            guard.clone(),
-        )));
-        result.push(Arc::new(skills::package::PackageUpdatesSkill::new(
-            guard.clone(),
-        )));
         if guard.sudo_enabled() {
             result.push(Arc::new(skills::package::PackageInstallSkill::new(
                 guard.clone(),
@@ -140,15 +150,6 @@ pub fn create_os_skills_with_approval(
 
         #[cfg(feature = "systemd")]
         {
-            result.push(Arc::new(skills::systemd::ServiceStatusSkill::new(
-                guard.clone(),
-            )));
-            result.push(Arc::new(skills::systemd::ServiceListSkill::new(
-                guard.clone(),
-            )));
-            result.push(Arc::new(skills::systemd::JournalReadSkill::new(
-                guard.clone(),
-            )));
             if guard.sudo_enabled() {
                 result.push(Arc::new(skills::systemd::ServiceControlSkill::new(
                     guard.clone(),
@@ -179,7 +180,26 @@ mod tests {
             ..OsConfig::default()
         };
         let skills = create_os_skills(&config).unwrap();
-        assert_eq!(skills.len(), 11); // 11 read-only skills
+        // 11 base + 4 package read skills + 0–3 systemd read skills (feature-gated)
+        let count = skills.len();
+        assert!(
+            count >= 15,
+            "expected at least 15 read-only skills, got {count}"
+        );
+        assert!(
+            count <= 18,
+            "expected at most 18 read-only skills (15 + 3 systemd), got {count}"
+        );
+    }
+
+    #[test]
+    fn interact_level_has_more_skills() {
+        let config = OsConfig {
+            permission_level: "interact".into(),
+            ..OsConfig::default()
+        };
+        let skills = create_os_skills(&config).unwrap();
+        assert!(skills.len() >= 15);
     }
 
     #[test]
@@ -189,7 +209,7 @@ mod tests {
             ..OsConfig::default()
         };
         let skills = create_os_skills(&config).unwrap();
-        assert!(skills.len() > 11);
+        assert!(skills.len() > 15);
     }
 
     #[test]
@@ -210,17 +230,37 @@ mod tests {
 
     #[test]
     fn admin_level_has_all_skills() {
+        use orka_core::config::SudoConfig;
+        let sudo = SudoConfig {
+            enabled: true,
+            allowed_commands: vec![
+                "pacman -S".into(),
+                "apt install".into(),
+                "dnf install".into(),
+                "systemctl restart".into(),
+                "systemctl start".into(),
+                "systemctl stop".into(),
+            ],
+            ..SudoConfig::default()
+        };
         let config = OsConfig {
             permission_level: "admin".into(),
+            sudo: sudo.clone(),
             ..OsConfig::default()
         };
         let skills = create_os_skills(&config).unwrap();
         let exec_config = OsConfig {
             permission_level: "execute".into(),
+            sudo,
             ..OsConfig::default()
         };
         let exec_skills = create_os_skills(&exec_config).unwrap();
-        assert!(skills.len() > exec_skills.len());
+        assert!(
+            skills.len() > exec_skills.len(),
+            "admin ({}) should have more skills than execute ({})",
+            skills.len(),
+            exec_skills.len()
+        );
     }
 
     #[test]

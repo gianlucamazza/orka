@@ -364,7 +364,9 @@ pub async fn run(
                             std::io::stdout().flush().ok();
                         }
                         unknown => {
-                            println!("Unknown command: /{unknown}. Type /help for available commands.");
+                            println!(
+                                "Unknown command: /{unknown}. Type /help for available commands."
+                            );
                         }
                     }
                 }

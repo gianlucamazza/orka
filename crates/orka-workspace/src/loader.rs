@@ -2,7 +2,7 @@ use crate::state::WorkspaceState;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
-use tracing::warn;
+use tracing::{debug, warn};
 
 /// Events broadcast by [`WorkspaceLoader`] when workspace files change.
 #[derive(Debug, Clone)]
@@ -61,7 +61,7 @@ impl WorkspaceLoader {
         let content = match tokio::fs::read_to_string(&path).await {
             Ok(c) => c,
             Err(e) => {
-                warn!(file = %filename, error = %e, "failed to read workspace file");
+                debug!(file = %filename, error = %e, "workspace file not found (optional)");
                 return;
             }
         };

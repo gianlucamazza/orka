@@ -155,6 +155,12 @@ api_key_env = "TAVILY_API_KEY"
 [os]
 enabled = true
 permission_level = "admin"
+# Skill permission level. Levels (least → most permissive):
+#   read-only  – fs reads, process/env/network info, package queries, systemd status/journal
+#   interact   – adds clipboard read/write and desktop notifications
+#   write      – adds filesystem writes
+#   execute    – adds shell execution, process signals, file watching, desktop open/screenshot
+#   admin      – adds sudo operations: package install, service control
 # Filesystem paths the agent is permitted to access.
 # NOTE: paths under /home require the fs.conf systemd drop-in (installed
 # automatically by install.sh when /home is listed here).

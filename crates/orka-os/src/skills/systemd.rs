@@ -48,7 +48,7 @@ impl Skill for ServiceStatusSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        self.guard.check_permission(PermissionLevel::Admin)?;
+        self.guard.check_permission(PermissionLevel::ReadOnly)?;
 
         let unit = input
             .args
@@ -110,7 +110,7 @@ impl Skill for ServiceListSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        self.guard.check_permission(PermissionLevel::Admin)?;
+        self.guard.check_permission(PermissionLevel::ReadOnly)?;
 
         let state = input.args.get("state").and_then(|v| v.as_str());
 
@@ -175,7 +175,7 @@ impl Skill for JournalReadSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        self.guard.check_permission(PermissionLevel::Admin)?;
+        self.guard.check_permission(PermissionLevel::ReadOnly)?;
 
         let unit = input.args.get("unit").and_then(|v| v.as_str());
         let since = input.args.get("since").and_then(|v| v.as_str());
@@ -351,13 +351,21 @@ impl Skill for ServiceControlSkill {
         )
         .await;
 
+        if !output.status.success() {
+            return Err(Error::Skill(format!(
+                "systemctl {} {} failed (exit {}): {}",
+                action,
+                unit,
+                output.status.code().unwrap_or(-1),
+                stderr.trim()
+            )));
+        }
+
         Ok(SkillOutput::new(serde_json::json!({
             "unit": unit,
             "action": action,
             "stdout": stdout,
             "stderr": stderr,
-            "exit_code": output.status.code(),
-            "success": output.status.success(),
         })))
     }
 }
@@ -472,15 +480,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn service_status_requires_admin() {
+    async fn service_status_allowed_at_read_only() {
         use orka_core::config::OsConfig;
         let guard = Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "execute".into(),
+            permission_level: "read-only".into(),
             ..OsConfig::default()
         }));
         let skill = ServiceStatusSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("unit".into(), serde_json::json!("sshd.service"));
-        assert!(skill.execute(SkillInput::new(args)).await.is_err());
+        // Permission check passes; any failure is from the missing systemctl binary.
+        let result = skill.execute(SkillInput::new(args)).await;
+        assert!(
+            result.is_ok()
+                || !result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("permission denied"),
+            "should not fail with a permission error at read-only level"
+        );
     }
 }

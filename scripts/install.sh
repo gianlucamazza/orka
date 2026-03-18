@@ -7,6 +7,24 @@ warn() { echo -e "${PREFIX} \033[1;33m$*\033[0m"; }
 error() { echo -e "${PREFIX} \033[1;31m$*\033[0m"; }
 ok() { echo -e "${PREFIX} \033[1;32m$*\033[0m"; }
 
+# ── Dry-run helpers ───────────────────────────────────────────────────
+run_cmd() {
+	if [[ "${DRY_RUN:-false}" == true ]]; then
+		echo -e "${PREFIX} \033[2m[dry-run]\033[0m $*"
+	else
+		"$@"
+	fi
+}
+
+safe_rm() {
+	for target in "$@"; do
+		if [[ -e "$target" || -L "$target" ]]; then
+			info "Removing: $target"
+			run_cmd rm -rf -- "$target"
+		fi
+	done
+}
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── Detect package manager ──────────────────────────────────────────
@@ -58,7 +76,11 @@ DROPIN_DIR="/etc/systemd/system/${SERVICE_NAME}.service.d"
 # ── Check if /home paths are in allowed_paths ────────────────────────
 check_home_access_needed() {
 	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
-	[[ -f "$cfg" ]] || return 1
+	[[ -f "$cfg" ]] || return 0 # no config → compiled default includes /home
+	# If allowed_paths is not set, the compiled default includes /home
+	if ! grep -qE '^\s*allowed_paths\s*=' "$cfg"; then
+		return 0
+	fi
 	grep -qE '^\s*allowed_paths\s*=.*"/home' "$cfg"
 }
 
@@ -84,57 +106,139 @@ fi
 
 # ── Uninstall ────────────────────────────────────────────────────────
 uninstall() {
-	info "Stopping ${SERVICE_NAME}..."
-	systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
-	systemctl disable "${SERVICE_NAME}.service" 2>/dev/null || true
-
-	info "Removing installed files..."
-	rm -f "${BIN_PATH}"
-	rm -f "${CLI_BIN_PATH}"
-	rm -f "${UNIT_DIR}/${SERVICE_NAME}.service"
-	rm -f "${SYSUSERS_DIR}/${SERVICE_NAME}.conf"
-	rm -f "${TMPFILES_DIR}/${SERVICE_NAME}.conf"
-	rm -f /etc/sudoers.d/orka
-	rm -rf "${DROPIN_DIR}"
-
-	info "Removing icons and desktop entries..."
+	local files=(
+		"${BIN_PATH}"
+		"${CLI_BIN_PATH}"
+		"${UNIT_DIR}/${SERVICE_NAME}.service"
+		"${SYSUSERS_DIR}/${SERVICE_NAME}.conf"
+		"${TMPFILES_DIR}/${SERVICE_NAME}.conf"
+		"/etc/sudoers.d/orka"
+		"${DROPIN_DIR}"
+	)
+	local icons=()
 	for size in 16 24 32 48 64 128 256 512; do
-		rm -f "${ICON_DIR}/${size}x${size}/apps/orka.png"
+		icons+=("${ICON_DIR}/${size}x${size}/apps/orka.png")
 	done
-	rm -f "${ICON_DIR}/scalable/apps/orka.svg"
-	rm -f "${DESKTOP_DIR}/orka.desktop"
-	rm -f "${DESKTOP_DIR}/orka-server.desktop"
-	gtk-update-icon-cache -f -t "${ICON_DIR}" 2>/dev/null || true
+	icons+=(
+		"${ICON_DIR}/scalable/apps/orka.svg"
+		"${DESKTOP_DIR}/orka.desktop"
+		"${DESKTOP_DIR}/orka-server.desktop"
+	)
+	local completions=(
+		"/usr/share/bash-completion/completions/orka"
+		"/usr/share/zsh/site-functions/_orka"
+		"/usr/share/fish/vendor_completions.d/orka.fish"
+	)
 
+	# Pre-removal summary
+	echo ""
+	info "The following will be removed:"
+	for f in "${files[@]}" "${icons[@]}" "${completions[@]}"; do
+		[[ -e "$f" || -L "$f" ]] && echo "  $f"
+	done
+	if [[ "${PURGE:-false}" == true ]]; then
+		[[ -d "${CONFIG_DIR}" ]] && echo "  ${CONFIG_DIR}  (purge)"
+		[[ -d "${DATA_DIR}" ]] && echo "  ${DATA_DIR}  (purge)"
+		id orka &>/dev/null && echo "  system user: orka  (purge)"
+	fi
+	echo ""
+
+	# Confirmation
+	if [[ "${DRY_RUN:-false}" != true ]]; then
+		if [[ "${YES:-false}" == true ]]; then
+			: # skip prompt
+		elif [[ ! -t 0 ]]; then
+			error "Non-interactive shell: pass --yes to confirm uninstall."
+			exit 1
+		else
+			read -r -p "$(echo -e "${PREFIX}") Proceed with uninstall? [y/N] " REPLY
+			if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+				info "Aborted."
+				exit 1
+			fi
+		fi
+	fi
+
+	# Stop and disable service
+	info "Stopping ${SERVICE_NAME}..."
+	if systemctl is-active --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
+		run_cmd systemctl stop "${SERVICE_NAME}.service"
+	fi
+	if systemctl is-enabled --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
+		run_cmd systemctl disable "${SERVICE_NAME}.service"
+	fi
+	run_cmd systemctl reset-failed "${SERVICE_NAME}.service" 2>/dev/null || true
+
+	# Remove files
+	info "Removing installed files..."
+	safe_rm "${files[@]}"
+
+	# Remove icons and desktop entries
+	info "Removing icons and desktop entries..."
+	safe_rm "${icons[@]}"
+	if command -v update-desktop-database &>/dev/null; then
+		run_cmd update-desktop-database "${DESKTOP_DIR}" 2>/dev/null || true
+	fi
+
+	# Remove shell completions
 	info "Removing shell completions..."
-	rm -f /usr/share/bash-completion/completions/orka
-	rm -f /usr/share/zsh/site-functions/_orka
-	rm -f /usr/share/fish/vendor_completions.d/orka.fish
+	safe_rm "${completions[@]}"
 
-	systemctl daemon-reload
+	run_cmd systemctl daemon-reload
+	run_cmd gtk-update-icon-cache -f -t "${ICON_DIR}" 2>/dev/null || true
+
+	# Purge config, data, and system user
+	if [[ "${PURGE:-false}" == true ]]; then
+		info "Purging config, data, and system user..."
+		safe_rm "${CONFIG_DIR}" "${DATA_DIR}"
+		if id orka &>/dev/null; then
+			info "Removing system user: orka"
+			run_cmd userdel orka 2>/dev/null || true
+		fi
+		if getent group orka &>/dev/null; then
+			info "Removing system group: orka"
+			run_cmd groupdel orka 2>/dev/null || true
+		fi
+	fi
 
 	echo ""
-	ok "Uninstalled orka-server and orka CLI."
-	warn "Config (${CONFIG_DIR}) and data (${DATA_DIR}) preserved."
-	warn "Remove manually if no longer needed."
+	if [[ "${DRY_RUN:-false}" == true ]]; then
+		ok "Dry run complete — nothing was changed."
+	else
+		ok "Uninstalled orka-server and orka CLI."
+		if [[ "${PURGE:-false}" != true ]]; then
+			warn "Config (${CONFIG_DIR}) and data (${DATA_DIR}) preserved."
+			warn "Use --purge to remove them."
+		fi
+		warn "Journal logs are NOT removed automatically."
+		warn "To clean up:  journalctl --vacuum-time=1s -u ${SERVICE_NAME}"
+	fi
 }
 
+ACTION=""
+PURGE=false
+DRY_RUN=false
+YES=false
 FORCE=false
+
 for arg in "$@"; do
 	case "$arg" in
-	--uninstall)
-		uninstall
-		exit 0
-		;;
-	--force | --skip-stale-check)
-		FORCE=true
-		;;
+	--uninstall) ACTION="uninstall" ;;
+	--purge) PURGE=true ;;
+	--dry-run) DRY_RUN=true ;;
+	--yes | -y) YES=true ;;
+	--force | --skip-stale-check) FORCE=true ;;
 	*)
 		error "Unknown option: $arg"
 		exit 1
 		;;
 	esac
 done
+
+if [[ "$ACTION" == "uninstall" ]]; then
+	uninstall
+	exit 0
+fi
 
 # ── Check pre-built binaries ─────────────────────────────────────────
 SERVER_BIN="$REPO_ROOT/target/release/orka-server"
@@ -150,7 +254,7 @@ fi
 # Warn if binaries are older than any source file, which can cause
 # hard-to-debug crashes from stale intermediate builds.
 NEWEST_SRC=$(find "$REPO_ROOT" \( -name target -o -name .git \) -prune -o \
-	-type f \( -name '*.rs' -o -name '*.toml' \) -printf '%T@\n' | sort -rn | head -1)
+	-type f \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \) -printf '%T@\n' | sort -rn | head -1)
 OLDEST_BIN=$(stat -c '%Y' "$SERVER_BIN" "$CLI_BIN" | sort -n | head -1)
 
 if [[ -n "$NEWEST_SRC" ]] && ((${OLDEST_BIN%%.*} < ${NEWEST_SRC%%.*})); then
@@ -207,6 +311,15 @@ if [[ ! -f "${CONFIG_DIR}/orka.toml" ]]; then
 	install -Dm644 "$REPO_ROOT/orka.toml" "${CONFIG_DIR}/orka.toml"
 	# Adjust workspace_dir for production layout
 	sed -i 's|^workspace_dir = ".*"|workspace_dir = "/var/lib/orka/workspaces"|' "${CONFIG_DIR}/orka.toml"
+	# Ensure /var/lib/orka is in allowed_paths so PermissionGuard permits the
+	# service's state directory under systemd ProtectSystem=strict.
+	if grep -q '^allowed_paths' "${CONFIG_DIR}/orka.toml"; then
+		if ! grep -q '"/var/lib/orka"' "${CONFIG_DIR}/orka.toml"; then
+			sed -i 's|^\(allowed_paths = \[.*\)\]|\1, "/var/lib/orka"]|' "${CONFIG_DIR}/orka.toml"
+		fi
+	else
+		sed -i 's|^#.*allowed_paths = \[.*\]|allowed_paths = ["/home", "/tmp", "/var/lib/orka"]|' "${CONFIG_DIR}/orka.toml"
+	fi
 	# Inject detected package manager commands into allowed_commands
 	if [[ -n "$PKG_ALLOWED_CMDS" ]]; then
 		sed -i "s|allowed_commands = \[\"systemctl restart\", \"systemctl stop\", \"systemctl start\"\]|allowed_commands = [\"systemctl restart\", \"systemctl stop\", \"systemctl start\", ${PKG_ALLOWED_CMDS}]|" "${CONFIG_DIR}/orka.toml"

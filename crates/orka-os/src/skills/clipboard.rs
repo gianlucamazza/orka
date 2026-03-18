@@ -44,7 +44,7 @@ impl Skill for ClipboardReadSkill {
     }
 
     async fn execute(&self, _input: SkillInput) -> Result<SkillOutput> {
-        self.guard.check_permission(PermissionLevel::Write)?;
+        self.guard.check_permission(PermissionLevel::Interact)?;
 
         let (cmd, args) = if is_wayland() {
             ("wl-paste", vec!["--no-newline"])
@@ -57,6 +57,15 @@ impl Skill for ClipboardReadSkill {
             .output()
             .await
             .map_err(|e| Error::Skill(format!("clipboard read failed ({}): {}", cmd, e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(Error::Skill(format!(
+                "clipboard_read failed (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                stderr.trim()
+            )));
+        }
 
         let content = String::from_utf8_lossy(&output.stdout).to_string();
 
@@ -102,7 +111,7 @@ impl Skill for ClipboardWriteSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        self.guard.check_permission(PermissionLevel::Write)?;
+        self.guard.check_permission(PermissionLevel::Interact)?;
 
         let content = input
             .args
@@ -135,8 +144,14 @@ impl Skill for ClipboardWriteSkill {
             .await
             .map_err(|e| Error::Skill(format!("clipboard command failed: {}", e)))?;
 
+        if !status.success() {
+            return Err(Error::Skill(format!(
+                "clipboard_write failed (exit {})",
+                status.code().unwrap_or(-1)
+            )));
+        }
+
         Ok(SkillOutput::new(serde_json::json!({
-            "success": status.success(),
             "bytes_written": content.len(),
             "backend": if is_wayland() { "wayland" } else { "x11" },
         })))
@@ -150,7 +165,7 @@ mod tests {
     fn make_guard() -> Arc<PermissionGuard> {
         use orka_core::config::OsConfig;
         Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "write".into(),
+            permission_level: "interact".into(),
             ..OsConfig::default()
         }))
     }
@@ -169,7 +184,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn clipboard_read_requires_write_permission() {
+    async fn clipboard_read_requires_interact_permission() {
         use orka_core::config::OsConfig;
         let guard = Arc::new(PermissionGuard::new(&OsConfig {
             permission_level: "read-only".into(),

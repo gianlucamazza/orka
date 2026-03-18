@@ -20,6 +20,12 @@ pub trait ChannelAdapter: Send + Sync + 'static {
 
     /// Gracefully shut down the adapter.
     async fn shutdown(&self) -> Result<()>;
+
+    /// Register slash commands with the platform (e.g. Telegram command menu).
+    /// Default: no-op.
+    async fn register_commands(&self, _commands: &[(&str, &str)]) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Publish/subscribe message bus.

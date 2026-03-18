@@ -1104,7 +1104,7 @@ pub struct OsConfig {
     /// Whether OS integration skills are enabled.
     #[serde(default)]
     pub enabled: bool,
-    /// Permission level: `"read-only"`, `"read-write"`, or `"unrestricted"`.
+    /// Permission level: `"read-only"`, `"interact"`, `"write"`, `"execute"`, or `"admin"`.
     #[serde(default = "default_os_permission_level")]
     pub permission_level: String,
     /// Filesystem paths the agent is permitted to access.
@@ -1683,6 +1683,17 @@ impl OrkaConfig {
                 self.sandbox.backend
             )));
         }
+        if self.os.enabled
+            && !matches!(
+                self.os.permission_level.to_ascii_lowercase().as_str(),
+                "read-only" | "readonly" | "interact" | "write" | "execute" | "admin"
+            )
+        {
+            return Err(crate::Error::Config(format!(
+                "os.permission_level must be one of read-only/interact/write/execute/admin, got: '{}'",
+                self.os.permission_level
+            )));
+        }
         for p in &self.llm.providers {
             if !matches!(p.provider.as_str(), "anthropic" | "openai" | "ollama") {
                 return Err(crate::Error::Config(format!(
@@ -1885,7 +1896,10 @@ impl fmt::Debug for LlmProviderConfig {
             .field("name", &self.name)
             .field("provider", &self.provider)
             .field("api_key", &self.api_key.as_ref().map(|_| "***"))
-            .field("api_key_secret", &self.api_key_secret.as_ref().map(|_| "***"))
+            .field(
+                "api_key_secret",
+                &self.api_key_secret.as_ref().map(|_| "***"),
+            )
             .field("api_key_env", &self.api_key_env)
             .field("model", &self.model)
             .field("timeout_secs", &self.timeout_secs)
@@ -1941,7 +1955,10 @@ impl fmt::Debug for WebConfig {
 impl fmt::Debug for TelegramAdapterConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TelegramAdapterConfig")
-            .field("bot_token_secret", &self.bot_token_secret.as_ref().map(|_| "***"))
+            .field(
+                "bot_token_secret",
+                &self.bot_token_secret.as_ref().map(|_| "***"),
+            )
             .field("workspace", &self.workspace)
             .field("mode", &self.mode)
             .field("webhook_url", &self.webhook_url)
@@ -1957,7 +1974,10 @@ impl fmt::Debug for TelegramAdapterConfig {
 impl fmt::Debug for DiscordAdapterConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DiscordAdapterConfig")
-            .field("bot_token_secret", &self.bot_token_secret.as_ref().map(|_| "***"))
+            .field(
+                "bot_token_secret",
+                &self.bot_token_secret.as_ref().map(|_| "***"),
+            )
             .field("workspace", &self.workspace)
             .finish()
     }
@@ -1966,7 +1986,10 @@ impl fmt::Debug for DiscordAdapterConfig {
 impl fmt::Debug for SlackAdapterConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SlackAdapterConfig")
-            .field("bot_token_secret", &self.bot_token_secret.as_ref().map(|_| "***"))
+            .field(
+                "bot_token_secret",
+                &self.bot_token_secret.as_ref().map(|_| "***"),
+            )
             .field("listen_port", &self.listen_port)
             .field("workspace", &self.workspace)
             .finish()
@@ -1976,9 +1999,15 @@ impl fmt::Debug for SlackAdapterConfig {
 impl fmt::Debug for WhatsAppAdapterConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WhatsAppAdapterConfig")
-            .field("access_token_secret", &self.access_token_secret.as_ref().map(|_| "***"))
+            .field(
+                "access_token_secret",
+                &self.access_token_secret.as_ref().map(|_| "***"),
+            )
             .field("phone_number_id", &self.phone_number_id)
-            .field("verify_token_secret", &self.verify_token_secret.as_ref().map(|_| "***"))
+            .field(
+                "verify_token_secret",
+                &self.verify_token_secret.as_ref().map(|_| "***"),
+            )
             .field("listen_port", &self.listen_port)
             .field("workspace", &self.workspace)
             .finish()

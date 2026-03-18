@@ -313,7 +313,6 @@ impl TelegramApi {
     }
 
     /// Register bot commands with Telegram.
-    #[allow(dead_code)]
     pub(crate) async fn set_my_commands(&self, commands: &[(String, String)]) -> Result<bool> {
         let cmds: Vec<Value> = commands
             .iter()

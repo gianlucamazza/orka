@@ -86,7 +86,9 @@ pub fn create_web_skills(config: &WebConfig) -> Result<Vec<Arc<dyn Skill>>> {
             ))
         }
         SearchProviderKind::None => {
-            return Err(orka_core::Error::Skill("no search provider configured".into()));
+            return Err(orka_core::Error::Skill(
+                "no search provider configured".into(),
+            ));
         }
     };
 

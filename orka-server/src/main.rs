@@ -326,6 +326,24 @@ async fn main() -> anyhow::Result<()> {
         .validate()
         .context("configuration validation failed")?;
 
+    // 1b. Ensure the workspace state directory is in os.allowed_paths so
+    // PermissionGuard permits access regardless of deployment layout
+    // (e.g. /var/lib/orka under systemd ProtectSystem=strict).
+    if config.os.enabled {
+        let workspace_parent = std::path::Path::new(&config.workspace_dir)
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| config.workspace_dir.clone());
+        if !config
+            .os
+            .allowed_paths
+            .iter()
+            .any(|p| workspace_parent.starts_with(p.as_str()))
+        {
+            config.os.allowed_paths.push(workspace_parent);
+        }
+    }
+
     // 2. Init tracing from config (RUST_LOG takes precedence)
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.logging.level));
@@ -337,7 +355,12 @@ async fn main() -> anyhow::Result<()> {
     } else {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     }
-    info!(version = VERSION, git_sha = GIT_SHA, build_date = BUILD_DATE, "Orka server starting");
+    info!(
+        version = VERSION,
+        git_sha = GIT_SHA,
+        build_date = BUILD_DATE,
+        "Orka server starting"
+    );
     debug!(?config, "loaded configuration");
 
     // 3. Create infra
@@ -1214,6 +1237,17 @@ async fn main() -> anyhow::Result<()> {
     );
     let commands = Arc::new(commands);
 
+    // Register commands with adapters (e.g. Telegram command menu)
+    {
+        let mut cmd_list = commands.list();
+        cmd_list.push(("help", "Show available commands"));
+        for adapter in &adapters {
+            if let Err(e) = adapter.register_commands(&cmd_list).await {
+                warn!(%e, channel = adapter.channel_id(), "failed to register commands with adapter");
+            }
+        }
+    }
+
     let disabled_tools: std::collections::HashSet<String> =
         config.tools.disabled.iter().cloned().collect();
 
@@ -1413,9 +1447,15 @@ async fn main() -> anyhow::Result<()> {
     shutdown.cancel();
 
     let (gw, wk, ob) = tokio::join!(gateway_handle, worker_handle, outbound_handle);
-    if let Err(e) = gw { warn!(%e, "gateway task failed"); }
-    if let Err(e) = wk { warn!(%e, "worker task failed"); }
-    if let Err(e) = ob { warn!(%e, "outbound task failed"); }
+    if let Err(e) = gw {
+        warn!(%e, "gateway task failed");
+    }
+    if let Err(e) = wk {
+        warn!(%e, "worker task failed");
+    }
+    if let Err(e) = ob {
+        warn!(%e, "outbound task failed");
+    }
     info!("Orka server stopped");
 
     Ok(())
