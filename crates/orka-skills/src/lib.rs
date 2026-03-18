@@ -6,13 +6,13 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Built-in skill implementations (e.g. [`EchoSkill`]).
 pub mod builtins;
-#[allow(missing_docs)]
+/// WASM plugin loader — scans a directory for `.wasm` skill files.
 pub mod loader;
-#[allow(missing_docs)]
+/// In-process skill registry keyed by skill name.
 pub mod registry;
-#[allow(missing_docs)]
+/// WASM-backed skill that executes a compiled plugin module via Wasmtime.
 pub mod wasm_plugin;
 
 pub use builtins::EchoSkill;

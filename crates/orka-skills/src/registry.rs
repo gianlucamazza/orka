@@ -4,17 +4,20 @@ use std::sync::Arc;
 use orka_core::traits::Skill;
 use orka_core::{Error, Result, SkillInput, SkillOutput};
 
+/// Thread-safe registry that maps skill names to their [`Skill`] implementations.
 pub struct SkillRegistry {
     skills: HashMap<String, Arc<dyn Skill>>,
 }
 
 impl SkillRegistry {
+    /// Create an empty registry.
     pub fn new() -> Self {
         Self {
             skills: HashMap::new(),
         }
     }
 
+    /// Register a skill, replacing any existing skill with the same name.
     pub fn register(&mut self, skill: Arc<dyn Skill>) {
         self.skills.insert(skill.name().to_string(), skill);
     }
@@ -37,10 +40,12 @@ impl SkillRegistry {
         }
     }
 
+    /// Look up a skill by name.
     pub fn get(&self, name: &str) -> Option<&Arc<dyn Skill>> {
         self.skills.get(name)
     }
 
+    /// Return the names of all registered skills.
     pub fn list(&self) -> Vec<&str> {
         self.skills.keys().map(|s| s.as_str()).collect()
     }
@@ -69,6 +74,7 @@ impl SkillRegistry {
         self.invoke(name, input).await
     }
 
+    /// Invoke a skill by name after validating the input against its JSON schema.
     pub async fn invoke(&self, name: &str, input: SkillInput) -> Result<SkillOutput> {
         let skill = self
             .skills

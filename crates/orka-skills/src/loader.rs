@@ -4,6 +4,10 @@ use std::sync::Arc;
 use orka_core::traits::Skill;
 use tracing::{info, warn};
 
+/// Scan `dir` for `.wasm` files and load each one as a [`WasmPluginSkill`].
+///
+/// Missing or empty directories are silently skipped. Files that fail to load
+/// are logged as warnings and skipped rather than aborting the whole scan.
 pub fn load_plugins(dir: &Path) -> orka_core::Result<Vec<Arc<dyn Skill>>> {
     let mut plugins = Vec::new();
 

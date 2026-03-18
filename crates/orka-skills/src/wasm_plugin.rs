@@ -18,7 +18,7 @@ struct PluginInfo {
 /// Plugin input mirroring the guest SDK's `PluginInput`.
 #[derive(Debug, serde::Serialize)]
 struct PluginInput {
-    args: Vec<(String, String)>,
+    args: std::collections::HashMap<String, serde_json::Value>,
 }
 
 struct PluginState {
@@ -186,20 +186,8 @@ impl Skill for WasmPluginSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        // Convert SkillInput (HashMap<String, Value>) to PluginInput (Vec<(String, String)>)
-        let plugin_input = PluginInput {
-            args: input
-                .args
-                .into_iter()
-                .map(|(k, v)| {
-                    let s = match &v {
-                        serde_json::Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    };
-                    (k, s)
-                })
-                .collect(),
-        };
+        // Convert SkillInput (HashMap<String, Value>) to PluginInput (HashMap<String, Value>)
+        let plugin_input = PluginInput { args: input.args };
 
         let input_json = serde_json::to_vec(&plugin_input)
             .map_err(|e| Error::Skill(format!("serialize input: {e}")))?;
