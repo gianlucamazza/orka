@@ -16,6 +16,5 @@ tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-wasmtime.workspace = true
-wasmtime-wasi.workspace = true
+orka-wasm.workspace = true
 tempfile.workspace = true

@@ -11,8 +11,7 @@ async-trait.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
 serde = { workspace = true }
-wasmtime.workspace = true
-wasmtime-wasi.workspace = true
+orka-wasm.workspace = true
 tokio.workspace = true
 jsonschema.workspace = true
 

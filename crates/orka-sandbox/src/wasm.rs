@@ -3,32 +3,20 @@ use std::time::Instant;
 use async_trait::async_trait;
 use orka_core::config::SandboxConfig;
 use orka_core::{Error, Result};
-use wasmtime::{Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
-use wasmtime_wasi::WasiCtxBuilder;
-use wasmtime_wasi::p1::WasiP1Ctx;
+use orka_wasm::{WasmEngine, WasmInstance, WasmLimits};
 
 use crate::executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult};
 
-/// WASM-based sandbox executor using wasmtime.
+/// WASM-based sandbox executor using a shared [`WasmEngine`].
 pub struct WasmSandbox {
-    engine: Engine,
+    engine: WasmEngine,
     _default_limits: SandboxLimits,
-}
-
-struct WasmState {
-    wasi: WasiP1Ctx,
-    limits: StoreLimits,
 }
 
 impl WasmSandbox {
     /// Create a new WASM sandbox using limits from `config`.
     pub fn new(config: &SandboxConfig) -> Result<Self> {
-        let mut wasm_config = wasmtime::Config::new();
-        wasm_config.consume_fuel(true);
-
-        let engine = Engine::new(&wasm_config)
-            .map_err(|e| Error::Sandbox(format!("failed to create wasmtime engine: {e}")))?;
-
+        let engine = WasmEngine::new()?;
         Ok(Self {
             engine,
             _default_limits: SandboxLimits {
@@ -54,18 +42,20 @@ impl SandboxExecutor for WasmSandbox {
 
         let engine = self.engine.clone();
         let code = req.code.clone();
-        let max_memory = req.limits.max_memory_bytes;
-        let max_output = req.limits.max_output_bytes;
-        let timeout = req.limits.timeout;
+        let limits = WasmLimits {
+            fuel: Some(1_000_000_000),
+            max_memory_bytes: req.limits.max_memory_bytes,
+            max_output_bytes: req.limits.max_output_bytes,
+            timeout: req.limits.timeout,
+        };
         let stdin_data = req.stdin.clone();
         let env_vars: Vec<(String, String)> = req.env.into_iter().collect();
+        let timeout = req.limits.timeout;
 
         tokio::time::timeout(
             timeout,
             tokio::task::spawn_blocking(move || {
-                run_wasm_sync(
-                    &engine, &code, max_memory, max_output, stdin_data, &env_vars,
-                )
+                run_wasm_sync(&engine, &code, &limits, stdin_data, &env_vars)
             }),
         )
         .await
@@ -75,81 +65,21 @@ impl SandboxExecutor for WasmSandbox {
 }
 
 fn run_wasm_sync(
-    engine: &Engine,
+    engine: &WasmEngine,
     code: &[u8],
-    max_memory: usize,
-    max_output: usize,
-    stdin_data: Option<Vec<u8>>,
-    env_vars: &[(String, String)],
+    limits: &WasmLimits,
+    stdin: Option<Vec<u8>>,
+    env: &[(String, String)],
 ) -> Result<SandboxResult> {
     let start = Instant::now();
 
-    let module = Module::new(engine, code)
-        .map_err(|e| Error::Sandbox(format!("failed to compile WASM module: {e}")))?;
-
-    // Build captured stdout/stderr pipes.
-    let stdout_pipe = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(max_output);
-    let stderr_pipe = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(max_output);
-
-    let mut wasi_builder = WasiCtxBuilder::new();
-    wasi_builder.stdout(stdout_pipe.clone());
-    wasi_builder.stderr(stderr_pipe.clone());
-
-    if let Some(data) = stdin_data {
-        wasi_builder.stdin(wasmtime_wasi::p2::pipe::MemoryInputPipe::new(data));
-    }
-
-    for (k, v) in env_vars {
-        wasi_builder.env(k, v);
-    }
-
-    let store_limits = StoreLimitsBuilder::new().memory_size(max_memory).build();
-
-    let wasi = wasi_builder.build_p1();
-
-    let state = WasmState {
-        wasi,
-        limits: store_limits,
-    };
-
-    let mut store = Store::new(engine, state);
-    store.limiter(|s| &mut s.limits);
-    store
-        .set_fuel(1_000_000_000)
-        .map_err(|e| Error::Sandbox(format!("failed to set fuel: {e}")))?;
-
-    let mut linker: Linker<WasmState> = Linker::new(engine);
-    wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |s: &mut WasmState| &mut s.wasi)
-        .map_err(|e| Error::Sandbox(format!("failed to add WASI to linker: {e}")))?;
-
-    let instance = linker
-        .instantiate(&mut store, &module)
-        .map_err(|e| Error::Sandbox(format!("failed to instantiate module: {e}")))?;
-
-    let start_fn = instance
-        .get_typed_func::<(), ()>(&mut store, "_start")
-        .map_err(|e| Error::Sandbox(format!("missing _start function: {e}")))?;
-
-    let exit_code = match start_fn.call(&mut store, ()) {
-        Ok(()) => 0,
-        Err(e) => {
-            // Check if it's a WASI proc_exit.
-            if let Some(exit) = e.downcast_ref::<wasmtime_wasi::I32Exit>() {
-                exit.0
-            } else {
-                tracing::warn!(%e, "WASM execution error");
-                1
-            }
-        }
-    };
-
+    let module = engine.compile(code)?;
+    let mut instance = WasmInstance::build(&module, limits, stdin, env)?;
+    let exit_code = instance.call_start()?;
     let duration = start.elapsed();
 
-    // Drop the store to release WASI's references to the pipes.
-    drop(store);
-
-    let mut stdout = stdout_pipe.contents().to_vec();
-    let mut stderr = stderr_pipe.contents().to_vec();
+    let max_output = limits.max_output_bytes;
+    let (mut stdout, mut stderr) = instance.into_output();
     stdout.truncate(max_output);
     stderr.truncate(max_output);
 
