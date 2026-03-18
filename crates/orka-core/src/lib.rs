@@ -10,7 +10,6 @@
 //! - **Testing** ([`testing`]): in-memory test doubles for all core traits
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
 /// Configuration types for the Orka platform.
 pub mod config;
 /// Unified error type and `Result` alias.
@@ -29,7 +28,6 @@ pub mod retry;
 /// Streaming infrastructure for real-time LLM response delivery.
 pub mod stream;
 
-#[allow(missing_docs)]
 /// In-memory test doubles for core traits.
 pub mod testing;
 
@@ -43,16 +41,4 @@ pub use types::{
     TraceContext, backoff_delay,
 };
 
-/// Prelude for channel adapter implementations.
-///
-/// ```ignore
-/// use orka_core::adapter_prelude::*;
-/// ```
-pub mod adapter_prelude {
-    pub use crate::error::{Error, Result};
-    pub use crate::stream::{StreamChunk, StreamChunkKind, StreamRegistry};
-    pub use crate::traits::{ChannelAdapter, EventSink};
-    pub use crate::types::{
-        Envelope, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay,
-    };
-}
+

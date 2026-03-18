@@ -1,5 +1,6 @@
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
+use std::fmt;
 use std::path::Path;
 
 use crate::migrate;
@@ -7,7 +8,9 @@ use crate::migrate;
 /// A named workspace entry for multi-workspace support.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkspaceEntry {
+    /// Unique name for this workspace, used for routing and CLI selection.
     pub name: String,
+    /// Filesystem path to the workspace directory.
     pub dir: String,
 }
 
@@ -17,89 +20,129 @@ pub struct OrkaConfig {
     /// Config schema version (0 = legacy/absent, current = 1).
     #[serde(default)]
     pub config_version: u32,
+    /// HTTP server bind configuration.
     #[serde(default = "default_server")]
     pub server: ServerConfig,
+    /// Message bus configuration.
     #[serde(default)]
     pub bus: BusConfig,
+    /// Redis connection configuration.
     #[serde(default)]
     pub redis: RedisConfig,
+    /// Structured logging configuration.
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// Path to the default workspace directory.
     #[serde(default = "default_workspace_dir")]
     pub workspace_dir: String,
+    /// Additional named workspace entries for multi-workspace deployments.
     #[serde(default)]
     pub workspaces: Vec<WorkspaceEntry>,
+    /// Name of the workspace to use when no explicit workspace is requested.
     #[serde(default)]
     pub default_workspace: Option<String>,
+    /// Channel adapter configuration (Telegram, Discord, Slack, WhatsApp, custom).
     #[serde(default)]
     pub adapters: AdapterConfig,
+    /// Worker pool configuration.
     #[serde(default)]
     pub worker: WorkerConfig,
+    /// In-memory (Redis) memory store configuration.
     #[serde(default)]
     pub memory: MemoryConfig,
+    /// Secret storage configuration.
     #[serde(default)]
     pub secrets: SecretConfig,
+    /// HTTP authentication configuration.
     #[serde(default)]
     pub auth: AuthConfig,
+    /// Code sandbox configuration.
     #[serde(default)]
     pub sandbox: SandboxConfig,
+    /// WASM plugin configuration.
     #[serde(default)]
     pub plugins: PluginConfig,
+    /// Session store configuration.
     #[serde(default)]
     pub session: SessionConfig,
+    /// Priority queue configuration.
     #[serde(default)]
     pub queue: QueueConfig,
+    /// LLM provider configuration.
     #[serde(default)]
     pub llm: LlmConfig,
+    /// Per-agent runtime configuration.
     #[serde(default)]
     pub agent: AgentConfig,
+    /// Tool enable/disable configuration.
     #[serde(default)]
     pub tools: ToolsConfig,
+    /// Observability (metrics/tracing) configuration.
     #[serde(default)]
     pub observe: ObserveConfig,
+    /// API gateway rate limiting and deduplication configuration.
     #[serde(default)]
     pub gateway: GatewayConfig,
+    /// MCP (Model Context Protocol) server and client configuration.
     #[serde(default)]
     pub mcp: McpConfig,
+    /// Content guardrails configuration.
     #[serde(default)]
     pub guardrails: GuardrailsConfig,
+    /// Web search and content reading configuration.
     #[serde(default)]
     pub web: WebConfig,
+    /// Linux OS integration configuration.
     #[serde(default)]
     pub os: OsConfig,
+    /// Agent-to-Agent (A2A) protocol configuration.
     #[serde(default)]
     pub a2a: A2aConfig,
+    /// Knowledge base and RAG configuration.
     #[serde(default)]
     pub knowledge: KnowledgeConfig,
+    /// Cron scheduler configuration.
     #[serde(default)]
     pub scheduler: SchedulerConfig,
+    /// HTTP client and webhook configuration.
     #[serde(default)]
     pub http: HttpClientConfig,
+    /// Experience / self-learning configuration.
     #[serde(default)]
     pub experience: ExperienceConfig,
 }
 
 /// Web search and read configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct WebConfig {
+    /// Search backend to use (`"tavily"`, `"brave"`, `"searxng"`, or `"none"`).
     #[serde(default = "default_web_search_provider")]
     pub search_provider: String,
+    /// Direct API key for the search provider (prefer `api_key_env` in production).
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Environment variable name containing the search provider API key.
     #[serde(default)]
     pub api_key_env: Option<String>,
+    /// Base URL for a SearXNG instance (required when `search_provider = "searxng"`).
     #[serde(default)]
     pub searxng_base_url: Option<String>,
+    /// Maximum number of search results to return per query.
     #[serde(default = "default_web_max_results")]
     pub max_results: usize,
+    /// Maximum characters to read from a single web page.
     #[serde(default = "default_web_max_read_chars")]
     pub max_read_chars: usize,
+    /// Maximum characters of extracted content to include in a skill result.
     #[serde(default = "default_web_max_content_chars")]
     pub max_content_chars: usize,
+    /// Time-to-live in seconds for cached search results.
     #[serde(default = "default_web_cache_ttl_secs")]
     pub cache_ttl_secs: u64,
+    /// Timeout in seconds for HTTP read requests.
     #[serde(default = "default_web_read_timeout_secs")]
     pub read_timeout_secs: u64,
+    /// User-Agent header sent with web requests.
     #[serde(default = "default_web_user_agent")]
     pub user_agent: String,
 }
@@ -149,16 +192,21 @@ fn default_web_user_agent() -> String {
     "Orka/0.1 (Web Agent)".into()
 }
 
+/// HTTP server bind configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
+    /// IP address or hostname to bind on.
     #[serde(default = "default_host")]
     pub host: String,
+    /// TCP port to listen on.
     #[serde(default = "default_port")]
     pub port: u16,
 }
 
+/// Message bus configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BusConfig {
+    /// Bus backend to use (`"redis"`, `"nats"`, or `"memory"`).
     #[serde(default = "default_bus_backend")]
     pub backend: String,
     /// XREADGROUP BLOCK timeout in milliseconds.
@@ -175,48 +223,90 @@ pub struct BusConfig {
     pub backoff_max_secs: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// Redis connection configuration.
+#[derive(Clone, Deserialize)]
 pub struct RedisConfig {
+    /// Redis connection URL (e.g. `"redis://127.0.0.1:6379"`).
     #[serde(default = "default_redis_url")]
     pub url: String,
 }
 
+/// Structured logging configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LoggingConfig {
+    /// Log level filter (`"trace"`, `"debug"`, `"info"`, `"warn"`, or `"error"`).
     #[serde(default = "default_log_level")]
     pub level: String,
+    /// Emit logs as JSON (useful for log aggregators).
     #[serde(default)]
     pub json: bool,
 }
 
+/// Channel adapter configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct AdapterConfig {
+    /// Custom HTTP adapter configuration.
     pub custom: Option<CustomAdapterConfig>,
+    /// Telegram bot adapter configuration.
     pub telegram: Option<TelegramAdapterConfig>,
+    /// Discord bot adapter configuration.
     pub discord: Option<DiscordAdapterConfig>,
+    /// Slack bot adapter configuration.
     pub slack: Option<SlackAdapterConfig>,
+    /// WhatsApp Cloud API adapter configuration.
     pub whatsapp: Option<WhatsAppAdapterConfig>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+/// Telegram bot adapter configuration.
+#[derive(Clone, Default, Deserialize)]
 pub struct TelegramAdapterConfig {
+    /// Secret store path for the Telegram bot token.
     pub bot_token_secret: Option<String>,
+    /// Workspace name to route messages to (uses default if unset).
     #[serde(default)]
     pub workspace: Option<String>,
+    /// Receive mode: "polling" (default) or "webhook".
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// Public HTTPS URL for webhook mode (e.g. "https://example.com/telegram/webhook").
+    #[serde(default)]
+    pub webhook_url: Option<String>,
+    /// Local port to listen on in webhook mode (default 8443).
+    #[serde(default)]
+    pub webhook_port: Option<u16>,
+    /// Outbound text parse mode: "HTML" (default), "MarkdownV2", or "none".
+    #[serde(default)]
+    pub parse_mode: Option<String>,
+    /// Enable streaming via editMessageText (default false).
+    #[serde(default)]
+    pub streaming: Option<bool>,
+    /// Telegram user ID of the bot owner; if set, only this user (and `allowed_users`) may interact.
+    #[serde(default)]
+    pub owner_id: Option<i64>,
+    /// Additional Telegram user IDs allowed to interact with the bot.
+    #[serde(default)]
+    pub allowed_users: Option<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+/// Discord bot adapter configuration.
+#[derive(Clone, Default, Deserialize)]
 pub struct DiscordAdapterConfig {
+    /// Secret store path for the Discord bot token.
     pub bot_token_secret: Option<String>,
+    /// Workspace name to route messages to (uses default if unset).
     #[serde(default)]
     pub workspace: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// Slack bot adapter configuration.
+#[derive(Clone, Deserialize)]
 pub struct SlackAdapterConfig {
+    /// Secret store path for the Slack bot token.
     pub bot_token_secret: Option<String>,
+    /// Local port to listen on for Slack event payloads.
     #[serde(default = "default_slack_port")]
     pub listen_port: u16,
+    /// Workspace name to route messages to (uses default if unset).
     #[serde(default)]
     pub workspace: Option<String>,
 }
@@ -235,13 +325,19 @@ fn default_slack_port() -> u16 {
     3000
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// WhatsApp Cloud API adapter configuration.
+#[derive(Clone, Deserialize)]
 pub struct WhatsAppAdapterConfig {
+    /// Secret store path for the WhatsApp access token.
     pub access_token_secret: Option<String>,
+    /// WhatsApp Cloud API phone number ID.
     pub phone_number_id: Option<String>,
+    /// Secret store path for the webhook verify token.
     pub verify_token_secret: Option<String>,
+    /// Local port to listen on for incoming webhook events.
     #[serde(default = "default_whatsapp_port")]
     pub listen_port: u16,
+    /// Workspace name to route messages to (uses default if unset).
     #[serde(default)]
     pub workspace: Option<String>,
 }
@@ -262,12 +358,16 @@ fn default_whatsapp_port() -> u16 {
     3001
 }
 
+/// Custom HTTP adapter configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CustomAdapterConfig {
+    /// IP address or hostname for the custom adapter to bind on.
     #[serde(default = "default_custom_host")]
     pub host: String,
+    /// TCP port for the custom adapter to listen on.
     #[serde(default = "default_custom_port")]
     pub port: u16,
+    /// Workspace name to route messages to (uses default if unset).
     #[serde(default)]
     pub workspace: Option<String>,
 }
@@ -290,10 +390,13 @@ fn default_custom_port() -> u16 {
     8081
 }
 
+/// Worker pool configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerConfig {
+    /// Number of concurrent worker tasks to spawn.
     #[serde(default = "default_concurrency")]
     pub concurrency: usize,
+    /// Base delay in milliseconds for exponential retry backoff.
     #[serde(default = "default_retry_base_delay_ms")]
     pub retry_base_delay_ms: u64,
 }
@@ -315,16 +418,22 @@ fn default_concurrency() -> usize {
     4
 }
 
+/// In-memory store (Redis) configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MemoryConfig {
+    /// Maximum number of entries to store before oldest entries are evicted.
     #[serde(default = "default_max_entries")]
     pub max_entries: usize,
+    /// Backend to use (`"redis"`, `"memory"`, or `"auto"` to follow `bus.backend`).
+    #[serde(default = "default_backend_auto")]
+    pub backend: String,
 }
 
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             max_entries: default_max_entries(),
+            backend: default_backend_auto(),
         }
     }
 }
@@ -333,6 +442,11 @@ fn default_max_entries() -> usize {
     10_000
 }
 
+fn default_backend_auto() -> String {
+    "auto".into()
+}
+
+/// Secret storage configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SecretConfig {
     /// Environment variable name containing the 32-byte hex-encoded encryption key
@@ -342,14 +456,19 @@ pub struct SecretConfig {
     pub encryption_key_env: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// HTTP authentication configuration.
+#[derive(Clone, Deserialize)]
 pub struct AuthConfig {
+    /// Whether authentication is required on incoming requests.
     #[serde(default)]
     pub enabled: bool,
+    /// HTTP header name that carries API key credentials.
     #[serde(default = "default_api_key_header")]
     pub api_key_header: String,
+    /// Static API key entries (hashed).
     #[serde(default)]
     pub api_keys: Vec<ApiKeyEntry>,
+    /// JWT authentication configuration (optional, mutually exclusive with API keys).
     #[serde(default)]
     pub jwt: Option<JwtAuthConfig>,
 }
@@ -365,11 +484,15 @@ impl Default for AuthConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// JWT authentication configuration.
+#[derive(Clone, Deserialize)]
 pub struct JwtAuthConfig {
+    /// Expected `iss` claim value.
     pub issuer: String,
+    /// Expected `aud` claim value.
     #[serde(default)]
     pub audience: Option<String>,
+    /// URL of the JWKS endpoint for RS256 verification.
     pub jwks_uri: Option<String>,
     /// Static secret for HS256 (alternative to JWKS).
     pub secret: Option<String>,
@@ -379,18 +502,25 @@ fn default_api_key_header() -> String {
     "X-Api-Key".into()
 }
 
+/// A single API key entry with a hashed key and optional scopes.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiKeyEntry {
+    /// Human-readable label for this key (e.g. the client name).
     pub name: String,
+    /// Bcrypt or SHA-256 hash of the raw API key.
     pub key_hash: String,
+    /// Optional permission scopes granted to this key.
     #[serde(default)]
     pub scopes: Vec<String>,
 }
 
+/// Code sandbox configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SandboxConfig {
+    /// Sandbox backend to use (`"process"` or `"wasm"`).
     #[serde(default = "default_sandbox_backend")]
     pub backend: String,
+    /// Resource limits applied to sandbox executions.
     #[serde(default)]
     pub limits: SandboxLimitsConfig,
 }
@@ -408,12 +538,16 @@ fn default_sandbox_backend() -> String {
     "process".into()
 }
 
+/// Resource limits applied to sandbox executions.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SandboxLimitsConfig {
+    /// Maximum wall-clock time in seconds before the sandbox is killed.
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
+    /// Maximum memory in bytes the sandbox process may use.
     #[serde(default = "default_max_memory_bytes")]
     pub max_memory_bytes: usize,
+    /// Maximum combined stdout + stderr size in bytes.
     #[serde(default = "default_max_output_bytes")]
     pub max_output_bytes: usize,
 }
@@ -440,21 +574,29 @@ fn default_max_output_bytes() -> usize {
     1024 * 1024 // 1 MB
 }
 
+/// WASM plugin configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PluginConfig {
+    /// Directory to scan for `.wasm` plugin files.
     pub dir: Option<String>,
 }
 
+/// Session store configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SessionConfig {
+    /// Session time-to-live in seconds (default: 86400 = 24 hours).
     #[serde(default = "default_session_ttl_secs")]
     pub ttl_secs: u64,
+    /// Backend to use (`"redis"`, `"memory"`, or `"auto"` to follow `bus.backend`).
+    #[serde(default = "default_backend_auto")]
+    pub backend: String,
 }
 
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
             ttl_secs: default_session_ttl_secs(),
+            backend: default_backend_auto(),
         }
     }
 }
@@ -463,16 +605,22 @@ fn default_session_ttl_secs() -> u64 {
     86400 // 24 hours
 }
 
+/// Priority queue configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct QueueConfig {
+    /// Maximum number of handler retries before a message is moved to the dead-letter queue.
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
+    /// Backend to use (`"redis"`, `"memory"`, or `"auto"` to follow `bus.backend`).
+    #[serde(default = "default_backend_auto")]
+    pub backend: String,
 }
 
 impl Default for QueueConfig {
     fn default() -> Self {
         Self {
             max_retries: default_max_retries(),
+            backend: default_backend_auto(),
         }
     }
 }
@@ -481,12 +629,16 @@ fn default_max_retries() -> u32 {
     3
 }
 
+/// Observability (metrics/tracing) configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObserveConfig {
+    /// Backend to emit events to (`"log"`, `"redis"`, or `"otel"`).
     #[serde(default = "default_observe_backend")]
     pub backend: String,
+    /// Number of events to batch before flushing.
     #[serde(default = "default_observe_batch_size")]
     pub batch_size: usize,
+    /// Maximum interval in milliseconds between flushes.
     #[serde(default = "default_observe_flush_interval_ms")]
     pub flush_interval_ms: u64,
 }
@@ -513,10 +665,13 @@ fn default_observe_backend() -> String {
     "log".into()
 }
 
+/// API gateway rate limiting and deduplication configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct GatewayConfig {
+    /// Maximum requests per minute per session before rate limiting kicks in.
     #[serde(default = "default_gateway_rate_limit")]
     pub rate_limit: u32,
+    /// Time-to-live in seconds for deduplication entries.
     #[serde(default = "default_gateway_dedup_ttl_secs")]
     pub dedup_ttl_secs: u64,
 }
@@ -538,20 +693,28 @@ fn default_gateway_dedup_ttl_secs() -> u64 {
     3600
 }
 
+/// LLM provider configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LlmConfig {
+    /// Default model name used when no provider matches.
     #[serde(default = "default_llm_model")]
     pub model: String,
+    /// Default request timeout in seconds.
     #[serde(default = "default_llm_timeout_secs")]
     pub timeout_secs: u64,
+    /// Default maximum output tokens per request.
     #[serde(default = "default_llm_max_tokens")]
     pub max_tokens: u32,
+    /// Default maximum number of retries on transient errors.
     #[serde(default = "default_llm_max_retries")]
     pub max_retries: u32,
+    /// Anthropic API version header value (e.g. `"2023-06-01"`).
     #[serde(default = "default_llm_api_version")]
     pub api_version: String,
+    /// Named provider configurations for multi-provider routing.
     #[serde(default)]
     pub providers: Vec<LlmProviderConfig>,
+    /// Total context window size in tokens (used for history truncation).
     #[serde(default = "default_llm_context_window_tokens")]
     pub context_window_tokens: u32,
 }
@@ -587,10 +750,14 @@ impl Default for LlmConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// Configuration for a single named LLM provider.
+#[derive(Clone, Deserialize)]
 pub struct LlmProviderConfig {
+    /// Unique identifier for this provider entry (e.g. `"anthropic-prod"`).
     pub name: String,
-    pub provider: String, // "anthropic", "openai", "ollama"
+    /// Provider type: `"anthropic"`, `"openai"`, or `"ollama"`.
+    pub provider: String,
+    /// Secret store path for the API key.
     #[serde(default)]
     pub api_key_secret: Option<String>,
     /// Direct API key (not recommended for production — use secrets store instead).
@@ -600,16 +767,22 @@ pub struct LlmProviderConfig {
     /// Checked before the secret store. If set and the env var exists, skip secret store lookup.
     #[serde(default)]
     pub api_key_env: Option<String>,
+    /// Default model name for this provider.
     #[serde(default = "default_llm_model")]
     pub model: String,
+    /// Request timeout in seconds (inherits from `llm.timeout_secs` if unset).
     #[serde(default)]
     pub timeout_secs: Option<u64>,
+    /// Maximum output tokens (inherits from `llm.max_tokens` if unset).
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    /// Maximum retries (inherits from `llm.max_retries` if unset).
     #[serde(default)]
     pub max_retries: Option<u32>,
+    /// Override the API base URL (useful for proxies or local models).
     #[serde(default)]
     pub base_url: Option<String>,
+    /// Model name prefixes this provider handles (e.g. `["claude"]`).
     #[serde(default)]
     pub prefixes: Vec<String>,
     /// Cost per 1K input tokens in USD (for cost tracking metrics).
@@ -647,28 +820,40 @@ fn default_llm_context_window_tokens() -> u32 {
 /// Per-agent runtime configuration (migrated from workspace markdown files).
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentConfig {
+    /// Unique identifier for this agent.
     #[serde(default = "default_agent_id")]
     pub id: String,
+    /// Human-readable display name shown in status commands.
     #[serde(default = "default_agent_display_name")]
     pub display_name: String,
+    /// IANA timezone name for time-aware operations (e.g. `"America/New_York"`).
     #[serde(default)]
     pub timezone: Option<String>,
+    /// Maximum tool-loop iterations before the agent gives up.
     #[serde(default = "default_agent_max_iterations")]
     pub max_iterations: usize,
+    /// Override the LLM model for this agent.
     #[serde(default)]
     pub model: Option<String>,
+    /// Override the maximum output tokens for this agent.
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    /// Override the context window size for history truncation.
     #[serde(default)]
     pub context_window_tokens: Option<u32>,
+    /// Cumulative token budget per session before the session is closed.
     #[serde(default)]
     pub max_tokens_per_session: Option<u64>,
+    /// Interval in seconds at which the agent sends a heartbeat event.
     #[serde(default)]
     pub heartbeat_interval_secs: Option<u64>,
+    /// LLM model used for history summarization (uses `model` if unset).
     #[serde(default)]
     pub summarization_model: Option<String>,
+    /// Number of history tokens that triggers automatic summarization.
     #[serde(default)]
     pub summarization_threshold: Option<usize>,
+    /// Maximum conversation turns to keep in context.
     #[serde(default = "default_agent_max_history_entries")]
     pub max_history_entries: usize,
     /// Maximum characters for a single tool result before truncation (default 50_000).
@@ -822,20 +1007,27 @@ impl Default for LoggingConfig {
     }
 }
 
+/// MCP (Model Context Protocol) client and server configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct McpConfig {
+    /// MCP server processes to launch and connect to.
     #[serde(default)]
     pub servers: Vec<McpServerEntry>,
+    /// Configuration for exposing this agent's skills as an MCP server.
     #[serde(default)]
     pub serve: Option<McpServeConfig>,
 }
 
+/// Configuration for exposing Orka skills as an MCP server.
 #[derive(Debug, Clone, Deserialize)]
 pub struct McpServeConfig {
+    /// Whether the MCP server is enabled.
     #[serde(default)]
     pub enabled: bool,
+    /// Transport to use: `"stdio"` or `"sse"`.
     #[serde(default = "default_mcp_serve_transport")]
     pub transport: String,
+    /// TCP port for SSE transport (required when `transport = "sse"`).
     #[serde(default)]
     pub sse_port: Option<u16>,
 }
@@ -854,16 +1046,22 @@ impl Default for McpServeConfig {
     }
 }
 
+/// A single MCP server process to launch.
 #[derive(Debug, Clone, Deserialize)]
 pub struct McpServerEntry {
+    /// Unique name for this MCP server (used to prefix tool names).
     pub name: String,
+    /// Executable path or command to launch.
     pub command: String,
+    /// Arguments to pass to the command.
     #[serde(default)]
     pub args: Vec<String>,
+    /// Environment variables to inject into the server process.
     #[serde(default)]
     pub env: std::collections::HashMap<String, String>,
 }
 
+/// Content guardrails configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct GuardrailsConfig {
     /// Blocked keywords (case-insensitive). Triggers Block on match.
@@ -880,16 +1078,22 @@ pub struct GuardrailsConfig {
     pub pii_filter: bool,
 }
 
+/// A regex redaction rule.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RedactPattern {
+    /// Regex pattern to match.
     pub pattern: String,
+    /// Replacement string for matched text.
     pub replacement: String,
 }
 
+/// Agent-to-Agent (A2A) protocol configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct A2aConfig {
+    /// Whether the A2A endpoint is enabled.
     #[serde(default)]
     pub enabled: bool,
+    /// Public base URL of this agent for A2A discovery.
     #[serde(default)]
     pub url: Option<String>,
 }
@@ -897,28 +1101,40 @@ pub struct A2aConfig {
 /// Linux OS integration configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct OsConfig {
+    /// Whether OS integration skills are enabled.
     #[serde(default)]
     pub enabled: bool,
+    /// Permission level: `"read-only"`, `"read-write"`, or `"unrestricted"`.
     #[serde(default = "default_os_permission_level")]
     pub permission_level: String,
+    /// Filesystem paths the agent is permitted to access.
     #[serde(default = "default_os_allowed_paths")]
     pub allowed_paths: Vec<String>,
+    /// Filesystem paths that are always denied, even if in `allowed_paths`.
     #[serde(default = "default_os_blocked_paths")]
     pub blocked_paths: Vec<String>,
+    /// Shell command substrings that are never permitted.
     #[serde(default = "default_os_blocked_commands")]
     pub blocked_commands: Vec<String>,
+    /// Explicit shell commands that are always permitted (empty = all allowed).
     #[serde(default)]
     pub allowed_commands: Vec<String>,
+    /// Maximum file size in bytes the agent may read or write.
     #[serde(default = "default_os_max_file_size_bytes")]
     pub max_file_size_bytes: u64,
+    /// Shell command timeout in seconds.
     #[serde(default = "default_os_shell_timeout_secs")]
     pub shell_timeout_secs: u64,
+    /// Maximum combined stdout + stderr size in bytes from a shell command.
     #[serde(default = "default_os_max_output_bytes")]
     pub max_output_bytes: usize,
+    /// Maximum number of entries returned by directory listing.
     #[serde(default = "default_os_max_list_entries")]
     pub max_list_entries: usize,
+    /// Glob patterns for environment variables that must not be exposed.
     #[serde(default = "default_os_sensitive_env_patterns")]
     pub sensitive_env_patterns: Vec<String>,
+    /// Privileged sudo configuration.
     #[serde(default)]
     pub sudo: SudoConfig,
 }
@@ -945,14 +1161,19 @@ impl Default for OsConfig {
 /// Privileged command execution via sudo.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SudoConfig {
+    /// Whether privileged sudo execution is enabled.
     #[serde(default)]
     pub enabled: bool,
+    /// Explicit list of commands that may be run with sudo (empty = none allowed).
     #[serde(default)]
     pub allowed_commands: Vec<String>,
+    /// Whether human confirmation is required before each sudo invocation.
     #[serde(default = "default_sudo_require_confirmation")]
     pub require_confirmation: bool,
+    /// Seconds to wait for a confirmation response before timing out.
     #[serde(default = "default_sudo_confirmation_timeout_secs")]
     pub confirmation_timeout_secs: u64,
+    /// Filesystem path to the `sudo` binary.
     #[serde(default = "default_sudo_path")]
     pub sudo_path: String,
 }
@@ -1034,24 +1255,33 @@ fn default_os_sensitive_env_patterns() -> Vec<String> {
 /// Knowledge & RAG configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct KnowledgeConfig {
+    /// Whether the knowledge / RAG subsystem is enabled.
     #[serde(default)]
     pub enabled: bool,
+    /// Vector store backend configuration.
     #[serde(default)]
     pub vector_store: VectorStoreConfig,
+    /// Embedding provider configuration.
     #[serde(default)]
     pub embeddings: EmbeddingsConfig,
+    /// Document chunking configuration.
     #[serde(default)]
     pub chunking: ChunkingConfig,
 }
 
+/// Vector store backend configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct VectorStoreConfig {
+    /// Vector store backend identifier (e.g. `"qdrant"`).
     #[serde(default = "default_vector_store_provider")]
     pub provider: String,
+    /// gRPC URL for the vector store (e.g. `"http://localhost:6334"`).
     #[serde(default = "default_vector_store_url")]
     pub url: String,
+    /// Prefix prepended to all collection names.
     #[serde(default = "default_collection_prefix")]
     pub collection_prefix: String,
+    /// Name of the default collection when none is specified.
     #[serde(default = "default_collection_name")]
     pub default_collection: String,
 }
@@ -1083,12 +1313,16 @@ fn default_collection_name() -> String {
     "default".into()
 }
 
+/// Embedding provider configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct EmbeddingsConfig {
+    /// Embedding backend identifier: `"local"` (ONNX) or `"openai"`.
     #[serde(default = "default_embedding_provider")]
     pub provider: String,
+    /// Model name or path used for embedding generation.
     #[serde(default = "default_embedding_model")]
     pub model: String,
+    /// Dimensionality of the embedding vectors produced by this model.
     #[serde(default = "default_embedding_dimensions")]
     pub dimensions: u32,
 }
@@ -1115,10 +1349,13 @@ fn default_embedding_dimensions() -> u32 {
     384
 }
 
+/// Document chunking configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChunkingConfig {
+    /// Maximum number of characters per chunk.
     #[serde(default = "default_chunk_size")]
     pub chunk_size: usize,
+    /// Number of characters of overlap between consecutive chunks.
     #[serde(default = "default_chunk_overlap")]
     pub chunk_overlap: usize,
 }
@@ -1143,10 +1380,13 @@ fn default_chunk_overlap() -> usize {
 /// Scheduler configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SchedulerConfig {
+    /// Whether the cron scheduler is enabled.
     #[serde(default)]
     pub enabled: bool,
+    /// How often (in seconds) the scheduler polls for due jobs.
     #[serde(default = "default_poll_interval_secs")]
     pub poll_interval_secs: u64,
+    /// Maximum number of jobs that may run concurrently.
     #[serde(default = "default_scheduler_max_concurrent")]
     pub max_concurrent: usize,
 }
@@ -1172,16 +1412,22 @@ fn default_scheduler_max_concurrent() -> usize {
 /// HTTP client and webhook configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct HttpClientConfig {
+    /// Whether the HTTP client skill is enabled.
     #[serde(default)]
     pub enabled: bool,
+    /// Maximum response body size in bytes.
     #[serde(default = "default_http_max_response_bytes")]
     pub max_response_bytes: usize,
+    /// Default request timeout in seconds.
     #[serde(default = "default_http_timeout_secs")]
     pub default_timeout_secs: u64,
+    /// Domains that are always blocked (e.g. cloud metadata endpoints).
     #[serde(default = "default_http_blocked_domains")]
     pub blocked_domains: Vec<String>,
+    /// User-Agent header sent with outbound requests.
     #[serde(default = "default_http_user_agent")]
     pub user_agent: String,
+    /// Inbound webhook receiver configuration.
     #[serde(default)]
     pub webhooks: WebhookConfig,
 }
@@ -1215,12 +1461,16 @@ fn default_http_user_agent() -> String {
     "Orka/0.1".into()
 }
 
+/// Inbound webhook receiver configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WebhookConfig {
+    /// Whether the inbound webhook receiver is enabled.
     #[serde(default)]
     pub enabled: bool,
+    /// Public base URL used to construct webhook callback URLs.
     #[serde(default = "default_webhook_base_url")]
     pub base_url: String,
+    /// URL path prefix under which webhook endpoints are mounted.
     #[serde(default = "default_webhook_path_prefix")]
     pub path_prefix: String,
 }
@@ -1246,6 +1496,7 @@ fn default_webhook_path_prefix() -> String {
 /// Experience & self-learning configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExperienceConfig {
+    /// Whether the experience / self-learning subsystem is enabled.
     #[serde(default)]
     pub enabled: bool,
     /// Maximum number of principles to inject into the system prompt.
@@ -1591,6 +1842,146 @@ impl OrkaConfig {
         );
 
         builder.build()?.try_deserialize()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Secret-redacting Debug implementations
+// ---------------------------------------------------------------------------
+
+/// Mask the password in a Redis URL so it is safe to log.
+///
+/// `redis://:password@host` → `redis://:***@host`
+/// `redis://user:password@host` → `redis://user:***@host`
+fn redact_url(url: &str) -> String {
+    if let Some(at_pos) = url.find('@') {
+        let scheme_end = url.find("://").map(|i| i + 3).unwrap_or(0);
+        let credentials = &url[scheme_end..at_pos];
+        if credentials.contains(':') {
+            let scheme = &url[..scheme_end];
+            let user = credentials.split(':').next().unwrap_or("");
+            let rest = &url[at_pos..];
+            return if user.is_empty() {
+                format!("{scheme}:***{rest}")
+            } else {
+                format!("{scheme}{user}:***{rest}")
+            };
+        }
+    }
+    url.to_string()
+}
+
+impl fmt::Debug for RedisConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RedisConfig")
+            .field("url", &redact_url(&self.url))
+            .finish()
+    }
+}
+
+impl fmt::Debug for LlmProviderConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LlmProviderConfig")
+            .field("name", &self.name)
+            .field("provider", &self.provider)
+            .field("api_key", &self.api_key.as_ref().map(|_| "***"))
+            .field("api_key_secret", &self.api_key_secret.as_ref().map(|_| "***"))
+            .field("api_key_env", &self.api_key_env)
+            .field("model", &self.model)
+            .field("timeout_secs", &self.timeout_secs)
+            .field("max_tokens", &self.max_tokens)
+            .field("max_retries", &self.max_retries)
+            .field("base_url", &self.base_url)
+            .field("prefixes", &self.prefixes)
+            .field("cost_per_1k_input_tokens", &self.cost_per_1k_input_tokens)
+            .field("cost_per_1k_output_tokens", &self.cost_per_1k_output_tokens)
+            .finish()
+    }
+}
+
+impl fmt::Debug for JwtAuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JwtAuthConfig")
+            .field("issuer", &self.issuer)
+            .field("audience", &self.audience)
+            .field("jwks_uri", &self.jwks_uri)
+            .field("secret", &self.secret.as_ref().map(|_| "***"))
+            .finish()
+    }
+}
+
+impl fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthConfig")
+            .field("enabled", &self.enabled)
+            .field("api_key_header", &self.api_key_header)
+            .field("api_keys", &format!("[{} keys]", self.api_keys.len()))
+            .field("jwt", &self.jwt)
+            .finish()
+    }
+}
+
+impl fmt::Debug for WebConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WebConfig")
+            .field("search_provider", &self.search_provider)
+            .field("api_key", &self.api_key.as_ref().map(|_| "***"))
+            .field("api_key_env", &self.api_key_env)
+            .field("searxng_base_url", &self.searxng_base_url)
+            .field("max_results", &self.max_results)
+            .field("max_read_chars", &self.max_read_chars)
+            .field("max_content_chars", &self.max_content_chars)
+            .field("cache_ttl_secs", &self.cache_ttl_secs)
+            .field("read_timeout_secs", &self.read_timeout_secs)
+            .field("user_agent", &self.user_agent)
+            .finish()
+    }
+}
+
+impl fmt::Debug for TelegramAdapterConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TelegramAdapterConfig")
+            .field("bot_token_secret", &self.bot_token_secret.as_ref().map(|_| "***"))
+            .field("workspace", &self.workspace)
+            .field("mode", &self.mode)
+            .field("webhook_url", &self.webhook_url)
+            .field("webhook_port", &self.webhook_port)
+            .field("parse_mode", &self.parse_mode)
+            .field("streaming", &self.streaming)
+            .field("owner_id", &self.owner_id)
+            .field("allowed_users", &self.allowed_users)
+            .finish()
+    }
+}
+
+impl fmt::Debug for DiscordAdapterConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiscordAdapterConfig")
+            .field("bot_token_secret", &self.bot_token_secret.as_ref().map(|_| "***"))
+            .field("workspace", &self.workspace)
+            .finish()
+    }
+}
+
+impl fmt::Debug for SlackAdapterConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SlackAdapterConfig")
+            .field("bot_token_secret", &self.bot_token_secret.as_ref().map(|_| "***"))
+            .field("listen_port", &self.listen_port)
+            .field("workspace", &self.workspace)
+            .finish()
+    }
+}
+
+impl fmt::Debug for WhatsAppAdapterConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WhatsAppAdapterConfig")
+            .field("access_token_secret", &self.access_token_secret.as_ref().map(|_| "***"))
+            .field("phone_number_id", &self.phone_number_id)
+            .field("verify_token_secret", &self.verify_token_secret.as_ref().map(|_| "***"))
+            .field("listen_port", &self.listen_port)
+            .field("workspace", &self.workspace)
+            .finish()
     }
 }
 

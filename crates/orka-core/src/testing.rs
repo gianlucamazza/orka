@@ -17,11 +17,13 @@ use crate::{
 // InMemoryBus
 // ---------------------------------------------------------------------------
 
+/// In-memory [`MessageBus`] implementation for use in tests.
 pub struct InMemoryBus {
     topics: Arc<Mutex<HashMap<String, Vec<tokio::sync::mpsc::Sender<Envelope>>>>>,
 }
 
 impl InMemoryBus {
+    /// Create a new empty bus.
     pub fn new() -> Self {
         Self {
             topics: Arc::new(Mutex::new(HashMap::new())),
@@ -63,11 +65,13 @@ impl MessageBus for InMemoryBus {
 // InMemorySessionStore
 // ---------------------------------------------------------------------------
 
+/// In-memory [`SessionStore`] implementation for use in tests.
 pub struct InMemorySessionStore {
     sessions: Arc<Mutex<HashMap<SessionId, Session>>>,
 }
 
 impl InMemorySessionStore {
+    /// Create a new empty session store.
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -105,6 +109,7 @@ impl SessionStore for InMemorySessionStore {
 // InMemoryQueue
 // ---------------------------------------------------------------------------
 
+/// In-memory [`PriorityQueue`] implementation for use in tests.
 pub struct InMemoryQueue {
     items: Arc<Mutex<Vec<Envelope>>>,
     dlq: Arc<Mutex<Vec<Envelope>>>,
@@ -112,6 +117,7 @@ pub struct InMemoryQueue {
 }
 
 impl InMemoryQueue {
+    /// Create a new empty queue.
     pub fn new() -> Self {
         Self {
             items: Arc::new(Mutex::new(Vec::new())),
@@ -120,6 +126,7 @@ impl InMemoryQueue {
         }
     }
 
+    /// Return all envelopes currently in the dead-letter queue.
     pub async fn dlq_items(&self) -> Vec<Envelope> {
         self.dlq.lock().await.clone()
     }
@@ -217,12 +224,14 @@ impl PriorityQueue for InMemoryQueue {
 // InMemoryMemoryStore
 // ---------------------------------------------------------------------------
 
+/// In-memory [`MemoryStore`] implementation for use in tests.
 pub struct InMemoryMemoryStore {
     #[allow(clippy::type_complexity)]
     entries: Arc<Mutex<HashMap<String, (MemoryEntry, Option<tokio::time::Instant>)>>>,
 }
 
 impl InMemoryMemoryStore {
+    /// Create a new empty memory store.
     pub fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(HashMap::new())),
@@ -288,11 +297,13 @@ impl MemoryStore for InMemoryMemoryStore {
 // InMemorySecretManager
 // ---------------------------------------------------------------------------
 
+/// In-memory [`SecretManager`] implementation for use in tests.
 pub struct InMemorySecretManager {
     secrets: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
 
 impl InMemorySecretManager {
+    /// Create a new empty secret manager.
     pub fn new() -> Self {
         Self {
             secrets: Arc::new(Mutex::new(HashMap::new())),
@@ -340,21 +351,25 @@ impl SecretManager for InMemorySecretManager {
 // InMemoryEventSink
 // ---------------------------------------------------------------------------
 
+/// In-memory [`EventSink`] implementation for use in tests.
 pub struct InMemoryEventSink {
     events: Arc<Mutex<Vec<DomainEvent>>>,
 }
 
 impl InMemoryEventSink {
+    /// Create a new empty event sink.
     pub fn new() -> Self {
         Self {
             events: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
+    /// Return all events that have been emitted so far.
     pub async fn events(&self) -> Vec<DomainEvent> {
         self.events.lock().await.clone()
     }
 
+    /// Clear all recorded events.
     pub async fn clear(&self) {
         self.events.lock().await.clear();
     }
@@ -377,6 +392,7 @@ impl EventSink for InMemoryEventSink {
 // EchoSkill
 // ---------------------------------------------------------------------------
 
+/// Test [`Skill`] that echoes its input arguments back as JSON output.
 pub struct EchoSkill;
 
 #[async_trait]
