@@ -315,14 +315,26 @@ if [[ ! -f "${CONFIG_DIR}/orka.toml" ]]; then
 	# service's state directory under systemd ProtectSystem=strict.
 	if grep -q '^allowed_paths' "${CONFIG_DIR}/orka.toml"; then
 		if ! grep -q '"/var/lib/orka"' "${CONFIG_DIR}/orka.toml"; then
-			sed -i 's|^\(allowed_paths = \[.*\)\]|\1, "/var/lib/orka"]|' "${CONFIG_DIR}/orka.toml"
+			if grep -q '^allowed_paths = \[\]' "${CONFIG_DIR}/orka.toml"; then
+				# Empty array — replace whole value to avoid ", " prefix
+				sed -i 's|^allowed_paths = \[\]|allowed_paths = ["/var/lib/orka"]|' "${CONFIG_DIR}/orka.toml"
+			else
+				sed -i 's|^\(allowed_paths = \[.*\)\]|\1, "/var/lib/orka"]|' "${CONFIG_DIR}/orka.toml"
+			fi
 		fi
 	else
 		sed -i 's|^#.*allowed_paths = \[.*\]|allowed_paths = ["/home", "/tmp", "/var/lib/orka"]|' "${CONFIG_DIR}/orka.toml"
 	fi
-	# Inject detected package manager commands into allowed_commands
+	# Inject detected package manager commands into allowed_commands.
+	# Uses a flexible regex so it works regardless of what entries are already in the array.
 	if [[ -n "$PKG_ALLOWED_CMDS" ]]; then
-		sed -i "s|allowed_commands = \[\"systemctl restart\", \"systemctl stop\", \"systemctl start\"\]|allowed_commands = [\"systemctl restart\", \"systemctl stop\", \"systemctl start\", ${PKG_ALLOWED_CMDS}]|" "${CONFIG_DIR}/orka.toml"
+		if grep -q '^allowed_commands = \[\]' "${CONFIG_DIR}/orka.toml"; then
+			# Empty array — replace whole value
+			sed -i "s|^allowed_commands = \[\]|allowed_commands = [${PKG_ALLOWED_CMDS}]|" "${CONFIG_DIR}/orka.toml"
+		else
+			# Non-empty array — append before closing bracket
+			sed -i "s|^\(allowed_commands = \[.*\)\]|\1, ${PKG_ALLOWED_CMDS}]|" "${CONFIG_DIR}/orka.toml"
+		fi
 		info "Added ${PKG_MGR} commands to sudo allowed_commands."
 	fi
 else

@@ -57,6 +57,8 @@ package() {
 	# Config
 	install -Dm644 orka.toml "$pkgdir/etc/orka/orka.toml"
 	sed -i 's|^workspace_dir = ".*"|workspace_dir = "/var/lib/orka/workspaces"|' "$pkgdir/etc/orka/orka.toml"
+	# Arch always uses pacman — append pacman commands to allowed_commands
+	sed -i 's|^\(allowed_commands = \[.*\)\]|\1, "pacman -S", "pacman -Syu"]|' "$pkgdir/etc/orka/orka.toml"
 
 	# License
 	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
