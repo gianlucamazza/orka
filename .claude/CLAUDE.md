@@ -34,9 +34,18 @@ cargo test -- --ignored        # Integration tests (requires Redis)
 ## Infrastructure
 
 - **Redis 7+** required for bus (Redis Streams) and queue (Sorted Sets)
+- **Qdrant v1.14+** required for the knowledge/RAG vector store (`orka-knowledge`)
 - Integration tests use `testcontainers` (Docker required)
 - Production Docker image uses `cargo-chef` for layer caching
+- `docker-compose.yml` starts Redis + Qdrant + orka-server together
+
+## Key Subsystems
+
+- **orka-knowledge**: RAG pipeline — document ingestion, embedding, and semantic search via Qdrant
+- **orka-experience**: Self-learning loop — trajectory recording, post-task reflection, and offline distillation of principles
+- **orka-scheduler**: Cron-based task scheduler backed by Redis Sorted Sets
+- **OpenAPI/Swagger**: Available at `http://localhost:8080/docs` when the server is running
 
 ## CI
 
-GitHub Actions workflow at `.github/workflows/ci.yml` runs: fmt check, clippy, cargo-audit, cargo-deny, build, unit tests, and integration tests with a Redis service container.
+GitHub Actions workflow at `.github/workflows/ci.yml` runs: fmt check, clippy, cargo-audit, cargo-deny, build, unit tests, and integration tests with Redis and Qdrant service containers.

@@ -90,6 +90,8 @@ Orka is organized as a Cargo workspace with ~30 crates. Each crate has a single 
 - **orka-knowledge**: RAG/vector store skills
 - **orka-observe**: Observability (Prometheus metrics, Redis/OTel event sinks)
 
+For a deeper dive into each subsystem and how they interact, see [docs/architecture.md](docs/architecture.md).
+
 See the [README](README.md) for the full project structure.
 
 ## Reporting Issues

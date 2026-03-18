@@ -41,6 +41,8 @@ External Clients
  └─────┘
 ```
 
+For a detailed description of each subsystem and their interactions, see [docs/architecture.md](docs/architecture.md).
+
 ## Features
 
 - **Multi-channel messaging** — Telegram, Discord, Slack, WhatsApp, custom HTTP/WebSocket
@@ -70,6 +72,8 @@ External Clients
 - Docker (optional)
 
 ### With Docker Compose
+
+Copy `.env.example` to `.env` and fill in any required values, then:
 
 ```bash
 docker-compose up
@@ -117,20 +121,25 @@ curl -X POST http://localhost:8081/api/message \
 
 Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 
-| Section           | Key           | Default                  | Description                           |
-| ----------------- | ------------- | ------------------------ | ------------------------------------- |
-| `server`          | `host`        | `127.0.0.1`              | Health endpoint bind address          |
-| `server`          | `port`        | `8080`                   | Health endpoint port                  |
-| `redis`           | `url`         | `redis://127.0.0.1:6379` | Redis connection URL                  |
-| `worker`          | `concurrency` | `4`                      | Number of concurrent workers          |
-| `session`         | `ttl_secs`    | `86400`                  | Session TTL in seconds (24h)          |
-| `queue`           | `max_retries` | `3`                      | Max retries before dead-letter        |
-| `adapters.custom` | `host`        | `127.0.0.1`              | Custom adapter bind address           |
-| `adapters.custom` | `port`        | `8081`                   | Custom adapter port                   |
-| `auth`            | `enabled`     | `false`                  | Enable API key authentication         |
-| `sandbox`         | `backend`     | `process`                | Sandbox backend (`process` or `wasm`) |
-| `logging`         | `level`       | `info`                   | Log level                             |
-| `logging`         | `json`        | `false`                  | JSON log format                       |
+| Section             | Key                | Default                  | Description                           |
+| ------------------- | ------------------ | ------------------------ | ------------------------------------- |
+| `server`            | `host`             | `127.0.0.1`              | Health endpoint bind address          |
+| `server`            | `port`             | `8080`                   | Health endpoint port                  |
+| `redis`             | `url`              | `redis://127.0.0.1:6379` | Redis connection URL                  |
+| `worker`            | `concurrency`      | `4`                      | Number of concurrent workers          |
+| `session`           | `ttl_secs`         | `86400`                  | Session TTL in seconds (24h)          |
+| `queue`             | `max_retries`      | `3`                      | Max retries before dead-letter        |
+| `adapters.custom`   | `host`             | `127.0.0.1`              | Custom adapter bind address           |
+| `adapters.custom`   | `port`             | `8081`                   | Custom adapter port                   |
+| `adapters.telegram` | `bot_token_secret` | —                        | Secret path for bot token             |
+| `adapters.telegram` | `mode`             | `polling`                | `polling` or `webhook`                |
+| `adapters.telegram` | `parse_mode`       | `HTML`                   | Outbound text format                  |
+| `adapters.telegram` | `webhook_url`      | —                        | Public URL for webhook mode           |
+| `adapters.telegram` | `webhook_port`     | `8443`                   | Local port for webhook listener       |
+| `auth`              | `enabled`          | `false`                  | Enable API key authentication         |
+| `sandbox`           | `backend`          | `process`                | Sandbox backend (`process` or `wasm`) |
+| `logging`           | `level`            | `info`                   | Log level                             |
+| `logging`           | `json`             | `false`                  | JSON log format                       |
 
 Environment variables use `ORKA__` prefix with `__` as separator (e.g., `ORKA__REDIS__URL`).
 
