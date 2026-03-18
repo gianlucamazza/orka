@@ -25,3 +25,6 @@ http.workspace = true
 jsonwebtoken.workspace = true
 reqwest.workspace = true
 chrono.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
