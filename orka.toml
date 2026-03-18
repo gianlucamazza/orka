@@ -1,6 +1,10 @@
 config_version = 2
 
 workspace_dir = "."
+# default_workspace = "default"
+# [[workspaces]]
+# name = "default"
+# dir = "workspaces/default"
 
 [server]
 host = "127.0.0.1"
@@ -23,6 +27,7 @@ json = false
 [adapters.custom]
 host = "127.0.0.1"
 port = 8081
+# workspace = "default"                 # workspace override for this adapter
 
 # [adapters.telegram]
 # bot_token_secret = "adapters/telegram"
@@ -37,16 +42,20 @@ port = 8081
 
 # [adapters.discord]
 # bot_token_secret = "adapters/discord"
+# application_id = "123456789"
+# workspace = "default"
 
 # [adapters.slack]
 # bot_token_secret = "adapters/slack"
 # listen_port = 3000
+# workspace = "default"
 
 # [adapters.whatsapp]
 # access_token_secret = "adapters/whatsapp"
 # phone_number_id = "123456789"
 # verify_token_secret = "adapters/whatsapp-verify"
 # listen_port = 3001
+# workspace = "default"
 
 # [a2a]
 # enabled = false
@@ -65,6 +74,7 @@ backend = "log" # "log" | "redis" | "otel"
 # name = "example"
 # command = "npx"
 # args = ["-y", "@example/mcp-server"]
+# env = { "KEY" = "value" }             # environment variables for the MCP server process
 
 # [mcp.serve]
 # enabled = false
@@ -86,6 +96,10 @@ max_entries = 10000
 enabled = false
 api_key_header = "X-Api-Key"
 api_keys = []
+# [[auth.api_keys]]
+# name = "my-service"
+# key_hash = "sha256:..."               # SHA-256 hash of the API key
+# scopes = ["read", "write"]            # optional scope restrictions
 
 # [auth.jwt]
 # issuer = "https://auth.example.com"
@@ -136,6 +150,7 @@ disabled = ["echo"]
 [llm]
 timeout_secs = 120
 max_tokens = 8192
+# model = "claude-sonnet-4-6"           # global default model (providers override)
 # context_window_tokens = 1000000
 # max_retries = 2
 # api_version = "2023-06-01"
@@ -172,6 +187,7 @@ search_provider = "tavily"
 api_key_env = "TAVILY_API_KEY"
 # max_results = 5
 # max_read_chars = 20000
+# max_content_chars = 8000              # truncated content limit per page
 # cache_ttl_secs = 3600
 # read_timeout_secs = 15
 # user_agent = "Orka/<version> (Web Agent)"
@@ -273,9 +289,16 @@ max_concurrent = 4
 # id = "router"
 # display_name = "Router"
 # soul_file = "workspaces/router/SOUL.md"
+# tools_file = "workspaces/router/TOOLS.md"
+# soul = "inline system prompt (alternative to soul_file)"
 # model = "claude-sonnet-4-6"
 # max_iterations = 5
+# context_window = 200000
 # handoff_targets = ["coder", "reviewer"]
+# tools = { allow = ["web_search", "shell"] }  # or { deny = ["shell"] }
+# temperature = 0.5
+# thinking_budget_tokens = 10000
+# reasoning_effort = "medium"
 
 # [[agents]]
 # id = "coder"
@@ -285,9 +308,11 @@ max_concurrent = 4
 # max_iterations = 15
 
 # [graph]
+# id = "my-graph"
 # entry = "router"
 # terminal = ["coder"]
 # max_total_iterations = 50
+# max_total_tokens = 500000
 # max_duration_secs = 300
 # [[graph.edges]]
 # from = "router"
@@ -295,3 +320,7 @@ max_concurrent = 4
 # [[graph.edges]]
 # from = "router"
 # to = "reviewer"
+# priority = 1
+# [graph.edges.condition]
+# type = "output_contains"
+# pattern = "needs review"

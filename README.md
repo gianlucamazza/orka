@@ -180,6 +180,41 @@ Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 | `a2a`                    | `enabled`                 | `false`                  | Enable Agent-to-Agent protocol             |
 | `os`                     | `sensitive_env_patterns`  | glob list                | Env var patterns redacted from tool output |
 | `os`                     | `allowed_commands`        | `[]`                     | Explicit command allow-list for OS skills  |
+| `os`                     | `allowed_paths`           | `["/home", "/tmp"]`      | Filesystem access allow-list               |
+| `os`                     | `blocked_paths`           | (see orka.toml)          | Filesystem access deny-list                |
+| `os`                     | `blocked_commands`        | (see orka.toml)          | Dangerous command deny-list                |
+| `os`                     | `max_file_size_bytes`     | `10485760`               | Max file size for reads (10 MB)            |
+| `os`                     | `shell_timeout_secs`      | `30`                     | Shell command timeout                      |
+| `os.sudo`                | `enabled`                 | `false`                  | Enable sudo operations                     |
+| `os.sudo`                | `require_confirmation`    | `true`                   | Require user confirmation for sudo         |
+| `gateway`                | `rate_limit`              | `60`                     | Max messages per 60s window per session    |
+| `gateway`                | `dedup_ttl_secs`          | `3600`                   | Duplicate message detection window         |
+| `sandbox.limits`         | `timeout_secs`            | `30`                     | Execution timeout                          |
+| `sandbox.limits`         | `max_memory_bytes`        | `67108864`               | Memory limit (64 MB)                       |
+| `sandbox.limits`         | `max_output_bytes`        | `1048576`                | Output limit (1 MB)                        |
+| `tools`                  | `disabled`                | `[]`                     | Skill names to disable                     |
+| `secrets`                | `encryption_key_env`      | —                        | Env var name for encryption key            |
+| `auth`                   | `api_key_header`          | `X-Api-Key`              | Header name for API key auth               |
+| `worker`                 | `retry_base_delay_ms`     | `5000`                   | Base delay for exponential backoff         |
+| `memory`                 | `max_entries`             | `10000`                  | Max key-value memory entries               |
+| `observe`                | `batch_size`              | `50`                     | Event batch size before flush              |
+| `observe`                | `flush_interval_ms`       | `100`                    | Flush interval (ms)                        |
+| `knowledge.embeddings`   | `provider`                | `local`                  | Embedding provider                         |
+| `knowledge.embeddings`   | `model`                   | `BAAI/bge-small-en-v1.5` | Embedding model                            |
+| `knowledge.chunking`     | `chunk_size`              | `1000`                   | Characters per chunk                       |
+| `knowledge.chunking`     | `chunk_overlap`           | `200`                    | Overlap between chunks                     |
+| `scheduler`              | `max_concurrent`          | `4`                      | Max concurrent scheduled tasks             |
+| `llm`                    | `model`                   | `claude-sonnet-4-6`      | Global default model                       |
+| `llm`                    | `max_retries`             | `2`                      | LLM request retries                        |
+| `llm`                    | `context_window_tokens`   | `1000000`                | Context window size                        |
+| `web`                    | `max_read_chars`          | `20000`                  | Max chars per page read                    |
+| `web`                    | `max_content_chars`       | `8000`                   | Truncated content limit per page           |
+| `web`                    | `cache_ttl_secs`          | `3600`                   | Search cache TTL                           |
+| `http`                   | `max_response_bytes`      | `1048576`                | Max HTTP response size (1 MB)              |
+| `http`                   | `default_timeout_secs`    | `30`                     | HTTP request timeout                       |
+| `http`                   | `blocked_domains`         | `["169.254.169.254"]`    | SSRF protection deny-list                  |
+| `agent`                  | `max_tool_result_chars`   | `50000`                  | Truncation limit for tool output           |
+| `agent`                  | `max_tool_retries`        | `2`                      | Retries before self-correction hint        |
 
 For a complete reference, see [`orka.toml`](orka.toml).
 
@@ -200,6 +235,8 @@ For a complete reference, see [`orka.toml`](orka.toml).
 | `TAVILY_API_KEY`             | Tavily web search key                                   |
 | `BRAVE_API_KEY`              | Brave web search key                                    |
 | `RUST_LOG`                   | Overrides `logging.level` via tracing `EnvFilter`       |
+| `ORKA_GIT_SHA`               | Git SHA embedded at build time                          |
+| `ORKA_BUILD_DATE`            | Build date embedded at build time                       |
 
 Config fields can also be overridden via `ORKA__<SECTION>__<KEY>` (e.g., `ORKA__REDIS__URL`).
 
