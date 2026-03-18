@@ -155,6 +155,9 @@ api_key_env = "TAVILY_API_KEY"
 [os]
 enabled = true
 permission_level = "admin"
+# Filesystem paths the agent is permitted to access.
+# NOTE: paths under /home require the fs.conf systemd drop-in (installed
+# automatically by install.sh when /home is listed here).
 # allowed_paths = ["/home", "/tmp"]
 # blocked_paths = ["/etc/shadow", "/etc/gshadow", "~/.ssh/id_*"]
 # blocked_commands = ["rm -rf /", "dd", "mkfs", "fdisk"]

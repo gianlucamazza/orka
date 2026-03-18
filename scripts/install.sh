@@ -55,6 +55,13 @@ DESKTOP_DIR="/usr/local/share/applications"
 SERVICE_NAME="orka-server"
 DROPIN_DIR="/etc/systemd/system/${SERVICE_NAME}.service.d"
 
+# ── Check if /home paths are in allowed_paths ────────────────────────
+check_home_access_needed() {
+	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
+	[[ -f "$cfg" ]] || return 1
+	grep -qE '^\s*allowed_paths\s*=.*"/home' "$cfg"
+}
+
 # ── Check if sudo is enabled in config ──────────────────────────────
 # Parses the TOML config for [os.sudo] enabled = true.
 check_sudo_enabled() {
@@ -285,6 +292,21 @@ else
 	fi
 fi
 
+# ── Install systemd drop-in for filesystem access ───────────────────
+# When allowed_paths includes /home, ProtectHome must be relaxed.
+if check_home_access_needed "${CONFIG_DIR}/orka.toml"; then
+	info "allowed_paths includes /home — installing fs drop-in to relax ProtectHome"
+	mkdir -p "$DROPIN_DIR"
+	install -Dm644 "$REPO_ROOT/deploy/orka-server-fs.conf" "${DROPIN_DIR}/fs.conf"
+	ok "Drop-in installed → ${DROPIN_DIR}/fs.conf"
+else
+	if [[ -f "${DROPIN_DIR}/fs.conf" ]]; then
+		info "No /home paths in allowed_paths — removing fs drop-in"
+		rm -f "${DROPIN_DIR}/fs.conf"
+		rmdir --ignore-fail-on-non-empty "$DROPIN_DIR" 2>/dev/null || true
+	fi
+fi
+
 # ── Install shell completions ────────────────────────────────────────
 info "Generating shell completions..."
 
@@ -344,3 +366,10 @@ echo "  systemctl enable --now ${SERVICE_NAME}"
 echo ""
 info "View logs:"
 echo "  journalctl -u ${SERVICE_NAME} -f"
+
+if check_home_access_needed "${CONFIG_DIR}/orka.toml"; then
+	echo ""
+	info "To grant orka access to a user's home directory:"
+	echo "  sudo usermod -aG \$(id -gn <username>) orka"
+	echo "  chmod g+rx /home/<username>"
+fi
