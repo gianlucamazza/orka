@@ -7,11 +7,13 @@ use sysinfo::{Networks, System};
 
 use crate::guard::PermissionGuard;
 
+/// Skill that returns CPU, memory, disk, and network usage for the local host.
 pub struct SystemInfoSkill {
     _guard: Arc<PermissionGuard>,
 }
 
 impl SystemInfoSkill {
+    /// Create a new `system_info` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { _guard: guard }
     }

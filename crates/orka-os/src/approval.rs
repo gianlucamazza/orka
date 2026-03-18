@@ -6,27 +6,42 @@ use uuid::Uuid;
 /// A request for human approval before executing a privileged command.
 #[derive(Debug, Clone)]
 pub struct ApprovalRequest {
+    /// Unique identifier for this approval request.
     pub id: Uuid,
+    /// The command to be executed (e.g. `"systemctl"`).
     pub command: String,
+    /// Arguments to be passed to the command.
     pub args: Vec<String>,
+    /// Human-readable explanation of why the command needs to run.
     pub reason: String,
+    /// Session in which the command was requested.
     pub session_id: SessionId,
+    /// Message that triggered the command request.
     pub message_id: MessageId,
+    /// When the approval request was created.
     pub requested_at: DateTime<Utc>,
+    /// When the approval request will expire if unanswered.
     pub expires_at: DateTime<Utc>,
 }
 
 /// The decision returned by an approval channel.
 #[derive(Debug, Clone)]
 pub enum ApprovalDecision {
+    /// The operator approved the command.
     Approved,
-    Denied { reason: String },
+    /// The operator denied the command, with an optional reason.
+    Denied {
+        /// Human-readable reason for the denial.
+        reason: String,
+    },
+    /// No response was received before the deadline.
     Expired,
 }
 
 /// Channel through which privileged command approvals are requested.
 #[async_trait]
 pub trait ApprovalChannel: Send + Sync + 'static {
+    /// Submit an approval request and wait for a decision.
     async fn request_approval(&self, req: ApprovalRequest) -> orka_core::Result<ApprovalDecision>;
 }
 

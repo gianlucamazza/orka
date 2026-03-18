@@ -10,11 +10,13 @@ use crate::guard::PermissionGuard;
 
 // ── process_list ──
 
+/// Skill that lists running processes with CPU and memory usage.
 pub struct ProcessListSkill {
     _guard: Arc<PermissionGuard>,
 }
 
 impl ProcessListSkill {
+    /// Create a new `process_list` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { _guard: guard }
     }
@@ -124,11 +126,13 @@ impl Skill for ProcessListSkill {
 
 // ── process_info ──
 
+/// Skill that returns detailed information about a single process by PID.
 pub struct ProcessInfoSkill {
     _guard: Arc<PermissionGuard>,
 }
 
 impl ProcessInfoSkill {
+    /// Create a new `process_info` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { _guard: guard }
     }
@@ -187,11 +191,13 @@ impl Skill for ProcessInfoSkill {
 
 // ── process_signal ──
 
+/// Skill that sends a UNIX signal to a process by PID.
 pub struct ProcessSignalSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl ProcessSignalSkill {
+    /// Create a new `process_signal` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }

@@ -1,3 +1,4 @@
+/// Qdrant vector database backend implementation.
 pub mod qdrant;
 
 use async_trait::async_trait;

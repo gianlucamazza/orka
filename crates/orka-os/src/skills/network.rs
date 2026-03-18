@@ -9,11 +9,13 @@ use crate::guard::PermissionGuard;
 
 // ── network_info ──
 
+/// Skill that lists network interfaces and their traffic statistics.
 pub struct NetworkInfoSkill {
     _guard: Arc<PermissionGuard>,
 }
 
 impl NetworkInfoSkill {
+    /// Create a new `network_info` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { _guard: guard }
     }
@@ -61,11 +63,13 @@ impl Skill for NetworkInfoSkill {
 
 // ── network_check ──
 
+/// Skill that checks TCP/HTTP connectivity to a given host and port.
 pub struct NetworkCheckSkill {
     _guard: Arc<PermissionGuard>,
 }
 
 impl NetworkCheckSkill {
+    /// Create a new `network_check` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { _guard: guard }
     }

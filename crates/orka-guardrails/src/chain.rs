@@ -10,12 +10,14 @@ pub struct GuardrailChain {
 }
 
 impl GuardrailChain {
+    /// Create an empty chain.
     pub fn new() -> Self {
         Self {
             guardrails: Vec::new(),
         }
     }
 
+    /// Append a guardrail to the chain (builder pattern).
     #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, guardrail: Arc<dyn Guardrail>) -> Self {
         self.guardrails.push(guardrail);
@@ -43,7 +45,9 @@ impl Guardrail for GuardrailChain {
                     current = modified;
                     was_modified = true;
                 }
-                _ => {}
+                other => {
+                    tracing::warn!(?other, "unhandled guardrail decision variant");
+                }
             }
         }
 
@@ -66,7 +70,9 @@ impl Guardrail for GuardrailChain {
                     current = modified;
                     was_modified = true;
                 }
-                _ => {}
+                other => {
+                    tracing::warn!(?other, "unhandled guardrail decision variant");
+                }
             }
         }
 

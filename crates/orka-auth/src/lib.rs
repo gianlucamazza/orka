@@ -6,15 +6,15 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// SHA-256 API key authenticator.
 pub mod api_key;
-#[allow(missing_docs)]
+/// `Authenticator` trait definition.
 pub mod authenticator;
-#[allow(missing_docs)]
+/// JWT authenticator (HMAC / RSA).
 pub mod jwt;
-#[allow(missing_docs)]
+/// Tower middleware that performs authentication on incoming requests.
 pub mod middleware;
-#[allow(missing_docs)]
+/// Identity and credentials types.
 pub mod types;
 
 #[cfg(feature = "test-util")]

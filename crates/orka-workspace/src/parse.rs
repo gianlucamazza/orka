@@ -1,11 +1,15 @@
 use serde::de::DeserializeOwned;
 
+/// A parsed markdown document with typed YAML frontmatter and a plain-text body.
 #[derive(Debug, Clone)]
 pub struct Document<T> {
+    /// Deserialized YAML frontmatter.
     pub frontmatter: T,
+    /// Markdown body following the closing `---` delimiter.
     pub body: String,
 }
 
+/// Parse a markdown document with YAML frontmatter delimited by `---`.
 pub fn parse_document<T: DeserializeOwned>(raw: &str) -> Result<Document<T>, orka_core::Error> {
     let trimmed = raw.trim_start();
 

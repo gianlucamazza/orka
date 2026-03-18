@@ -5,11 +5,13 @@ use std::sync::Arc;
 
 use crate::store::RedisScheduleStore;
 
+/// Skill that deletes a schedule by name or ID from the store.
 pub struct ScheduleDeleteSkill {
     store: Arc<RedisScheduleStore>,
 }
 
 impl ScheduleDeleteSkill {
+    /// Create a new skill backed by the given schedule store.
     pub fn new(store: Arc<RedisScheduleStore>) -> Self {
         Self { store }
     }

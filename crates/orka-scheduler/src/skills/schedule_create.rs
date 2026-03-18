@@ -9,11 +9,13 @@ use uuid::Uuid;
 use crate::store::RedisScheduleStore;
 use crate::types::Schedule;
 
+/// Skill that creates a new schedule entry in the store.
 pub struct ScheduleCreateSkill {
     store: Arc<RedisScheduleStore>,
 }
 
 impl ScheduleCreateSkill {
+    /// Create a new skill backed by the given schedule store.
     pub fn new(store: Arc<RedisScheduleStore>) -> Self {
         Self { store }
     }
@@ -95,7 +97,9 @@ impl Skill for ScheduleCreateSkill {
                 .map(|dt| dt.timestamp())
                 .map_err(|e| orka_core::Error::Skill(format!("invalid run_at datetime: {e}")))?
         } else {
-            unreachable!()
+            return Err(orka_core::Error::Skill(
+                "either 'cron' or 'run_at' must be provided".into(),
+            ));
         };
 
         let skill = input

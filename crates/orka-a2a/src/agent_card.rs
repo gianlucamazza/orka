@@ -2,6 +2,7 @@ use orka_skills::SkillRegistry;
 
 use crate::types::{AgentCapabilities, AgentCard, AgentSkill};
 
+/// Build an [`AgentCard`] for this agent by introspecting its skill registry.
 pub fn build_agent_card(
     name: &str,
     description: &str,

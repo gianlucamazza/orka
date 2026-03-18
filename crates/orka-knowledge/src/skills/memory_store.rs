@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::embeddings::EmbeddingProvider;
 use crate::vector_store::VectorStore;
 
+/// Skill that embeds a piece of text and stores it in the vector store for later retrieval.
 pub struct MemoryStoreSkill {
     embeddings: Arc<dyn EmbeddingProvider>,
     store: Arc<dyn VectorStore>,
@@ -15,6 +16,7 @@ pub struct MemoryStoreSkill {
 }
 
 impl MemoryStoreSkill {
+    /// Create the skill with the given embedding provider, vector store, and default collection.
     pub fn new(
         embeddings: Arc<dyn EmbeddingProvider>,
         store: Arc<dyn VectorStore>,

@@ -8,12 +8,14 @@ use orka_skills::SkillRegistry;
 
 use super::ServerCommand;
 
+/// Command that invokes a named skill directly (`/skill <name> [args]`).
 pub struct SkillCommand {
     skills: Arc<SkillRegistry>,
     secrets: Arc<dyn SecretManager>,
 }
 
 impl SkillCommand {
+    /// Create the command with access to the skill registry and secret manager.
     pub fn new(skills: Arc<SkillRegistry>, secrets: Arc<dyn SecretManager>) -> Self {
         Self { skills, secrets }
     }

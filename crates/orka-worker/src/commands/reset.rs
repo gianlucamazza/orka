@@ -6,11 +6,13 @@ use orka_core::{Envelope, MemoryEntry, OutboundMessage, Result, Session};
 
 use super::ServerCommand;
 
+/// Command that clears the session's memory store (`/reset`).
 pub struct ResetCommand {
     memory: Arc<dyn MemoryStore>,
 }
 
 impl ResetCommand {
+    /// Create the command backed by the given memory store.
     pub fn new(memory: Arc<dyn MemoryStore>) -> Self {
         Self { memory }
     }

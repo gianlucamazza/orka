@@ -5,11 +5,11 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Agent card builder — constructs the `/.well-known/agent.json` payload.
 pub mod agent_card;
-#[allow(missing_docs)]
+/// Axum route handlers for A2A JSON-RPC endpoints.
 pub mod routes;
-#[allow(missing_docs)]
+/// A2A protocol data types (tasks, messages, artifacts, agent card).
 pub mod types;
 
 pub use agent_card::build_agent_card;

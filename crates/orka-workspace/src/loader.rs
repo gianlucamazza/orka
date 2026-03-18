@@ -4,12 +4,16 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
 use tracing::warn;
 
+/// Events broadcast by [`WorkspaceLoader`] when workspace files change.
 #[derive(Debug, Clone)]
 pub enum WorkspaceEvent {
+    /// A specific workspace file was modified and reloaded.
     FileChanged(String),
+    /// All workspace files were reloaded (e.g. initial load or full reload).
     Reloaded,
 }
 
+/// Loads and hot-reloads workspace files from a directory.
 pub struct WorkspaceLoader {
     root: PathBuf,
     state: Arc<RwLock<WorkspaceState>>,
@@ -17,6 +21,7 @@ pub struct WorkspaceLoader {
 }
 
 impl WorkspaceLoader {
+    /// Create a loader pointing at the given workspace root directory.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         let (tx, _) = broadcast::channel(64);
         Self {
@@ -26,14 +31,17 @@ impl WorkspaceLoader {
         }
     }
 
+    /// Return the workspace root directory path.
     pub fn root(&self) -> &Path {
         &self.root
     }
 
+    /// Return a shared handle to the current workspace state.
     pub fn state(&self) -> Arc<RwLock<WorkspaceState>> {
         self.state.clone()
     }
 
+    /// Subscribe to workspace change events.
     pub fn subscribe(&self) -> broadcast::Receiver<WorkspaceEvent> {
         self.tx.subscribe()
     }
@@ -42,6 +50,7 @@ impl WorkspaceLoader {
     pub async fn load_all(&self) -> orka_core::Result<()> {
         self.load_file("SOUL.md").await;
         self.load_file("TOOLS.md").await;
+        // broadcast::send fails only when there are no active subscribers — safe to ignore.
         let _ = self.tx.send(WorkspaceEvent::Reloaded);
         Ok(())
     }
@@ -68,6 +77,7 @@ impl WorkspaceLoader {
             }
             other => warn!(file = %other, "unknown workspace file"),
         }
+        // broadcast::send fails only when there are no active subscribers — safe to ignore.
         let _ = self
             .tx
             .send(WorkspaceEvent::FileChanged(filename.to_string()));

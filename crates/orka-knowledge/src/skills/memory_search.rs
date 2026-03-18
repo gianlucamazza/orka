@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::embeddings::EmbeddingProvider;
 use crate::vector_store::VectorStore;
 
+/// Skill that performs semantic similarity search against a vector store collection.
 pub struct MemorySearchSkill {
     embeddings: Arc<dyn EmbeddingProvider>,
     store: Arc<dyn VectorStore>,
@@ -14,6 +15,7 @@ pub struct MemorySearchSkill {
 }
 
 impl MemorySearchSkill {
+    /// Create the skill with the given embedding provider, vector store, and default collection.
     pub fn new(
         embeddings: Arc<dyn EmbeddingProvider>,
         store: Arc<dyn VectorStore>,

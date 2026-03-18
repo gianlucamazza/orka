@@ -5,7 +5,6 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
 mod guard;
 mod skills;
 

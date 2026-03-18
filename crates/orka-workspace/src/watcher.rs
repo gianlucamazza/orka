@@ -3,12 +3,16 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+/// Filesystem watcher that triggers workspace reloads on file changes.
 pub struct WorkspaceWatcher {
     _watcher: RecommendedWatcher,
     handle: tokio::task::JoinHandle<()>,
 }
 
 impl WorkspaceWatcher {
+    /// Start watching the workspace directory associated with `loader`.
+    ///
+    /// Workspace files (`SOUL.md`, `TOOLS.md`) are reloaded with a 500 ms debounce.
     pub fn start(loader: Arc<WorkspaceLoader>) -> orka_core::Result<Self> {
         let (tx, mut rx) = mpsc::channel::<notify::Event>(256);
         let root = loader.root().to_path_buf();
@@ -16,6 +20,7 @@ impl WorkspaceWatcher {
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<notify::Event, notify::Error>| {
                 if let Ok(event) = res {
+                    // Receiver dropped means the watcher task is shutting down — ignore.
                     let _ = tx.blocking_send(event);
                 }
             },
@@ -64,6 +69,7 @@ impl WorkspaceWatcher {
         })
     }
 
+    /// Stop the file watcher and abort the background task.
     pub async fn stop(self) {
         self.handle.abort();
     }

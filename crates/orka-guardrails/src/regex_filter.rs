@@ -8,19 +8,24 @@ pub struct RegexGuardrail {
     patterns: Vec<(Regex, RegexAction)>,
 }
 
+/// Action to take when a regex pattern matches.
 #[derive(Debug, Clone)]
 pub enum RegexAction {
+    /// Reject the content entirely.
     Block,
+    /// Replace the matched text with the given string.
     Redact(String),
 }
 
 impl RegexGuardrail {
+    /// Create an empty regex guardrail with no patterns.
     pub fn new() -> Self {
         Self {
             patterns: Vec::new(),
         }
     }
 
+    /// Add a regex pattern that will cause the guardrail to block matching content.
     pub fn add_block_pattern(mut self, pattern: &str) -> Self {
         if let Ok(re) = Regex::new(pattern) {
             self.patterns.push((re, RegexAction::Block));
@@ -28,6 +33,7 @@ impl RegexGuardrail {
         self
     }
 
+    /// Add a regex pattern whose matches will be replaced with `replacement`.
     pub fn add_redact_pattern(mut self, pattern: &str, replacement: &str) -> Self {
         if let Ok(re) = Regex::new(pattern) {
             self.patterns

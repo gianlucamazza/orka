@@ -12,6 +12,7 @@ pub struct SandboxSkill {
 }
 
 impl SandboxSkill {
+    /// Create a new sandbox skill backed by the given executor.
     pub fn new(executor: Arc<dyn SandboxExecutor>) -> Self {
         Self { executor }
     }

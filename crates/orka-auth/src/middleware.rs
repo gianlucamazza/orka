@@ -20,6 +20,7 @@ pub struct AuthLayer {
 }
 
 impl AuthLayer {
+    /// Create the layer with the given authenticator and auth config.
     pub fn new(authenticator: Arc<dyn Authenticator>, config: Arc<AuthConfig>) -> Self {
         Self {
             authenticator,

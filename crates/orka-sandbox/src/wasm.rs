@@ -21,6 +21,7 @@ struct WasmState {
 }
 
 impl WasmSandbox {
+    /// Create a new WASM sandbox using limits from `config`.
     pub fn new(config: &SandboxConfig) -> Result<Self> {
         let mut wasm_config = wasmtime::Config::new();
         wasm_config.consume_fuel(true);

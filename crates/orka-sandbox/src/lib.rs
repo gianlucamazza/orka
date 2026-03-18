@@ -6,13 +6,13 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Core trait, types, and limits for sandbox execution.
 pub mod executor;
-#[allow(missing_docs)]
+/// Subprocess-based sandbox (Python / Bash).
 pub mod process;
-#[allow(missing_docs)]
+/// Skill wrapper that exposes sandbox execution as an agent tool.
 pub mod skill;
-#[allow(missing_docs)]
+/// WebAssembly (WASI) sandbox backed by Wasmtime.
 pub mod wasm;
 
 #[cfg(feature = "test-util")]

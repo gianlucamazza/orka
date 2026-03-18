@@ -5,12 +5,14 @@ use std::sync::Arc;
 
 use crate::vector_store::VectorStore;
 
+/// Skill that lists documents ingested into a knowledge base collection.
 pub struct DocListSkill {
     store: Arc<dyn VectorStore>,
     default_collection: String,
 }
 
 impl DocListSkill {
+    /// Create the skill with the given vector store and default collection name.
     pub fn new(store: Arc<dyn VectorStore>, default_collection: String) -> Self {
         Self {
             store,

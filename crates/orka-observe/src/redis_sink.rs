@@ -7,11 +7,20 @@ use tracing::{debug, error, info};
 
 const STREAM_KEY: &str = "orka:events";
 
+/// Event sink that publishes domain events to a Redis Stream (`orka:events`).
+///
+/// Events are buffered in memory and flushed to Redis in batches, either when
+/// the buffer reaches `batch_size` or after `flush_interval_ms` milliseconds,
+/// whichever comes first.
 pub struct RedisEventSink {
     tx: mpsc::Sender<DomainEvent>,
 }
 
 impl RedisEventSink {
+    /// Create a new [`RedisEventSink`] connected to the given Redis URL.
+    ///
+    /// Spawns a background task that drains the event channel and writes
+    /// batches to the `orka:events` Redis Stream.
     pub fn new(
         redis_url: &str,
         batch_size: usize,

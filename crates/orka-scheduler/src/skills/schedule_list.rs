@@ -5,11 +5,13 @@ use std::sync::Arc;
 
 use crate::store::RedisScheduleStore;
 
+/// Skill that lists all active schedules from the store.
 pub struct ScheduleListSkill {
     store: Arc<RedisScheduleStore>,
 }
 
 impl ScheduleListSkill {
+    /// Create a new skill backed by the given schedule store.
     pub fn new(store: Arc<RedisScheduleStore>) -> Self {
         Self { store }
     }

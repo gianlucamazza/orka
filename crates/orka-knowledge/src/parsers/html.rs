@@ -2,6 +2,7 @@ use orka_core::Result;
 
 use super::DocumentParser;
 
+/// Parser that strips HTML tags and returns the visible text content.
 pub struct HtmlParser;
 
 impl DocumentParser for HtmlParser {

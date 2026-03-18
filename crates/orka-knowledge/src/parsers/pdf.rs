@@ -2,6 +2,7 @@ use orka_core::Result;
 
 use super::DocumentParser;
 
+/// Parser that extracts plain text from PDF documents using `pdf-extract`.
 pub struct PdfParser;
 
 impl DocumentParser for PdfParser {

@@ -5,7 +5,7 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Redis-backed secret manager with optional AES-256-GCM encryption.
 pub mod redis_secret;
 
 pub use crate::redis_secret::RedisSecretManager;

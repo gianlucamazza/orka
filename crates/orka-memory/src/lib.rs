@@ -5,7 +5,7 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Redis implementation of the memory store.
 pub mod redis_store;
 
 pub use crate::redis_store::RedisMemoryStore;
@@ -18,7 +18,12 @@ use orka_core::traits::MemoryStore;
 pub fn create_memory_store(
     config: &orka_core::config::OrkaConfig,
 ) -> orka_core::Result<Arc<dyn MemoryStore>> {
-    match config.bus.backend.as_str() {
+    let effective = if config.memory.backend == "auto" {
+        config.bus.backend.as_str()
+    } else {
+        config.memory.backend.as_str()
+    };
+    match effective {
         "memory" => {
             tracing::debug!(
                 max_entries = config.memory.max_entries,
@@ -34,5 +39,42 @@ pub fn create_memory_store(
             );
             Ok(Arc::new(store))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use orka_core::config::{BusConfig, MemoryConfig};
+
+    fn effective_backend(bus_backend: &str, memory_backend: &str) -> String {
+        let bus = BusConfig {
+            backend: bus_backend.into(),
+            ..Default::default()
+        };
+        let memory = MemoryConfig {
+            backend: memory_backend.into(),
+            ..Default::default()
+        };
+        if memory.backend == "auto" {
+            bus.backend.clone()
+        } else {
+            memory.backend.clone()
+        }
+    }
+
+    #[test]
+    fn memory_explicit_memory_overrides_redis_bus() {
+        assert_eq!(effective_backend("redis", "memory"), "memory");
+    }
+
+    #[test]
+    fn memory_auto_follows_bus_backend() {
+        assert_eq!(effective_backend("memory", "auto"), "memory");
+    }
+
+    #[test]
+    fn memory_default_backend_is_auto() {
+        let config = MemoryConfig::default();
+        assert_eq!(config.backend, "auto");
     }
 }

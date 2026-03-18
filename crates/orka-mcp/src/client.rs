@@ -11,30 +11,43 @@ use tracing::{debug, warn};
 
 use crate::config::McpServerConfig;
 
+/// Metadata for a single tool advertised by an MCP server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpToolInfo {
+    /// Tool name as registered on the MCP server.
     pub name: String,
+    /// Human-readable description of the tool.
     #[serde(default)]
     pub description: Option<String>,
+    /// JSON schema describing the tool's input parameters.
     #[serde(default, rename = "inputSchema")]
     pub input_schema: serde_json::Value,
 }
 
+/// Result returned by an MCP tool call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpToolResult {
+    /// Content fragments produced by the tool.
     #[serde(default)]
     pub content: Vec<McpContent>,
+    /// `true` if the tool reported an error.
     #[serde(default)]
     pub is_error: bool,
 }
 
+/// A content fragment within an [`McpToolResult`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum McpContent {
+    /// Plain-text content.
     #[serde(rename = "text")]
-    Text { text: String },
+    Text {
+        /// The text payload.
+        text: String,
+    },
 }
 
+/// JSON-RPC 2.0 client that communicates with an external MCP server process over stdio.
 pub struct McpClient {
     config: McpServerConfig,
     child: Mutex<Option<Child>>,
@@ -44,6 +57,7 @@ pub struct McpClient {
 }
 
 impl McpClient {
+    /// Spawn the MCP server process and perform the JSON-RPC handshake.
     pub async fn connect(config: McpServerConfig) -> Result<Self> {
         let mut cmd = Command::new(&config.command);
         cmd.args(&config.args)
@@ -201,6 +215,7 @@ impl McpClient {
         Ok(())
     }
 
+    /// Request the list of tools available on the MCP server.
     pub async fn list_tools(&self) -> Result<Vec<McpToolInfo>> {
         let result = self
             .send_request("tools/list", serde_json::json!({}))
@@ -213,6 +228,7 @@ impl McpClient {
         Ok(tools)
     }
 
+    /// Invoke a named tool with the given arguments on the MCP server.
     pub async fn call_tool(
         &self,
         name: &str,
@@ -232,14 +248,18 @@ impl McpClient {
             .map_err(|e| Error::Other(format!("failed to parse MCP tool result: {e}")))
     }
 
+    /// Return the configured server name.
     pub fn server_name(&self) -> &str {
         &self.config.name
     }
 
+    /// Kill the MCP server process.
     pub async fn shutdown(&self) {
         let mut child_guard = self.child.lock().await;
-        if let Some(ref mut child) = *child_guard {
-            let _ = child.kill().await;
+        if let Some(ref mut child) = *child_guard
+            && let Err(e) = child.kill().await
+        {
+            warn!(%e, server = %self.config.name, "failed to kill MCP server process");
         }
     }
 }
@@ -249,8 +269,9 @@ impl Drop for McpClient {
         // Best-effort kill on drop
         if let Ok(mut guard) = self.child.try_lock()
             && let Some(ref mut child) = *guard
+            && let Err(e) = child.start_kill()
         {
-            let _ = child.start_kill();
+            tracing::warn!(%e, "failed to kill MCP server on drop");
         }
     }
 }

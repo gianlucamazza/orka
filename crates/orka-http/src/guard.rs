@@ -6,6 +6,7 @@ pub struct SsrfGuard {
 }
 
 impl SsrfGuard {
+    /// Create a new guard with the given list of blocked domains.
     pub fn new(blocked_domains: Vec<String>) -> Self {
         Self { blocked_domains }
     }

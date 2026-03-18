@@ -2,11 +2,11 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Axum route handlers for the custom HTTP/WebSocket adapter.
 pub mod routes;
-#[allow(missing_docs)]
+/// Request/response types for the custom adapter API.
 pub mod types;
-#[allow(missing_docs)]
+/// WebSocket connection registry for per-session fan-out.
 pub mod ws;
 
 use std::sync::Arc;

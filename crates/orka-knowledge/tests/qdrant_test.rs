@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use orka_knowledge::vector_store::qdrant::QdrantStore;
 use orka_knowledge::vector_store::VectorStore;
+use orka_knowledge::vector_store::qdrant::QdrantStore;
 use testcontainers::core::WaitFor;
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage};
@@ -23,7 +23,10 @@ fn vec4(x: f32) -> Vec<f32> {
 }
 
 fn payload(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 #[tokio::test]
@@ -47,9 +50,15 @@ async fn upsert_and_search_basic() {
         payload(&[("content", "doc two"), ("document_id", "doc2")]),
         payload(&[("content", "doc three"), ("document_id", "doc3")]),
     ];
-    store.upsert("test_col", &ids, &vectors, &payloads).await.unwrap();
+    store
+        .upsert("test_col", &ids, &vectors, &payloads)
+        .await
+        .unwrap();
 
-    let results = store.search("test_col", &vec4(0.5), 2, None, None).await.unwrap();
+    let results = store
+        .search("test_col", &vec4(0.5), 2, None, None)
+        .await
+        .unwrap();
     assert!(!results.is_empty());
     assert!(results[0].score > 0.0);
 }
@@ -63,15 +72,33 @@ async fn search_with_filter() {
     let ids = vec!["s1".to_string(), "s2".to_string(), "s3".to_string()];
     let vectors = vec![vec4(0.1), vec4(0.1), vec4(0.1)];
     let payloads = vec![
-        payload(&[("content", "alpha"), ("scope", "global"), ("document_id", "d1")]),
-        payload(&[("content", "beta"), ("scope", "workspace"), ("document_id", "d2")]),
-        payload(&[("content", "gamma"), ("scope", "global"), ("document_id", "d3")]),
+        payload(&[
+            ("content", "alpha"),
+            ("scope", "global"),
+            ("document_id", "d1"),
+        ]),
+        payload(&[
+            ("content", "beta"),
+            ("scope", "workspace"),
+            ("document_id", "d2"),
+        ]),
+        payload(&[
+            ("content", "gamma"),
+            ("scope", "global"),
+            ("document_id", "d3"),
+        ]),
     ];
-    store.upsert("test_col", &ids, &vectors, &payloads).await.unwrap();
+    store
+        .upsert("test_col", &ids, &vectors, &payloads)
+        .await
+        .unwrap();
 
     let mut filter = HashMap::new();
     filter.insert("scope".to_string(), "global".to_string());
-    let results = store.search("test_col", &vec4(0.1), 10, None, Some(filter)).await.unwrap();
+    let results = store
+        .search("test_col", &vec4(0.1), 10, None, Some(filter))
+        .await
+        .unwrap();
 
     assert!(!results.is_empty());
     for r in &results {
@@ -91,7 +118,10 @@ async fn search_score_threshold() {
         payload(&[("content", "close"), ("document_id", "t1")]),
         payload(&[("content", "far"), ("document_id", "t2")]),
     ];
-    store.upsert("test_col", &ids, &vectors, &payloads).await.unwrap();
+    store
+        .upsert("test_col", &ids, &vectors, &payloads)
+        .await
+        .unwrap();
 
     // High threshold: only the identical vector should match
     let results = store
@@ -114,7 +144,10 @@ async fn list_documents_basic() {
         payload(&[("document_id", "doc-a"), ("title", "Alpha")]),
         payload(&[("document_id", "doc-b"), ("title", "Beta")]),
     ];
-    store.upsert("test_col", &ids, &vectors, &payloads).await.unwrap();
+    store
+        .upsert("test_col", &ids, &vectors, &payloads)
+        .await
+        .unwrap();
 
     let docs = store.list_documents("test_col", 10, None).await.unwrap();
     assert_eq!(docs.len(), 2);
@@ -133,11 +166,17 @@ async fn list_documents_with_filter() {
         payload(&[("document_id", "doc-y"), ("workspace", "ws-b")]),
         payload(&[("document_id", "doc-z"), ("workspace", "ws-a")]),
     ];
-    store.upsert("test_col", &ids, &vectors, &payloads).await.unwrap();
+    store
+        .upsert("test_col", &ids, &vectors, &payloads)
+        .await
+        .unwrap();
 
     let mut filter = HashMap::new();
     filter.insert("workspace".to_string(), "ws-a".to_string());
-    let docs = store.list_documents("test_col", 10, Some(filter)).await.unwrap();
+    let docs = store
+        .list_documents("test_col", 10, Some(filter))
+        .await
+        .unwrap();
 
     assert_eq!(docs.len(), 2);
     for doc in &docs {

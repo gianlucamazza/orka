@@ -13,6 +13,7 @@ pub struct RedisScheduleStore {
 }
 
 impl RedisScheduleStore {
+    /// Create a new store backed by the given Redis URL.
     pub fn new(redis_url: &str) -> Result<Self> {
         let cfg = deadpool_redis::Config::from_url(redis_url);
         let pool = cfg
@@ -26,6 +27,7 @@ impl RedisScheduleStore {
         })
     }
 
+    /// Persist a schedule and add it to the sorted set with `next_run` as score.
     pub async fn add(&self, schedule: &Schedule) -> Result<()> {
         let mut conn =
             self.pool.get().await.map_err(|e| {
@@ -52,6 +54,7 @@ impl RedisScheduleStore {
         Ok(())
     }
 
+    /// Remove a schedule by ID. Returns `true` if it existed.
     pub async fn remove(&self, id: &str) -> Result<bool> {
         let mut conn =
             self.pool.get().await.map_err(|e| {
@@ -70,6 +73,7 @@ impl RedisScheduleStore {
         Ok(removed > 0)
     }
 
+    /// Return all schedules whose `next_run` timestamp is ≤ `now`.
     pub async fn get_due(&self, now: i64) -> Result<Vec<Schedule>> {
         let mut conn =
             self.pool.get().await.map_err(|e| {
@@ -99,6 +103,7 @@ impl RedisScheduleStore {
         Ok(schedules)
     }
 
+    /// List all schedules. Pass `include_completed = true` to include one-shot schedules that have already fired.
     pub async fn list(&self, include_completed: bool) -> Result<Vec<Schedule>> {
         let mut conn =
             self.pool.get().await.map_err(|e| {
@@ -128,11 +133,13 @@ impl RedisScheduleStore {
         Ok(schedules)
     }
 
+    /// Find a schedule by human-readable name (including completed ones).
     pub async fn find_by_name(&self, name: &str) -> Result<Option<Schedule>> {
         let all = self.list(true).await?;
         Ok(all.into_iter().find(|s| s.name == name))
     }
 
+    /// Update the `next_run` timestamp for a recurring schedule.
     pub async fn update_next_run(&self, _id: &str, schedule: &Schedule) -> Result<()> {
         self.add(schedule).await
     }

@@ -6,17 +6,17 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Text chunking utilities for splitting documents into overlapping segments.
 pub mod chunking;
-#[allow(missing_docs)]
+/// Embedding providers: local ONNX (`local`) and OpenAI-compatible REST (`openai`).
 pub mod embeddings;
-#[allow(missing_docs)]
+/// Document parsers for HTML, Markdown, PDF, and plain text.
 pub mod parsers;
-#[allow(missing_docs)]
+/// Knowledge skills: `doc_ingest`, `doc_list`, `memory_search`, `memory_store`.
 pub mod skills;
-#[allow(missing_docs)]
+/// Core domain types: [`Chunk`], [`Document`], [`SearchResult`].
 pub mod types;
-#[allow(missing_docs)]
+/// Vector store trait and Qdrant backend implementation.
 pub mod vector_store;
 
 use std::sync::Arc;

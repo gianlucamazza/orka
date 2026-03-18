@@ -238,7 +238,8 @@ impl ChannelAdapter for DiscordAdapter {
                                                 }
                                             }
 
-                                        let _ = sequence; // suppress unused warning
+                                        // TODO(discord): use sequence for session resumption (heartbeat tracking)
+                                        let _ = sequence;
                                     }
                                 }
                                 Some(Err(e)) => {

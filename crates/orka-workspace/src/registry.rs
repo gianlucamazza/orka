@@ -16,6 +16,7 @@ pub struct WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    /// Create an empty registry with the given default workspace name.
     pub fn new(default_name: String) -> Self {
         Self {
             loaders: HashMap::new(),
@@ -23,34 +24,41 @@ impl WorkspaceRegistry {
         }
     }
 
+    /// Add a workspace loader under the given name.
     pub fn register(&mut self, name: String, loader: Arc<WorkspaceLoader>) {
         self.loaders.insert(name, loader);
     }
 
+    /// Look up a workspace loader by name.
     pub fn get(&self, name: &str) -> Option<&Arc<WorkspaceLoader>> {
         self.loaders.get(name)
     }
 
+    /// Return the name of the default workspace.
     pub fn default_name(&self) -> &str {
         &self.default_name
     }
 
+    /// Return the loader for the default workspace. Panics if not registered.
     pub fn default_loader(&self) -> &Arc<WorkspaceLoader> {
         self.loaders
             .get(&self.default_name)
             .expect("default workspace must be registered")
     }
 
+    /// List all registered workspace names, sorted alphabetically.
     pub fn list_names(&self) -> Vec<&str> {
         let mut names: Vec<&str> = self.loaders.keys().map(|s| s.as_str()).collect();
         names.sort();
         names
     }
 
+    /// Return the state handle for the named workspace, if registered.
     pub fn state(&self, name: &str) -> Option<Arc<RwLock<WorkspaceState>>> {
         self.loaders.get(name).map(|l| l.state())
     }
 
+    /// Return the state handle for the default workspace.
     pub fn default_state(&self) -> Arc<RwLock<WorkspaceState>> {
         self.default_loader().state()
     }

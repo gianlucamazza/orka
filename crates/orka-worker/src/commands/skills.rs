@@ -6,11 +6,13 @@ use orka_skills::SkillRegistry;
 
 use super::ServerCommand;
 
+/// Command that lists all registered skills (`/skills`).
 pub struct SkillsCommand {
     skills: Arc<SkillRegistry>,
 }
 
 impl SkillsCommand {
+    /// Create the command with access to the skill registry.
     pub fn new(skills: Arc<SkillRegistry>) -> Self {
         Self { skills }
     }

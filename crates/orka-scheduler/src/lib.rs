@@ -5,13 +5,13 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Async scheduler tick loop.
 pub mod scheduler;
-#[allow(missing_docs)]
+/// Skill implementations for creating, listing, and deleting schedules.
 pub mod skills;
-#[allow(missing_docs)]
+/// Redis-backed schedule persistence store.
 pub mod store;
-#[allow(missing_docs)]
+/// Core data types for scheduled tasks.
 pub mod types;
 
 use std::sync::Arc;

@@ -17,6 +17,7 @@ pub struct QdrantStore {
 }
 
 impl QdrantStore {
+    /// Connect to a Qdrant instance at the given gRPC URL (e.g. `http://localhost:6334`).
     pub fn new(url: &str) -> Result<Self> {
         let client = Qdrant::from_url(url).build().map_err(|e| {
             orka_core::Error::Knowledge(format!("failed to connect to Qdrant: {e}"))

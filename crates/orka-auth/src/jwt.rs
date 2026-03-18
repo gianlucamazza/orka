@@ -14,12 +14,11 @@ struct Claims {
     scope: Option<String>,
     #[serde(default)]
     scopes: Option<Vec<String>>,
-    #[allow(dead_code)]
-    iss: Option<String>,
-    #[allow(dead_code)]
-    aud: Option<serde_json::Value>,
+    _iss: Option<String>,
+    _aud: Option<serde_json::Value>,
 }
 
+/// Authenticator that validates JWTs using either an HMAC secret or an RSA public key.
 pub struct JwtAuthenticator {
     _issuer: String,
     _audience: Option<String>,

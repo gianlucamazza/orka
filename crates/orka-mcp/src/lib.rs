@@ -6,15 +6,15 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Skill adapter that wraps an MCP tool as an Orka skill.
 mod bridge;
-#[allow(missing_docs)]
+/// JSON-RPC 2.0 client for communicating with an MCP server process over stdio.
 mod client;
-#[allow(missing_docs)]
+/// Configuration types for MCP server processes.
 mod config;
-#[allow(missing_docs)]
+/// MCP server exposing Orka skills as JSON-RPC 2.0 tools.
 pub mod server;
-#[allow(missing_docs)]
+/// Axum HTTP handler for the MCP endpoint.
 pub mod transport;
 
 pub use bridge::McpToolBridge;

@@ -10,7 +10,7 @@ pub(crate) mod extract;
 mod provider;
 mod read;
 mod search;
-#[allow(missing_docs)]
+/// Shared types for web search results and configuration.
 pub mod types;
 
 use std::sync::Arc;
@@ -85,7 +85,9 @@ pub fn create_web_skills(config: &WebConfig) -> Result<Vec<Arc<dyn Skill>>> {
                 &config.user_agent,
             ))
         }
-        SearchProviderKind::None => unreachable!(),
+        SearchProviderKind::None => {
+            return Err(orka_core::Error::Skill("no search provider configured".into()));
+        }
     };
 
     let search_skill: Arc<dyn Skill> = Arc::new(WebSearchSkill::new(

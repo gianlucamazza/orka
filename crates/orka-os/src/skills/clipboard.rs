@@ -13,11 +13,13 @@ fn is_wayland() -> bool {
 
 // ── clipboard_read ──
 
+/// Skill that reads the current clipboard contents.
 pub struct ClipboardReadSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl ClipboardReadSkill {
+    /// Create a new `clipboard_read` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -67,11 +69,13 @@ impl Skill for ClipboardReadSkill {
 
 // ── clipboard_write ──
 
+/// Skill that writes text to the system clipboard.
 pub struct ClipboardWriteSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl ClipboardWriteSkill {
+    /// Create a new `clipboard_write` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }

@@ -13,11 +13,13 @@ fn is_wayland() -> bool {
 
 // ── desktop_open ──
 
+/// Skill that opens a file or URL with the default desktop application.
 pub struct DesktopOpenSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl DesktopOpenSkill {
+    /// Create a new `desktop_open` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -78,11 +80,13 @@ impl Skill for DesktopOpenSkill {
 
 // ── desktop_screenshot ──
 
+/// Skill that captures a screenshot of the current desktop.
 pub struct DesktopScreenshotSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl DesktopScreenshotSkill {
+    /// Create a new `desktop_screenshot` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }

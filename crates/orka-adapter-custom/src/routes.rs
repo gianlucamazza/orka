@@ -23,10 +23,14 @@ use crate::ws::WsRegistry;
 /// Maximum request body size: 1 MB.
 const MAX_BODY_SIZE: usize = 1024 * 1024;
 
+/// Shared state injected into axum route handlers.
 #[derive(Clone)]
 pub struct AppState {
+    /// Sender that routes inbound messages into the Orka bus.
     pub sink: MessageSink,
+    /// Registry tracking active WebSocket connections per session.
     pub ws_registry: WsRegistry,
+    /// Registry for streaming SSE/WS responses back to clients.
     pub stream_registry: StreamRegistry,
 }
 
@@ -106,6 +110,7 @@ pub fn app_router(
     ),
     tag = "messages"
 )]
+/// POST `/api/v1/message` — accept an inbound message and route it into the bus.
 pub async fn handle_message(
     State(state): State<AppState>,
     Json(req): Json<InboundRequest>,
@@ -150,6 +155,7 @@ pub async fn handle_message(
     ),
     tag = "health"
 )]
+/// GET `/api/v1/health` — liveness check that always returns `{"status": "ok"}`.
 pub async fn handle_health() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok" }))
 }

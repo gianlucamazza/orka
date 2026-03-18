@@ -13,6 +13,7 @@ use orka_core::{Error, Result, SecretValue};
 /// AES-256-GCM nonce size in bytes.
 const NONCE_SIZE: usize = 12;
 
+/// Redis-backed secret manager with optional AES-256-GCM encryption.
 pub struct RedisSecretManager {
     pool: Pool,
     /// AES-256-GCM cipher for encrypting secrets at rest.
@@ -30,6 +31,10 @@ impl RedisSecretManager {
         Self::with_encryption(redis_url, None)
     }
 
+    /// Create a new secret manager with optional AES-256-GCM encryption.
+    ///
+    /// `encryption_key` must be exactly 32 bytes if provided. When `None`, secrets
+    /// are stored in plaintext (suitable for local development only).
     pub fn with_encryption(redis_url: &str, encryption_key: Option<&[u8]>) -> Result<Self> {
         let cfg = DeadpoolConfig::from_url(redis_url);
         let pool = cfg

@@ -6,13 +6,13 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Slash command framework and built-in command implementations.
 pub mod commands;
-#[allow(missing_docs)]
+/// `AgentHandler` trait and the built-in `EchoHandler`.
 pub mod handler;
-#[allow(missing_docs)]
+/// Re-exports streaming types from `orka-core`.
 pub mod stream;
-#[allow(missing_docs)]
+/// LLM-powered agent handler with tool loops and guardrails.
 pub mod workspace_handler;
 
 // re-exports

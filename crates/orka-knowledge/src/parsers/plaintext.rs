@@ -2,6 +2,7 @@ use orka_core::Result;
 
 use super::DocumentParser;
 
+/// Parser that returns raw bytes decoded as UTF-8 text.
 pub struct PlaintextParser;
 
 impl DocumentParser for PlaintextParser {

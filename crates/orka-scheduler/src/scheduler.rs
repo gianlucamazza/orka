@@ -16,6 +16,7 @@ pub struct Scheduler {
 /// Minimal interface for the scheduler to invoke skills.
 #[async_trait::async_trait]
 pub trait SkillRegistry: Send + Sync + 'static {
+    /// Invoke the named skill with the given input.
     async fn invoke(
         &self,
         name: &str,
@@ -24,6 +25,10 @@ pub trait SkillRegistry: Send + Sync + 'static {
 }
 
 impl Scheduler {
+    /// Create a new [`Scheduler`].
+    ///
+    /// `poll_interval_secs` controls how often due tasks are checked.
+    /// `max_concurrent` limits how many tasks run simultaneously.
     pub fn new(
         store: Arc<RedisScheduleStore>,
         skills: Arc<dyn SkillRegistry>,
@@ -38,6 +43,7 @@ impl Scheduler {
         }
     }
 
+    /// Run the scheduler tick loop until the cancellation token is triggered.
     pub async fn run(&self, cancel: CancellationToken) {
         info!(poll_interval = self.poll_interval_secs, "scheduler started");
 
@@ -141,5 +147,29 @@ impl Scheduler {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cron_schedule_computes_next_run() {
+        // Verify that a valid cron expression parses and yields future timestamps
+        use cron::Schedule as CronSchedule;
+
+        let expr = "0 * * * * *"; // every minute
+        let cron = CronSchedule::from_str(expr).unwrap();
+        let next = cron.upcoming(Utc).next();
+        assert!(next.is_some());
+        assert!(next.unwrap().timestamp() > Utc::now().timestamp());
+    }
+
+    #[test]
+    fn invalid_cron_expression_does_not_panic() {
+        use cron::Schedule as CronSchedule;
+        let result = CronSchedule::from_str("not a cron");
+        assert!(result.is_err());
     }
 }

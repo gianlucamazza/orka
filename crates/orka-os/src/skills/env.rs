@@ -8,11 +8,13 @@ use crate::guard::PermissionGuard;
 
 // ── env_get ──
 
+/// Skill that reads the value of a single environment variable.
 pub struct EnvGetSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl EnvGetSkill {
+    /// Create a new `env_get` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -59,11 +61,13 @@ impl Skill for EnvGetSkill {
 
 // ── env_list ──
 
+/// Skill that lists all environment variables (sensitive values masked).
 pub struct EnvListSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl EnvListSkill {
+    /// Create a new `env_list` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }

@@ -6,11 +6,11 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Composable guardrail chain that runs checks in order.
 pub mod chain;
-#[allow(missing_docs)]
+/// Simple keyword blocklist guardrail.
 pub mod keyword;
-#[allow(missing_docs)]
+/// Regex-based block and redact guardrail.
 pub mod regex_filter;
 
 pub use chain::GuardrailChain;

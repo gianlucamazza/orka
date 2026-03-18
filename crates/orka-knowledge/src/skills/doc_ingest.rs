@@ -10,6 +10,7 @@ use crate::embeddings::EmbeddingProvider;
 use crate::parsers;
 use crate::vector_store::VectorStore;
 
+/// Skill that parses, chunks, embeds, and stores documents in the vector store.
 pub struct DocIngestSkill {
     embeddings: Arc<dyn EmbeddingProvider>,
     store: Arc<dyn VectorStore>,
@@ -19,6 +20,7 @@ pub struct DocIngestSkill {
 }
 
 impl DocIngestSkill {
+    /// Create the skill with the given embedding provider, vector store, and chunking defaults.
     pub fn new(
         embeddings: Arc<dyn EmbeddingProvider>,
         store: Arc<dyn VectorStore>,

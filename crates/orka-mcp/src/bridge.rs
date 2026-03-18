@@ -17,6 +17,7 @@ pub struct McpToolBridge {
 }
 
 impl McpToolBridge {
+    /// Create a bridge for a single MCP tool exposed by the given client.
     pub fn new(
         client: Arc<McpClient>,
         tool_name: String,

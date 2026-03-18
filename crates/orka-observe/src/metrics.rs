@@ -126,7 +126,9 @@ pub fn record_event(event: &DomainEvent) {
         DomainEventKind::Heartbeat => {
             counter!("orka_heartbeats_total").increment(1);
         }
-        _ => {}
+        other => {
+            tracing::trace!(?other, "no metric registered for domain event kind");
+        }
     }
 }
 

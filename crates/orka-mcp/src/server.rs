@@ -5,16 +5,19 @@ use orka_core::{SkillContext, SkillInput};
 use orka_skills::SkillRegistry;
 use serde_json::json;
 
+/// MCP server that exposes Orka skills as JSON-RPC 2.0 tools.
 pub struct McpServer {
     skills: Arc<SkillRegistry>,
     secrets: Arc<dyn SecretManager>,
 }
 
 impl McpServer {
+    /// Create a new MCP server backed by the given skill registry and secret manager.
     pub fn new(skills: Arc<SkillRegistry>, secrets: Arc<dyn SecretManager>) -> Self {
         Self { skills, secrets }
     }
 
+    /// Number of skills registered with this server.
     pub fn skill_count(&self) -> usize {
         self.skills.list().len()
     }

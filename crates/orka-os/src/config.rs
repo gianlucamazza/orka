@@ -3,13 +3,18 @@ use std::fmt;
 /// Permission levels for OS skills, ordered from least to most permissive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PermissionLevel {
+    /// Read-only access: file reads, process listing, environment inspection.
     ReadOnly,
+    /// Adds file writes and clipboard access.
     Write,
+    /// Adds shell execution, process signalling, and file watching.
     Execute,
+    /// Adds package management and systemd service control.
     Admin,
 }
 
 impl PermissionLevel {
+    /// Parse a permission level from the TOML config string representation.
     pub fn from_str_config(s: &str) -> Self {
         match s {
             "write" => Self::Write,

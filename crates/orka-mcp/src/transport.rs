@@ -4,8 +4,10 @@ use axum::{Json, extract::State, response::IntoResponse};
 
 use crate::server::McpServer;
 
+/// Axum shared state for the MCP HTTP endpoint.
 #[derive(Clone)]
 pub struct McpServerState {
+    /// The underlying MCP server that processes JSON-RPC requests.
     pub server: Arc<McpServer>,
 }
 

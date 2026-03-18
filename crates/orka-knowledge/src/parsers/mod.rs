@@ -1,6 +1,10 @@
+/// HTML document parser — strips tags and collapses whitespace.
 pub mod html;
+/// Markdown document parser — passes content through as plain text.
 pub mod markdown;
+/// PDF document parser using `pdf-extract`.
 pub mod pdf;
+/// Plain-text document parser — returns content as-is.
 pub mod plaintext;
 
 use orka_core::Result;

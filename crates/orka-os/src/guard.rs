@@ -20,6 +20,7 @@ pub struct PermissionGuard {
 }
 
 impl PermissionGuard {
+    /// Build a guard from the given OS configuration.
     pub fn new(config: &OsConfig) -> Self {
         let level = PermissionLevel::from_str_config(&config.permission_level);
         let allowed_paths = config
@@ -159,10 +160,12 @@ impl PermissionGuard {
             .any(|p| glob_match(p, &upper))
     }
 
+    /// The configured permission level.
     pub fn level(&self) -> PermissionLevel {
         self.level
     }
 
+    /// Maximum file size in bytes that may be read or written.
     pub fn max_file_size_bytes(&self) -> u64 {
         self.max_file_size_bytes
     }

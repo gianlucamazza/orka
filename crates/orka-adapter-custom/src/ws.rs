@@ -4,12 +4,14 @@ use std::sync::Arc;
 use orka_core::SessionId;
 use tokio::sync::{Mutex, mpsc};
 
+/// Thread-safe registry mapping session IDs to active WebSocket sender channels.
 #[derive(Clone, Default)]
 pub struct WsRegistry {
     inner: Arc<Mutex<HashMap<SessionId, Vec<mpsc::UnboundedSender<String>>>>>,
 }
 
 impl WsRegistry {
+    /// Create an empty registry.
     pub fn new() -> Self {
         Self::default()
     }

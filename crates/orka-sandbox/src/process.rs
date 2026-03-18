@@ -15,6 +15,7 @@ pub struct ProcessSandbox {
 }
 
 impl ProcessSandbox {
+    /// Create a new process sandbox using limits from `config`.
     pub fn new(config: &SandboxConfig) -> Self {
         Self {
             _default_limits: SandboxLimits {

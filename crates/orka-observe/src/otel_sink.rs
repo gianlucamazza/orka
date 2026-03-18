@@ -10,6 +10,7 @@ pub struct OtelEventSink {
 }
 
 impl OtelEventSink {
+    /// Create a new [`OtelEventSink`] using the given tracer.
     pub fn new(tracer: opentelemetry_sdk::trace::Tracer) -> Self {
         Self { tracer }
     }

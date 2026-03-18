@@ -15,6 +15,7 @@ use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
 use crate::config::PermissionLevel;
 use crate::guard::PermissionGuard;
 
+/// Skill that executes shell commands with permission and approval enforcement.
 pub struct ShellExecSkill {
     guard: Arc<PermissionGuard>,
     timeout_secs: u64,
@@ -25,6 +26,7 @@ pub struct ShellExecSkill {
 }
 
 impl ShellExecSkill {
+    /// Create a new `shell_exec` skill from config, a permission guard, and an approval channel.
     pub fn new(
         guard: Arc<PermissionGuard>,
         config: &OsConfig,

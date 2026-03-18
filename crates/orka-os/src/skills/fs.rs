@@ -13,12 +13,14 @@ use crate::guard::PermissionGuard;
 
 // ── fs_read ──
 
+/// Skill that reads the contents of a file within the allowed paths.
 pub struct FsReadSkill {
     guard: Arc<PermissionGuard>,
     max_output_bytes: usize,
 }
 
 impl FsReadSkill {
+    /// Create a new `fs_read` skill from config and a permission guard.
     pub fn new(guard: Arc<PermissionGuard>, config: &OsConfig) -> Self {
         Self {
             guard,
@@ -140,12 +142,14 @@ fn base64_encode(data: &[u8]) -> String {
 
 // ── fs_list ──
 
+/// Skill that lists directory contents, optionally recursively.
 pub struct FsListSkill {
     guard: Arc<PermissionGuard>,
     max_list_entries: usize,
 }
 
 impl FsListSkill {
+    /// Create a new `fs_list` skill from config and a permission guard.
     pub fn new(guard: Arc<PermissionGuard>, config: &OsConfig) -> Self {
         Self {
             guard,
@@ -283,11 +287,13 @@ async fn list_dir(
 
 // ── fs_info ──
 
+/// Skill that returns metadata (size, permissions, timestamps) for a path.
 pub struct FsInfoSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl FsInfoSkill {
+    /// Create a new `fs_info` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -364,12 +370,14 @@ impl Skill for FsInfoSkill {
 
 // ── fs_search ──
 
+/// Skill that searches for files matching a glob pattern within a directory.
 pub struct FsSearchSkill {
     guard: Arc<PermissionGuard>,
     max_list_entries: usize,
 }
 
 impl FsSearchSkill {
+    /// Create a new `fs_search` skill from config and a permission guard.
     pub fn new(guard: Arc<PermissionGuard>, config: &OsConfig) -> Self {
         Self {
             guard,
@@ -559,11 +567,13 @@ async fn search_by_content(
 
 // ── fs_write ──
 
+/// Skill that writes text or binary content to a file within the allowed paths.
 pub struct FsWriteSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl FsWriteSkill {
+    /// Create a new `fs_write` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -662,11 +672,13 @@ impl Skill for FsWriteSkill {
 
 // ── fs_watch ──
 
+/// Skill that watches a path for filesystem changes (create, modify, delete).
 pub struct FsWatchSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl FsWatchSkill {
+    /// Create a new `fs_watch` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -722,6 +734,7 @@ impl Skill for FsWatchSkill {
         let mut watcher = notify::recommended_watcher(
             move |res: std::result::Result<notify::Event, notify::Error>| {
                 if let Ok(event) = res {
+                    // Receiver dropped means the watcher is shutting down — safe to ignore.
                     let _ = tx.blocking_send(event);
                 }
             },

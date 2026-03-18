@@ -13,11 +13,16 @@ use orka_skills::SkillRegistry;
 
 use crate::types::*;
 
+/// Shared state injected into A2A axum handlers.
 #[derive(Clone)]
 pub struct A2aState {
+    /// Agent card served at `/.well-known/agent.json`.
     pub agent_card: AgentCard,
+    /// Skill registry for routing `tasks/send` requests.
     pub skills: Arc<SkillRegistry>,
+    /// Secret manager for skill execution contexts.
     pub secrets: Arc<dyn SecretManager>,
+    /// In-memory task store (task id → task).
     pub tasks: Arc<Mutex<HashMap<String, Task>>>,
 }
 
@@ -168,6 +173,7 @@ async fn handle_task_cancel(
     }
 }
 
+/// Extract the first plain-text part from an A2A message JSON value.
 pub fn extract_text_from_message(message: &serde_json::Value) -> String {
     // Try to extract text from parts array
     if let Some(parts) = message["parts"].as_array() {

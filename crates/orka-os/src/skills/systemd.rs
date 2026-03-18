@@ -15,11 +15,13 @@ use crate::guard::PermissionGuard;
 
 // ── service_status ──
 
+/// Skill that returns the current status of a systemd service unit.
 pub struct ServiceStatusSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl ServiceStatusSkill {
+    /// Create a new `service_status` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -72,11 +74,13 @@ impl Skill for ServiceStatusSkill {
 
 // ── service_list ──
 
+/// Skill that lists systemd service units and their active/load state.
 pub struct ServiceListSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl ServiceListSkill {
+    /// Create a new `service_list` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -132,11 +136,13 @@ impl Skill for ServiceListSkill {
 
 // ── journal_read ──
 
+/// Skill that reads systemd journal log entries, with optional unit and time filtering.
 pub struct JournalReadSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl JournalReadSkill {
+    /// Create a new `journal_read` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -210,6 +216,7 @@ impl Skill for JournalReadSkill {
 
 // ── service_control ──
 
+/// Skill that starts, stops, or restarts systemd services via sudo.
 pub struct ServiceControlSkill {
     guard: Arc<PermissionGuard>,
     require_confirmation: bool,
@@ -218,6 +225,7 @@ pub struct ServiceControlSkill {
 }
 
 impl ServiceControlSkill {
+    /// Create a new `service_control` skill from config, a permission guard, and an approval channel.
     pub fn new(
         guard: Arc<PermissionGuard>,
         config: &OsConfig,

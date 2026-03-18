@@ -16,6 +16,7 @@ pub struct ApiKeyAuthenticator {
 }
 
 impl ApiKeyAuthenticator {
+    /// Build the authenticator from a list of configured API key entries.
     pub fn new(entries: &[ApiKeyEntry]) -> Self {
         let keys = entries
             .iter()

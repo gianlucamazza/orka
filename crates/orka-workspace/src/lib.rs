@@ -6,17 +6,17 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// SOUL frontmatter type parsed from workspace YAML.
 pub mod config;
-#[allow(missing_docs)]
+/// Workspace file loader with change-event broadcasting.
 pub mod loader;
-#[allow(missing_docs)]
+/// Markdown document parser that handles YAML frontmatter.
 pub mod parse;
-#[allow(missing_docs)]
+/// Multi-workspace registry for named workspace lookups.
 pub mod registry;
-#[allow(missing_docs)]
+/// Live workspace state (parsed SOUL + TOOLS content).
 pub mod state;
-#[allow(missing_docs)]
+/// Filesystem watcher that hot-reloads workspace files.
 pub mod watcher;
 
 pub use config::SoulFrontmatter;

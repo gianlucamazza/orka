@@ -7,12 +7,14 @@ use orka_workspace::WorkspaceRegistry;
 
 use super::ServerCommand;
 
+/// Command that prints agent status information (`/status`).
 pub struct StatusCommand {
     workspace_registry: Arc<WorkspaceRegistry>,
     agent_config: AgentConfig,
 }
 
 impl StatusCommand {
+    /// Create the command with access to the workspace registry and agent config.
     pub fn new(workspace_registry: Arc<WorkspaceRegistry>, agent_config: AgentConfig) -> Self {
         Self {
             workspace_registry,

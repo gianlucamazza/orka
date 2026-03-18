@@ -7,11 +7,13 @@ use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
 use crate::config::PermissionLevel;
 use crate::guard::PermissionGuard;
 
+/// Skill that sends a desktop notification via `notify-send`.
 pub struct NotifySendSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl NotifySendSkill {
+    /// Create a new `notify_send` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }

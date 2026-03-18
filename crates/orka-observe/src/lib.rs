@@ -14,11 +14,11 @@ use orka_core::traits::EventSink;
 use orka_core::{DomainEvent, DomainEventKind};
 use tracing::{debug, info, warn};
 
-#[allow(missing_docs)]
+/// Prometheus-compatible counter and histogram metrics.
 pub mod metrics;
-#[allow(missing_docs)]
+/// OpenTelemetry OTLP span exporter event sink.
 pub mod otel_sink;
-#[allow(missing_docs)]
+/// Redis Streams event sink with batched writes.
 pub mod redis_sink;
 
 struct LogEventSink;
