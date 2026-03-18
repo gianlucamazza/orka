@@ -59,8 +59,9 @@ dotenvy.workspace = true
 notify.workspace = true
 arc-swap.workspace = true
 mimalloc = { version = "0.1", default-features = false }
+sd-notify = "0.4"
 
 [dev-dependencies]
-orka-core = { workspace = true, features = ["test-util"] }
+orka-core.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros"] }
 async-trait.workspace = true

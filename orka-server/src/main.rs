@@ -23,8 +23,12 @@ use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tower_http::limit::RequestBodyLimitLayer;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const GIT_SHA: &str = env!("ORKA_GIT_SHA");
+const BUILD_DATE: &str = env!("ORKA_BUILD_DATE");
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -333,7 +337,8 @@ async fn main() -> anyhow::Result<()> {
     } else {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     }
-    info!(?config, "Orka server starting");
+    info!(version = VERSION, git_sha = GIT_SHA, build_date = BUILD_DATE, "Orka server starting");
+    debug!(?config, "loaded configuration");
 
     // 3. Create infra
     let bus = create_bus(&config).context("failed to create message bus")?;
@@ -751,8 +756,9 @@ async fn main() -> anyhow::Result<()> {
                         warn!("telegram bot token is empty, adapter disabled");
                         return None;
                     }
-                    let tg: Arc<dyn ChannelAdapter> =
-                        Arc::new(orka_adapter_telegram::TelegramAdapter::new(token));
+                    let tg: Arc<dyn ChannelAdapter> = Arc::new(
+                        orka_adapter_telegram::TelegramAdapter::new(tg_config.clone(), token),
+                    );
                     if let Err(e) =
                         start_adapter(tg.clone(), bus, shutdown, tg_config.workspace.clone()).await
                     {
@@ -926,6 +932,16 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let public_routes = public_routes
+        .route(
+            "/api/v1/version",
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({
+                    "version": VERSION,
+                    "git_sha": GIT_SHA,
+                    "build_date": BUILD_DATE,
+                }))
+            }),
+        )
         .route(
             "/health",
             axum::routing::get(move || {
@@ -1269,8 +1285,11 @@ async fn main() -> anyhow::Result<()> {
         let interval_secs = config.experience.distillation_interval_secs;
         if interval_secs > 0 {
             let exp = exp.clone();
-            let workspace_names: Vec<String> =
-                workspace_registry.list_names().into_iter().map(|s| s.to_string()).collect();
+            let workspace_names: Vec<String> = workspace_registry
+                .list_names()
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect();
             let distill_event_sink = event_sink.clone();
             let distill_cancel = shutdown.clone();
             Some(tokio::spawn(async move {
@@ -1351,7 +1370,11 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // 10. Await ctrl-c or SIGTERM → graceful shutdown
-    info!("Orka server ready — press Ctrl+C to stop");
+    let _ = sd_notify::notify(true, &[sd_notify::NotifyState::Ready]);
+    info!(
+        listen = %format_args!("{}:{}", config.server.host, config.server.port),
+        "Orka server ready",
+    );
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .context("failed to register SIGTERM handler")?;
     tokio::select! {
@@ -1359,6 +1382,7 @@ async fn main() -> anyhow::Result<()> {
         _ = sigterm.recv() => info!("received SIGTERM"),
     }
 
+    let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
     info!("shutting down...");
     for adapter in &adapters {
         if let Err(e) = adapter.shutdown().await {
@@ -1388,7 +1412,10 @@ async fn main() -> anyhow::Result<()> {
 
     shutdown.cancel();
 
-    let _ = tokio::join!(gateway_handle, worker_handle, outbound_handle);
+    let (gw, wk, ob) = tokio::join!(gateway_handle, worker_handle, outbound_handle);
+    if let Err(e) = gw { warn!(%e, "gateway task failed"); }
+    if let Err(e) = wk { warn!(%e, "worker task failed"); }
+    if let Err(e) = ob { warn!(%e, "outbound task failed"); }
     info!("Orka server stopped");
 
     Ok(())
