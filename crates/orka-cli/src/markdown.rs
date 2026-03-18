@@ -14,9 +14,9 @@ use termimad::MadSkin;
 pub struct MarkdownRenderer {
     skin: MadSkin,
     syntax_set: SyntaxSet,
+    theme_set: ThemeSet,
     theme_name: String,
     buffer: String,
-    in_code_fence: bool,
 }
 
 impl MarkdownRenderer {
@@ -38,9 +38,9 @@ impl MarkdownRenderer {
         Self {
             skin,
             syntax_set: SyntaxSet::load_defaults_newlines(),
+            theme_set: ThemeSet::load_defaults(),
             theme_name: "base16-eighties.dark".to_string(),
             buffer: String::new(),
-            in_code_fence: false,
         }
     }
 
@@ -51,18 +51,20 @@ impl MarkdownRenderer {
     }
 
     /// Flush and render whatever remains in the buffer (call on Done).
-    pub fn flush(&mut self) {
+    /// Returns `true` if anything was rendered.
+    pub fn flush(&mut self) -> bool {
         if !self.buffer.is_empty() {
             let remaining = std::mem::take(&mut self.buffer);
             self.render_block(&remaining);
+            true
+        } else {
+            false
         }
-        self.in_code_fence = false;
     }
 
     /// Reset state for a new conversation turn.
     pub fn reset(&mut self) {
         self.buffer.clear();
-        self.in_code_fence = false;
     }
 
     /// Render a complete markdown string (non-streaming path).
@@ -85,11 +87,12 @@ impl MarkdownRenderer {
             match boundary {
                 Some(end) => {
                     let block: String = self.buffer[..end].to_string();
-                    self.buffer.drain(..end);
-                    // Skip leading newlines between blocks
-                    while self.buffer.starts_with('\n') {
-                        self.buffer.remove(0);
-                    }
+                    // Skip the block and any leading newlines between blocks in one drain
+                    let skip_nl = self.buffer[end..]
+                        .bytes()
+                        .take_while(|&b| b == b'\n')
+                        .count();
+                    self.buffer.drain(..end + skip_nl);
                     self.render_block(&block);
                 }
                 None => break,
@@ -101,31 +104,22 @@ impl MarkdownRenderer {
     fn find_block_boundary(&self) -> Option<usize> {
         let buf = &self.buffer;
 
-        if self.in_code_fence {
-            // Look for closing fence
-            // The opening fence is already consumed, so find closing ```
-            if let Some(pos) = find_closing_fence(buf) {
+        // Check if we're entering a code fence
+        let trimmed = buf.trim_start();
+        if trimmed.starts_with("```") {
+            // We're starting a code block — look for closing fence
+            if let Some(pos) = find_closing_fence_full(buf) {
                 return Some(pos);
             }
-            None
-        } else {
-            // Check if we're entering a code fence
-            let trimmed = buf.trim_start();
-            if trimmed.starts_with("```") {
-                // We're starting a code block — look for closing fence
-                if let Some(pos) = find_closing_fence_full(buf) {
-                    return Some(pos);
-                }
-                // Not closed yet — wait
-                return None;
-            }
-
-            // Outside code fence: look for double newline (paragraph break)
-            if let Some(pos) = buf.find("\n\n") {
-                return Some(pos);
-            }
-            None
+            // Not closed yet — wait
+            return None;
         }
+
+        // Outside code fence: look for double newline (paragraph break)
+        if let Some(pos) = buf.find("\n\n") {
+            return Some(pos);
+        }
+        None
     }
 
     /// Render a single completed block.
@@ -137,11 +131,9 @@ impl MarkdownRenderer {
 
         if trimmed.starts_with("```") && trimmed.matches("```").count() >= 2 {
             self.render_code_block_inline(trimmed);
-            self.in_code_fence = false;
         } else if trimmed.starts_with("```") {
             // Unclosed code fence at flush — render as-is
             self.skin.print_text(block);
-            self.in_code_fence = false;
         } else {
             let normalized = normalize_gfm_tables(block);
             self.skin.print_text(&normalized);
@@ -150,8 +142,7 @@ impl MarkdownRenderer {
 
     /// Render a fenced code block with syntax highlighting via syntect.
     fn render_code_block_inline(&self, block: &str) {
-        let ts = ThemeSet::load_defaults();
-        let theme = &ts.themes[&self.theme_name];
+        let theme = &self.theme_set.themes[&self.theme_name];
 
         // Parse the fence: ```lang\n...\n```
         let mut lines = block.lines();
@@ -275,26 +266,18 @@ fn normalize_gfm_tables(text: &str) -> String {
 fn find_closing_fence_full(s: &str) -> Option<usize> {
     // s starts with ``` — find the end of the opening line
     let after_open = s.find('\n')? + 1;
-    // Find closing ``` after the opening line
     let rest = &s[after_open..];
-    for (i, line) in rest.lines().enumerate() {
+    let mut prev = 0;
+    for (nl_pos, _) in rest.match_indices('\n') {
+        let line = &rest[prev..nl_pos];
         if line.trim() == "```" {
-            // Calculate byte offset: after_open + bytes up to end of this line
-            let offset: usize = rest.lines().take(i + 1).map(|l| l.len() + 1).sum();
-            return Some(after_open + offset);
+            return Some(after_open + nl_pos + 1);
         }
+        prev = nl_pos + 1;
     }
-    None
-}
-
-/// Find closing fence when we know we're already inside a code block
-/// (the opening fence was in a previous block).
-fn find_closing_fence(s: &str) -> Option<usize> {
-    for (i, line) in s.lines().enumerate() {
-        if line.trim() == "```" {
-            let offset: usize = s.lines().take(i + 1).map(|l| l.len() + 1).sum();
-            return Some(offset);
-        }
+    // Check last line (no trailing newline)
+    if rest[prev..].trim() == "```" {
+        return Some(after_open + rest.len());
     }
     None
 }
@@ -444,9 +427,7 @@ mod tests {
     fn reset_clears_state() {
         let mut r = MarkdownRenderer::new();
         r.buffer = "leftover".to_string();
-        r.in_code_fence = true;
         r.reset();
         assert!(r.buffer.is_empty());
-        assert!(!r.in_code_fence);
     }
 }

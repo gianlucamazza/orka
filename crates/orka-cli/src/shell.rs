@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -20,6 +19,8 @@ pub enum InputAction {
     AgentMessage(String),
     /// Empty input
     Empty,
+    /// User input error (e.g. malformed builtin)
+    Error(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -47,8 +48,11 @@ pub fn classify_input(line: &str) -> InputAction {
         if rest == "!" {
             return InputAction::RepeatLast;
         }
-        // Builtins
-        if let Some(path) = rest.strip_prefix("cd") {
+        // Builtins — require whitespace or end of string after the keyword
+        if let Some(path) = rest
+            .strip_prefix("cd")
+            .filter(|s| s.is_empty() || s.starts_with(char::is_whitespace))
+        {
             let path = path.trim();
             let path = if path.is_empty() {
                 dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
@@ -57,7 +61,10 @@ pub fn classify_input(line: &str) -> InputAction {
             };
             return InputAction::Builtin(Builtin::Cd(path));
         }
-        if let Some(kv) = rest.strip_prefix("export") {
+        if let Some(kv) = rest
+            .strip_prefix("export")
+            .filter(|s| s.is_empty() || s.starts_with(char::is_whitespace))
+        {
             let kv = kv.trim();
             if let Some((k, v)) = kv.split_once('=') {
                 return InputAction::Builtin(Builtin::Export(
@@ -65,8 +72,14 @@ pub fn classify_input(line: &str) -> InputAction {
                     v.trim().to_string(),
                 ));
             }
+            if !kv.is_empty() {
+                return InputAction::Error("export: usage: export KEY=VALUE".to_string());
+            }
         }
-        if let Some(key) = rest.strip_prefix("unset") {
+        if let Some(key) = rest
+            .strip_prefix("unset")
+            .filter(|s| s.is_empty() || s.starts_with(char::is_whitespace))
+        {
             let key = key.trim();
             if !key.is_empty() {
                 return InputAction::Builtin(Builtin::Unset(key.to_string()));
@@ -156,17 +169,16 @@ pub fn handle_builtin(
         }
         Builtin::Export(k, v) => {
             env_overrides.insert(k.clone(), v.clone());
-            // SAFETY: we are single-threaded at this point in the REPL loop
-            unsafe { std::env::set_var(OsStr::new(k), OsStr::new(v)) };
             String::new()
         }
         Builtin::Unset(k) => {
             env_overrides.remove(k);
-            // SAFETY: we are single-threaded at this point in the REPL loop
-            unsafe { std::env::remove_var(OsStr::new(k)) };
             String::new()
         }
-        Builtin::History => "Use arrow keys to browse history.".to_string(),
+        Builtin::History => {
+            println!("Use arrow keys to browse history.");
+            String::new()
+        }
     }
 }
 
@@ -276,6 +288,43 @@ mod tests {
             classify_input("!"),
             InputAction::AgentMessage("!".to_string())
         );
+    }
+
+    #[test]
+    fn classify_cdr_is_shell_exec_not_cd() {
+        // `!cdr` must not match the `cd` builtin prefix — it's a shell command
+        assert_eq!(
+            classify_input("!cdr"),
+            InputAction::ShellExec("cdr".to_string())
+        );
+        assert_eq!(
+            classify_input("!cdrom"),
+            InputAction::ShellExec("cdrom".to_string())
+        );
+    }
+
+    #[test]
+    fn classify_exportfoo_is_shell_exec_not_export() {
+        assert_eq!(
+            classify_input("!exportfoo=bar"),
+            InputAction::ShellExec("exportfoo=bar".to_string())
+        );
+    }
+
+    #[test]
+    fn classify_unsetfoo_is_shell_exec_not_unset() {
+        assert_eq!(
+            classify_input("!unsetFOO"),
+            InputAction::ShellExec("unsetFOO".to_string())
+        );
+    }
+
+    #[test]
+    fn classify_export_without_equals_is_error() {
+        assert!(matches!(
+            classify_input("!export FOO"),
+            InputAction::Error(_)
+        ));
     }
 
     #[test]

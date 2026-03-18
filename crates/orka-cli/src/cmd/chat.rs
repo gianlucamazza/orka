@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -134,14 +135,15 @@ pub async fn run(
             match msg {
                 Ok(msg) if msg.is_text() => {
                     let text = match msg.into_text() {
-                        Ok(t) => t.to_string(),
+                        Ok(t) => t,
                         Err(_) => continue,
                     };
 
                     match classify_ws_message(&text) {
                         WsMessage::Stream(StreamChunkKind::Delta(data)) => {
                             if !streaming {
-                                print!("\n{} ", "Agent:".green().bold());
+                                println!("\n{}", "Agent:".green().bold());
+                                std::io::stdout().flush().ok();
                                 streaming = true;
                             }
                             streamed_this_turn = true;
@@ -212,14 +214,14 @@ pub async fn run(
                         WsMessage::Stream(StreamChunkKind::Done) => {
                             for (_, (name, _cat, _, pb)) in active_tools.drain() {
                                 pb.finish_and_clear();
-                                let _ = name;
+                                print!("[tool: {name}] ");
                             }
-                            if streaming {
-                                renderer.flush();
+                            if streaming && !renderer.flush() {
                                 println!();
                             }
                             renderer.reset();
                             streaming = false;
+                            streamed_this_turn = false;
                             let _ = done_tx.send(());
                         }
                         WsMessage::Final(content) => {
@@ -227,7 +229,8 @@ pub async fn run(
                                 streamed_this_turn = false;
                                 continue;
                             }
-                            print!("\n{} ", "Agent:".green().bold());
+                            println!("\n{}", "Agent:".green().bold());
+                            std::io::stdout().flush().ok();
                             renderer.render_full(&content);
                             println!();
                             let _ = done_tx.send(());
@@ -321,6 +324,11 @@ pub async fn run(
         match shell::classify_input(&line) {
             InputAction::Empty => continue,
 
+            InputAction::Error(msg) => {
+                eprintln!("{msg}");
+                last_exit = Some(1);
+            }
+
             InputAction::ShellExec(cmd) => {
                 last_exit = shell::execute_shell(&cmd, &cwd, &env_overrides).await;
                 last_shell_cmd = Some(cmd);
@@ -352,8 +360,13 @@ pub async fn run(
                     match cmd.name.as_str() {
                         "quit" | "exit" => break,
                         "help" => print_help(),
-                        "clear" => print!("\x1B[2J\x1B[1;1H"),
-                        _ => {}
+                        "clear" => {
+                            print!("\x1B[2J\x1B[1;1H");
+                            std::io::stdout().flush().ok();
+                        }
+                        unknown => {
+                            println!("Unknown command: /{unknown}. Type /help for available commands.");
+                        }
                     }
                 }
             }
@@ -368,8 +381,15 @@ pub async fn run(
 
                 match client.send_message(text, &sid, metadata).await {
                     Ok(_) => {
-                        // Wait for WS response to complete before showing next prompt
-                        let _ = done_rx.recv().await;
+                        // Drain stale signals, then wait for this turn's response
+                        while done_rx.try_recv().is_ok() {}
+                        match done_rx.recv().await {
+                            Some(()) => {}
+                            None => {
+                                eprintln!("{}", "Connection lost.".red());
+                                break;
+                            }
+                        }
                     }
                     Err(e) => {
                         eprintln!("{} {e}", "Send failed:".red());

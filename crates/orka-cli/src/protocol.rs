@@ -1,6 +1,7 @@
 use orka_core::stream::StreamChunkKind;
 
 /// Classified WebSocket message.
+#[derive(Debug)]
 pub enum WsMessage {
     /// A streaming chunk (delta, tool event, done).
     Stream(StreamChunkKind),
@@ -122,16 +123,5 @@ mod tests {
             classify_ws_message("plain text"),
             WsMessage::Unknown(_)
         ));
-    }
-
-    // Allow debug formatting in panic messages
-    impl std::fmt::Debug for WsMessage {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                WsMessage::Stream(kind) => write!(f, "Stream({kind:?})"),
-                WsMessage::Final(text) => write!(f, "Final({text:?})"),
-                WsMessage::Unknown(raw) => write!(f, "Unknown({raw:?})"),
-            }
-        }
     }
 }

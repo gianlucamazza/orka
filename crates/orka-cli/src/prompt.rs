@@ -3,18 +3,54 @@ use std::path::Path;
 use colored::Colorize;
 
 /// Build the shell prompt: `~/Workspace/orka (main) ▶ `
+///
+/// ANSI escape sequences are wrapped in `\x01`/`\x02` (RL_PROMPT_START/END_IGNORE)
+/// so rustyline correctly calculates the visible prompt width.
 pub fn build_prompt(cwd: &Path, last_exit: Option<i32>) -> String {
     let dir = shorten_path(cwd);
     let branch = git_branch(cwd);
     let indicator = match last_exit {
-        Some(0) | None => "▶".green().to_string(),
-        Some(_) => "▶".red().to_string(),
+        Some(0) | None => rl_escape("▶".green().to_string()),
+        Some(_) => rl_escape("▶".red().to_string()),
     };
     if branch.is_empty() {
         format!("{dir} {indicator} ")
     } else {
-        format!("{dir} ({branch}) {indicator} ", branch = branch.dimmed())
+        let branch_escaped = rl_escape(branch.dimmed().to_string());
+        format!("{dir} ({branch_escaped}) {indicator} ")
     }
+}
+
+/// Wrap ANSI CSI escape sequences in RL_PROMPT_START_IGNORE (`\x01`) /
+/// RL_PROMPT_END_IGNORE (`\x02`) so rustyline ignores them when measuring
+/// the prompt's display width.
+fn rl_escape(s: String) -> String {
+    let mut out = String::with_capacity(s.len() + 16);
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        // CSI sequence: ESC [ — all bytes in this sequence are ASCII
+        if bytes[i] == b'\x1b' && bytes.get(i + 1) == Some(&b'[') {
+            out.push('\x01');
+            out.push_str("\x1b[");
+            i += 2;
+            while i < bytes.len() {
+                let b = bytes[i];
+                out.push(b as char);
+                i += 1;
+                if b.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+            out.push('\x02');
+        } else {
+            // Pass through the full Unicode character (may be multi-byte UTF-8)
+            let ch = s[i..].chars().next().unwrap();
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
 }
 
 /// Shorten a path by replacing $HOME with `~`.
