@@ -1,5 +1,7 @@
 config_version = 1
 
+workspace_dir = "."
+
 [server]
 host = "127.0.0.1"
 port = 8080
@@ -14,14 +16,20 @@ url = "redis://127.0.0.1:6379"
 level = "info"
 json = false
 
-workspace_dir = "."
-
 [adapters.custom]
 host = "127.0.0.1"
 port = 8081
 
 # [adapters.telegram]
 # bot_token_secret = "adapters/telegram"
+# workspace = "default"
+# mode = "polling"              # "polling" (default) or "webhook"
+# webhook_url = "https://example.com/telegram/webhook"
+# webhook_port = 8443
+# parse_mode = "HTML"           # "HTML" (default), "MarkdownV2", "none"
+# streaming = false
+# owner_id = 123456789          # restrict access: only this user ID can interact
+# allowed_users = [111, 222]    # additional allowed user IDs (combined with owner_id)
 
 # [adapters.discord]
 # bot_token_secret = "adapters/discord"
@@ -90,12 +98,13 @@ id = "orka-default"
 display_name = "Orka"
 timezone = "Europe/Rome"
 max_iterations = 15
-# model = "claude-sonnet-4-6"      # override [llm] default model for this agent
-# max_tokens = 4096                 # override [llm] default max_tokens
+# model = "claude-opus-4-6"                         # use Opus for complex reasoning
+# model = "claude-sonnet-4-6"                       # default — best cost/quality balance
+# max_tokens = 4096                                 # override [llm] default max_tokens
 # context_window_tokens = 200000
 # max_tokens_per_session = 1000000
 heartbeat_interval_secs = 30
-# summarization_model = "claude-haiku-4-5-20251001"
+# summarization_model = "claude-haiku-4-5-20251001" # cheaper model for history summarization
 # summarization_threshold = 100
 
 [tools]
@@ -114,6 +123,9 @@ provider = "anthropic"
 model = "claude-sonnet-4-6"
 api_key_env = "ANTHROPIC_API_KEY"
 api_key_secret = "llm/anthropic"
+prefixes = ["claude"]
+# cost_per_1k_input_tokens = 0.003    # Sonnet 4.6
+# cost_per_1k_output_tokens = 0.015   # Sonnet 4.6
 
 [[llm.providers]]
 name = "openai"
@@ -121,12 +133,14 @@ provider = "openai"
 model = "gpt-5-mini"
 api_key_env = "OPENAI_API_KEY"
 api_key_secret = "llm/openai"
+prefixes = ["gpt", "o1", "o3", "o4"]
 
 # [[llm.providers]]
 # name = "ollama"
 # provider = "openai"
 # model = "llama3"
 # base_url = "http://localhost:11434/v1"
+# prefixes = ["llama", "mistral", "qwen", "gemma"]
 
 [web]
 search_provider = "tavily"

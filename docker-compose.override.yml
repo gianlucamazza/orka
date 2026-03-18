@@ -1,8 +1,15 @@
+# docker-compose.override.yml — local development overrides.
+# This file is merged with docker-compose.yml automatically by `docker-compose up`.
+# It exposes service ports, mounts source code for hot-reload, and enables verbose
+# logging.  Do NOT commit secrets or personal .env values here.
+
 services:
+  # Expose Redis port so local tooling (redis-cli, tests) can connect directly.
   redis:
     ports:
       - "6379:6379"
 
+  # Expose Qdrant REST (6333) and gRPC (6334) ports for local inspection.
   qdrant:
     ports:
       - "6333:6333"
@@ -11,28 +18,38 @@ services:
   orka-server:
     build:
       context: .
+      # Use the `dev` build stage (includes dev deps, no release optimisation).
       target: dev
     deploy:
       resources:
         limits:
+          # Generous memory cap to accommodate incremental Rust compilation.
           memory: 4G
     volumes:
       - .:/app
+      # Persist Cargo registry / git caches between rebuilds to avoid re-downloading.
       - cargo-registry:/usr/local/cargo/registry
       - cargo-git:/usr/local/cargo/git
+      # Persist the Cargo build cache so incremental compilation works across restarts.
       - target-cache:/app/target
+      # Mount host OS info so OS-skill detects the correct distro at runtime.
       - /etc/os-release:/host/os-release:ro
     environment:
       ORKA_HOST_HOSTNAME: ${HOSTNAME}
-      RUST_LOG: info,orka_server=debug,orka_core=debug,orka_worker=debug,orka_llm=debug,orka_adapter_custom=debug,orka_bus=debug,orka_memory=debug,orka_observe=debug,orka_auth=debug,orka_skills=debug,orka_web=debug,orka_mcp=debug,orka_router=debug,orka_session=debug,orka_workspace=debug
+      # Enable debug-level logging for all first-party crates in development.
+      RUST_LOG: info,orka_server=debug,orka_core=debug,orka_worker=debug,orka_llm=debug,orka_adapter_custom=debug,orka_adapter_telegram=debug,orka_bus=debug,orka_memory=debug,orka_observe=debug,orka_auth=debug,orka_skills=debug,orka_web=debug,orka_mcp=debug,orka_router=debug,orka_session=debug,orka_workspace=debug
       RUST_BACKTRACE: 1
+    # Allow writes for the cargo target cache volume.
     read_only: false
     develop:
       watch:
+        # Rebuild when any crate source changes.
         - action: rebuild
           path: ./crates
+        # Rebuild when the binary crate changes.
         - action: rebuild
           path: ./orka-server
+        # Hot-reload config without a full rebuild.
         - action: sync+restart
           path: ./orka.toml
           target: /etc/orka/orka.toml

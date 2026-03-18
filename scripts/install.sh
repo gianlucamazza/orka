@@ -215,6 +215,18 @@ else
 	fi
 fi
 
+# ── Install default workspace files ───────────────────────────────
+WORKSPACE_DIR="${DATA_DIR}/workspaces"
+for ws_file in SOUL.md TOOLS.md; do
+	ws_src="$REPO_ROOT/workspaces/${ws_file}"
+	ws_dst="${WORKSPACE_DIR}/${ws_file}"
+	if [[ ! -f "$ws_dst" ]] && [[ -f "$ws_src" ]]; then
+		info "Installing default workspace file → ${ws_dst}"
+		install -Dm644 "$ws_src" "$ws_dst"
+		chown orka:orka "$ws_dst"
+	fi
+done
+
 if [[ ! -f "${CONFIG_DIR}/orka.env" ]]; then
 	info "Creating empty env file → ${CONFIG_DIR}/orka.env"
 	install -m 0640 /dev/null "${CONFIG_DIR}/orka.env"
