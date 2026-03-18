@@ -5,11 +5,8 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Redis Streams implementation of the message bus.
 pub mod redis_bus;
-
-#[cfg(feature = "bus-nats")]
-pub mod nats;
 
 pub use crate::redis_bus::RedisBus;
 
