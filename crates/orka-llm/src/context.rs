@@ -168,6 +168,7 @@ pub fn truncate_history_with_hint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::Role;
 
     #[test]
     fn estimate_tokens_basic() {
@@ -217,7 +218,7 @@ mod tests {
     #[test]
     fn estimate_message_tokens_text() {
         let msg = ChatMessageExt {
-            role: "user".into(),
+            role: Role::User,
             content: ChatContent::Text("hello world!".into()),
         };
         // 3 content + 4 overhead = 7
@@ -227,7 +228,7 @@ mod tests {
     #[test]
     fn estimate_message_tokens_blocks() {
         let msg = ChatMessageExt {
-            role: "user".into(),
+            role: Role::User,
             content: ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
                 tool_use_id: "id1".into(),
                 content: "a]".repeat(150), // 300 chars / 4 = 75
@@ -270,11 +271,11 @@ mod tests {
     fn truncate_history_no_truncation() {
         let messages = vec![
             ChatMessageExt {
-                role: "user".into(),
+                role: Role::User,
                 content: ChatContent::Text("hi".into()),
             },
             ChatMessageExt {
-                role: "assistant".into(),
+                role: Role::Assistant,
                 content: ChatContent::Text("hello".into()),
             },
         ];
@@ -287,7 +288,7 @@ mod tests {
     fn truncate_history_drops_oldest() {
         let messages: Vec<ChatMessageExt> = (0..10)
             .map(|_| ChatMessageExt {
-                role: "user".into(),
+                role: Role::User,
                 content: ChatContent::Text("x".repeat(100)), // 25 + 4 = 29 tokens each
             })
             .collect();
@@ -304,7 +305,7 @@ mod tests {
     #[test]
     fn truncate_history_drops_all_if_needed() {
         let messages = vec![ChatMessageExt {
-            role: "user".into(),
+            role: Role::User,
             content: ChatContent::Text("x".repeat(1000)),
         }];
         let (kept, dropped) = truncate_history(messages, 1);

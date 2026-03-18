@@ -77,9 +77,9 @@ impl VectorStore for MockVectorStore {
         let results = data
             .iter()
             .filter(|p| {
-                filter.as_ref().is_none_or(|f| {
-                    f.iter().all(|(k, v)| p.get(k).is_some_and(|pv| pv == v))
-                })
+                filter
+                    .as_ref()
+                    .is_none_or(|f| f.iter().all(|(k, v)| p.get(k).is_some_and(|pv| pv == v)))
             })
             .take(limit)
             .map(|p| SearchResult {
@@ -101,7 +101,8 @@ impl VectorStore for MockVectorStore {
         let data = self.data.lock().await;
         let iter = data.iter().filter(|entry| {
             filter.as_ref().is_none_or(|f| {
-                f.iter().all(|(k, v)| entry.get(k).is_some_and(|ev| ev == v))
+                f.iter()
+                    .all(|(k, v)| entry.get(k).is_some_and(|ev| ev == v))
             })
         });
         Ok(iter.take(limit).cloned().collect())
@@ -292,8 +293,11 @@ async fn record_trajectory_succeeds() {
 #[tokio::test]
 async fn maybe_reflect_returns_zero_on_empty_llm_response() {
     let svc = make_service("[]");
-    let mut collector =
-        TrajectoryCollector::new("sess-async-2".into(), "default".into(), "do something".into());
+    let mut collector = TrajectoryCollector::new(
+        "sess-async-2".into(),
+        "default".into(),
+        "do something".into(),
+    );
     collector.record_skill("shell_exec".into(), 100, false);
     collector.record_error("permission denied".into());
     collector.record_iteration(400);
@@ -308,8 +312,11 @@ async fn maybe_reflect_returns_zero_on_empty_llm_response() {
 async fn maybe_reflect_stores_principles_from_llm() {
     let llm_resp = r#"[{"text": "Use web_search before summarize", "kind": "do"}]"#;
     let svc = make_service(llm_resp);
-    let mut collector =
-        TrajectoryCollector::new("sess-async-3".into(), "default".into(), "search query".into());
+    let mut collector = TrajectoryCollector::new(
+        "sess-async-3".into(),
+        "default".into(),
+        "search query".into(),
+    );
     collector.record_skill("web_search".into(), 80, true);
     collector.record_iteration(500);
     collector.set_response("Here is the result.".into());

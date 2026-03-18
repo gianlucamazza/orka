@@ -8,26 +8,26 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Anthropic Messages API client with retry and streaming support.
 pub mod anthropic;
-#[allow(missing_docs)]
+/// Core LLM types: [`LlmClient`] trait, message structs, streaming types.
 pub mod client;
-#[allow(missing_docs)]
+/// Token estimation and history truncation utilities.
 pub mod context;
-#[allow(missing_docs)]
+/// Ollama client — delegates to OpenAI-compatible local API.
 pub mod ollama;
-#[allow(missing_docs)]
+/// OpenAI Chat Completions API client with retry and streaming support.
 pub mod openai;
-#[allow(missing_docs)]
+/// [`LlmRouter`] — model-prefix routing with per-provider circuit breakers.
 pub mod router;
-#[allow(missing_docs)]
+/// [`SwappableLlmClient`] — lock-free hot-swappable client wrapper.
 pub mod swappable;
 
 pub use anthropic::AnthropicClient;
 pub use client::{
     ChatContent, ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
-    ContentBlockInput, LlmClient, LlmStream, LlmToolStream, StopReason, StreamEvent, ToolCall,
-    ToolDefinition, ToolResult, Usage,
+    ContentBlockInput, LlmClient, LlmStream, LlmToolStream, Role, StopReason, StreamEvent,
+    ToolCall, ToolDefinition, ToolResult, Usage,
 };
 pub use context::TokenizerHint;
 pub use ollama::OllamaClient;

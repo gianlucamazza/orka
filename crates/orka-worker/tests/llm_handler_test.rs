@@ -7,7 +7,7 @@ use orka_core::config::AgentConfig;
 use orka_core::testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager};
 use orka_core::traits::MemoryStore;
 use orka_core::{Envelope, Error, Payload, Session};
-use orka_llm::client::{ChatContent, ChatMessage, ChatMessageExt, LlmClient};
+use orka_llm::client::{ChatContent, ChatMessage, ChatMessageExt, LlmClient, Role};
 use orka_skills::SkillRegistry;
 use orka_worker::{
     AgentHandler, CommandRegistry, StreamRegistry, WorkspaceHandler, WorkspaceHandlerConfig,
@@ -175,12 +175,12 @@ async fn multi_turn_conversation_saves_history() {
 
     // Should have 4 messages: user1, assistant1, user2, assistant2
     assert_eq!(history.len(), 4);
-    assert_eq!(history[0].role, "user");
+    assert_eq!(history[0].role, Role::User);
     assert!(matches!(&history[0].content, ChatContent::Text(t) if t == "first message"));
-    assert_eq!(history[1].role, "assistant");
+    assert_eq!(history[1].role, Role::Assistant);
     assert!(matches!(&history[1].content, ChatContent::Text(t) if t == "response"));
-    assert_eq!(history[2].role, "user");
+    assert_eq!(history[2].role, Role::User);
     assert!(matches!(&history[2].content, ChatContent::Text(t) if t == "second message"));
-    assert_eq!(history[3].role, "assistant");
+    assert_eq!(history[3].role, Role::Assistant);
     assert!(matches!(&history[3].content, ChatContent::Text(t) if t == "response"));
 }

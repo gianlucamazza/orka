@@ -95,11 +95,9 @@ impl OpenAiClient {
                             Ok(response)
                         }
                     }
-                    Err(e) if e.is_timeout() || e.is_connect() => {
-                        Err(RetryableError::Transient(format!(
-                            "OpenAI API request failed: {e}"
-                        )))
-                    }
+                    Err(e) if e.is_timeout() || e.is_connect() => Err(RetryableError::Transient(
+                        format!("OpenAI API request failed: {e}"),
+                    )),
                     Err(e) => Err(RetryableError::Fatal(format!(
                         "OpenAI API request failed: {e}"
                     ))),
@@ -257,7 +255,11 @@ impl LlmClient for OpenAiClient {
 
         let mut api_messages = vec![json!({"role": "system", "content": system})];
         for m in &messages {
-            api_messages.push(json!({"role": m.role, "content": m.content}));
+            let text = match &m.content {
+                ChatContent::Text(t) => t.clone(),
+                _ => String::new(),
+            };
+            api_messages.push(json!({"role": m.role, "content": text}));
         }
 
         let body = json!({
@@ -280,7 +282,11 @@ impl LlmClient for OpenAiClient {
     async fn complete_stream(&self, messages: Vec<ChatMessage>, system: &str) -> Result<LlmStream> {
         let mut api_messages = vec![json!({"role": "system", "content": system})];
         for m in &messages {
-            api_messages.push(json!({"role": m.role, "content": m.content}));
+            let text = match &m.content {
+                ChatContent::Text(t) => t.clone(),
+                _ => String::new(),
+            };
+            api_messages.push(json!({"role": m.role, "content": text}));
         }
 
         let body = json!({

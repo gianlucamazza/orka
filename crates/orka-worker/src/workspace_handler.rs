@@ -119,8 +119,11 @@ fn format_current_datetime(timezone: Option<&str>) -> String {
 
 /// Configuration parameters for [`WorkspaceHandler`], grouped to reduce constructor arguments.
 pub struct WorkspaceHandlerConfig {
+    /// LLM and agent tuning parameters.
     pub agent_config: AgentConfig,
+    /// Tool names that should never be offered to the LLM.
     pub disabled_tools: HashSet<String>,
+    /// Fallback context window size when the model info is unavailable.
     pub default_context_window: u32,
 }
 
@@ -588,10 +591,10 @@ impl WorkspaceHandler {
 
                 let summary_text =
                     Self::summarize_messages(llm, old_messages, summarization_model).await;
-                let mut condensed = vec![ChatMessageExt::text(
-                    "user",
-                    format!("[Previous conversation summary: {}]", summary_text),
-                )];
+                let mut condensed = vec![ChatMessageExt::user(format!(
+                    "[Previous conversation summary: {}]",
+                    summary_text
+                ))];
                 condensed.extend_from_slice(&messages[split_point..]);
                 condensed
             } else {
@@ -661,13 +664,10 @@ impl WorkspaceHandler {
             transcript.push_str(&format!("{}: {}\n", msg.role, text));
         }
 
-        let summary_prompt = vec![ChatMessage::new(
-            "user",
-            format!(
-                "Summarize the following conversation concisely, preserving key facts, decisions, and context:\n\n{}",
-                transcript
-            ),
-        )];
+        let summary_prompt = vec![ChatMessage::user(format!(
+            "Summarize the following conversation concisely, preserving key facts, decisions, and context:\n\n{}",
+            transcript
+        ))];
 
         let mut options = CompletionOptions::default();
         options.model = model.map(|s| s.to_string());
@@ -762,7 +762,9 @@ impl WorkspaceHandler {
                 }
                 StreamEvent::Usage(u) => usage = u,
                 StreamEvent::Stop(reason) => stop_reason = Some(reason),
-                _ => {}
+                other => {
+                    tracing::debug!(?other, "unhandled stream event");
+                }
             }
         }
 
@@ -945,7 +947,7 @@ impl AgentHandler for WorkspaceHandler {
             };
 
             let mut messages = history;
-            messages.push(ChatMessageExt::text("user", text.clone()));
+            messages.push(ChatMessageExt::user(text.clone()));
 
             let available_ws = self.workspace_registry.list_names();
             let available_ws_refs: Vec<&str> = available_ws.to_vec();
@@ -1132,7 +1134,9 @@ impl AgentHandler for WorkspaceHandler {
                     match block {
                         ContentBlock::Text(t) => response_text.push_str(t),
                         ContentBlock::ToolUse(call) => tool_calls.push(call.clone()),
-                        _ => {}
+                        other => {
+                            tracing::debug!(?other, "unhandled content block type");
+                        }
                     }
                 }
 
@@ -1150,7 +1154,7 @@ impl AgentHandler for WorkspaceHandler {
                 if tool_calls.is_empty() {
                     // No tool calls — final response
                     final_text = response_text;
-                    messages.push(ChatMessageExt::text("assistant", final_text.clone()));
+                    messages.push(ChatMessageExt::assistant(final_text.clone()));
                     // Emit iteration event before breaking
                     self.event_sink
                         .emit(DomainEvent::new(DomainEventKind::AgentIteration {
@@ -1187,7 +1191,7 @@ impl AgentHandler for WorkspaceHandler {
                         });
                     }
                     messages.push(ChatMessageExt::new(
-                        "assistant",
+                        orka_llm::client::Role::Assistant,
                         ChatContent::Blocks(blocks),
                     ));
                 }
@@ -1240,7 +1244,7 @@ impl AgentHandler for WorkspaceHandler {
 
                 // Add tool results as a user message
                 messages.push(ChatMessageExt::new(
-                    "user",
+                    orka_llm::client::Role::User,
                     ChatContent::Blocks(corrected_blocks),
                 ));
 
@@ -1330,7 +1334,10 @@ impl AgentHandler for WorkspaceHandler {
                             format!("I generated a response but it was filtered: {reason}")
                         }
                         orka_core::traits::GuardrailDecision::Modify(filtered) => filtered,
-                        _ => final_text,
+                        other => {
+                            tracing::warn!(?other, "unhandled guardrail decision, passing through");
+                            final_text
+                        }
                     }
                 } else {
                     final_text

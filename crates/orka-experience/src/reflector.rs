@@ -49,7 +49,7 @@ impl PrincipleReflector {
     ) -> Result<Vec<Principle>> {
         let user_prompt = self.build_reflection_prompt(trajectory);
 
-        let messages = vec![ChatMessage::new("user", user_prompt)];
+        let messages = vec![ChatMessage::user(user_prompt)];
 
         let mut options = CompletionOptions::default();
         options.model = self.model.clone();

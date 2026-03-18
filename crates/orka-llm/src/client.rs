@@ -11,38 +11,75 @@ pub(crate) enum RetryableError {
     Fatal(String),
 }
 
-/// A simple chat message with a role and text content.
+/// Message role in a chat conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    /// System instructions.
+    System,
+    /// Human user turn.
+    User,
+    /// Model assistant turn.
+    Assistant,
+    /// Tool result turn.
+    Tool,
+}
+
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Role::System => write!(f, "system"),
+            Role::User => write!(f, "user"),
+            Role::Assistant => write!(f, "assistant"),
+            Role::Tool => write!(f, "tool"),
+        }
+    }
+}
+
+/// A chat message with a typed role and structured content.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ChatMessage {
-    pub role: String, // "user" or "assistant"
-    pub content: String,
+    /// Message role.
+    pub role: Role,
+    /// Message content — either plain text or a list of content blocks.
+    pub content: ChatContent,
 }
 
 impl ChatMessage {
     /// Create a new chat message.
-    pub fn new(role: impl Into<String>, content: impl Into<String>) -> Self {
+    pub fn new(role: Role, content: ChatContent) -> Self {
+        Self { role, content }
+    }
+
+    /// Convenience: create a user text message.
+    pub fn user(content: impl Into<String>) -> Self {
         Self {
-            role: role.into(),
-            content: content.into(),
+            role: Role::User,
+            content: ChatContent::Text(content.into()),
+        }
+    }
+
+    /// Convenience: create an assistant text message.
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: Role::Assistant,
+            content: ChatContent::Text(content.into()),
+        }
+    }
+
+    /// Convenience: create a system text message.
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: Role::System,
+            content: ChatContent::Text(content.into()),
         }
     }
 }
 
-impl ChatMessageExt {
-    /// Create a new extended chat message.
-    pub fn new(role: impl Into<String>, content: ChatContent) -> Self {
-        Self {
-            role: role.into(),
-            content,
-        }
-    }
-
-    /// Create a text message.
-    pub fn text(role: impl Into<String>, content: impl Into<String>) -> Self {
-        Self::new(role, ChatContent::Text(content.into()))
-    }
-}
+/// Backward-compatible alias: `ChatMessageExt` is now the same as `ChatMessage`.
+pub type ChatMessageExt = ChatMessage;
 
 impl ToolDefinition {
     /// Create a new tool definition.
@@ -113,7 +150,9 @@ pub type LlmStream = Pin<Box<dyn futures_util::Stream<Item = Result<String>> + S
 pub enum ResponseFormat {
     /// Request JSON output matching this schema.
     JsonSchema {
+        /// Name used to identify the schema in the request.
         name: String,
+        /// JSON Schema object describing the expected output structure.
         schema: serde_json::Value,
     },
     /// Just request JSON output without a specific schema.
@@ -124,7 +163,9 @@ pub enum ResponseFormat {
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct CompletionOptions {
+    /// Override the model name for this request.
     pub model: Option<String>,
+    /// Override the maximum output tokens for this request.
     pub max_tokens: Option<u32>,
     /// Optional JSON Schema for structured/constrained output.
     pub response_format: Option<ResponseFormat>,
@@ -134,8 +175,11 @@ pub struct CompletionOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ToolDefinition {
+    /// Unique tool name used to identify calls by the model.
     pub name: String,
+    /// Human-readable description of what the tool does.
     pub description: String,
+    /// JSON Schema describing the tool's input parameters.
     pub input_schema: serde_json::Value,
 }
 
@@ -143,8 +187,11 @@ pub struct ToolDefinition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ToolCall {
+    /// Unique ID for this tool invocation, used to correlate with the result.
     pub id: String,
+    /// Name of the tool being called.
     pub name: String,
+    /// JSON-encoded arguments for the tool.
     pub input: serde_json::Value,
 }
 
@@ -152,8 +199,11 @@ pub struct ToolCall {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ToolResult {
+    /// ID of the tool call this result belongs to.
     pub tool_use_id: String,
+    /// Serialised output from the tool execution.
     pub content: String,
+    /// Whether the tool execution produced an error.
     pub is_error: bool,
 }
 
@@ -161,16 +211,10 @@ pub struct ToolResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ContentBlock {
+    /// A plain-text response fragment.
     Text(String),
+    /// A tool invocation requested by the model.
     ToolUse(ToolCall),
-}
-
-/// Extended chat message supporting tool results.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct ChatMessageExt {
-    pub role: String,
-    pub content: ChatContent,
 }
 
 /// Content can be simple text or a list of content blocks (for tool results).
@@ -178,7 +222,9 @@ pub struct ChatMessageExt {
 #[non_exhaustive]
 #[serde(untagged)]
 pub enum ChatContent {
+    /// A simple plain-text message.
     Text(String),
+    /// A sequence of typed content blocks (text, tool use, tool results).
     Blocks(Vec<ContentBlockInput>),
 }
 
@@ -187,18 +233,30 @@ pub enum ChatContent {
 #[non_exhaustive]
 #[serde(tag = "type")]
 pub enum ContentBlockInput {
+    /// A plain-text block.
     #[serde(rename = "text")]
-    Text { text: String },
+    Text {
+        /// The text content.
+        text: String,
+    },
+    /// A tool invocation block sent by the model.
     #[serde(rename = "tool_use")]
     ToolUse {
+        /// Unique ID for this tool call.
         id: String,
+        /// Name of the tool to invoke.
         name: String,
+        /// JSON-encoded input arguments.
         input: serde_json::Value,
     },
+    /// The result of a tool call, returned by the client.
     #[serde(rename = "tool_result")]
     ToolResult {
+        /// ID of the tool call being answered.
         tool_use_id: String,
+        /// Output content from the tool.
         content: String,
+        /// Whether the tool produced an error result.
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         is_error: bool,
     },
@@ -208,7 +266,9 @@ pub enum ContentBlockInput {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Usage {
+    /// Number of tokens in the prompt (input).
     pub input_tokens: u32,
+    /// Number of tokens generated (output).
     pub output_tokens: u32,
     /// Tokens read from cache (Anthropic prompt caching).
     #[serde(default)]
@@ -223,9 +283,13 @@ pub struct Usage {
 #[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum StopReason {
+    /// Model finished naturally.
     EndTurn,
+    /// Output token limit was reached.
     MaxTokens,
+    /// Model requested one or more tool calls.
     ToolUse,
+    /// A stop sequence was encountered.
     StopSequence,
 }
 
@@ -233,8 +297,11 @@ pub enum StopReason {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CompletionResponse {
+    /// Ordered content blocks (text and/or tool calls) produced by the model.
     pub blocks: Vec<ContentBlock>,
+    /// Token usage reported by the provider.
     pub usage: Usage,
+    /// Reason the model stopped generating, if provided.
     pub stop_reason: Option<StopReason>,
 }
 
@@ -242,17 +309,27 @@ pub struct CompletionResponse {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum StreamEvent {
+    /// An incremental text chunk.
     TextDelta(String),
+    /// The model is beginning a tool call.
     ToolUseStart {
+        /// Unique ID for this tool call.
         id: String,
+        /// Name of the tool being invoked.
         name: String,
     },
+    /// An incremental chunk of the tool call's JSON input.
     ToolUseInputDelta(String),
+    /// The tool call's input is fully assembled.
     ToolUseEnd {
+        /// Unique ID for this tool call.
         id: String,
+        /// Fully parsed tool input arguments.
         input: serde_json::Value,
     },
+    /// Token usage snapshot, emitted when the stream ends.
     Usage(Usage),
+    /// The model has stopped generating.
     Stop(StopReason),
 }
 
@@ -297,14 +374,16 @@ pub trait LlmClient: Send + Sync + 'static {
         tools: &[ToolDefinition],
         options: CompletionOptions,
     ) -> Result<CompletionResponse> {
-        let _ = tools;
+        if !tools.is_empty() {
+            tracing::warn!(
+                tool_count = tools.len(),
+                "complete_with_tools called on backend that does not support tools; tools will be ignored"
+            );
+        }
         let simple_messages: Vec<ChatMessage> = messages
             .iter()
             .filter_map(|m| match &m.content {
-                ChatContent::Text(t) => Some(ChatMessage {
-                    role: m.role.clone(),
-                    content: t.clone(),
-                }),
+                ChatContent::Text(_) => Some(m.clone()),
                 _ => None,
             })
             .collect();

@@ -60,7 +60,7 @@ impl Distiller {
         }
 
         let prompt = build_distillation_prompt(trajectories);
-        let messages = vec![ChatMessage::new("user", prompt)];
+        let messages = vec![ChatMessage::user(prompt)];
 
         let mut options = CompletionOptions::default();
         options.model = self.model.clone();
@@ -171,7 +171,6 @@ struct RawPrinciple {
     text: String,
     kind: Option<String>,
 }
-
 
 #[cfg(test)]
 mod tests {

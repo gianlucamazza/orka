@@ -107,11 +107,9 @@ impl AnthropicClient {
                             Ok(response)
                         }
                     }
-                    Err(e) if e.is_timeout() || e.is_connect() => {
-                        Err(RetryableError::Transient(format!(
-                            "Anthropic API request failed: {e}"
-                        )))
-                    }
+                    Err(e) if e.is_timeout() || e.is_connect() => Err(RetryableError::Transient(
+                        format!("Anthropic API request failed: {e}"),
+                    )),
                     Err(e) => Err(RetryableError::Fatal(format!(
                         "Anthropic API request failed: {e}"
                     ))),
@@ -202,7 +200,13 @@ impl AnthropicClient {
     fn build_simple_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         messages
             .iter()
-            .map(|m| json!({"role": m.role, "content": m.content}))
+            .map(|m| {
+                let text = match &m.content {
+                    ChatContent::Text(t) => t.clone(),
+                    _ => String::new(),
+                };
+                json!({"role": m.role, "content": text})
+            })
             .collect()
     }
 }
@@ -595,7 +599,7 @@ impl LlmClient for AnthropicClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::ContentBlockInput;
+    use crate::client::{ContentBlockInput, Role};
 
     #[test]
     fn parse_usage_from_response() {
@@ -722,16 +726,7 @@ mod tests {
 
     #[test]
     fn build_simple_messages_format() {
-        let messages = vec![
-            ChatMessage {
-                role: "user".into(),
-                content: "hello".into(),
-            },
-            ChatMessage {
-                role: "assistant".into(),
-                content: "hi".into(),
-            },
-        ];
+        let messages = vec![ChatMessage::user("hello"), ChatMessage::assistant("hi")];
         let api_msgs = AnthropicClient::build_simple_messages(&messages);
         assert_eq!(api_msgs.len(), 2);
         assert_eq!(api_msgs[0]["role"], "user");
@@ -742,8 +737,8 @@ mod tests {
 
     #[test]
     fn build_ext_messages_text() {
-        let messages = vec![ChatMessageExt {
-            role: "user".into(),
+        let messages = vec![ChatMessage {
+            role: Role::User,
             content: ChatContent::Text("hello".into()),
         }];
         let api_msgs = AnthropicClient::build_ext_messages(&messages);
@@ -753,8 +748,8 @@ mod tests {
 
     #[test]
     fn build_ext_messages_tool_result() {
-        let messages = vec![ChatMessageExt {
-            role: "user".into(),
+        let messages = vec![ChatMessage {
+            role: Role::User,
             content: ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
                 tool_use_id: "t1".into(),
                 content: "result".into(),
