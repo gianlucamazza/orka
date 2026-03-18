@@ -221,7 +221,6 @@ pub async fn run(
                             }
                             renderer.reset();
                             streaming = false;
-                            streamed_this_turn = false;
                             let _ = done_tx.send(());
                         }
                         WsMessage::Final(content) => {
