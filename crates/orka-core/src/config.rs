@@ -195,7 +195,7 @@ fn default_web_read_timeout_secs() -> u64 {
 }
 
 fn default_web_user_agent() -> String {
-    "Orka/0.1 (Web Agent)".into()
+    format!("Orka/{} (Web Agent)", env!("CARGO_PKG_VERSION"))
 }
 
 /// HTTP server bind configuration.
@@ -230,6 +230,7 @@ pub struct BusConfig {
 }
 
 /// Redis connection configuration.
+#[non_exhaustive]
 #[derive(Clone, Deserialize)]
 pub struct RedisConfig {
     /// Redis connection URL (e.g. `"redis://127.0.0.1:6379"`).
@@ -238,6 +239,7 @@ pub struct RedisConfig {
 }
 
 /// Structured logging configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct LoggingConfig {
     /// Log level filter (`"trace"`, `"debug"`, `"info"`, `"warn"`, or `"error"`).
@@ -249,6 +251,7 @@ pub struct LoggingConfig {
 }
 
 /// Channel adapter configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct AdapterConfig {
     /// Custom HTTP adapter configuration.
@@ -274,7 +277,7 @@ pub struct TelegramAdapterConfig {
     /// Receive mode: "polling" (default) or "webhook".
     #[serde(default)]
     pub mode: Option<String>,
-    /// Public HTTPS URL for webhook mode (e.g. "https://example.com/telegram/webhook").
+    /// Public HTTPS URL for webhook mode (e.g. `https://example.com/telegram/webhook`).
     #[serde(default)]
     pub webhook_url: Option<String>,
     /// Local port to listen on in webhook mode (default 8443).
@@ -295,6 +298,7 @@ pub struct TelegramAdapterConfig {
 }
 
 /// Discord bot adapter configuration.
+#[non_exhaustive]
 #[derive(Clone, Default, Deserialize)]
 pub struct DiscordAdapterConfig {
     /// Secret store path for the Discord bot token.
@@ -308,6 +312,7 @@ pub struct DiscordAdapterConfig {
 }
 
 /// Slack bot adapter configuration.
+#[non_exhaustive]
 #[derive(Clone, Deserialize)]
 pub struct SlackAdapterConfig {
     /// Secret store path for the Slack bot token.
@@ -335,6 +340,7 @@ fn default_slack_port() -> u16 {
 }
 
 /// WhatsApp Cloud API adapter configuration.
+#[non_exhaustive]
 #[derive(Clone, Deserialize)]
 pub struct WhatsAppAdapterConfig {
     /// Secret store path for the WhatsApp access token.
@@ -400,6 +406,7 @@ fn default_custom_port() -> u16 {
 }
 
 /// Worker pool configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerConfig {
     /// Number of concurrent worker tasks to spawn.
@@ -456,6 +463,7 @@ fn default_backend_auto() -> String {
 }
 
 /// Secret storage configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SecretConfig {
     /// Environment variable name containing the 32-byte hex-encoded encryption key
@@ -494,6 +502,7 @@ impl Default for AuthConfig {
 }
 
 /// JWT authentication configuration.
+#[non_exhaustive]
 #[derive(Clone, Deserialize)]
 pub struct JwtAuthConfig {
     /// Expected `iss` claim value.
@@ -524,6 +533,7 @@ pub struct ApiKeyEntry {
 }
 
 /// Code sandbox configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct SandboxConfig {
     /// Sandbox backend to use (`"process"` or `"wasm"`).
@@ -548,6 +558,7 @@ fn default_sandbox_backend() -> String {
 }
 
 /// Resource limits applied to sandbox executions.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct SandboxLimitsConfig {
     /// Maximum wall-clock time in seconds before the sandbox is killed.
@@ -584,6 +595,7 @@ fn default_max_output_bytes() -> usize {
 }
 
 /// WASM plugin configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PluginConfig {
     /// Directory to scan for `.wasm` plugin files.
@@ -639,6 +651,7 @@ fn default_max_retries() -> u32 {
 }
 
 /// Observability (metrics/tracing) configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObserveConfig {
     /// Backend to emit events to (`"log"`, `"redis"`, or `"otel"`).
@@ -675,6 +688,7 @@ fn default_observe_backend() -> String {
 }
 
 /// API gateway rate limiting and deduplication configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct GatewayConfig {
     /// Maximum requests per minute per session before rate limiting kicks in.
@@ -703,6 +717,7 @@ fn default_gateway_dedup_ttl_secs() -> u64 {
 }
 
 /// LLM provider configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct LlmConfig {
     /// Default model name used when no provider matches.
@@ -760,6 +775,7 @@ impl Default for LlmConfig {
 }
 
 /// Configuration for a single named LLM provider.
+#[non_exhaustive]
 #[derive(Clone, Deserialize)]
 pub struct LlmProviderConfig {
     /// Unique identifier for this provider entry (e.g. `"anthropic-prod"`).
@@ -827,6 +843,7 @@ fn default_llm_context_window_tokens() -> u32 {
 }
 
 /// Per-agent runtime configuration (migrated from workspace markdown files).
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentConfig {
     /// Unique identifier for this agent.
@@ -874,6 +891,16 @@ pub struct AgentConfig {
     /// Max consecutive failures of the same tool before injecting a self-correction hint (default 2).
     #[serde(default = "default_max_tool_retries")]
     pub max_tool_retries: u32,
+    /// Sampling temperature (0.0–2.0). Note: Anthropic forces temperature=1 when thinking is enabled.
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    /// Token budget for Anthropic extended thinking. Mutually exclusive with `reasoning_effort`.
+    #[serde(default)]
+    pub thinking_budget_tokens: Option<u32>,
+    /// Reasoning effort for OpenAI o-series models (`"low"`, `"medium"`, `"high"`).
+    /// Mutually exclusive with `thinking_budget_tokens`.
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
 }
 
 impl Default for AgentConfig {
@@ -894,6 +921,9 @@ impl Default for AgentConfig {
             max_tool_result_chars: default_max_tool_result_chars(),
             skill_timeout_secs: default_skill_timeout_secs(),
             max_tool_retries: default_max_tool_retries(),
+            temperature: None,
+            thinking_budget_tokens: None,
+            reasoning_effort: None,
         }
     }
 }
@@ -927,6 +957,7 @@ fn default_max_tool_retries() -> u32 {
 }
 
 /// Definition for a single agent in a multi-agent deployment.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentDef {
     /// Unique agent identifier.
@@ -960,6 +991,16 @@ pub struct AgentDef {
     /// Tool allow/deny scope for this agent.
     #[serde(default)]
     pub tools: Option<ToolScopeDef>,
+    /// Sampling temperature (0.0–2.0).
+    #[serde(default)]
+    pub temperature: Option<f32>,
+    /// Token budget for Anthropic extended thinking. Mutually exclusive with `reasoning_effort`.
+    #[serde(default)]
+    pub thinking_budget_tokens: Option<u32>,
+    /// Reasoning effort for OpenAI o-series models (`"low"`, `"medium"`, `"high"`).
+    /// Mutually exclusive with `thinking_budget_tokens`.
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
 }
 
 /// Tool scope definition: allow-list or deny-list.
@@ -979,6 +1020,7 @@ pub enum ToolScopeDef {
 }
 
 /// Graph topology definition.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct GraphDef {
     /// Optional graph identifier.
@@ -1004,6 +1046,7 @@ pub struct GraphDef {
 }
 
 /// An edge definition in the graph.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct EdgeDef {
     /// Source agent ID.
@@ -1016,6 +1059,56 @@ pub struct EdgeDef {
     /// Edge priority (higher = preferred when multiple edges are eligible).
     #[serde(default)]
     pub priority: Option<u32>,
+}
+
+impl AgentDef {
+    /// Create a minimal agent definition with the given ID.
+    pub fn new(id: impl Into<String>) -> Self {
+        let id = id.into();
+        Self {
+            display_name: format!("{id} Agent"),
+            id,
+            soul_file: None,
+            soul: None,
+            tools_file: None,
+            model: None,
+            max_iterations: None,
+            max_tokens: None,
+            context_window: None,
+            handoff_targets: vec![],
+            tools: None,
+            temperature: None,
+            thinking_budget_tokens: None,
+            reasoning_effort: None,
+        }
+    }
+}
+
+impl GraphDef {
+    /// Create a graph definition with the given entry-point agent ID.
+    pub fn new(entry: impl Into<String>) -> Self {
+        Self {
+            id: None,
+            entry: entry.into(),
+            terminal: vec![],
+            max_total_iterations: None,
+            max_total_tokens: None,
+            max_duration_secs: None,
+            edges: vec![],
+        }
+    }
+}
+
+impl EdgeDef {
+    /// Create an edge from one agent to another.
+    pub fn new(from: impl Into<String>, to: impl Into<String>) -> Self {
+        Self {
+            from: from.into(),
+            to: to.into(),
+            condition: None,
+            priority: None,
+        }
+    }
 }
 
 /// Edge condition definition.
@@ -1042,6 +1135,7 @@ pub enum EdgeConditionDef {
 }
 
 /// Tool enable/disable configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ToolsConfig {
     /// Tools to disable (all enabled by default).
@@ -1132,6 +1226,7 @@ impl Default for LoggingConfig {
 }
 
 /// MCP (Model Context Protocol) client and server configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct McpConfig {
     /// MCP server processes to launch and connect to.
@@ -1143,6 +1238,7 @@ pub struct McpConfig {
 }
 
 /// Configuration for exposing Orka skills as an MCP server.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct McpServeConfig {
     /// Whether the MCP server is enabled.
@@ -1171,6 +1267,7 @@ impl Default for McpServeConfig {
 }
 
 /// A single MCP server process to launch.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct McpServerEntry {
     /// Unique name for this MCP server (used to prefix tool names).
@@ -1212,6 +1309,7 @@ pub struct RedactPattern {
 }
 
 /// Agent-to-Agent (A2A) protocol configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct A2aConfig {
     /// Whether the A2A endpoint is enabled.
@@ -1377,6 +1475,7 @@ fn default_os_sensitive_env_patterns() -> Vec<String> {
 }
 
 /// Knowledge & RAG configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct KnowledgeConfig {
     /// Whether the knowledge / RAG subsystem is enabled.
@@ -1394,6 +1493,7 @@ pub struct KnowledgeConfig {
 }
 
 /// Vector store backend configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct VectorStoreConfig {
     /// Vector store backend identifier (e.g. `"qdrant"`).
@@ -1438,6 +1538,7 @@ fn default_collection_name() -> String {
 }
 
 /// Embedding provider configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct EmbeddingsConfig {
     /// Embedding backend identifier: `"local"` (ONNX) or `"openai"`.
@@ -1474,6 +1575,7 @@ fn default_embedding_dimensions() -> u32 {
 }
 
 /// Document chunking configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChunkingConfig {
     /// Maximum number of characters per chunk.
@@ -1502,6 +1604,7 @@ fn default_chunk_overlap() -> usize {
 }
 
 /// Scheduler configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct SchedulerConfig {
     /// Whether the cron scheduler is enabled.
@@ -1534,6 +1637,7 @@ fn default_scheduler_max_concurrent() -> usize {
 }
 
 /// HTTP client and webhook configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct HttpClientConfig {
     /// Whether the HTTP client skill is enabled.
@@ -1582,10 +1686,11 @@ fn default_http_blocked_domains() -> Vec<String> {
 }
 
 fn default_http_user_agent() -> String {
-    "Orka/0.1".into()
+    format!("Orka/{}", env!("CARGO_PKG_VERSION"))
 }
 
 /// Inbound webhook receiver configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct WebhookConfig {
     /// Whether the inbound webhook receiver is enabled.
@@ -1618,6 +1723,7 @@ fn default_webhook_path_prefix() -> String {
 }
 
 /// Experience & self-learning configuration.
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExperienceConfig {
     /// Whether the experience / self-learning subsystem is enabled.
@@ -1976,7 +2082,16 @@ impl OrkaConfig {
                 .try_parsing(true),
         );
 
-        builder.build()?.try_deserialize()
+        builder
+            .build()
+            .and_then(|c| c.try_deserialize())
+            .map_err(|e| {
+                ConfigError::Message(format!(
+                    "failed to load orka.toml: {e}\n\
+                     Hint: check that the file exists, is valid TOML, and that all required \
+                     fields are present. Run `orka config validate` for details."
+                ))
+            })
     }
 }
 

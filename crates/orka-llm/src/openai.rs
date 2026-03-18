@@ -146,11 +146,15 @@ impl OpenAiClient {
             }
         }
 
+        let reasoning_tokens = resp["usage"]["completion_tokens_details"]["reasoning_tokens"]
+            .as_u64()
+            .unwrap_or(0) as u32;
         let usage = Usage {
             input_tokens: resp["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32,
             output_tokens: resp["usage"]["completion_tokens"].as_u64().unwrap_or(0) as u32,
             cache_read_input_tokens: 0,
             cache_creation_input_tokens: 0,
+            reasoning_tokens,
         };
 
         let stop_reason = match choice["finish_reason"].as_str() {
@@ -201,6 +205,8 @@ impl OpenAiClient {
                                     "content": content,
                                 }));
                             }
+                            // Thinking blocks are Anthropic-specific; skip for OpenAI.
+                            crate::client::ContentBlockInput::Thinking { .. } => {}
                             crate::client::ContentBlockInput::Unknown => {}
                         }
                     }
@@ -263,11 +269,18 @@ impl LlmClient for OpenAiClient {
             api_messages.push(json!({"role": m.role, "content": text}));
         }
 
-        let body = json!({
+        let mut body = json!({
             "model": model,
             "max_tokens": max_tokens,
             "messages": api_messages,
         });
+
+        if let Some(temp) = options.temperature {
+            body["temperature"] = json!(temp);
+        }
+        if let Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) = options.thinking {
+            body["reasoning_effort"] = json!(effort.as_str());
+        }
 
         debug!(model, messages = messages.len(), "calling OpenAI API");
         let resp = self.send_with_retry(&body).await?;
@@ -380,6 +393,13 @@ impl LlmClient for OpenAiClient {
             }
         }
 
+        if let Some(temp) = options.temperature {
+            body["temperature"] = json!(temp);
+        }
+        if let Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) = options.thinking {
+            body["reasoning_effort"] = json!(effort.as_str());
+        }
+
         debug!(
             model,
             messages = messages.len(),
@@ -418,6 +438,13 @@ impl LlmClient for OpenAiClient {
 
         if !tools.is_empty() {
             body["tools"] = json!(Self::build_tools(tools));
+        }
+
+        if let Some(temp) = options.temperature {
+            body["temperature"] = json!(temp);
+        }
+        if let Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) = options.thinking {
+            body["reasoning_effort"] = json!(effort.as_str());
         }
 
         debug!(
@@ -545,6 +572,10 @@ impl LlmClient for OpenAiClient {
 
                             // Usage (some OpenAI responses include it in the final chunk)
                             if let Some(usage) = event["usage"].as_object() {
+                                let reasoning_tokens =
+                                    event["usage"]["completion_tokens_details"]["reasoning_tokens"]
+                                        .as_u64()
+                                        .unwrap_or(0) as u32;
                                 events.push(StreamEvent::Usage(Usage {
                                     input_tokens: usage
                                         .get("prompt_tokens")
@@ -558,6 +589,7 @@ impl LlmClient for OpenAiClient {
                                         as u32,
                                     cache_read_input_tokens: 0,
                                     cache_creation_input_tokens: 0,
+                                    reasoning_tokens,
                                 }));
                             }
                         }

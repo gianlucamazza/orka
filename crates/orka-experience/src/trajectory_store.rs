@@ -214,6 +214,8 @@ mod tests {
                 name: "web_search".into(),
                 duration_ms: 100,
                 success,
+                error_category: None,
+                error_message: None,
             }],
             iterations: 1,
             total_tokens: 500,

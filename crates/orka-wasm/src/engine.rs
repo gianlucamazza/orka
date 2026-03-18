@@ -13,14 +13,14 @@ impl WasmEngine {
         let mut cfg = wasmtime::Config::new();
         cfg.consume_fuel(true);
         let engine = Engine::new(&cfg)
-            .map_err(|e| Error::Sandbox(format!("failed to create wasmtime engine: {e}")))?;
+            .map_err(|e| Error::sandbox_msg(format!("failed to create wasmtime engine: {e}")))?;
         Ok(Self(engine))
     }
 
     /// Pre-compile a WASM module (bytes or WAT text).
     pub fn compile(&self, bytes: &[u8]) -> Result<WasmModule> {
         let module = Module::new(&self.0, bytes)
-            .map_err(|e| Error::Sandbox(format!("failed to compile WASM module: {e}")))?;
+            .map_err(|e| Error::sandbox_msg(format!("failed to compile WASM module: {e}")))?;
         Ok(WasmModule { module })
     }
 }

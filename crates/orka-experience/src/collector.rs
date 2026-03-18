@@ -1,6 +1,8 @@
 use chrono::Utc;
 use uuid::Uuid;
 
+use orka_core::ErrorCategory;
+
 use crate::types::{OutcomeSignal, SkillTrace, Trajectory};
 
 /// Collects domain event data during a single handler invocation and produces a [`Trajectory`].
@@ -38,11 +40,20 @@ impl TrajectoryCollector {
     }
 
     /// Record a skill invocation.
-    pub fn record_skill(&mut self, name: String, duration_ms: u64, success: bool) {
+    pub fn record_skill(
+        &mut self,
+        name: String,
+        duration_ms: u64,
+        success: bool,
+        error_category: Option<ErrorCategory>,
+        error_message: Option<String>,
+    ) {
         self.skills.push(SkillTrace {
             name,
             duration_ms,
             success,
+            error_category,
+            error_message,
         });
     }
 
@@ -99,7 +110,7 @@ mod tests {
     #[test]
     fn collector_produces_trajectory() {
         let mut c = TrajectoryCollector::new("sess-1".into(), "default".into(), "hello".into());
-        c.record_skill("web_search".into(), 100, true);
+        c.record_skill("web_search".into(), 100, true, None, None);
         c.record_iteration(500);
         c.set_response("Hi there!".into());
 
@@ -115,7 +126,7 @@ mod tests {
     fn collector_detects_failure() {
         let mut c =
             TrajectoryCollector::new("sess-2".into(), "default".into(), "do something".into());
-        c.record_skill("broken_skill".into(), 50, false);
+        c.record_skill("broken_skill".into(), 50, false, None, None);
         c.record_iteration(200);
         assert!(matches!(c.outcome(), OutcomeSignal::Failure));
 

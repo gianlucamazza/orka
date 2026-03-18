@@ -8,6 +8,23 @@
 //! - **Error** ([`Error`]): unified error type for the entire platform
 //! - **Config** ([`config`]): configuration structs loaded from TOML / environment
 //! - **Testing** ([`testing`]): in-memory test doubles for all core traits
+//!
+//! # Examples
+//!
+//! ```
+//! use orka_core::{Error, Result};
+//!
+//! fn might_fail(ok: bool) -> Result<String> {
+//!     if ok {
+//!         Ok("success".into())
+//!     } else {
+//!         Err(Error::Other("something went wrong".into()))
+//!     }
+//! }
+//!
+//! assert!(might_fail(true).is_ok());
+//! assert!(might_fail(false).is_err());
+//! ```
 #![warn(missing_docs)]
 
 /// Configuration types for the Orka platform.
@@ -35,8 +52,8 @@ pub use error::{Error, Result};
 pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 pub use types::{
-    CommandPayload, DomainEvent, DomainEventKind, Envelope, EventId, EventPayload, MediaPayload,
-    MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage, Payload, Priority, RunId,
-    SecretValue, Session, SessionId, SkillContext, SkillInput, SkillOutput, SkillSchema,
-    TraceContext, backoff_delay,
+    CommandPayload, DomainEvent, DomainEventKind, Envelope, ErrorCategory, EventId, EventPayload,
+    MediaPayload, MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage, Payload,
+    Priority, RunId, SecretValue, Session, SessionId, SkillContext, SkillInput, SkillOutput,
+    SkillSchema, TraceContext, backoff_delay,
 };

@@ -6,6 +6,22 @@ use uuid::Uuid;
 
 use crate::traits::{EventSink, SecretManager};
 
+/// Category of error for skill invocations, used by the circuit breaker and self-learning system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCategory {
+    /// Permanent environment error: permissions, missing binary, sandbox, blocked syscall.
+    Environmental,
+    /// Invalid input provided by the caller (LLM).
+    Input,
+    /// Execution timeout.
+    Timeout,
+    /// Transient error: network, service temporarily unavailable.
+    Transient,
+    /// Category cannot be determined.
+    Unknown,
+}
+
 /// Well-known metadata keys used across adapters and the worker.
 pub mod meta {
     /// The name of the workspace associated with this message.
@@ -182,6 +198,18 @@ pub enum DomainEventKind {
         duration_ms: u64,
         /// Whether the skill returned successfully.
         success: bool,
+        /// Error category, if the skill failed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_category: Option<ErrorCategory>,
+    },
+    /// Emitted when a skill is structurally disabled (circuit open or experience feedback).
+    SkillDisabled {
+        /// Name of the skill that was disabled.
+        skill_name: String,
+        /// Human-readable reason for disabling.
+        reason: String,
+        /// Source of the disable action: "circuit_breaker" or "experience_feedback".
+        source: String,
     },
     /// Emitted after each LLM call with token usage and latency.
     LlmCompleted {
@@ -193,6 +221,9 @@ pub enum DomainEventKind {
         input_tokens: u32,
         /// Number of tokens in the response.
         output_tokens: u32,
+        /// Number of tokens consumed by extended thinking / reasoning.
+        #[serde(default)]
+        reasoning_tokens: u32,
         /// Wall-clock time for the LLM call in milliseconds.
         duration_ms: u64,
         /// Estimated cost in USD (if cost-per-token config is available).

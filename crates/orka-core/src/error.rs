@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::types::ErrorCategory;
+
 /// Unified error type for the Orka platform.
 ///
 /// Each variant corresponds to a subsystem; structured variants carry
@@ -53,20 +55,47 @@ pub enum Error {
     },
 
     /// Worker processing failure.
-    #[error("worker error: {0}")]
-    Worker(String),
+    #[error("worker error: {context}")]
+    Worker {
+        /// Root cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Human-readable context for the failure.
+        context: String,
+    },
 
     /// Sandbox execution failure.
-    #[error("sandbox error: {0}")]
-    Sandbox(String),
+    #[error("sandbox error: {context}")]
+    Sandbox {
+        /// Root cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Human-readable context for the failure.
+        context: String,
+    },
 
     /// Observability subsystem error.
-    #[error("observe error: {0}")]
-    Observe(String),
+    #[error("observe error: {context}")]
+    Observe {
+        /// Root cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Human-readable context for the failure.
+        context: String,
+    },
 
     /// Skill execution error.
     #[error("skill error: {0}")]
     Skill(String),
+
+    /// Skill error with error categorization for circuit breaker decisions.
+    #[error("skill error ({category:?}): {message}")]
+    SkillCategorized {
+        /// Human-readable error description.
+        message: String,
+        /// Error category for circuit breaker decisions.
+        category: ErrorCategory,
+    },
 
     /// Memory store operation failure.
     #[error("memory error: {context}")]
@@ -105,12 +134,24 @@ pub enum Error {
     Scheduler(String),
 
     /// HTTP client request failure.
-    #[error("http client error: {0}")]
-    HttpClient(String),
+    #[error("http client error: {context}")]
+    HttpClient {
+        /// Root cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Human-readable context for the failure.
+        context: String,
+    },
 
     /// LLM provider communication error.
-    #[error("llm error: {0}")]
-    Llm(String),
+    #[error("llm error: {context}")]
+    Llm {
+        /// Root cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Human-readable context for the failure.
+        context: String,
+    },
 
     /// Channel adapter error.
     #[error("adapter error: {context}")]
@@ -148,6 +189,24 @@ impl std::fmt::Display for SimpleError {
 impl std::error::Error for SimpleError {}
 
 impl Error {
+    /// Extract the error category, if available.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use orka_core::{Error, types::ErrorCategory};
+    ///
+    /// let e = Error::Auth("token expired".into());
+    /// assert_eq!(e.category(), ErrorCategory::Environmental);
+    /// ```
+    pub fn category(&self) -> ErrorCategory {
+        match self {
+            Error::SkillCategorized { category, .. } => *category,
+            Error::Auth(_) => ErrorCategory::Environmental,
+            _ => ErrorCategory::Unknown,
+        }
+    }
+
     /// Create a bus error from a message string.
     pub fn bus(msg: impl Into<String>) -> Self {
         let s = msg.into();
@@ -188,6 +247,125 @@ impl Error {
     pub fn adapter(msg: impl Into<String>) -> Self {
         let s = msg.into();
         Self::Adapter {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    /// Create a worker error from a source error and context.
+    pub fn worker(
+        source: impl std::error::Error + Send + Sync + 'static,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::Worker {
+            source: Box::new(source),
+            context: context.into(),
+        }
+    }
+
+    /// Create a worker error from a plain message string.
+    pub fn worker_msg(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Worker {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    /// Create a sandbox error from a source error and context.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use orka_core::Error;
+    ///
+    /// let io_err = std::io::Error::other("process killed");
+    /// let e = Error::sandbox(io_err, "wasm execution failed");
+    /// assert!(e.to_string().contains("sandbox error"));
+    /// ```
+    pub fn sandbox(
+        source: impl std::error::Error + Send + Sync + 'static,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::Sandbox {
+            source: Box::new(source),
+            context: context.into(),
+        }
+    }
+
+    /// Create a sandbox error from a plain message string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use orka_core::Error;
+    ///
+    /// let e = Error::sandbox_msg("permission denied");
+    /// assert!(e.to_string().contains("sandbox error"));
+    /// ```
+    pub fn sandbox_msg(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Sandbox {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    /// Create an observe error from a source error and context.
+    pub fn observe(
+        source: impl std::error::Error + Send + Sync + 'static,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::Observe {
+            source: Box::new(source),
+            context: context.into(),
+        }
+    }
+
+    /// Create an observe error from a plain message string.
+    pub fn observe_msg(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Observe {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    /// Create an HTTP client error from a source error and context.
+    pub fn http_client(
+        source: impl std::error::Error + Send + Sync + 'static,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::HttpClient {
+            source: Box::new(source),
+            context: context.into(),
+        }
+    }
+
+    /// Create an HTTP client error from a plain message string.
+    pub fn http_client_msg(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::HttpClient {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    /// Create an LLM error from a source error and context.
+    pub fn llm(
+        source: impl std::error::Error + Send + Sync + 'static,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::Llm {
+            source: Box::new(source),
+            context: context.into(),
+        }
+    }
+
+    /// Create an LLM error from a plain message string.
+    pub fn llm_msg(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Llm {
             source: Box::new(SimpleError(s.clone())),
             context: s,
         }

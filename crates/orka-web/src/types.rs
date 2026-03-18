@@ -127,5 +127,5 @@ fn default_read_timeout_secs() -> u64 {
 }
 
 fn default_user_agent() -> String {
-    "Orka/0.1 (Web Agent)".into()
+    format!("Orka/{} (Web Agent)", env!("CARGO_PKG_VERSION"))
 }

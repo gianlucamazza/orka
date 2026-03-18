@@ -5,12 +5,22 @@ use orka_core::config::ExperienceConfig;
 use orka_llm::client::LlmClient;
 use tracing::{debug, info, warn};
 
+use orka_core::ErrorCategory;
+
 use crate::collector::TrajectoryCollector;
 use crate::distiller::Distiller;
 use crate::reflector::PrincipleReflector;
 use crate::store::PrincipleStore;
 use crate::trajectory_store::TrajectoryStore;
-use crate::types::{Principle, Trajectory};
+use crate::types::{Principle, StructuralAction, Trajectory};
+
+/// Result of a reflection pass: principles for prompt injection and structural actions to apply.
+pub struct ReflectionResult {
+    /// Number of principles created or updated by this reflection.
+    pub principles_created: usize,
+    /// Structural actions derived deterministically from the trajectory.
+    pub actions: Vec<StructuralAction>,
+}
 
 /// High-level facade combining trajectory collection, principle reflection, retrieval,
 /// trajectory persistence, and offline distillation.
@@ -114,14 +124,24 @@ impl ExperienceService {
     }
 
     /// Decide whether to reflect on a trajectory and, if so, perform reflection.
-    /// Returns the number of principles created.
-    pub async fn maybe_reflect(&self, trajectory: &Trajectory) -> Result<usize> {
+    ///
+    /// Returns a [`ReflectionResult`] with the number of principles created and any
+    /// structural actions (e.g. skill disabling) derived deterministically from the trajectory.
+    pub async fn maybe_reflect(&self, trajectory: &Trajectory) -> Result<ReflectionResult> {
+        let actions = Self::derive_structural_actions(trajectory);
+
         if !self.config.enabled {
-            return Ok(0);
+            return Ok(ReflectionResult {
+                principles_created: 0,
+                actions,
+            });
         }
 
         if !self.should_reflect(trajectory) {
-            return Ok(0);
+            return Ok(ReflectionResult {
+                principles_created: 0,
+                actions,
+            });
         }
 
         let principles = self
@@ -130,7 +150,10 @@ impl ExperienceService {
             .await?;
 
         if principles.is_empty() {
-            return Ok(0);
+            return Ok(ReflectionResult {
+                principles_created: 0,
+                actions,
+            });
         }
 
         let stored = self
@@ -144,7 +167,23 @@ impl ExperienceService {
             "reflection completed"
         );
 
-        Ok(stored)
+        Ok(ReflectionResult {
+            principles_created: stored,
+            actions,
+        })
+    }
+
+    /// Derive structural actions deterministically from a trajectory (no LLM involved).
+    fn derive_structural_actions(trajectory: &Trajectory) -> Vec<StructuralAction> {
+        trajectory
+            .skills_used
+            .iter()
+            .filter(|s| !s.success && s.error_category == Some(ErrorCategory::Environmental))
+            .map(|s| StructuralAction::DisableSkill {
+                skill_name: s.name.clone(),
+                reason: s.error_message.clone().unwrap_or_default(),
+            })
+            .collect()
     }
 
     /// Run offline distillation over recent trajectories.

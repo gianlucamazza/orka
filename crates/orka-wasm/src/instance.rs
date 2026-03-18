@@ -59,16 +59,16 @@ impl WasmInstance {
         if let Some(fuel) = limits.fuel {
             store
                 .set_fuel(fuel)
-                .map_err(|e| Error::Sandbox(format!("failed to set fuel: {e}")))?;
+                .map_err(|e| Error::sandbox_msg(format!("failed to set fuel: {e}")))?;
         }
 
         let mut linker: Linker<InstanceState> = Linker::new(engine);
         wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |s: &mut InstanceState| &mut s.wasi)
-            .map_err(|e| Error::Sandbox(format!("failed to add WASI to linker: {e}")))?;
+            .map_err(|e| Error::sandbox_msg(format!("failed to add WASI to linker: {e}")))?;
 
         let instance = linker
             .instantiate(&mut store, &module.module)
-            .map_err(|e| Error::Sandbox(format!("failed to instantiate module: {e}")))?;
+            .map_err(|e| Error::sandbox_msg(format!("failed to instantiate module: {e}")))?;
 
         Ok(Self {
             store,
@@ -86,7 +86,7 @@ impl WasmInstance {
     {
         self.instance
             .get_typed_func::<Params, Results>(&mut self.store, name)
-            .map_err(|e| Error::Sandbox(format!("missing export '{name}': {e}")))
+            .map_err(|e| Error::sandbox_msg(format!("missing export '{name}': {e}")))
     }
 
     /// Call a typed export function.
@@ -97,7 +97,7 @@ impl WasmInstance {
     {
         let f: TypedFunc<Params, Results> = self.get_func(name)?;
         f.call(&mut self.store, params)
-            .map_err(|e| Error::Sandbox(format!("call '{name}' failed: {e}")))
+            .map_err(|e| Error::sandbox_msg(format!("call '{name}' failed: {e}")))
     }
 
     /// Call `_start` (WASI command entry point), returning the exit code.
@@ -121,13 +121,13 @@ impl WasmInstance {
         let memory = self
             .instance
             .get_memory(&mut self.store, "memory")
-            .ok_or_else(|| Error::Sandbox("wasm module has no 'memory' export".into()))?;
+            .ok_or_else(|| Error::sandbox_msg("wasm module has no 'memory' export"))?;
         let data = memory.data(&self.store);
         let start = ptr as usize;
         let end = start
             .checked_add(len as usize)
             .filter(|&e| e <= data.len())
-            .ok_or_else(|| Error::Sandbox("memory read out of bounds".into()))?;
+            .ok_or_else(|| Error::sandbox_msg("memory read out of bounds"))?;
         Ok(data[start..end].to_vec())
     }
 
@@ -136,10 +136,10 @@ impl WasmInstance {
         let memory = self
             .instance
             .get_memory(&mut self.store, "memory")
-            .ok_or_else(|| Error::Sandbox("wasm module has no 'memory' export".into()))?;
+            .ok_or_else(|| Error::sandbox_msg("wasm module has no 'memory' export"))?;
         memory
             .write(&mut self.store, ptr as usize, data)
-            .map_err(|e| Error::Sandbox(format!("memory write failed: {e}")))
+            .map_err(|e| Error::sandbox_msg(format!("memory write failed: {e}")))
     }
 
     /// Consume the instance and return the captured stdout/stderr bytes.

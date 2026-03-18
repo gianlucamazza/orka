@@ -9,6 +9,17 @@ license.workspace = true
 name = "orka-server"
 path = "src/main.rs"
 
+[features]
+default = ["telegram", "discord", "slack", "whatsapp"]
+## Enable the Telegram bot adapter.
+telegram = ["dep:orka-adapter-telegram"]
+## Enable the Discord bot adapter.
+discord = ["dep:orka-adapter-discord"]
+## Enable the Slack Events API adapter.
+slack = ["dep:orka-adapter-slack"]
+## Enable the WhatsApp Cloud API adapter.
+whatsapp = ["dep:orka-adapter-whatsapp"]
+
 [dependencies]
 orka-core.workspace = true
 orka-bus.workspace = true
@@ -19,10 +30,10 @@ orka-worker.workspace = true
 orka-workspace.workspace = true
 orka-auth.workspace = true
 orka-adapter-custom.workspace = true
-orka-adapter-telegram.workspace = true
-orka-adapter-discord.workspace = true
-orka-adapter-slack.workspace = true
-orka-adapter-whatsapp.workspace = true
+orka-adapter-telegram = { workspace = true, optional = true }
+orka-adapter-discord = { workspace = true, optional = true }
+orka-adapter-slack = { workspace = true, optional = true }
+orka-adapter-whatsapp = { workspace = true, optional = true }
 orka-memory.workspace = true
 orka-secrets.workspace = true
 orka-observe.workspace = true
@@ -53,6 +64,7 @@ serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 redis.workspace = true
+reqwest = { workspace = true, features = ["json"] }
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
 async-trait.workspace = true

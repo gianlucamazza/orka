@@ -126,6 +126,7 @@ impl Usage {
             output_tokens,
             cache_read_input_tokens: 0,
             cache_creation_input_tokens: 0,
+            reasoning_tokens: 0,
         }
     }
 }
@@ -143,6 +144,41 @@ impl CompletionResponse {
 
 /// A stream of text chunks from an LLM response.
 pub type LlmStream = Pin<Box<dyn futures_util::Stream<Item = Result<String>> + Send>>;
+
+/// Extended thinking / reasoning configuration.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum ThinkingConfig {
+    /// Anthropic extended thinking with a token budget.
+    Enabled {
+        /// Maximum tokens the model may spend on thinking.
+        budget_tokens: u32,
+    },
+    /// OpenAI o-series reasoning effort.
+    ReasoningEffort(ReasoningEffort),
+}
+
+/// OpenAI o-series reasoning effort level.
+#[derive(Debug, Clone, Copy)]
+pub enum ReasoningEffort {
+    /// Low effort — fastest, least thorough.
+    Low,
+    /// Medium effort — balanced.
+    Medium,
+    /// High effort — most thorough.
+    High,
+}
+
+impl ReasoningEffort {
+    /// Return the string value expected by the OpenAI API.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReasoningEffort::Low => "low",
+            ReasoningEffort::Medium => "medium",
+            ReasoningEffort::High => "high",
+        }
+    }
+}
 
 /// Structured output format.
 #[derive(Debug, Clone)]
@@ -169,6 +205,10 @@ pub struct CompletionOptions {
     pub max_tokens: Option<u32>,
     /// Optional JSON Schema for structured/constrained output.
     pub response_format: Option<ResponseFormat>,
+    /// Sampling temperature (0.0–2.0). Note: Anthropic requires temperature=1 when thinking is enabled.
+    pub temperature: Option<f32>,
+    /// Extended thinking / reasoning configuration.
+    pub thinking: Option<ThinkingConfig>,
 }
 
 /// A tool definition sent to the LLM.
@@ -207,7 +247,7 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
-/// A content block in an LLM response — either text or a tool call.
+/// A content block in an LLM response — either text, a tool call, or reasoning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ContentBlock {
@@ -215,6 +255,8 @@ pub enum ContentBlock {
     Text(String),
     /// A tool invocation requested by the model.
     ToolUse(ToolCall),
+    /// Extended thinking/reasoning text produced before the response.
+    Thinking(String),
 }
 
 /// Content can be simple text or a list of content blocks (for tool results).
@@ -279,8 +321,14 @@ pub enum ContentBlockInput {
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         is_error: bool,
     },
+    /// A thinking/reasoning block returned by reasoning-capable models.
+    #[serde(rename = "thinking")]
+    Thinking {
+        /// The model's internal reasoning text.
+        thinking: String,
+    },
     /// Unknown block type — ignored gracefully to avoid deserialization failures
-    /// when the API introduces new block types (e.g. `"thinking"`).
+    /// when the API introduces new block types.
     #[serde(other)]
     Unknown,
 }
@@ -299,6 +347,9 @@ pub struct Usage {
     /// Tokens written to cache.
     #[serde(default)]
     pub cache_creation_input_tokens: u32,
+    /// Tokens consumed by extended thinking / reasoning (Anthropic + OpenAI o-series).
+    #[serde(default)]
+    pub reasoning_tokens: u32,
 }
 
 /// Why the model stopped generating.
@@ -332,6 +383,8 @@ pub struct CompletionResponse {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum StreamEvent {
+    /// An incremental thinking/reasoning chunk (extended thinking models).
+    ThinkingDelta(String),
     /// An incremental text chunk.
     TextDelta(String),
     /// The model is beginning a tool call.
@@ -446,6 +499,7 @@ pub trait LlmClient: Send + Sync + 'static {
                         input: call.input.clone(),
                     }));
                 }
+                ContentBlock::Thinking(t) => events.push(Ok(StreamEvent::ThinkingDelta(t.clone()))),
             }
         }
         events.push(Ok(StreamEvent::Usage(resp.usage)));
@@ -481,14 +535,23 @@ mod tests {
     }
 
     #[test]
-    fn content_block_input_unknown_type_is_ignored() {
+    fn content_block_input_thinking_type_is_deserialized() {
         let json = r#"{"type":"thinking","thinking":"some internal thought"}"#;
+        let b: ContentBlockInput = serde_json::from_str(json).unwrap();
+        assert!(
+            matches!(b, ContentBlockInput::Thinking { thinking } if thinking == "some internal thought")
+        );
+    }
+
+    #[test]
+    fn content_block_input_unknown_type_is_ignored() {
+        let json = r#"{"type":"unknown_future_block","data":42}"#;
         let b: ContentBlockInput = serde_json::from_str(json).unwrap();
         assert!(matches!(b, ContentBlockInput::Unknown));
     }
 
     #[test]
-    fn chat_content_with_mixed_blocks_including_unknown() {
+    fn chat_content_with_mixed_blocks_including_thinking() {
         let json = r#"[
             {"type":"text","text":"hello"},
             {"type":"thinking","thinking":"internal"},
@@ -500,7 +563,7 @@ mod tests {
         };
         assert_eq!(blocks.len(), 3);
         assert!(matches!(&blocks[0], ContentBlockInput::Text { .. }));
-        assert!(matches!(&blocks[1], ContentBlockInput::Unknown));
+        assert!(matches!(&blocks[1], ContentBlockInput::Thinking { .. }));
         assert!(matches!(&blocks[2], ContentBlockInput::ToolUse { .. }));
     }
 }

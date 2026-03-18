@@ -141,9 +141,9 @@ Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 | `logging`                | `level`                   | `info`                   | Log level                                  |
 | `logging`                | `json`                    | `false`                  | JSON log format                            |
 | `agent`                  | `id`                      | `orka-default`           | Agent identifier                           |
-| `agent`                  | `max_iterations`          | `15`                     | Max agentic loop iterations per turn       |
+| `agent`                  | `max_iterations`          | `10`                     | Max agentic loop iterations per turn       |
 | `agent`                  | `heartbeat_interval_secs` | `30`                     | Streaming heartbeat interval               |
-| `llm`                    | `timeout_secs`            | `120`                    | LLM request timeout                        |
+| `llm`                    | `timeout_secs`            | `30`                     | LLM request timeout                        |
 | `llm`                    | `max_tokens`              | `8192`                   | Default max output tokens                  |
 | `llm.providers`          | `name`                    | —                        | Provider name (array of provider configs)  |
 | `knowledge`              | `enabled`                 | `true`                   | Enable RAG/knowledge base                  |
@@ -151,7 +151,7 @@ Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 | `knowledge.vector_store` | `url`                     | `http://localhost:6334`  | Qdrant endpoint                            |
 | `scheduler`              | `enabled`                 | `true`                   | Enable cron scheduler                      |
 | `scheduler`              | `poll_interval_secs`      | `5`                      | Scheduler polling interval                 |
-| `web`                    | `search_provider`         | `tavily`                 | Web search backend (`tavily` or `searxng`) |
+| `web`                    | `search_provider`         | `none`                   | Web search backend (`tavily` or `searxng`) |
 | `os`                     | `enabled`                 | `true`                   | Enable OS integration skills               |
 | `os`                     | `permission_level`        | `admin`                  | OS skill permission level                  |
 | `http`                   | `enabled`                 | `true`                   | Enable HTTP request skill                  |
@@ -160,8 +160,50 @@ Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 | `guardrails`             | `pii_filter`              | `false`                  | Enable PII redaction                       |
 | `mcp.servers`            | `name`                    | —                        | MCP server name (array of server configs)  |
 | `mcp.servers`            | `command`                 | —                        | Command to launch MCP server               |
+| `mcp.serve`              | `enabled`                 | `false`                  | Expose Orka as an MCP server               |
+| `mcp.serve`              | `transport`               | `stdio`                  | `stdio` or `sse`                           |
+| `bus`                    | `backend`                 | `redis`                  | Message bus backend                        |
+| `bus`                    | `block_ms`                | `5000`                   | XREADGROUP BLOCK timeout (ms)              |
+| `bus`                    | `batch_size`              | `10`                     | Messages per read batch                    |
+| `memory`                 | `backend`                 | `auto`                   | `redis`, `memory`, or `auto`               |
+| `session`                | `backend`                 | `auto`                   | `redis`, `memory`, or `auto`               |
+| `queue`                  | `backend`                 | `auto`                   | `redis`, `memory`, or `auto`               |
+| `observe`                | `backend`                 | `log`                    | `log`, `redis`, or `otel`                  |
+| `agent`                  | `max_history_entries`     | `50`                     | Max conversation turns kept in context     |
+| `agent`                  | `skill_timeout_secs`      | `120`                    | Per-skill execution timeout                |
+| `agent`                  | `temperature`             | —                        | LLM sampling temperature (0.0–2.0)         |
+| `agent`                  | `thinking_budget_tokens`  | —                        | Anthropic extended thinking budget         |
+| `agent`                  | `reasoning_effort`        | —                        | OpenAI o-series: `low`, `medium`, `high`   |
+| `experience`             | `enabled`                 | `false`                  | Enable self-learning experience loop       |
+| `experience`             | `reflect_on`              | `failures`               | `failures`, `all`, or `sampled`            |
+| `experience`             | `max_principles`          | `5`                      | Max principles injected into system prompt |
+| `a2a`                    | `enabled`                 | `false`                  | Enable Agent-to-Agent protocol             |
+| `os`                     | `sensitive_env_patterns`  | glob list                | Env var patterns redacted from tool output |
+| `os`                     | `allowed_commands`        | `[]`                     | Explicit command allow-list for OS skills  |
 
-For a complete reference, see [`orka.toml`](orka.toml). Environment variables use `ORKA__` prefix with `__` as separator (e.g., `ORKA__REDIS__URL`).
+For a complete reference, see [`orka.toml`](orka.toml).
+
+### Environment Variables
+
+| Variable                     | Description                                             |
+| ---------------------------- | ------------------------------------------------------- |
+| `ORKA_CONFIG`                | Path to config file (default: `./orka.toml`)            |
+| `ORKA_ENV_FILE`              | Path to `.env` file for hot-reload                      |
+| `ORKA_ENV` / `APP_ENV`       | `production` requires encryption key for secrets        |
+| `ORKA_SECRET_ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM secret encryption       |
+| `ORKA_HOST_HOSTNAME`         | Override hostname in system info                        |
+| `ORKA_SERVER_URL`            | CLI: server endpoint (default `http://127.0.0.1:8080`)  |
+| `ORKA_ADAPTER_URL`           | CLI: adapter endpoint (default `http://127.0.0.1:8081`) |
+| `ORKA_API_KEY`               | CLI: API key for authenticated requests                 |
+| `ANTHROPIC_API_KEY`          | Anthropic provider fallback                             |
+| `OPENAI_API_KEY`             | OpenAI provider fallback                                |
+| `TAVILY_API_KEY`             | Tavily web search key                                   |
+| `BRAVE_API_KEY`              | Brave web search key                                    |
+| `RUST_LOG`                   | Overrides `logging.level` via tracing `EnvFilter`       |
+
+Config fields can also be overridden via `ORKA__<SECTION>__<KEY>` (e.g., `ORKA__REDIS__URL`).
+
+> **Hot-reload**: Orka watches the `.env` file for changes. API key updates trigger automatic LLM client refresh without restart.
 
 ## Workspaces
 
@@ -192,11 +234,22 @@ cargo clippy --workspace --all-targets
 
 ## CLI
 
-Orka includes a CLI tool for workspace management:
-
 ```bash
-cargo run --bin orka-cli -- --help
+orka health                      # Server health check
+orka status                      # Server status (uptime, workers, adapters)
+orka ready                       # Readiness probe (exit 1 if not ready)
+orka send "Hello"                # Send a message (--session-id, --timeout)
+orka chat                        # Interactive session (--session-id)
+orka dlq list|replay|purge       # Dead letter queue management
+orka secret set|get|list|delete  # Encrypted secret management
+orka config check                # Validate orka.toml
+orka config migrate              # Schema migration (--dry-run)
+orka sudo check                  # Verify sudoers for allowed commands
+orka mcp-serve                   # Run as MCP server (stdio)
+orka completions <shell>         # Generate completions (bash/zsh/fish)
 ```
+
+Global flags: `--server <url>`, `--adapter <url>`, `--api-key <key>` (or env vars above).
 
 ## Project Structure
 
@@ -237,6 +290,17 @@ orka/
 └── examples/
     └── hello-plugin/         # Example WASM plugin
 ```
+
+## Privacy
+
+Orka does not collect telemetry, usage data, or analytics of any kind. No data leaves your infrastructure unless you explicitly configure it to do so.
+
+- **LLM API calls** are made directly from your deployment to the provider you configure (Anthropic, OpenAI, Ollama, etc.). Orka does not proxy or inspect these requests.
+- **Messages and sessions** are stored in your own Redis instance. Nothing is sent to third-party services without your configuration.
+- **WASM plugins** run in a sandboxed environment with explicit memory and CPU limits. They cannot make outbound network calls unless the host grants access.
+- **Knowledge base** (RAG) data is stored in your own Qdrant instance.
+
+You are in full control of what enters and exits the system.
 
 ## License
 

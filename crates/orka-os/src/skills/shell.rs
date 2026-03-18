@@ -6,7 +6,8 @@ use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use orka_core::{
-    DomainEvent, DomainEventKind, Error, Result, SkillInput, SkillOutput, SkillSchema,
+    DomainEvent, DomainEventKind, Error, ErrorCategory, Result, SkillInput, SkillOutput,
+    SkillSchema,
 };
 use tracing::debug;
 use uuid::Uuid;
@@ -96,7 +97,10 @@ impl Skill for ShellExecSkill {
             .args
             .get("command")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'command' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'command' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
         let args: Vec<&str> = input
             .args
             .get("args")
@@ -193,9 +197,18 @@ impl Skill for ShellExecSkill {
 
         let start = std::time::Instant::now();
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| Error::Skill(format!("failed to spawn '{}': {}", command, e)))?;
+        let mut child = cmd.spawn().map_err(|e| {
+            let category = match e.kind() {
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
+                    ErrorCategory::Environmental
+                }
+                _ => ErrorCategory::Unknown,
+            };
+            Error::SkillCategorized {
+                message: format!("failed to spawn '{}': {}", command, e),
+                category,
+            }
+        })?;
 
         // Write stdin if provided
         if let Some(data) = stdin_data
@@ -257,10 +270,10 @@ impl Skill for ShellExecSkill {
                         nix::sys::signal::Signal::SIGKILL,
                     );
                 }
-                Err(Error::Skill(format!(
-                    "command timed out after {} seconds",
-                    timeout
-                )))
+                Err(Error::SkillCategorized {
+                    message: format!("command timed out after {} seconds", timeout),
+                    category: ErrorCategory::Timeout,
+                })
             }
         }
     }

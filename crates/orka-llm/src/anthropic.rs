@@ -8,8 +8,8 @@ use tracing::debug;
 
 use crate::client::{
     ChatContent, ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
-    LlmClient, LlmStream, LlmToolStream, RetryableError, StopReason, StreamEvent, ToolCall,
-    ToolDefinition, Usage,
+    ContentBlockInput, LlmClient, LlmStream, LlmToolStream, RetryableError, StopReason,
+    StreamEvent, ToolCall, ToolDefinition, Usage,
 };
 use orka_core::retry::retry_with_backoff;
 use orka_core::{Error, Result};
@@ -141,6 +141,7 @@ impl AnthropicClient {
             cache_read_input_tokens: usage["cache_read_input_tokens"].as_u64().unwrap_or(0) as u32,
             cache_creation_input_tokens: usage["cache_creation_input_tokens"].as_u64().unwrap_or(0)
                 as u32,
+            reasoning_tokens: usage["thinking_tokens"].as_u64().unwrap_or(0) as u32,
         }
     }
 
@@ -166,6 +167,10 @@ impl AnthropicClient {
                             let text = block["text"].as_str().unwrap_or("").to_string();
                             Some(ContentBlock::Text(text))
                         }
+                        Some("thinking") => {
+                            let thinking = block["thinking"].as_str().unwrap_or("").to_string();
+                            Some(ContentBlock::Thinking(thinking))
+                        }
                         Some("tool_use") => {
                             let id = block["id"].as_str().unwrap_or("").to_string();
                             let name = block["name"].as_str().unwrap_or("").to_string();
@@ -180,6 +185,7 @@ impl AnthropicClient {
     }
 
     /// Build API messages from ChatMessageExt.
+    /// Thinking blocks are filtered out — Anthropic requires they are not re-sent in history.
     fn build_ext_messages(messages: &[ChatMessageExt]) -> Vec<serde_json::Value> {
         messages
             .iter()
@@ -188,6 +194,7 @@ impl AnthropicClient {
                 ChatContent::Blocks(blocks) => {
                     let blocks_json: Vec<serde_json::Value> = blocks
                         .iter()
+                        .filter(|b| !matches!(b, ContentBlockInput::Thinking { .. }))
                         .map(|b| serde_json::to_value(b).unwrap_or_default())
                         .collect();
                     json!({"role": m.role, "content": blocks_json})
@@ -228,12 +235,27 @@ impl LlmClient for AnthropicClient {
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
         let api_messages = Self::build_simple_messages(&messages);
 
-        let body = json!({
+        let mut body = json!({
             "model": model,
             "max_tokens": max_tokens,
             "system": system,
             "messages": api_messages,
         });
+
+        match &options.thinking {
+            Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
+                body["thinking"] = json!({
+                    "type": "enabled",
+                    "budget_tokens": budget_tokens,
+                });
+                body["temperature"] = json!(1);
+            }
+            _ => {
+                if let Some(temp) = options.temperature {
+                    body["temperature"] = json!(temp);
+                }
+            }
+        }
 
         debug!(model, messages = messages.len(), "calling Anthropic API");
 
@@ -279,6 +301,23 @@ impl LlmClient for AnthropicClient {
         });
         if !api_tools.is_empty() {
             body["tools"] = json!(api_tools);
+        }
+
+        // Extended thinking: inject thinking param and force temperature=1 (Anthropic requirement)
+        match &options.thinking {
+            Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
+                body["thinking"] = json!({
+                    "type": "enabled",
+                    "budget_tokens": budget_tokens,
+                });
+                // Anthropic requires temperature=1 when thinking is enabled
+                body["temperature"] = json!(1);
+            }
+            _ => {
+                if let Some(temp) = options.temperature {
+                    body["temperature"] = json!(temp);
+                }
+            }
         }
 
         // Structured output support (not all providers support this)
@@ -418,6 +457,21 @@ impl LlmClient for AnthropicClient {
             body["tools"] = json!(api_tools);
         }
 
+        match &options.thinking {
+            Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
+                body["thinking"] = json!({
+                    "type": "enabled",
+                    "budget_tokens": budget_tokens,
+                });
+                body["temperature"] = json!(1);
+            }
+            _ => {
+                if let Some(temp) = options.temperature {
+                    body["temperature"] = json!(temp);
+                }
+            }
+        }
+
         debug!(
             model,
             messages = messages.len(),
@@ -485,6 +539,10 @@ impl LlmClient for AnthropicClient {
                                                     .as_u64()
                                                     .unwrap_or(0)
                                                     as u32,
+                                            reasoning_tokens: msg["usage"]["reasoning_tokens"]
+                                                .as_u64()
+                                                .unwrap_or(0)
+                                                as u32,
                                         };
                                         events.push(StreamEvent::Usage(usage));
                                     }
@@ -492,6 +550,9 @@ impl LlmClient for AnthropicClient {
                                 "content_block_start" => {
                                     let block = &event["content_block"];
                                     match block["type"].as_str() {
+                                        Some("thinking") => {
+                                            // thinking block — deltas arrive as thinking_delta
+                                        }
                                         Some("tool_use") => {
                                             let id = block["id"].as_str().unwrap_or("").to_string();
                                             let name =
@@ -512,6 +573,13 @@ impl LlmClient for AnthropicClient {
                                 "content_block_delta" => {
                                     let delta = &event["delta"];
                                     match delta["type"].as_str() {
+                                        Some("thinking_delta") => {
+                                            if let Some(thinking) = delta["thinking"].as_str() {
+                                                events.push(StreamEvent::ThinkingDelta(
+                                                    thinking.to_string(),
+                                                ));
+                                            }
+                                        }
                                         Some("text_delta") => {
                                             if let Some(text) = delta["text"].as_str() {
                                                 events
@@ -570,6 +638,11 @@ impl LlmClient for AnthropicClient {
                                                 as u32,
                                             cache_read_input_tokens: 0,
                                             cache_creation_input_tokens: 0,
+                                            reasoning_tokens: usage
+                                                .get("reasoning_tokens")
+                                                .and_then(|v| v.as_u64())
+                                                .unwrap_or(0)
+                                                as u32,
                                         }));
                                     }
                                 }
@@ -713,11 +786,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_content_blocks_includes_thinking() {
+        let resp = json!({
+            "content": [
+                {"type": "thinking", "thinking": "let me reason..."},
+                {"type": "text", "text": "hello"},
+            ]
+        });
+        let blocks = AnthropicClient::parse_content_blocks(&resp);
+        assert_eq!(blocks.len(), 2);
+        assert!(matches!(&blocks[0], ContentBlock::Thinking(t) if t == "let me reason..."));
+        assert!(matches!(&blocks[1], ContentBlock::Text(t) if t == "hello"));
+    }
+
+    #[test]
     fn parse_content_blocks_skips_unknown_types() {
         let resp = json!({
             "content": [
                 {"type": "text", "text": "hello"},
-                {"type": "thinking", "text": "..."},
+                {"type": "future_block", "data": "..."},
             ]
         });
         let blocks = AnthropicClient::parse_content_blocks(&resp);

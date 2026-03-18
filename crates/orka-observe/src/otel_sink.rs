@@ -81,6 +81,7 @@ impl EventSink for OtelEventSink {
                 message_id,
                 duration_ms,
                 success,
+                ..
             } => (
                 "skill.completed",
                 vec![
@@ -95,6 +96,7 @@ impl EventSink for OtelEventSink {
                 model,
                 input_tokens,
                 output_tokens,
+                reasoning_tokens,
                 duration_ms,
                 estimated_cost_usd,
             } => {
@@ -103,6 +105,7 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("model", model.clone()),
                     KeyValue::new("input_tokens", *input_tokens as i64),
                     KeyValue::new("output_tokens", *output_tokens as i64),
+                    KeyValue::new("reasoning_tokens", *reasoning_tokens as i64),
                     KeyValue::new("duration_ms", *duration_ms as i64),
                 ];
                 if let Some(cost) = estimated_cost_usd {
@@ -214,6 +217,18 @@ impl EventSink for OtelEventSink {
                 vec![
                     KeyValue::new("workspace", workspace.clone()),
                     KeyValue::new("principles_created", *principles_created as i64),
+                ],
+            ),
+            DomainEventKind::SkillDisabled {
+                skill_name,
+                reason,
+                source,
+            } => (
+                "skill.disabled",
+                vec![
+                    KeyValue::new("skill_name", skill_name.clone()),
+                    KeyValue::new("reason", reason.clone()),
+                    KeyValue::new("source", source.clone()),
                 ],
             ),
             DomainEventKind::Heartbeat => ("heartbeat", vec![]),

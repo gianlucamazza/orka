@@ -169,7 +169,7 @@ The CLI is a thin shell around `orka-core` and `orka-workspace` — it shares co
 
 ### LLM Router (orka-llm)
 
-Multi-provider LLM client with prefix-based routing. Each configured provider declares a list of model name prefixes (e.g., `["claude"]` for Anthropic, `["gpt", "o1"]` for OpenAI). When a workspace specifies a model name, the router selects the matching provider. Falls back to the first provider if no prefix matches.
+Multi-provider LLM client with prefix-based routing. Each configured provider declares a list of model name prefixes (e.g., `["claude"]` for Anthropic, `["gpt", "o3", "o4"]` for OpenAI). When a workspace specifies a model name, the router selects the matching provider. Falls back to the first provider if no prefix matches.
 
 Supports streaming responses (Server-Sent Events forwarded to the adapter), per-provider cost tracking, and configurable retry/timeout policies.
 

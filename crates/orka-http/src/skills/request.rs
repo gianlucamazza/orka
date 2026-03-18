@@ -25,9 +25,7 @@ impl HttpRequestSkill {
             .user_agent(user_agent)
             .redirect(reqwest::redirect::Policy::limited(5))
             .build()
-            .map_err(|e| {
-                orka_core::Error::HttpClient(format!("failed to build HTTP client: {e}"))
-            })?;
+            .map_err(|e| orka_core::Error::http_client(e, "failed to build HTTP client"))?;
 
         Ok(Self {
             client,
@@ -166,7 +164,7 @@ impl Skill for HttpRequestSkill {
         let response = req
             .send()
             .await
-            .map_err(|e| orka_core::Error::HttpClient(format!("request failed: {e}")))?;
+            .map_err(|e| orka_core::Error::http_client(e, "request failed"))?;
 
         let status = response.status().as_u16();
         let headers: serde_json::Map<String, serde_json::Value> = response
@@ -180,9 +178,10 @@ impl Skill for HttpRequestSkill {
             })
             .collect();
 
-        let body_bytes = response.bytes().await.map_err(|e| {
-            orka_core::Error::HttpClient(format!("failed to read response body: {e}"))
-        })?;
+        let body_bytes = response
+            .bytes()
+            .await
+            .map_err(|e| orka_core::Error::http_client(e, "failed to read response body"))?;
 
         let body = if body_bytes.len() > self.max_response_bytes {
             let truncated = String::from_utf8_lossy(&body_bytes[..self.max_response_bytes]);

@@ -66,6 +66,7 @@ impl EventSink for LogEventSink {
                 message_id,
                 duration_ms,
                 success,
+                ..
             } => {
                 info!(skill_name, %message_id, duration_ms, success, "skill completed");
             }
@@ -74,13 +75,14 @@ impl EventSink for LogEventSink {
                 model,
                 input_tokens,
                 output_tokens,
+                reasoning_tokens,
                 duration_ms,
                 estimated_cost_usd,
             } => {
                 if let Some(cost) = estimated_cost_usd {
-                    info!(%message_id, model, input_tokens, output_tokens, duration_ms, cost, "llm completed");
+                    info!(%message_id, model, input_tokens, output_tokens, reasoning_tokens, duration_ms, cost, "llm completed");
                 } else {
-                    info!(%message_id, model, input_tokens, output_tokens, duration_ms, "llm completed");
+                    info!(%message_id, model, input_tokens, output_tokens, reasoning_tokens, duration_ms, "llm completed");
                 }
             }
             DomainEventKind::ErrorOccurred { source, message } => {
@@ -151,6 +153,13 @@ impl EventSink for LogEventSink {
                 principles_created,
             } => {
                 info!(workspace, principles_created, "distillation completed");
+            }
+            DomainEventKind::SkillDisabled {
+                skill_name,
+                reason,
+                source,
+            } => {
+                warn!(skill_name, reason, source, "skill disabled");
             }
             DomainEventKind::Heartbeat => {
                 debug!("heartbeat");
@@ -276,12 +285,14 @@ mod tests {
                 message_id: mid,
                 duration_ms: 10,
                 success: true,
+                error_category: None,
             },
             DomainEventKind::LlmCompleted {
                 message_id: mid,
                 model: "gpt-test".into(),
                 input_tokens: 100,
                 output_tokens: 50,
+                reasoning_tokens: 0,
                 duration_ms: 200,
                 estimated_cost_usd: Some(0.005),
             },
@@ -335,6 +346,11 @@ mod tests {
             DomainEventKind::DistillationCompleted {
                 workspace: "default".into(),
                 principles_created: 3,
+            },
+            DomainEventKind::SkillDisabled {
+                skill_name: "package_updates".into(),
+                reason: "checkupdates crashed".into(),
+                source: "experience_feedback".into(),
             },
             DomainEventKind::Heartbeat,
         ]

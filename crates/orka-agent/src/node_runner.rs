@@ -52,6 +52,7 @@ pub async fn consume_stream(
     use orka_core::stream::{StreamChunk, StreamChunkKind};
 
     let mut text = String::new();
+    let mut thinking = String::new();
     let mut tool_calls: Vec<ToolCall> = Vec::new();
     let mut current_tool_id: Option<String> = None;
     let mut current_tool_name: Option<String> = None;
@@ -62,6 +63,15 @@ pub async fn consume_stream(
     while let Some(event) = stream.next().await {
         let event = event?;
         match event {
+            StreamEvent::ThinkingDelta(delta) => {
+                stream_registry.send(StreamChunk::new(
+                    *session_id,
+                    channel.to_string(),
+                    reply_to.copied(),
+                    StreamChunkKind::ThinkingDelta(delta.clone()),
+                ));
+                thinking.push_str(&delta);
+            }
             StreamEvent::TextDelta(delta) => {
                 stream_registry.send(StreamChunk::new(
                     *session_id,
@@ -129,6 +139,9 @@ pub async fn consume_stream(
     }
 
     let mut blocks = Vec::new();
+    if !thinking.is_empty() {
+        blocks.push(ContentBlock::Thinking(thinking));
+    }
     if !text.is_empty() {
         blocks.push(ContentBlock::Text(text));
     }
@@ -167,7 +180,7 @@ pub async fn run_agent_node(
     // Build tool list filtered by ToolScope
     let mut tools: Vec<ToolDefinition> = deps
         .skills
-        .list()
+        .list_available()
         .iter()
         .filter(|name| agent.tools.allows(name))
         .filter_map(|name| deps.skills.get(name))
@@ -224,6 +237,8 @@ pub async fn run_agent_node(
     let mut options = CompletionOptions::default();
     options.model = agent.llm_config.model.clone();
     options.max_tokens = agent.llm_config.max_tokens;
+    options.temperature = agent.llm_config.temperature;
+    options.thinking = agent.llm_config.thinking.clone();
 
     let context_window = agent.llm_config.context_window.unwrap_or(200_000);
     let output_budget = agent.llm_config.max_tokens.unwrap_or(4096);
@@ -313,31 +328,33 @@ pub async fn run_agent_node(
                     .unwrap_or_else(|| "default".into()),
                 input_tokens: completion.usage.input_tokens,
                 output_tokens: completion.usage.output_tokens,
+                reasoning_tokens: completion.usage.reasoning_tokens,
                 duration_ms: llm_duration_ms,
                 estimated_cost_usd: None,
             }))
             .await;
 
-        // Parse response
+        // Parse response — separate thinking, text, and tool calls
+        let mut thinking_text = String::new();
         let mut response_text = String::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
 
         for block in &completion.blocks {
             match block {
+                ContentBlock::Thinking(t) => thinking_text.push_str(t),
                 ContentBlock::Text(t) => response_text.push_str(t),
                 ContentBlock::ToolUse(call) => tool_calls.push(call.clone()),
-                other => {
-                    debug!(?other, "unhandled content block");
-                }
+                _ => debug!("unhandled content block"),
             }
         }
 
-        if !response_text.is_empty() {
+        // Emit AgentReasoning only when extended thinking produced content
+        if !thinking_text.is_empty() {
             deps.event_sink
                 .emit(DomainEvent::new(DomainEventKind::AgentReasoning {
                     message_id,
                     iteration,
-                    reasoning_text: response_text.clone(),
+                    reasoning_text: thinking_text,
                 }))
                 .await;
         }
@@ -499,6 +516,10 @@ pub async fn run_agent_node(
 
                 let duration_ms = start.elapsed().as_millis() as u64;
 
+                let error_category = match &result {
+                    Err(e) => Some(e.category()),
+                    Ok(_) => None,
+                };
                 let (content, is_error) = match &result {
                     Ok(output) => {
                         let raw = output.data.to_string();
@@ -513,6 +534,7 @@ pub async fn run_agent_node(
                         message_id,
                         duration_ms,
                         success: !is_error,
+                        error_category,
                     }))
                     .await;
 

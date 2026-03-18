@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
+use orka_llm::ThinkingConfig;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Opaque, cheaply-cloneable agent identifier.
@@ -109,6 +110,8 @@ pub struct AgentLlmConfig {
     pub max_tokens: Option<u32>,
     pub context_window: Option<u32>,
     pub temperature: Option<f32>,
+    /// Extended thinking / reasoning configuration.
+    pub thinking: Option<ThinkingConfig>,
 }
 
 /// An agent definition — the core unit of execution in a graph.

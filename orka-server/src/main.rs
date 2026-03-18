@@ -40,7 +40,6 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
     info(
         title = "Orka API",
         description = "Orka AI Agent Orchestration Platform",
-        version = "0.1.0"
     ),
     paths(
         orka_adapter_custom::routes::handle_message,
@@ -520,16 +519,15 @@ async fn main() -> anyhow::Result<()> {
 
     // 4i. OS skills
     if config.os.enabled {
-        if config.os.sudo.enabled && orka_os::has_no_new_privileges() {
-            warn!(
-                "sudo is enabled but NoNewPrivileges is active — sudo will fail. \
-                 Install the systemd drop-in: \
-                 sudo cp deploy/orka-server-sudo.conf \
-                 /etc/systemd/system/orka-server.service.d/sudo.conf && \
-                 sudo systemctl daemon-reload && sudo systemctl restart orka-server"
-            );
-        }
-        match orka_os::create_os_skills(&config.os) {
+        let caps = orka_os::EnvironmentCapabilities::probe(&config.os).await;
+        info!(
+            no_new_privileges = caps.no_new_privileges,
+            package_updates = caps.package_updates.available,
+            systemctl = caps.systemctl.available,
+            journalctl = caps.journalctl.available,
+            "environment capabilities probed"
+        );
+        match orka_os::create_os_skills(&config.os, Some(&caps)) {
             Ok(os_skills) => {
                 for skill in os_skills {
                     skills.register(skill);
@@ -762,7 +760,11 @@ async fn main() -> anyhow::Result<()> {
     adapters.push(custom_adapter);
     info!("custom adapter started");
 
-    // 6b–6e. Optional adapters (started in parallel)
+    // 6b–6e. Optional adapters (started in parallel).
+    // Each adapter block is gated by a feature flag; when disabled, a ready(None) future
+    // is used so that tokio::join! can still join all four arms uniformly.
+
+    #[cfg(feature = "telegram")]
     let tg_fut = {
         let secrets = secrets.clone();
         let bus = bus.clone();
@@ -800,7 +802,10 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     };
+    #[cfg(not(feature = "telegram"))]
+    let tg_fut = std::future::ready(None::<Arc<dyn ChannelAdapter>>);
 
+    #[cfg(feature = "discord")]
     let dc_fut = {
         let secrets = secrets.clone();
         let bus = bus.clone();
@@ -840,7 +845,10 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     };
+    #[cfg(not(feature = "discord"))]
+    let dc_fut = std::future::ready(None::<Arc<dyn ChannelAdapter>>);
 
+    #[cfg(feature = "slack")]
     let slack_fut = {
         let secrets = secrets.clone();
         let bus = bus.clone();
@@ -879,7 +887,10 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     };
+    #[cfg(not(feature = "slack"))]
+    let slack_fut = std::future::ready(None::<Arc<dyn ChannelAdapter>>);
 
+    #[cfg(feature = "whatsapp")]
     let wa_fut = {
         let secrets = secrets.clone();
         let bus = bus.clone();
@@ -932,6 +943,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     };
+    #[cfg(not(feature = "whatsapp"))]
+    let wa_fut = std::future::ready(None::<Arc<dyn ChannelAdapter>>);
 
     let (tg, dc, slack, wa) = tokio::join!(tg_fut, dc_fut, slack_fut, wa_fut);
     adapters.extend(tg);
@@ -996,9 +1009,15 @@ async fn main() -> anyhow::Result<()> {
             axum::routing::get({
                 let queue = queue.clone();
                 let redis_url = config.redis.url.clone();
+                let qdrant_url = if config.knowledge.enabled {
+                    Some(config.knowledge.vector_store.url.clone())
+                } else {
+                    None
+                };
                 move || {
                     let queue = queue.clone();
                     let redis_url = redis_url.clone();
+                    let qdrant_url = qdrant_url.clone();
                     async move {
                         let mut checks = serde_json::Map::new();
                         let mut all_ok = true;
@@ -1052,6 +1071,35 @@ async fn main() -> anyhow::Result<()> {
                                     serde_json::json!(format!("error: {e}")),
                                 );
                                 all_ok = false;
+                            }
+                        }
+
+                        // Qdrant check (only when knowledge is enabled)
+                        if let Some(ref url) = qdrant_url {
+                            let health_url = format!("{}/healthz", url.trim_end_matches('/'));
+                            match reqwest::Client::new()
+                                .get(&health_url)
+                                .timeout(std::time::Duration::from_secs(2))
+                                .send()
+                                .await
+                            {
+                                Ok(resp) if resp.status().is_success() => {
+                                    checks.insert("qdrant".into(), serde_json::json!("ok"));
+                                }
+                                Ok(resp) => {
+                                    checks.insert(
+                                        "qdrant".into(),
+                                        serde_json::json!(format!("error: HTTP {}", resp.status())),
+                                    );
+                                    all_ok = false;
+                                }
+                                Err(e) => {
+                                    checks.insert(
+                                        "qdrant".into(),
+                                        serde_json::json!(format!("error: {e}")),
+                                    );
+                                    all_ok = false;
+                                }
                             }
                         }
 
@@ -1199,7 +1247,11 @@ async fn main() -> anyhow::Result<()> {
 
     let health_app = public_routes
         .merge(api_routes)
-        .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi()))
+        .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", {
+            let mut doc = ApiDoc::openapi();
+            doc.info.version = VERSION.to_string();
+            doc
+        }))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE));
     let listener =

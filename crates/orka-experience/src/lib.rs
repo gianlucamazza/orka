@@ -33,10 +33,10 @@ use orka_llm::client::LlmClient;
 use tracing::info;
 
 pub use collector::TrajectoryCollector;
-pub use service::ExperienceService;
+pub use service::{ExperienceService, ReflectionResult};
 pub use store::PrincipleStore;
 pub use trajectory_store::TrajectoryStore;
-pub use types::{OutcomeSignal, Principle, PrincipleKind, Trajectory};
+pub use types::{OutcomeSignal, Principle, PrincipleKind, StructuralAction, Trajectory};
 
 /// Create the experience service from config and shared infrastructure.
 ///

@@ -109,13 +109,12 @@ fn map_cb_err(e: CircuitBreakerError<orka_core::Error>) -> orka_core::Error {
     match e {
         CircuitBreakerError::Open => {
             warn!("LLM circuit breaker is open — request rejected immediately");
-            orka_core::Error::Llm(
-                "LLM provider is temporarily unavailable (circuit breaker open). Please retry later."
-                    .into(),
+            orka_core::Error::llm_msg(
+                "LLM provider is temporarily unavailable (circuit breaker open). Please retry later.",
             )
         }
         CircuitBreakerError::Inner(inner) => inner,
-        _ => orka_core::Error::Llm("unknown circuit breaker error".into()),
+        _ => orka_core::Error::llm_msg("unknown circuit breaker error"),
     }
 }
 
@@ -284,7 +283,7 @@ mod tests {
         async fn complete(&self, _messages: Vec<ChatMessage>, _system: &str) -> Result<String> {
             let count = self.fail_count.fetch_add(1, Ordering::SeqCst);
             if count < self.max_fails {
-                Err(orka_core::Error::Llm("mock failure".into()))
+                Err(orka_core::Error::llm_msg("mock failure"))
             } else {
                 Ok("ok".into())
             }

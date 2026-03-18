@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use orka_core::ErrorCategory;
 use serde::{Deserialize, Serialize};
 
 /// A structured trajectory record aggregated from domain events during a single handler invocation.
@@ -39,6 +40,26 @@ pub struct SkillTrace {
     pub duration_ms: u64,
     /// Whether the skill invocation succeeded.
     pub success: bool,
+    /// Error category, if the skill failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_category: Option<ErrorCategory>,
+    /// Error message, if the skill failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+}
+
+/// Structural action recommended by the reflection system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action")]
+pub enum StructuralAction {
+    /// Disable a skill via the circuit breaker.
+    #[serde(rename = "disable_skill")]
+    DisableSkill {
+        /// Name of the skill to disable.
+        skill_name: String,
+        /// Human-readable reason for disabling.
+        reason: String,
+    },
 }
 
 /// A principle extracted from trajectory reflection.

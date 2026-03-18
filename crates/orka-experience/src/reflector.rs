@@ -101,10 +101,15 @@ impl PrincipleReflector {
             prompt.push_str("### Skills Used\n");
             for skill in &trajectory.skills_used {
                 let status = if skill.success { "OK" } else { "FAILED" };
-                prompt.push_str(&format!(
-                    "- {} ({}ms, {})\n",
-                    skill.name, skill.duration_ms, status
-                ));
+                let mut line = format!("- {} ({}ms, {})", skill.name, skill.duration_ms, status);
+                if let Some(cat) = skill.error_category {
+                    line.push_str(&format!(", category={cat:?}"));
+                }
+                if let Some(ref msg) = skill.error_message {
+                    line.push_str(&format!(", error=\"{msg}\""));
+                }
+                line.push('\n');
+                prompt.push_str(&line);
             }
             prompt.push('\n');
         }

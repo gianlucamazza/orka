@@ -133,6 +133,53 @@ impl CircuitBreaker {
         CircuitState::from_u8(raw)
     }
 
+    /// Record a success without executing a closure (post-hoc feedback).
+    ///
+    /// Equivalent to what `call()` does internally on success: resets the failure
+    /// counter in Closed state, or advances the success counter in HalfOpen state.
+    pub fn record_success(&self) {
+        let state = CircuitState::from_u8(self.state.load(Ordering::SeqCst));
+        match state {
+            CircuitState::Closed => {
+                self.failure_count.store(0, Ordering::SeqCst);
+            }
+            CircuitState::HalfOpen => {
+                let successes = self.success_count.fetch_add(1, Ordering::SeqCst) + 1;
+                if successes >= self.config.success_threshold {
+                    tracing::info!("circuit breaker closing after recorded successes");
+                    self.reset();
+                }
+            }
+            CircuitState::Open => {}
+        }
+    }
+
+    /// Record a failure without executing a closure (post-hoc feedback).
+    ///
+    /// Equivalent to what `call()` does internally on failure: increments the failure
+    /// counter and trips the circuit if the threshold is reached.
+    pub fn record_failure(&self) {
+        let state = CircuitState::from_u8(self.state.load(Ordering::SeqCst));
+        match state {
+            CircuitState::Closed => {
+                let failures = self.failure_count.fetch_add(1, Ordering::SeqCst) + 1;
+                if failures >= self.config.failure_threshold {
+                    tracing::warn!(
+                        failures,
+                        threshold = self.config.failure_threshold,
+                        "circuit breaker tripped to Open via record_failure"
+                    );
+                    self.transition_to_open();
+                }
+            }
+            CircuitState::HalfOpen => {
+                tracing::warn!("half-open probe failed via record_failure, circuit re-opening");
+                self.transition_to_open();
+            }
+            CircuitState::Open => {}
+        }
+    }
+
     /// Manually reset the circuit breaker to the Closed state.
     pub fn reset(&self) {
         self.state

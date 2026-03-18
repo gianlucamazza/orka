@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use sysinfo::System;
 
 use crate::config::PermissionLevel;
@@ -168,9 +168,12 @@ impl Skill for ProcessInfoSkill {
         let mut sys = System::new();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
-        let process = sys
-            .process(sysinfo::Pid::from_u32(pid))
-            .ok_or_else(|| Error::Skill(format!("process {} not found", pid)))?;
+        let process =
+            sys.process(sysinfo::Pid::from_u32(pid))
+                .ok_or_else(|| Error::SkillCategorized {
+                    message: format!("process {} not found", pid),
+                    category: ErrorCategory::Input,
+                })?;
 
         Ok(SkillOutput::new(serde_json::json!({
             "pid": process.pid().as_u32(),
@@ -252,10 +255,15 @@ impl Skill for ProcessSignalSkill {
         };
 
         nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), signal).map_err(|e| {
-            Error::Skill(format!(
-                "failed to send {} to pid {}: {}",
-                signal_name, pid, e
-            ))
+            let category = match e {
+                nix::errno::Errno::EPERM => ErrorCategory::Environmental,
+                nix::errno::Errno::ESRCH => ErrorCategory::Input,
+                _ => ErrorCategory::Unknown,
+            };
+            Error::SkillCategorized {
+                message: format!("failed to send {} to pid {}: {}", signal_name, pid, e),
+                category,
+            }
         })?;
 
         Ok(SkillOutput::new(serde_json::json!({

@@ -164,11 +164,9 @@ fn make_service(llm_response: &str) -> ExperienceService {
     let llm = Arc::new(MockLlm {
         response: llm_response.to_string(),
     });
-    let config = orka_core::config::ExperienceConfig {
-        enabled: true,
-        reflect_on: "all".into(),
-        ..Default::default()
-    };
+    let mut config = orka_core::config::ExperienceConfig::default();
+    config.enabled = true;
+    config.reflect_on = "all".into();
     let principle_store = Arc::new(PrincipleStore::new(
         embeddings.clone(),
         vector_store.clone(),
@@ -190,9 +188,9 @@ fn trajectory_collector_full_lifecycle() {
         "What's the weather?".into(),
     );
 
-    collector.record_skill("web_search".into(), 150, true);
+    collector.record_skill("web_search".into(), 150, true, None, None);
     collector.record_iteration(1200);
-    collector.record_skill("summarize".into(), 50, true);
+    collector.record_skill("summarize".into(), 50, true, None, None);
     collector.record_iteration(800);
     collector.set_response("It's sunny today.".into());
 
@@ -219,7 +217,7 @@ fn trajectory_collector_failure_path() {
         "Delete everything".into(),
     );
 
-    collector.record_skill("shell_exec".into(), 200, false);
+    collector.record_skill("shell_exec".into(), 200, false, None, None);
     collector.record_error("permission denied".into());
     collector.record_iteration(500);
     collector.set_response("I can't do that.".into());
@@ -281,7 +279,7 @@ async fn record_trajectory_succeeds() {
     let svc = make_service("[]");
     let mut collector =
         TrajectoryCollector::new("sess-async-1".into(), "default".into(), "hello".into());
-    collector.record_skill("web_search".into(), 50, true);
+    collector.record_skill("web_search".into(), 50, true, None, None);
     collector.record_iteration(300);
     collector.set_response("Hi!".into());
     let trajectory = collector.finish();
@@ -298,14 +296,14 @@ async fn maybe_reflect_returns_zero_on_empty_llm_response() {
         "default".into(),
         "do something".into(),
     );
-    collector.record_skill("shell_exec".into(), 100, false);
+    collector.record_skill("shell_exec".into(), 100, false, None, None);
     collector.record_error("permission denied".into());
     collector.record_iteration(400);
     collector.set_response("Sorry.".into());
     let trajectory = collector.finish();
 
-    let count = svc.maybe_reflect(&trajectory).await.unwrap();
-    assert_eq!(count, 0);
+    let result = svc.maybe_reflect(&trajectory).await.unwrap();
+    assert_eq!(result.principles_created, 0);
 }
 
 #[tokio::test]
@@ -317,13 +315,13 @@ async fn maybe_reflect_stores_principles_from_llm() {
         "default".into(),
         "search query".into(),
     );
-    collector.record_skill("web_search".into(), 80, true);
+    collector.record_skill("web_search".into(), 80, true, None, None);
     collector.record_iteration(500);
     collector.set_response("Here is the result.".into());
     let trajectory = collector.finish();
 
-    let count = svc.maybe_reflect(&trajectory).await.unwrap();
-    assert_eq!(count, 1);
+    let result = svc.maybe_reflect(&trajectory).await.unwrap();
+    assert_eq!(result.principles_created, 1);
 }
 
 #[tokio::test]
@@ -345,7 +343,7 @@ async fn record_then_distill_flow() {
             "default".into(),
             format!("query {i}"),
         );
-        collector.record_skill("shell_exec".into(), 50, true);
+        collector.record_skill("shell_exec".into(), 50, true, None, None);
         collector.record_iteration(200);
         collector.set_response("Done.".into());
         let trajectory = collector.finish();

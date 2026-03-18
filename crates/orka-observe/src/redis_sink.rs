@@ -29,7 +29,7 @@ impl RedisEventSink {
         let cfg = DeadpoolConfig::from_url(redis_url);
         let pool = cfg
             .create_pool(Some(Runtime::Tokio1))
-            .map_err(|e| orka_core::Error::Observe(format!("failed to create Redis pool: {e}")))?;
+            .map_err(|e| orka_core::Error::observe(e, "failed to create Redis pool"))?;
 
         let (tx, rx) = mpsc::channel(1024);
 

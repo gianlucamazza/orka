@@ -34,8 +34,8 @@ impl SandboxExecutor for WasmSandbox {
         match req.language {
             SandboxLang::Wasm => {}
             _ => {
-                return Err(Error::Sandbox(
-                    "WASM sandbox only supports WASM modules".into(),
+                return Err(Error::sandbox_msg(
+                    "WASM sandbox only supports WASM modules",
                 ));
             }
         }
@@ -59,8 +59,8 @@ impl SandboxExecutor for WasmSandbox {
             }),
         )
         .await
-        .map_err(|_| Error::Sandbox("WASM execution timed out".into()))?
-        .map_err(|e| Error::Sandbox(format!("WASM task failed: {e}")))?
+        .map_err(|_| Error::sandbox_msg("WASM execution timed out"))?
+        .map_err(|e| Error::sandbox(e, "WASM task failed"))?
     }
 }
 

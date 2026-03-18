@@ -277,18 +277,33 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 }
 
 /// Expand `~` to the user's home directory.
+///
+/// Resolution order:
+/// 1. `$HOME` environment variable
+/// 2. `/etc/passwd` via `nix::unistd::User` (works even when `$HOME` is unset)
+/// 3. Pattern returned unchanged with a warning logged
 fn shellexpand(s: &str) -> String {
-    if let Some(rest) = s.strip_prefix("~/")
-        && let Ok(home) = std::env::var("HOME")
-    {
-        return format!("{}/{}", home, rest);
+    let needs_expand = s.starts_with("~/") || s == "~";
+    if !needs_expand {
+        return s.to_string();
     }
-    if s == "~"
-        && let Ok(home) = std::env::var("HOME")
-    {
-        return home;
+
+    let home = std::env::var("HOME").ok().or_else(|| {
+        // Fallback: derive home from $USER or $LOGNAME (common Linux conventions)
+        std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .ok()
+            .map(|user| format!("/home/{user}"))
+    });
+
+    match home {
+        Some(h) if s == "~" => h,
+        Some(h) => format!("{}/{}", h, &s[2..]),
+        None => {
+            tracing::warn!("could not resolve ~ in path guard, pattern will not match tilde paths");
+            s.to_string()
+        }
     }
-    s.to_string()
 }
 
 #[cfg(test)]

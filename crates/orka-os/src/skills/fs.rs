@@ -5,11 +5,30 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use tracing::debug;
 
 use crate::config::PermissionLevel;
 use crate::guard::PermissionGuard;
+
+fn missing_arg(arg: &str) -> Error {
+    Error::SkillCategorized {
+        message: format!("missing '{}' argument", arg),
+        category: ErrorCategory::Input,
+    }
+}
+
+fn fs_io_error(context: &str, e: std::io::Error) -> Error {
+    let category = match e.kind() {
+        std::io::ErrorKind::PermissionDenied => ErrorCategory::Environmental,
+        std::io::ErrorKind::NotFound => ErrorCategory::Input,
+        _ => ErrorCategory::Unknown,
+    };
+    Error::SkillCategorized {
+        message: format!("{}: {}", context, e),
+        category,
+    }
+}
 
 // ── fs_read ──
 
@@ -57,7 +76,7 @@ impl Skill for FsReadSkill {
             .args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'path' argument".into()))?;
+            .ok_or_else(|| missing_arg("path"))?;
         let encoding = input
             .args
             .get("encoding")
@@ -79,12 +98,12 @@ impl Skill for FsReadSkill {
 
         let metadata = tokio::fs::metadata(&canonical)
             .await
-            .map_err(|e| Error::Skill(format!("cannot read '{}': {}", canonical.display(), e)))?;
+            .map_err(|e| fs_io_error(&format!("cannot read '{}'", canonical.display()), e))?;
         self.guard.check_file_size(metadata.len())?;
 
-        let bytes = tokio::fs::read(&canonical).await.map_err(|e| {
-            Error::Skill(format!("failed to read '{}': {}", canonical.display(), e))
-        })?;
+        let bytes = tokio::fs::read(&canonical)
+            .await
+            .map_err(|e| fs_io_error(&format!("failed to read '{}'", canonical.display()), e))?;
 
         let end = limit
             .map(|l| (offset + l).min(bytes.len()))
@@ -186,7 +205,7 @@ impl Skill for FsListSkill {
             .args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'path' argument".into()))?;
+            .ok_or_else(|| missing_arg("path"))?;
         let recursive = input
             .args
             .get("recursive")
@@ -231,7 +250,7 @@ async fn list_dir(
 ) -> Result<()> {
     let mut read_dir = tokio::fs::read_dir(path)
         .await
-        .map_err(|e| Error::Skill(format!("cannot list '{}': {}", path.display(), e)))?;
+        .map_err(|e| fs_io_error(&format!("cannot list '{}'", path.display()), e))?;
 
     while let Some(entry) = read_dir
         .next_entry()
@@ -324,7 +343,7 @@ impl Skill for FsInfoSkill {
             .args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'path' argument".into()))?;
+            .ok_or_else(|| missing_arg("path"))?;
 
         let path = Path::new(path_str);
         let canonical = self.guard.check_path(path)?;
@@ -419,12 +438,12 @@ impl Skill for FsSearchSkill {
             .args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'path' argument".into()))?;
+            .ok_or_else(|| missing_arg("path"))?;
         let pattern = input
             .args
             .get("pattern")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'pattern' argument".into()))?;
+            .ok_or_else(|| missing_arg("pattern"))?;
         let by = input
             .args
             .get("by")
@@ -610,12 +629,12 @@ impl Skill for FsWriteSkill {
             .args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'path' argument".into()))?;
+            .ok_or_else(|| missing_arg("path"))?;
         let content = input
             .args
             .get("content")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'content' argument".into()))?;
+            .ok_or_else(|| missing_arg("content"))?;
         let mode = input
             .args
             .get("mode")
@@ -713,7 +732,7 @@ impl Skill for FsWatchSkill {
             .args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'path' argument".into()))?;
+            .ok_or_else(|| missing_arg("path"))?;
         let duration_secs = input
             .args
             .get("duration_secs")

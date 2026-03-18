@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use orka_core::config::{AgentDef, OrkaConfig, ToolScopeDef};
+use orka_llm::client::{ReasoningEffort, ThinkingConfig};
 use orka_workspace::WorkspaceRegistry;
 
 use crate::agent::{Agent, AgentId, AgentLlmConfig, SystemPrompt, ToolScope};
@@ -116,7 +117,14 @@ pub async fn build_single_agent_graph(
         model: agent_cfg.model.clone(),
         max_tokens: agent_cfg.max_tokens,
         context_window: agent_cfg.context_window_tokens,
-        temperature: None,
+        temperature: agent_cfg.temperature,
+        thinking: validated_thinking_config(
+            build_thinking_config(
+                agent_cfg.thinking_budget_tokens,
+                agent_cfg.reasoning_effort.as_deref(),
+            ),
+            agent_cfg.max_tokens,
+        ),
     };
 
     let policy = TerminationPolicy {
@@ -182,7 +190,11 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
         model: def.model.clone(),
         max_tokens: def.max_tokens,
         context_window: def.context_window,
-        temperature: None,
+        temperature: def.temperature,
+        thinking: validated_thinking_config(
+            build_thinking_config(def.thinking_budget_tokens, def.reasoning_effort.as_deref()),
+            def.max_tokens,
+        ),
     };
 
     agent.handoff_targets = def
@@ -198,6 +210,59 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
     };
 
     agent
+}
+
+/// Validate that `budget_tokens < max_tokens` when both are set.
+///
+/// If the constraint is violated, emits a warning and returns `None` to
+/// disable thinking rather than sending an invalid request to the API.
+fn validated_thinking_config(
+    thinking: Option<ThinkingConfig>,
+    max_tokens: Option<u32>,
+) -> Option<ThinkingConfig> {
+    if let (Some(ThinkingConfig::Enabled { budget_tokens }), Some(max)) = (&thinking, max_tokens) {
+        if *budget_tokens >= max {
+            tracing::warn!(
+                budget_tokens,
+                max_tokens = max,
+                "thinking_budget_tokens must be less than max_tokens; disabling thinking"
+            );
+            return None;
+        }
+    }
+    thinking
+}
+
+/// Convert the config thinking fields into a `ThinkingConfig`.
+///
+/// `thinking_budget_tokens` takes precedence over `reasoning_effort` if both are set.
+fn build_thinking_config(
+    budget_tokens: Option<u32>,
+    reasoning_effort: Option<&str>,
+) -> Option<ThinkingConfig> {
+    if let Some(budget) = budget_tokens {
+        if reasoning_effort.is_some() {
+            tracing::warn!(
+                "both thinking_budget_tokens and reasoning_effort are set; using thinking_budget_tokens"
+            );
+        }
+        return Some(ThinkingConfig::Enabled {
+            budget_tokens: budget,
+        });
+    }
+    match reasoning_effort {
+        Some("low") => Some(ThinkingConfig::ReasoningEffort(ReasoningEffort::Low)),
+        Some("medium") => Some(ThinkingConfig::ReasoningEffort(ReasoningEffort::Medium)),
+        Some("high") => Some(ThinkingConfig::ReasoningEffort(ReasoningEffort::High)),
+        Some(other) => {
+            tracing::warn!(
+                reasoning_effort = other,
+                "unknown reasoning_effort value; expected \"low\", \"medium\", or \"high\""
+            );
+            None
+        }
+        None => None,
+    }
 }
 
 #[cfg(test)]
@@ -252,19 +317,7 @@ mod tests {
     }
 
     fn agent_def(id: &str) -> AgentDef {
-        AgentDef {
-            id: id.into(),
-            display_name: format!("{id} Agent"),
-            soul_file: None,
-            soul: None,
-            tools_file: None,
-            model: None,
-            max_iterations: None,
-            max_tokens: None,
-            context_window: None,
-            handoff_targets: vec![],
-            tools: None,
-        }
+        AgentDef::new(id)
     }
 
     #[tokio::test]
@@ -285,20 +338,14 @@ mod tests {
     async fn multi_agent_config_builds_correct_topology() {
         let mut config = base_config();
         config.agents = vec![agent_def("router"), agent_def("worker")];
-        config.graph = Some(GraphDef {
-            id: Some("main".into()),
-            entry: "router".into(),
-            terminal: vec!["worker".into()],
-            max_total_iterations: Some(20),
-            max_total_tokens: None,
-            max_duration_secs: None,
-            edges: vec![EdgeDef {
-                from: "router".into(),
-                to: "worker".into(),
-                condition: None,
-                priority: Some(1),
-            }],
-        });
+        let mut edge = EdgeDef::new("router", "worker");
+        edge.priority = Some(1);
+        let mut graph = GraphDef::new("router");
+        graph.id = Some("main".into());
+        graph.terminal = vec!["worker".into()];
+        graph.max_total_iterations = Some(20);
+        graph.edges = vec![edge];
+        config.graph = Some(graph);
 
         let registry = make_registry();
         let graph = super::build_graph_from_config(&config, &registry)

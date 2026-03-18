@@ -5,13 +5,27 @@ use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use orka_core::{
-    DomainEvent, DomainEventKind, Error, Result, SkillInput, SkillOutput, SkillSchema,
+    DomainEvent, DomainEventKind, Error, ErrorCategory, Result, SkillInput, SkillOutput,
+    SkillSchema,
 };
 use uuid::Uuid;
 
 use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
 use crate::config::PermissionLevel;
 use crate::guard::PermissionGuard;
+
+fn categorize_daemon_spawn_error(daemon: &str, e: std::io::Error) -> Error {
+    let category = match e.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
+            ErrorCategory::Environmental
+        }
+        _ => ErrorCategory::Unknown,
+    };
+    Error::SkillCategorized {
+        message: format!("{} failed: {}", daemon, e),
+        category,
+    }
+}
 
 // ── service_status ──
 
@@ -60,7 +74,7 @@ impl Skill for ServiceStatusSkill {
             .args(["status", unit, "--no-pager"])
             .output()
             .await
-            .map_err(|e| Error::Skill(format!("systemctl failed: {}", e)))?;
+            .map_err(|e| categorize_daemon_spawn_error("systemctl", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
@@ -123,7 +137,7 @@ impl Skill for ServiceListSkill {
         let output = cmd
             .output()
             .await
-            .map_err(|e| Error::Skill(format!("systemctl failed: {}", e)))?;
+            .map_err(|e| categorize_daemon_spawn_error("systemctl", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
@@ -203,7 +217,7 @@ impl Skill for JournalReadSkill {
         let output = cmd
             .output()
             .await
-            .map_err(|e| Error::Skill(format!("journalctl failed: {}", e)))?;
+            .map_err(|e| categorize_daemon_spawn_error("journalctl", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 

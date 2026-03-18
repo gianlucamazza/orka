@@ -74,6 +74,8 @@ pub enum StreamChunkKind {
         #[serde(skip_serializing_if = "Option::is_none")]
         result_summary: Option<String>,
     },
+    /// An incremental thinking/reasoning chunk (extended thinking models).
+    ThinkingDelta(String),
     /// The stream is complete.
     Done,
 }
@@ -265,6 +267,7 @@ mod tests {
                 error: None,
                 result_summary: Some("Found 3 results".into()),
             },
+            StreamChunkKind::ThinkingDelta("I should think...".into()),
             StreamChunkKind::Done,
         ];
 

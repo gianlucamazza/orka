@@ -9,10 +9,9 @@ use orka_sandbox::{
 };
 
 fn default_config() -> SandboxConfig {
-    SandboxConfig {
-        backend: "process".into(),
-        limits: SandboxLimitsConfig::default(),
-    }
+    let mut config = SandboxConfig::default();
+    config.backend = "process".into();
+    config
 }
 
 fn default_limits() -> SandboxLimits {
@@ -108,14 +107,13 @@ async fn process_sandbox_rejects_wasm() {
 
 #[tokio::test]
 async fn process_sandbox_timeout() {
-    let config = SandboxConfig {
-        backend: "process".into(),
-        limits: SandboxLimitsConfig {
-            timeout_secs: 1,
-            max_memory_bytes: 64 * 1024 * 1024,
-            max_output_bytes: 1024 * 1024,
-        },
-    };
+    let mut limits = SandboxLimitsConfig::default();
+    limits.timeout_secs = 1;
+    limits.max_memory_bytes = 64 * 1024 * 1024;
+    limits.max_output_bytes = 1024 * 1024;
+    let mut config = SandboxConfig::default();
+    config.backend = "process".into();
+    config.limits = limits;
     let sandbox = ProcessSandbox::new(&config);
     let req = SandboxRequest {
         code: b"sleep 10".to_vec(),

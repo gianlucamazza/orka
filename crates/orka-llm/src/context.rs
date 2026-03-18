@@ -7,7 +7,7 @@ use crate::client::{ChatContent, ChatMessageExt, ContentBlockInput, ToolDefiniti
 /// Model family hint for selecting the right tokenizer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenizerHint {
-    /// OpenAI models (GPT-4, GPT-4o, etc.) — use cl100k_base / o200k_base.
+    /// OpenAI models (GPT-5, o3, o4-mini, etc.) — use cl100k_base / o200k_base.
     OpenAi,
     /// Anthropic models (Claude) — use chars/3.5 heuristic.
     Anthropic,
@@ -19,7 +19,7 @@ impl TokenizerHint {
     /// Infer the tokenizer hint from a model name.
     pub fn from_model(model: Option<&str>) -> Self {
         match model {
-            Some(m) if m.starts_with("gpt") || m.starts_with("o1") || m.starts_with("o3") => {
+            Some(m) if m.starts_with("gpt") || m.starts_with("o3") || m.starts_with("o4") => {
                 Self::OpenAi
             }
             Some(m) if m.starts_with("claude") => Self::Anthropic,
@@ -28,7 +28,7 @@ impl TokenizerHint {
     }
 }
 
-/// Thread-safe singleton for the cl100k_base tokenizer (used by GPT-4 / GPT-4o).
+/// Thread-safe singleton for the cl100k_base tokenizer (used by GPT-series / o-series).
 fn cl100k_bpe() -> &'static CoreBPE {
     static BPE: OnceLock<CoreBPE> = OnceLock::new();
     BPE.get_or_init(|| tiktoken_rs::cl100k_base().expect("failed to load cl100k_base tokenizer"))
@@ -71,6 +71,9 @@ pub fn estimate_message_tokens_with_hint(msg: &ChatMessageExt, hint: TokenizerHi
                 ),
                 ContentBlockInput::ToolResult { content, .. } => {
                     estimate_tokens_with_hint(content, hint)
+                }
+                ContentBlockInput::Thinking { thinking } => {
+                    estimate_tokens_with_hint(thinking, hint)
                 }
                 ContentBlockInput::Unknown => 0,
             })
@@ -202,7 +205,7 @@ mod tests {
     #[test]
     fn tokenizer_hint_from_model() {
         assert_eq!(
-            TokenizerHint::from_model(Some("gpt-4o")),
+            TokenizerHint::from_model(Some("gpt-5-mini")),
             TokenizerHint::OpenAi
         );
         assert_eq!(

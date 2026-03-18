@@ -192,6 +192,8 @@ mod tests {
                     name: name.to_string(),
                     duration_ms: 100,
                     success: *ok,
+                    error_category: None,
+                    error_message: None,
                 })
                 .collect(),
             iterations: 1,

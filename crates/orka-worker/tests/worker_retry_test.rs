@@ -15,7 +15,7 @@ struct AlwaysFailHandler;
 #[async_trait]
 impl AgentHandler for AlwaysFailHandler {
     async fn handle(&self, _: &Envelope, _: &Session) -> orka_core::Result<Vec<OutboundMessage>> {
-        Err(Error::Worker("intentional failure".into()))
+        Err(Error::worker_msg("intentional failure"))
     }
 }
 
@@ -43,7 +43,7 @@ impl AgentHandler for FailNTimesHandler {
     ) -> orka_core::Result<Vec<OutboundMessage>> {
         let n = self.calls.fetch_add(1, Ordering::SeqCst);
         if n < self.fail_count {
-            Err(Error::Worker(format!("failure #{}", n + 1)))
+            Err(Error::worker_msg(format!("failure #{}", n + 1)))
         } else {
             Ok(vec![OutboundMessage::text(
                 envelope.channel.clone(),

@@ -8,6 +8,10 @@ port = 8080
 
 [bus]
 backend = "redis"
+# block_ms = 5000                       # XREADGROUP BLOCK timeout (ms)
+# batch_size = 10                       # messages per read batch
+# backoff_initial_secs = 1              # reconnection backoff start
+# backoff_max_secs = 30                 # reconnection backoff cap
 
 [redis]
 url = "redis://127.0.0.1:6379"
@@ -44,6 +48,10 @@ port = 8081
 # verify_token_secret = "adapters/whatsapp-verify"
 # listen_port = 3001
 
+# [a2a]
+# enabled = false
+# url = "https://my-agent.example.com"  # public URL for A2A discovery
+
 [gateway]
 rate_limit = 60       # max messages per 60s window per session
 dedup_ttl_secs = 3600 # duplicate message detection window
@@ -58,12 +66,18 @@ backend = "log" # "log" | "redis" | "otel"
 # command = "npx"
 # args = ["-y", "@example/mcp-server"]
 
+# [mcp.serve]
+# enabled = false
+# transport = "stdio"                   # "stdio" or "sse"
+# sse_port = 3002
+
 [worker]
 concurrency = 4
 # retry_base_delay_ms = 5000
 
 [memory]
 max_entries = 10000
+# backend = "auto"                      # "redis", "memory", or "auto" (follows bus.backend)
 
 [secrets]
 # encryption_key_env = "ORKA_ENCRYPTION_KEY"
@@ -89,9 +103,11 @@ max_output_bytes = 1048576
 
 [session]
 ttl_secs = 86400
+# backend = "auto"                      # "redis", "memory", or "auto" (follows bus.backend)
 
 [queue]
 max_retries = 3
+# backend = "auto"                      # "redis", "memory", or "auto" (follows bus.backend)
 
 [agent]
 id = "orka-default"
@@ -106,6 +122,13 @@ max_iterations = 15
 heartbeat_interval_secs = 30
 # summarization_model = "claude-haiku-4-5-20251001" # cheaper model for history summarization
 # summarization_threshold = 100
+# max_history_entries = 50              # max conversation turns kept in context
+# max_tool_result_chars = 50000         # truncation limit for tool output
+# skill_timeout_secs = 120              # per-skill execution timeout
+# max_tool_retries = 2                  # retries before self-correction hint
+# temperature = 0.7                     # LLM sampling temperature (0.0–2.0)
+# thinking_budget_tokens = 10000        # Anthropic extended thinking budget
+# reasoning_effort = "medium"           # OpenAI o-series: "low", "medium", "high"
 
 [tools]
 disabled = ["echo"]
@@ -133,7 +156,9 @@ provider = "openai"
 model = "gpt-5-mini"
 api_key_env = "OPENAI_API_KEY"
 api_key_secret = "llm/openai"
-prefixes = ["gpt", "o1", "o3", "o4"]
+prefixes = ["gpt", "o3", "o4"]
+# cost_per_1k_input_tokens = 0.002    # o3
+# cost_per_1k_output_tokens = 0.008   # o3
 
 # [[llm.providers]]
 # name = "ollama"
@@ -149,7 +174,7 @@ api_key_env = "TAVILY_API_KEY"
 # max_read_chars = 20000
 # cache_ttl_secs = 3600
 # read_timeout_secs = 15
-# user_agent = "Orka/0.1 (Web Agent)"
+# user_agent = "Orka/<version> (Web Agent)"
 # searxng_base_url = "http://localhost:8080"
 
 [os]
@@ -171,6 +196,8 @@ permission_level = "admin"
 # shell_timeout_secs = 30
 # max_output_bytes = 1048576
 # max_list_entries = 1000
+# allowed_commands = []                 # explicit allow-list (empty = all non-blocked allowed)
+# sensitive_env_patterns = ["*_KEY", "*_SECRET", "*_TOKEN", "*_PASSWORD"]
 
 [os.sudo]
 enabled = true
@@ -186,7 +213,7 @@ enabled = true
 # max_response_bytes = 1048576
 # default_timeout_secs = 30
 # blocked_domains = ["169.254.169.254"]
-# user_agent = "Orka/0.1"
+# user_agent = "Orka/<version>"
 
 # [http.webhooks]
 # enabled = false
@@ -226,3 +253,45 @@ max_concurrent = 4
 # [[guardrails.redact_patterns]]
 # pattern = "\\b[A-Z]{2}\\d{6,}\\b"
 # replacement = "[REDACTED_ID]"
+
+# [experience]
+# enabled = false
+# max_principles = 5                    # max principles injected into system prompt
+# min_relevance_score = 0.6             # minimum similarity for principle retrieval
+# reflect_on = "failures"               # "failures", "all", or "sampled"
+# sample_rate = 0.1                     # sampling rate when reflect_on = "sampled"
+# principles_collection = "orka_principles"
+# trajectories_collection = "orka_trajectories"
+# reflection_model = "claude-haiku-4-5-20251001"
+# reflection_max_tokens = 1024
+# distillation_batch_size = 20
+# dedup_threshold = 0.85                # cosine similarity for principle dedup
+# distillation_interval_secs = 3600     # offline distillation cycle (seconds)
+
+# --- Multi-agent graph (replaces [agent] when multiple agents are needed) ---
+# [[agents]]
+# id = "router"
+# display_name = "Router"
+# soul_file = "workspaces/router/SOUL.md"
+# model = "claude-sonnet-4-6"
+# max_iterations = 5
+# handoff_targets = ["coder", "reviewer"]
+
+# [[agents]]
+# id = "coder"
+# display_name = "Coder"
+# soul_file = "workspaces/coder/SOUL.md"
+# model = "claude-sonnet-4-6"
+# max_iterations = 15
+
+# [graph]
+# entry = "router"
+# terminal = ["coder"]
+# max_total_iterations = 50
+# max_duration_secs = 300
+# [[graph.edges]]
+# from = "router"
+# to = "coder"
+# [[graph.edges]]
+# from = "router"
+# to = "reviewer"

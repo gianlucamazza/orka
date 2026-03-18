@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use orka_core::config::AgentConfig;
 use orka_core::traits::{EventSink, Guardrail, MemoryStore, SecretManager};
 use orka_core::{
-    DomainEvent, DomainEventKind, Envelope, MemoryEntry, MessageId, OutboundMessage, Payload,
-    Result, Session, SessionId, SkillInput,
+    DomainEvent, DomainEventKind, Envelope, ErrorCategory, MemoryEntry, MessageId, OutboundMessage,
+    Payload, Result, Session, SessionId, SkillInput,
 };
 
 use orka_experience::ExperienceService;
@@ -422,7 +422,7 @@ impl WorkspaceHandler {
         envelope: &Envelope,
         session: &Session,
         current_workspace: &str,
-    ) -> Vec<ContentBlockInput> {
+    ) -> (Vec<ContentBlockInput>, Vec<Option<ErrorCategory>>) {
         let mut join_set = tokio::task::JoinSet::new();
         // Track which calls are handled as built-in (index → result)
         let mut builtin_results: HashMap<usize, (String, bool)> = HashMap::new();
@@ -497,6 +497,10 @@ impl WorkspaceHandler {
                 };
                 let duration_ms = start.elapsed().as_millis() as u64;
 
+                let error_category = match &result {
+                    Err(e) => Some(e.category()),
+                    Ok(_) => None,
+                };
                 let (content, is_error) = match &result {
                     Ok(output) => {
                         let raw = output.data.to_string();
@@ -511,6 +515,7 @@ impl WorkspaceHandler {
                         message_id,
                         duration_ms,
                         success: !is_error,
+                        error_category,
                     }))
                     .await;
 
@@ -527,14 +532,25 @@ impl WorkspaceHandler {
                     duration_ms,
                     error_msg,
                     result_summary,
+                    error_category,
                 )
             });
         }
 
         // Collect results and emit ToolExecEnd chunks
-        let mut results_map: HashMap<String, (String, bool)> = HashMap::new();
+        let mut results_map: HashMap<String, (String, bool, Option<ErrorCategory>)> =
+            HashMap::new();
         while let Some(res) = join_set.join_next().await {
-            if let Ok((call_id, content, is_error, duration_ms, error_msg, result_summary)) = res {
+            if let Ok((
+                call_id,
+                content,
+                is_error,
+                duration_ms,
+                error_msg,
+                result_summary,
+                error_category,
+            )) = res
+            {
                 self.stream_registry.send(StreamChunk::new(
                     envelope.session_id,
                     envelope.channel.clone(),
@@ -547,29 +563,30 @@ impl WorkspaceHandler {
                         result_summary,
                     },
                 ));
-                results_map.insert(call_id, (content, is_error));
+                results_map.insert(call_id, (content, is_error, error_category));
             }
         }
 
         // Build result blocks in original order, merging built-in and skill results
-        tool_calls
-            .iter()
-            .enumerate()
-            .map(|(idx, call)| {
-                let (content, is_error) = if let Some(result) = builtin_results.remove(&idx) {
-                    result
+        let mut blocks = Vec::with_capacity(tool_calls.len());
+        let mut categories = Vec::with_capacity(tool_calls.len());
+        for (idx, call) in tool_calls.iter().enumerate() {
+            let (content, is_error, category) =
+                if let Some((content, is_error)) = builtin_results.remove(&idx) {
+                    (content, is_error, None)
                 } else {
                     results_map
                         .remove(&call.id)
-                        .unwrap_or_else(|| ("Error: task failed".to_string(), true))
+                        .unwrap_or_else(|| ("Error: task failed".to_string(), true, None))
                 };
-                ContentBlockInput::ToolResult {
-                    tool_use_id: call.id.clone(),
-                    content,
-                    is_error,
-                }
-            })
-            .collect()
+            blocks.push(ContentBlockInput::ToolResult {
+                tool_use_id: call.id.clone(),
+                content,
+                is_error,
+            });
+            categories.push(category);
+        }
+        (blocks, categories)
     }
 
     /// Persist conversation history and token usage to the memory store.
@@ -1105,6 +1122,7 @@ impl AgentHandler for WorkspaceHandler {
                         model: llm_model.clone(),
                         input_tokens: completion.usage.input_tokens,
                         output_tokens: completion.usage.output_tokens,
+                        reasoning_tokens: completion.usage.reasoning_tokens,
                         duration_ms: llm_duration_ms,
                         estimated_cost_usd: None,
                     }))
@@ -1135,11 +1153,13 @@ impl AgentHandler for WorkspaceHandler {
                     warn!("LLM response truncated (max_tokens reached)");
                 }
 
-                // Collect text and tool calls from response
+                // Collect thinking, text and tool calls from response
+                let mut thinking_text = String::new();
                 let mut response_text = String::new();
                 let mut tool_calls = Vec::new();
                 for block in &completion.blocks {
                     match block {
+                        ContentBlock::Thinking(t) => thinking_text.push_str(t),
                         ContentBlock::Text(t) => response_text.push_str(t),
                         ContentBlock::ToolUse(call) => tool_calls.push(call.clone()),
                         other => {
@@ -1148,13 +1168,13 @@ impl AgentHandler for WorkspaceHandler {
                     }
                 }
 
-                // R1.1: Extract and log reasoning text (text before first tool call)
-                if !response_text.is_empty() {
+                // Emit AgentReasoning only when extended thinking produced content
+                if !thinking_text.is_empty() {
                     self.event_sink
                         .emit(DomainEvent::new(DomainEventKind::AgentReasoning {
                             message_id: envelope.id,
                             iteration,
-                            reasoning_text: response_text.clone(),
+                            reasoning_text: thinking_text,
                         }))
                         .await;
                 }
@@ -1211,18 +1231,36 @@ impl AgentHandler for WorkspaceHandler {
                     tool_count = tool_calls.len(),
                     message_id = %envelope.id,
                 );
-                let result_blocks = self
+                let (result_blocks, block_error_cats) = self
                     .execute_tool_calls(&tool_calls, envelope, session, &resolved_workspace)
                     .instrument(tool_span)
                     .await;
 
                 // R1.3: Track per-tool error counts and inject self-correction hints
                 let mut corrected_blocks = result_blocks;
-                for (block, call) in corrected_blocks.iter().zip(tool_calls.iter()) {
-                    if let ContentBlockInput::ToolResult { is_error, .. } = block {
+                for ((block, error_cat), call) in corrected_blocks
+                    .iter()
+                    .zip(block_error_cats.iter())
+                    .zip(tool_calls.iter())
+                {
+                    if let ContentBlockInput::ToolResult {
+                        is_error, content, ..
+                    } = block
+                    {
+                        let error_msg = if *is_error {
+                            Some(content.clone())
+                        } else {
+                            None
+                        };
                         // Record skill in trajectory collector
                         if let Some(ref mut tc) = trajectory_collector {
-                            tc.record_skill(call.name.clone(), 0, !*is_error);
+                            tc.record_skill(
+                                call.name.clone(),
+                                0,
+                                !*is_error,
+                                *error_cat,
+                                error_msg,
+                            );
                         }
                         if *is_error {
                             let count = tool_error_counts.entry(call.name.clone()).or_insert(0);
@@ -1302,6 +1340,7 @@ impl AgentHandler for WorkspaceHandler {
                     let trajectory = tc.finish();
                     let exp = exp.clone();
                     let event_sink = self.event_sink.clone();
+                    let skills = self.skills.clone();
                     let session_id = envelope.session_id;
                     let trajectory_id = trajectory.id.clone();
                     tokio::spawn(async move {
@@ -1317,19 +1356,43 @@ impl AgentHandler for WorkspaceHandler {
                                 .await;
                         }
                         match exp.maybe_reflect(&trajectory).await {
-                            Ok(count) if count > 0 => {
-                                event_sink
-                                    .emit(DomainEvent::new(DomainEventKind::ReflectionCompleted {
-                                        session_id,
-                                        principles_created: count,
-                                        trajectory_id,
-                                    }))
-                                    .await;
+                            Ok(result) => {
+                                // Apply structural actions (disable skills with environmental failures)
+                                for action in &result.actions {
+                                    match action {
+                                        orka_experience::StructuralAction::DisableSkill {
+                                            skill_name,
+                                            reason,
+                                        } => {
+                                            skills.force_open(skill_name);
+                                            warn!(skill = %skill_name, %reason, "skill disabled by experience feedback");
+                                            event_sink
+                                                .emit(DomainEvent::new(
+                                                    DomainEventKind::SkillDisabled {
+                                                        skill_name: skill_name.clone(),
+                                                        reason: reason.clone(),
+                                                        source: "experience_feedback".into(),
+                                                    },
+                                                ))
+                                                .await;
+                                        }
+                                    }
+                                }
+                                if result.principles_created > 0 {
+                                    event_sink
+                                        .emit(DomainEvent::new(
+                                            DomainEventKind::ReflectionCompleted {
+                                                session_id,
+                                                principles_created: result.principles_created,
+                                                trajectory_id,
+                                            },
+                                        ))
+                                        .await;
+                                }
                             }
                             Err(e) => {
                                 warn!(%e, "experience reflection failed");
                             }
-                            _ => {}
                         }
                     });
                 }

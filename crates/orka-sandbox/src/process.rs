@@ -34,9 +34,7 @@ impl SandboxExecutor for ProcessSandbox {
             SandboxLang::Python => ("python3", ".py"),
             SandboxLang::Bash => ("bash", ".sh"),
             SandboxLang::Wasm => {
-                return Err(Error::Sandbox(
-                    "process sandbox does not support WASM".into(),
-                ));
+                return Err(Error::sandbox_msg("process sandbox does not support WASM"));
             }
         };
 
@@ -44,10 +42,10 @@ impl SandboxExecutor for ProcessSandbox {
 
         // Write code to a temp file.
         let tmp = NamedTempFile::with_suffix(ext)
-            .map_err(|e| Error::Sandbox(format!("failed to create temp file: {e}")))?;
+            .map_err(|e| Error::sandbox(e, "failed to create temp file"))?;
         tokio::fs::write(tmp.path(), &req.code)
             .await
-            .map_err(|e| Error::Sandbox(format!("failed to write temp file: {e}")))?;
+            .map_err(|e| Error::sandbox(e, "failed to write temp file"))?;
 
         let mut command = tokio::process::Command::new(cmd_name);
         command.arg(tmp.path());
@@ -68,7 +66,7 @@ impl SandboxExecutor for ProcessSandbox {
 
         let mut child = command
             .spawn()
-            .map_err(|e| Error::Sandbox(format!("failed to spawn process: {e}")))?;
+            .map_err(|e| Error::sandbox(e, "failed to spawn process"))?;
 
         // Write stdin if provided.
         if let Some(stdin_data) = &req.stdin
@@ -77,7 +75,7 @@ impl SandboxExecutor for ProcessSandbox {
             stdin
                 .write_all(stdin_data)
                 .await
-                .map_err(|e| Error::Sandbox(format!("failed to write stdin: {e}")))?;
+                .map_err(|e| Error::sandbox(e, "failed to write stdin"))?;
             // Drop to close stdin.
         }
 
@@ -86,8 +84,8 @@ impl SandboxExecutor for ProcessSandbox {
 
         let output = tokio::time::timeout(timeout, child.wait_with_output())
             .await
-            .map_err(|_| Error::Sandbox("execution timed out".into()))?
-            .map_err(|e| Error::Sandbox(format!("process error: {e}")))?;
+            .map_err(|_| Error::sandbox_msg("execution timed out"))?
+            .map_err(|e| Error::sandbox(e, "process error"))?;
 
         let duration = start.elapsed();
 

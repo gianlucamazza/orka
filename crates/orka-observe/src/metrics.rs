@@ -57,6 +57,7 @@ pub fn record_event(event: &DomainEvent) {
             model,
             input_tokens,
             output_tokens,
+            reasoning_tokens,
             duration_ms,
             estimated_cost_usd,
             ..
@@ -66,6 +67,10 @@ pub fn record_event(event: &DomainEvent) {
                 .increment(*input_tokens as u64);
             counter!("orka_llm_output_tokens_total", "model" => model.clone())
                 .increment(*output_tokens as u64);
+            if *reasoning_tokens > 0 {
+                counter!("orka_llm_reasoning_tokens_total", "model" => model.clone())
+                    .increment(*reasoning_tokens as u64);
+            }
             histogram!("orka_llm_duration_seconds", "model" => model.clone())
                 .record(*duration_ms as f64 / 1000.0);
             if let Some(cost) = estimated_cost_usd {
@@ -173,18 +178,21 @@ mod tests {
                 message_id: mid,
                 duration_ms: 80,
                 success: true,
+                error_category: None,
             },
             DomainEventKind::SkillCompleted {
                 skill_name: "weather".into(),
                 message_id: mid,
                 duration_ms: 30,
                 success: false,
+                error_category: None,
             },
             DomainEventKind::LlmCompleted {
                 message_id: mid,
                 model: "gpt-4".into(),
                 input_tokens: 500,
                 output_tokens: 200,
+                reasoning_tokens: 100,
                 duration_ms: 1200,
                 estimated_cost_usd: Some(0.01),
             },
@@ -269,12 +277,14 @@ mod tests {
                 message_id: mid,
                 duration_ms: 0,
                 success: true,
+                error_category: None,
             },
             DomainEventKind::LlmCompleted {
                 message_id: mid,
                 model: "m".into(),
                 input_tokens: 0,
                 output_tokens: 0,
+                reasoning_tokens: 0,
                 duration_ms: 0,
                 estimated_cost_usd: None,
             },

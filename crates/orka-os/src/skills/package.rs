@@ -5,19 +5,41 @@ use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use orka_core::{
-    DomainEvent, DomainEventKind, Error, Result, SkillInput, SkillOutput, SkillSchema,
+    DomainEvent, DomainEventKind, Error, ErrorCategory, Result, SkillInput, SkillOutput,
+    SkillSchema,
 };
 use uuid::Uuid;
 
 use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
 use crate::config::PermissionLevel;
 use crate::guard::PermissionGuard;
+use crate::probe::PackageUpdateMethod;
 
 #[derive(Debug, Clone, Copy)]
 enum PackageManager {
     Pacman,
     Apt,
     Dnf,
+}
+
+fn spawn_error(context: &str, e: std::io::Error) -> Error {
+    let category = match e.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
+            ErrorCategory::Environmental
+        }
+        _ => ErrorCategory::Unknown,
+    };
+    Error::SkillCategorized {
+        message: format!("{}: {}", context, e),
+        category,
+    }
+}
+
+fn no_package_manager_error() -> Error {
+    Error::SkillCategorized {
+        message: "no supported package manager found".into(),
+        category: ErrorCategory::Environmental,
+    }
 }
 
 fn detect_package_manager() -> Option<PackageManager> {
@@ -75,8 +97,7 @@ impl Skill for PackageSearchSkill {
             .and_then(|v| v.as_str())
             .ok_or_else(|| Error::Skill("missing 'query' argument".into()))?;
 
-        let pm = detect_package_manager()
-            .ok_or_else(|| Error::Skill("no supported package manager found".into()))?;
+        let pm = detect_package_manager().ok_or_else(no_package_manager_error)?;
 
         let output = match pm {
             PackageManager::Pacman => {
@@ -98,7 +119,7 @@ impl Skill for PackageSearchSkill {
                     .await
             }
         }
-        .map_err(|e| Error::Skill(format!("package search failed: {}", e)))?;
+        .map_err(|e| spawn_error("package search failed", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
@@ -153,8 +174,7 @@ impl Skill for PackageInfoSkill {
             .and_then(|v| v.as_str())
             .ok_or_else(|| Error::Skill("missing 'name' argument".into()))?;
 
-        let pm = detect_package_manager()
-            .ok_or_else(|| Error::Skill("no supported package manager found".into()))?;
+        let pm = detect_package_manager().ok_or_else(no_package_manager_error)?;
 
         let output = match pm {
             PackageManager::Pacman => {
@@ -176,7 +196,7 @@ impl Skill for PackageInfoSkill {
                     .await
             }
         }
-        .map_err(|e| Error::Skill(format!("package info failed: {}", e)))?;
+        .map_err(|e| spawn_error("package info failed", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
@@ -227,8 +247,7 @@ impl Skill for PackageListSkill {
 
         let filter = input.args.get("filter").and_then(|v| v.as_str());
 
-        let pm = detect_package_manager()
-            .ok_or_else(|| Error::Skill("no supported package manager found".into()))?;
+        let pm = detect_package_manager().ok_or_else(no_package_manager_error)?;
 
         let output = match pm {
             PackageManager::Pacman => {
@@ -250,7 +269,7 @@ impl Skill for PackageListSkill {
                     .await
             }
         }
-        .map_err(|e| Error::Skill(format!("package list failed: {}", e)))?;
+        .map_err(|e| spawn_error("package list failed", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<&str> = if let Some(f) = filter {
@@ -292,12 +311,17 @@ fn is_update_success(pm: PackageManager, exit_code: i32, using_fallback: bool) -
 /// Skill that checks for available package updates.
 pub struct PackageUpdatesSkill {
     guard: Arc<PermissionGuard>,
+    /// Pre-determined update method from startup probe. If `None`, runtime detection is used.
+    method: Option<PackageUpdateMethod>,
 }
 
 impl PackageUpdatesSkill {
-    /// Create a new `package_updates` skill with the given permission guard.
-    pub fn new(guard: Arc<PermissionGuard>) -> Self {
-        Self { guard }
+    /// Create a new `package_updates` skill.
+    ///
+    /// Pass `method` from [`crate::probe::EnvironmentCapabilities`] to use a pre-validated
+    /// method, avoiding runtime crashes (e.g. `checkupdates` under `NoNewPrivileges`).
+    pub fn new(guard: Arc<PermissionGuard>, method: Option<PackageUpdateMethod>) -> Self {
+        Self { guard, method }
     }
 }
 
@@ -326,43 +350,68 @@ impl Skill for PackageUpdatesSkill {
 
         let filter = input.args.get("filter").and_then(|v| v.as_str());
 
-        let pm = detect_package_manager()
-            .ok_or_else(|| Error::Skill("no supported package manager found".into()))?;
-
-        let (output, method, using_fallback) = match pm {
-            PackageManager::Pacman => {
-                if std::path::Path::new("/usr/bin/checkupdates").exists() {
-                    let out = tokio::process::Command::new("checkupdates")
-                        .output()
-                        .await
-                        .map_err(|e| Error::Skill(format!("checkupdates failed: {}", e)))?;
-                    (out, "checkupdates", false)
-                } else {
-                    let out = tokio::process::Command::new("pacman")
-                        .args(["-Qu"])
-                        .output()
-                        .await
-                        .map_err(|e| Error::Skill(format!("pacman -Qu failed: {}", e)))?;
-                    (out, "pacman -Qu", true)
+        // Use the pre-probed method if available, otherwise fall back to runtime detection
+        let effective_method = self.method.or_else(|| {
+            let pm = detect_package_manager()?;
+            Some(match pm {
+                PackageManager::Pacman => {
+                    if std::path::Path::new("/usr/bin/checkupdates").exists() {
+                        crate::probe::PackageUpdateMethod::CheckUpdates
+                    } else {
+                        crate::probe::PackageUpdateMethod::PacmanQu
+                    }
                 }
+                PackageManager::Apt => crate::probe::PackageUpdateMethod::AptListUpgradable,
+                PackageManager::Dnf => crate::probe::PackageUpdateMethod::DnfCheckUpdate,
+            })
+        });
+
+        let Some(effective_method) = effective_method else {
+            return Err(no_package_manager_error());
+        };
+
+        let (output, method_str, using_fallback) = match effective_method {
+            crate::probe::PackageUpdateMethod::CheckUpdates => {
+                let out = tokio::process::Command::new("checkupdates")
+                    .output()
+                    .await
+                    .map_err(|e| spawn_error("checkupdates failed", e))?;
+                (out, "checkupdates", false)
             }
-            PackageManager::Apt => {
+            crate::probe::PackageUpdateMethod::PacmanQu => {
+                let out = tokio::process::Command::new("pacman")
+                    .args(["-Qu"])
+                    .output()
+                    .await
+                    .map_err(|e| spawn_error("pacman -Qu failed", e))?;
+                (out, "pacman -Qu", true)
+            }
+            crate::probe::PackageUpdateMethod::AptListUpgradable => {
                 let out = tokio::process::Command::new("apt")
                     .args(["list", "--upgradable"])
                     .output()
                     .await
-                    .map_err(|e| Error::Skill(format!("apt list --upgradable failed: {}", e)))?;
+                    .map_err(|e| spawn_error("apt list --upgradable failed", e))?;
                 (out, "apt list --upgradable", false)
             }
-            PackageManager::Dnf => {
+            crate::probe::PackageUpdateMethod::DnfCheckUpdate => {
                 let out = tokio::process::Command::new("dnf")
                     .args(["check-update"])
                     .output()
                     .await
-                    .map_err(|e| Error::Skill(format!("dnf check-update failed: {}", e)))?;
+                    .map_err(|e| spawn_error("dnf check-update failed", e))?;
                 (out, "dnf check-update", false)
             }
         };
+
+        // Map method_str back to the PackageManager for exit code interpretation
+        let pm = match effective_method {
+            crate::probe::PackageUpdateMethod::CheckUpdates
+            | crate::probe::PackageUpdateMethod::PacmanQu => PackageManager::Pacman,
+            crate::probe::PackageUpdateMethod::AptListUpgradable => PackageManager::Apt,
+            crate::probe::PackageUpdateMethod::DnfCheckUpdate => PackageManager::Dnf,
+        };
+        let method = method_str;
 
         let exit_code = output.status.code().unwrap_or(-1);
         if !is_update_success(pm, exit_code, using_fallback) {
@@ -461,8 +510,7 @@ impl Skill for PackageInstallSkill {
             .and_then(|v| v.as_str())
             .ok_or_else(|| Error::Skill("missing 'name' argument".into()))?;
 
-        let pm = detect_package_manager()
-            .ok_or_else(|| Error::Skill("no supported package manager found".into()))?;
+        let pm = detect_package_manager().ok_or_else(no_package_manager_error)?;
 
         let (cmd, install_args) = match pm {
             PackageManager::Pacman => ("pacman", vec!["-S", "--noconfirm", name]),
@@ -518,7 +566,7 @@ impl Skill for PackageInstallSkill {
             .args(&install_args)
             .output()
             .await
-            .map_err(|e| Error::Skill(format!("package install failed: {}", e)))?;
+            .map_err(|e| spawn_error("package install failed", e))?;
         let duration_ms = start.elapsed().as_millis() as u64;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -617,7 +665,7 @@ mod tests {
 
     #[test]
     fn package_updates_schema_valid() {
-        let skill = PackageUpdatesSkill::new(make_guard());
+        let skill = PackageUpdatesSkill::new(make_guard(), None);
         let schema = skill.schema();
         let required = schema.parameters.get("required");
         // required should be empty array
@@ -656,7 +704,7 @@ mod tests {
             permission_level: "read-only".into(),
             ..OsConfig::default()
         }));
-        let skill = PackageUpdatesSkill::new(guard);
+        let skill = PackageUpdatesSkill::new(guard, None);
         let result = skill.execute(SkillInput::new(Default::default())).await;
         assert!(
             result.is_ok()

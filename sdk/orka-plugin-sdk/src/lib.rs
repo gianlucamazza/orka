@@ -1,8 +1,19 @@
-//! Orka Plugin SDK v2
+//! Orka Plugin SDK — WASM plugin ABI v2.
 //!
-//! Plugin authors implement the `Plugin` trait and use the `export_plugin!` macro.
+//! This crate provides everything plugin authors need to build Orka-compatible
+//! WebAssembly plugins. Plugins are compiled to `wasm32-wasip1` and loaded at
+//! runtime by the Orka skill engine.
+//!
+//! # Getting started
+//!
+//! 1. Create a new library crate and add this SDK as a dependency.
+//! 2. Implement the [`Plugin`] trait on a `Default` struct.
+//! 3. Call [`export_plugin!`] to generate the required WASM FFI exports.
+//! 4. Build with `cargo build --target wasm32-wasip1 --release`.
+//! 5. Place the `.wasm` file in your Orka `plugins.dir` directory.
 //!
 //! # Example
+//!
 //! ```ignore
 //! use orka_plugin_sdk::{Plugin, PluginInfo, PluginInput, PluginOutput};
 //!
@@ -13,18 +24,43 @@
 //!     fn info(&self) -> PluginInfo {
 //!         PluginInfo {
 //!             name: "hello".into(),
-//!             description: "A hello world plugin".into(),
-//!             parameters_schema: "{}".into(),
+//!             description: "Greet the caller by name".into(),
+//!             // JSON Schema for the `args` map your plugin accepts.
+//!             parameters_schema: r#"{
+//!                 "type": "object",
+//!                 "properties": {
+//!                     "name": { "type": "string", "description": "Name to greet" }
+//!                 },
+//!                 "required": ["name"]
+//!             }"#.into(),
 //!         }
 //!     }
 //!
 //!     fn execute(&self, input: PluginInput) -> Result<PluginOutput, String> {
-//!         Ok(PluginOutput { data: "Hello!".into() })
+//!         let name = input.args.get("name")
+//!             .and_then(|v| v.as_str())
+//!             .unwrap_or("world");
+//!         Ok(PluginOutput { data: format!("Hello, {name}!") })
 //!     }
 //! }
 //!
 //! orka_plugin_sdk::export_plugin!(HelloPlugin);
 //! ```
+//!
+//! # ABI contract
+//!
+//! The [`export_plugin!`] macro generates the following `extern "C"` exports that
+//! the Orka host calls:
+//!
+//! | Symbol | Signature | Description |
+//! |---|---|---|
+//! | `orka_abi_version` | `() -> i32` | Returns `2` for ABI v2 |
+//! | `orka_plugin_init` | `() -> i32` | Called once on load; `0` = OK |
+//! | `orka_plugin_cleanup` | `() -> i32` | Called before unload; `0` = OK |
+//! | `orka_plugin_info` | `() -> i64` | Returns `(ptr << 32) \| len` for JSON metadata |
+//! | `orka_plugin_execute` | `(ptr: u32, len: u32) -> i64` | Execute with JSON input; returns `(ptr << 32) \| len` |
+//! | `orka_alloc` | `(len: u32) -> u32` | Allocate guest memory |
+//! | `orka_dealloc` | `(ptr: u32, len: u32)` | Free guest memory |
 
 use std::collections::HashMap;
 
@@ -33,34 +69,64 @@ use serde::{Deserialize, Serialize};
 /// ABI version exported by v2 plugins.
 pub const ABI_VERSION: i32 = 2;
 
+/// Metadata returned by a plugin describing its identity and parameter contract.
+///
+/// The `parameters_schema` field must be a valid [JSON Schema](https://json-schema.org/)
+/// string. Orka uses it to validate input and to present the plugin's interface to the LLM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginInfo {
+    /// Unique skill name registered in the Orka skill registry (e.g. `"web_search"`).
     pub name: String,
+    /// Human-readable description shown to the LLM as part of the tool definition.
     pub description: String,
+    /// JSON Schema for the `args` object passed to [`Plugin::execute`].
     pub parameters_schema: String,
 }
 
+/// Input passed to [`Plugin::execute`] on each invocation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginInput {
+    /// Named arguments extracted from the LLM tool call.
+    /// Values are arbitrary JSON.
     pub args: HashMap<String, serde_json::Value>,
 }
 
+/// Output returned from a successful [`Plugin::execute`] call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginOutput {
+    /// Result string sent back to the LLM as the tool result.
     pub data: String,
 }
 
-/// Trait that plugin authors implement.
+/// Core trait implemented by all Orka WASM plugins.
+///
+/// Plugin types must also implement [`Default`] so the host can instantiate them
+/// without arguments. State should not be held across calls — plugins are stateless
+/// by design.
 pub trait Plugin: Default {
+    /// Return static metadata about this plugin.
+    ///
+    /// Called once by the host after [`Plugin::init`] succeeds.
     fn info(&self) -> PluginInfo;
+
+    /// Execute the plugin with the given input and return a result.
+    ///
+    /// Return `Err(String)` to signal a skill error; the message is forwarded
+    /// to the LLM as a tool error result.
     fn execute(&self, input: PluginInput) -> Result<PluginOutput, String>;
 
     /// Called once when the plugin is loaded by the host.
+    ///
+    /// Use this to validate configuration or warm up resources. The default
+    /// implementation does nothing and returns `Ok(())`.
     fn init(&self) -> Result<(), String> {
         Ok(())
     }
 
     /// Called by the host before unloading the plugin.
+    ///
+    /// Use this to flush buffers or release external resources. The default
+    /// implementation does nothing and returns `Ok(())`.
     fn cleanup(&self) -> Result<(), String> {
         Ok(())
     }

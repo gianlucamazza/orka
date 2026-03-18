@@ -14,7 +14,7 @@ pub mod embeddings;
 pub mod parsers;
 /// Knowledge skills: `doc_ingest`, `doc_list`, `memory_search`, `memory_store`.
 pub mod skills;
-/// Core domain types: [`Chunk`], [`Document`], [`SearchResult`].
+/// Core domain types: [`types::Chunk`], [`types::Document`], [`types::SearchResult`].
 pub mod types;
 /// Vector store trait and Qdrant backend implementation.
 pub mod vector_store;

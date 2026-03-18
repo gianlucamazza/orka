@@ -11,6 +11,8 @@ pub mod approval;
 pub mod config;
 /// [`PermissionGuard`] — central safety enforcement for all OS skills.
 pub mod guard;
+/// Runtime capability probing for startup validation.
+pub mod probe;
 /// All OS skills grouped by capability area.
 pub mod skills;
 
@@ -19,7 +21,9 @@ use std::sync::Arc;
 use orka_core::Result;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use tracing::info;
+use tracing::{info, warn};
+
+pub use probe::{EnvironmentCapabilities, PackageUpdateMethod};
 
 /// Check whether the current process has `NoNewPrivileges` set.
 ///
@@ -46,14 +50,21 @@ use guard::PermissionGuard;
 ///
 /// Uses an [`AutoApproveChannel`] for sudo approval. For custom approval
 /// channels (e.g. interactive confirmation), use [`create_os_skills_with_approval`].
-pub fn create_os_skills(config: &OsConfig) -> Result<Vec<Arc<dyn Skill>>> {
-    create_os_skills_with_approval(config, Arc::new(AutoApproveChannel))
+///
+/// Pass `caps` from [`EnvironmentCapabilities::probe`] to conditionally exclude
+/// skills that are not functional in the current environment.
+pub fn create_os_skills(
+    config: &OsConfig,
+    caps: Option<&EnvironmentCapabilities>,
+) -> Result<Vec<Arc<dyn Skill>>> {
+    create_os_skills_with_approval(config, Arc::new(AutoApproveChannel), caps)
 }
 
 /// Create OS skills with a custom approval channel for sudo commands.
 pub fn create_os_skills_with_approval(
     config: &OsConfig,
     approval: Arc<dyn ApprovalChannel>,
+    caps: Option<&EnvironmentCapabilities>,
 ) -> Result<Vec<Arc<dyn Skill>>> {
     let guard = Arc::new(PermissionGuard::new(config));
     let level = guard.level();
@@ -74,20 +85,37 @@ pub fn create_os_skills_with_approval(
         Arc::new(skills::package::PackageSearchSkill::new(guard.clone())),
         Arc::new(skills::package::PackageInfoSkill::new(guard.clone())),
         Arc::new(skills::package::PackageListSkill::new(guard.clone())),
-        Arc::new(skills::package::PackageUpdatesSkill::new(guard.clone())),
     ];
+
+    // package_updates: only if probe says it's available (or no probe was done)
+    let update_available = caps.map(|c| c.package_updates.available).unwrap_or(true);
+    if update_available {
+        let method = caps.and_then(|c| c.update_method);
+        result.push(Arc::new(skills::package::PackageUpdatesSkill::new(
+            guard.clone(),
+            method,
+        )));
+    } else {
+        warn!("package_updates skill disabled: not functional in current environment");
+    }
 
     #[cfg(feature = "systemd")]
     {
-        result.push(Arc::new(skills::systemd::ServiceStatusSkill::new(
-            guard.clone(),
-        )));
-        result.push(Arc::new(skills::systemd::ServiceListSkill::new(
-            guard.clone(),
-        )));
-        result.push(Arc::new(skills::systemd::JournalReadSkill::new(
-            guard.clone(),
-        )));
+        let systemctl_ok = caps.map(|c| c.systemctl.available).unwrap_or(true);
+        let journalctl_ok = caps.map(|c| c.journalctl.available).unwrap_or(true);
+        if systemctl_ok {
+            result.push(Arc::new(skills::systemd::ServiceStatusSkill::new(
+                guard.clone(),
+            )));
+            result.push(Arc::new(skills::systemd::ServiceListSkill::new(
+                guard.clone(),
+            )));
+        }
+        if journalctl_ok {
+            result.push(Arc::new(skills::systemd::JournalReadSkill::new(
+                guard.clone(),
+            )));
+        }
     }
 
     // Interact skills — clipboard and desktop notifications
@@ -179,7 +207,7 @@ mod tests {
             permission_level: "read-only".into(),
             ..OsConfig::default()
         };
-        let skills = create_os_skills(&config).unwrap();
+        let skills = create_os_skills(&config, None).unwrap();
         // 11 base + 4 package read skills + 0–3 systemd read skills (feature-gated)
         let count = skills.len();
         assert!(
@@ -198,7 +226,7 @@ mod tests {
             permission_level: "interact".into(),
             ..OsConfig::default()
         };
-        let skills = create_os_skills(&config).unwrap();
+        let skills = create_os_skills(&config, None).unwrap();
         assert!(skills.len() >= 15);
     }
 
@@ -208,7 +236,7 @@ mod tests {
             permission_level: "write".into(),
             ..OsConfig::default()
         };
-        let skills = create_os_skills(&config).unwrap();
+        let skills = create_os_skills(&config, None).unwrap();
         assert!(skills.len() > 15);
     }
 
@@ -218,13 +246,13 @@ mod tests {
             permission_level: "execute".into(),
             ..OsConfig::default()
         };
-        let skills = create_os_skills(&config).unwrap();
+        let skills = create_os_skills(&config, None).unwrap();
         // Should include read-only + write + execute skills
         let write_config = OsConfig {
             permission_level: "write".into(),
             ..OsConfig::default()
         };
-        let write_skills = create_os_skills(&write_config).unwrap();
+        let write_skills = create_os_skills(&write_config, None).unwrap();
         assert!(skills.len() > write_skills.len());
     }
 
@@ -248,13 +276,13 @@ mod tests {
             sudo: sudo.clone(),
             ..OsConfig::default()
         };
-        let skills = create_os_skills(&config).unwrap();
+        let skills = create_os_skills(&config, None).unwrap();
         let exec_config = OsConfig {
             permission_level: "execute".into(),
             sudo,
             ..OsConfig::default()
         };
-        let exec_skills = create_os_skills(&exec_config).unwrap();
+        let exec_skills = create_os_skills(&exec_config, None).unwrap();
         assert!(
             skills.len() > exec_skills.len(),
             "admin ({}) should have more skills than execute ({})",
@@ -269,7 +297,7 @@ mod tests {
             permission_level: "admin".into(),
             ..OsConfig::default()
         };
-        let skills = create_os_skills(&config).unwrap();
+        let skills = create_os_skills(&config, None).unwrap();
         for skill in &skills {
             let schema = skill.schema();
             assert!(
@@ -286,7 +314,7 @@ mod tests {
             permission_level: "admin".into(),
             ..OsConfig::default()
         };
-        let skills = create_os_skills(&config).unwrap();
+        let skills = create_os_skills(&config, None).unwrap();
         let mut names: Vec<&str> = skills.iter().map(|s| s.name()).collect();
         let total = names.len();
         names.sort();

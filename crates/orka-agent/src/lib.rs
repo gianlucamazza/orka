@@ -4,8 +4,8 @@ pub mod context;
 pub mod executor;
 pub mod graph;
 pub mod handoff;
-pub mod node_runner;
-pub mod tools;
+pub(crate) mod node_runner;
+pub(crate) mod tools;
 
 pub use agent::{Agent, AgentId, AgentLlmConfig, SystemPrompt, ToolScope};
 pub use config::{build_graph_from_config, build_single_agent_graph};
