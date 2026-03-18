@@ -5,13 +5,13 @@
 
 #![warn(missing_docs)]
 
-#[allow(missing_docs)]
+/// Approval channel trait and implementations for privileged command confirmation.
 pub mod approval;
-#[allow(missing_docs)]
+/// [`PermissionLevel`] enum for OS skill access control.
 pub mod config;
-#[allow(missing_docs)]
+/// [`PermissionGuard`] — central safety enforcement for all OS skills.
 pub mod guard;
-#[allow(missing_docs)]
+/// All OS skills grouped by capability area.
 pub mod skills;
 
 use std::sync::Arc;
@@ -125,6 +125,9 @@ pub fn create_os_skills_with_approval(
             guard.clone(),
         )));
         result.push(Arc::new(skills::package::PackageListSkill::new(
+            guard.clone(),
+        )));
+        result.push(Arc::new(skills::package::PackageUpdatesSkill::new(
             guard.clone(),
         )));
         if guard.sudo_enabled() {

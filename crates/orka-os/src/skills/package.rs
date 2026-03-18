@@ -34,11 +34,13 @@ fn detect_package_manager() -> Option<PackageManager> {
 
 // ── package_search ──
 
+/// Skill that searches the package manager database for packages matching a query.
 pub struct PackageSearchSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl PackageSearchSkill {
+    /// Create a new `package_search` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -110,11 +112,13 @@ impl Skill for PackageSearchSkill {
 
 // ── package_info ──
 
+/// Skill that retrieves detailed information about a specific package.
 pub struct PackageInfoSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl PackageInfoSkill {
+    /// Create a new `package_info` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -186,11 +190,13 @@ impl Skill for PackageInfoSkill {
 
 // ── package_list ──
 
+/// Skill that lists all installed packages, optionally filtered by name.
 pub struct PackageListSkill {
     guard: Arc<PermissionGuard>,
 }
 
 impl PackageListSkill {
+    /// Create a new `package_list` skill with the given permission guard.
     pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self { guard }
     }
@@ -265,8 +271,144 @@ impl Skill for PackageListSkill {
     }
 }
 
+// ── package_updates ──
+
+fn is_update_success(pm: PackageManager, exit_code: i32, using_fallback: bool) -> bool {
+    match pm {
+        PackageManager::Pacman => {
+            if using_fallback {
+                // pacman -Qu: exit 0 = updates, exit 1 = no updates
+                exit_code == 0 || exit_code == 1
+            } else {
+                // checkupdates: exit 0 = updates, exit 2 = no updates
+                exit_code == 0 || exit_code == 2
+            }
+        }
+        PackageManager::Apt => exit_code == 0,
+        PackageManager::Dnf => exit_code == 0 || exit_code == 100,
+    }
+}
+
+/// Skill that checks for available package updates.
+pub struct PackageUpdatesSkill {
+    guard: Arc<PermissionGuard>,
+}
+
+impl PackageUpdatesSkill {
+    /// Create a new `package_updates` skill with the given permission guard.
+    pub fn new(guard: Arc<PermissionGuard>) -> Self {
+        Self { guard }
+    }
+}
+
+#[async_trait]
+impl Skill for PackageUpdatesSkill {
+    fn name(&self) -> &str {
+        "package_updates"
+    }
+
+    fn description(&self) -> &str {
+        "Check for available package updates."
+    }
+
+    fn schema(&self) -> SkillSchema {
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "filter": { "type": "string", "description": "Filter updates by name" }
+            },
+            "required": []
+        }))
+    }
+
+    async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
+        self.guard.check_permission(PermissionLevel::Admin)?;
+
+        let filter = input.args.get("filter").and_then(|v| v.as_str());
+
+        let pm = detect_package_manager()
+            .ok_or_else(|| Error::Skill("no supported package manager found".into()))?;
+
+        let (output, method, using_fallback) = match pm {
+            PackageManager::Pacman => {
+                if std::path::Path::new("/usr/bin/checkupdates").exists() {
+                    let out = tokio::process::Command::new("checkupdates")
+                        .output()
+                        .await
+                        .map_err(|e| Error::Skill(format!("checkupdates failed: {}", e)))?;
+                    (out, "checkupdates", false)
+                } else {
+                    let out = tokio::process::Command::new("pacman")
+                        .args(["-Qu"])
+                        .output()
+                        .await
+                        .map_err(|e| Error::Skill(format!("pacman -Qu failed: {}", e)))?;
+                    (out, "pacman -Qu", true)
+                }
+            }
+            PackageManager::Apt => {
+                let out = tokio::process::Command::new("apt")
+                    .args(["list", "--upgradable"])
+                    .output()
+                    .await
+                    .map_err(|e| Error::Skill(format!("apt list --upgradable failed: {}", e)))?;
+                (out, "apt list --upgradable", false)
+            }
+            PackageManager::Dnf => {
+                let out = tokio::process::Command::new("dnf")
+                    .args(["check-update"])
+                    .output()
+                    .await
+                    .map_err(|e| Error::Skill(format!("dnf check-update failed: {}", e)))?;
+                (out, "dnf check-update", false)
+            }
+        };
+
+        let exit_code = output.status.code().unwrap_or(-1);
+        if !is_update_success(pm, exit_code, using_fallback) {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            return Err(Error::Skill(format!(
+                "{} failed with exit code {}: {}",
+                method, exit_code, stderr
+            )));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let f_lower = filter.map(|f| f.to_lowercase());
+        let lines: Vec<&str> = stdout
+            .lines()
+            .filter(|l| {
+                // Skip apt's "Listing..." header line
+                !l.starts_with("Listing...")
+            })
+            .filter(|l| !l.is_empty())
+            .filter(|l| {
+                if let Some(ref f) = f_lower {
+                    l.to_lowercase().contains(f.as_str())
+                } else {
+                    true
+                }
+            })
+            .collect();
+
+        let mut result = serde_json::json!({
+            "updates": lines,
+            "count": lines.len(),
+            "package_manager": format!("{:?}", pm).to_lowercase(),
+            "method": method,
+        });
+
+        if using_fallback {
+            result["stale_cache_warning"] = serde_json::json!(true);
+        }
+
+        Ok(SkillOutput::new(result))
+    }
+}
+
 // ── package_install ──
 
+/// Skill that installs a package via sudo, with optional approval gating.
 pub struct PackageInstallSkill {
     guard: Arc<PermissionGuard>,
     require_confirmation: bool,
@@ -275,6 +417,7 @@ pub struct PackageInstallSkill {
 }
 
 impl PackageInstallSkill {
+    /// Create a new `package_install` skill from config, a permission guard, and an approval channel.
     pub fn new(
         guard: Arc<PermissionGuard>,
         config: &OsConfig,
@@ -466,6 +609,18 @@ mod tests {
         assert_eq!(schema.parameters["required"][0], "name");
     }
 
+    #[test]
+    fn package_updates_schema_valid() {
+        let skill = PackageUpdatesSkill::new(make_guard());
+        let schema = skill.schema();
+        let required = schema.parameters.get("required");
+        // required should be empty array
+        assert!(
+            required.map_or(true, |r| r.as_array().map_or(true, |a| a.is_empty())),
+            "package_updates should have no required params"
+        );
+    }
+
     #[tokio::test]
     async fn package_search_requires_admin() {
         use orka_core::config::OsConfig;
@@ -477,5 +632,59 @@ mod tests {
         let mut args = std::collections::HashMap::new();
         args.insert("query".into(), serde_json::json!("test"));
         assert!(skill.execute(SkillInput::new(args)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn package_updates_requires_admin() {
+        use orka_core::config::OsConfig;
+        let guard = Arc::new(PermissionGuard::new(&OsConfig {
+            permission_level: "execute".into(),
+            ..OsConfig::default()
+        }));
+        let skill = PackageUpdatesSkill::new(guard);
+        assert!(
+            skill
+                .execute(SkillInput::new(Default::default()))
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn is_update_success_pacman_checkupdates() {
+        // exit 0 = updates available
+        assert!(is_update_success(PackageManager::Pacman, 0, false));
+        // exit 2 = no updates
+        assert!(is_update_success(PackageManager::Pacman, 2, false));
+        // exit 1 = error
+        assert!(!is_update_success(PackageManager::Pacman, 1, false));
+    }
+
+    #[test]
+    fn is_update_success_pacman_fallback() {
+        // exit 0 = updates available
+        assert!(is_update_success(PackageManager::Pacman, 0, true));
+        // exit 1 = no updates
+        assert!(is_update_success(PackageManager::Pacman, 1, true));
+        // other = error
+        assert!(!is_update_success(PackageManager::Pacman, 2, true));
+        assert!(!is_update_success(PackageManager::Pacman, -1, true));
+    }
+
+    #[test]
+    fn is_update_success_apt() {
+        assert!(is_update_success(PackageManager::Apt, 0, false));
+        assert!(!is_update_success(PackageManager::Apt, 1, false));
+        assert!(!is_update_success(PackageManager::Apt, 100, false));
+    }
+
+    #[test]
+    fn is_update_success_dnf() {
+        // exit 0 = no updates
+        assert!(is_update_success(PackageManager::Dnf, 0, false));
+        // exit 100 = updates available
+        assert!(is_update_success(PackageManager::Dnf, 100, false));
+        // exit 1 = error
+        assert!(!is_update_success(PackageManager::Dnf, 1, false));
     }
 }
