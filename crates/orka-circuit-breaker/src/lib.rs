@@ -140,7 +140,7 @@ impl CircuitBreaker {
         self.failure_count.store(0, Ordering::SeqCst);
         self.success_count.store(0, Ordering::SeqCst);
         self.half_open_probes.store(0, Ordering::SeqCst);
-        *self.open_since.lock().unwrap() = None;
+        *self.open_since.lock().expect("mutex poisoned") = None;
     }
 
     // -- private helpers --
@@ -224,11 +224,11 @@ impl CircuitBreaker {
         self.failure_count.store(0, Ordering::SeqCst);
         self.success_count.store(0, Ordering::SeqCst);
         self.half_open_probes.store(0, Ordering::SeqCst);
-        *self.open_since.lock().unwrap() = Some(Instant::now());
+        *self.open_since.lock().expect("mutex poisoned") = Some(Instant::now());
     }
 
     fn open_duration_elapsed(&self) -> bool {
-        let guard = self.open_since.lock().unwrap();
+        let guard = self.open_since.lock().expect("mutex poisoned");
         match *guard {
             Some(since) => since.elapsed() >= self.config.open_duration,
             None => false,

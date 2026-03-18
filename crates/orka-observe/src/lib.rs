@@ -235,6 +235,8 @@ mod tests {
             scheduler: SchedulerConfig::default(),
             http: HttpClientConfig::default(),
             experience: ExperienceConfig::default(),
+            agents: Vec::new(),
+            graph: None,
         }
     }
 

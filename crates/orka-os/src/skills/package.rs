@@ -622,7 +622,7 @@ mod tests {
         let required = schema.parameters.get("required");
         // required should be empty array
         assert!(
-            required.map_or(true, |r| r.as_array().map_or(true, |a| a.is_empty())),
+            required.is_none_or(|r| r.as_array().is_none_or(|a| a.is_empty())),
             "package_updates should have no required params"
         );
     }

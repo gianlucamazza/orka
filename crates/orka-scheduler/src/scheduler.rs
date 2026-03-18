@@ -78,11 +78,9 @@ impl Scheduler {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(self.max_concurrent));
 
         for schedule in due {
-            let permit = semaphore.clone().acquire_owned().await;
-            if permit.is_err() {
+            let Ok(permit) = semaphore.clone().acquire_owned().await else {
                 break;
-            }
-            let permit = permit.unwrap();
+            };
 
             let store = self.store.clone();
             let skills = self.skills.clone();

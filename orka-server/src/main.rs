@@ -18,7 +18,7 @@ use orka_gateway::Gateway;
 use orka_llm::SwappableLlmClient;
 use orka_queue::create_queue;
 use orka_session::create_session_store;
-use orka_worker::{CommandRegistry, WorkerPool, WorkspaceHandler, WorkspaceHandlerConfig};
+use orka_worker::{CommandRegistry, WorkerPoolGraph};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -388,14 +388,16 @@ async fn main() -> anyhow::Result<()> {
     let mut skills = orka_skills::create_skill_registry();
     skills.register(Arc::new(orka_skills::EchoSkill));
 
-    // 4b. Sandbox + SandboxSkill
+    // 4b. Shared WASM engine + Sandbox + SandboxSkill
+    let wasm_engine =
+        orka_wasm::WasmEngine::new().context("failed to create shared WASM engine")?;
     let sandbox =
         orka_sandbox::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
     skills.register(Arc::new(orka_sandbox::SandboxSkill::new(sandbox)));
 
     // 4c. Load WASM plugins
     if let Some(ref plugin_dir) = config.plugins.dir {
-        match orka_skills::load_plugins(std::path::Path::new(plugin_dir)) {
+        match orka_skills::load_plugins(std::path::Path::new(plugin_dir), &wasm_engine) {
             Ok(plugins) => {
                 for plugin in plugins {
                     skills.register(plugin);
@@ -818,7 +820,10 @@ async fn main() -> anyhow::Result<()> {
                         return None;
                     }
                     let dc: Arc<dyn ChannelAdapter> =
-                        Arc::new(orka_adapter_discord::DiscordAdapter::new(token));
+                        Arc::new(orka_adapter_discord::DiscordAdapter::new(
+                            token,
+                            dc_config.application_id.clone(),
+                        ));
                     if let Err(e) =
                         start_adapter(dc.clone(), bus, shutdown, dc_config.workspace.clone()).await
                     {
@@ -1225,7 +1230,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // 8. Build command registry and start worker pool with WorkspaceHandler
+    // 8. Build command registry (for adapter menu hints) and start graph worker pool
     let mut commands = CommandRegistry::new();
     orka_worker::commands::register_all(
         &mut commands,
@@ -1248,9 +1253,6 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let disabled_tools: std::collections::HashSet<String> =
-        config.tools.disabled.iter().cloned().collect();
-
     // Experience / self-learning service
     let experience_service = if config.experience.enabled {
         match create_experience_service(&config) {
@@ -1264,28 +1266,30 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let handler: Arc<dyn orka_worker::AgentHandler> = Arc::new(WorkspaceHandler::new(
-        workspace_registry.clone(),
-        skills.clone(),
+    // Build agent graph from config (falls back to single-agent graph for legacy configs)
+    let graph = Arc::new(
+        orka_agent::build_graph_from_config(&config, &workspace_registry)
+            .await
+            .context("failed to build agent graph")?,
+    );
+    info!(graph_id = %graph.id, "agent graph built");
+
+    let executor = Arc::new(orka_agent::GraphExecutor::new(orka_agent::ExecutorDeps {
+        skills: skills.clone(),
         memory,
         secrets,
-        llm_client,
-        event_sink.clone(),
-        WorkspaceHandlerConfig {
-            agent_config: config.agent.clone(),
-            disabled_tools,
-            default_context_window: config.llm.context_window_tokens,
-        },
-        guardrail,
-        commands,
-        stream_registry.clone(),
-        experience_service.clone(),
-    ));
-    let worker_pool = WorkerPool::new(
+        llm: llm_client,
+        event_sink: event_sink.clone(),
+        stream_registry: stream_registry.clone(),
+        experience: experience_service.clone(),
+    }));
+
+    let worker_pool = WorkerPoolGraph::new(
         queue.clone(),
         sessions.clone(),
         bus.clone(),
-        handler,
+        executor,
+        graph,
         event_sink.clone(),
         config.worker.concurrency,
         config.queue.max_retries,

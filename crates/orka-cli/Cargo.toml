@@ -22,14 +22,15 @@ orka-core.workspace = true
 orka-mcp.workspace = true
 orka-secrets.workspace = true
 orka-skills.workspace = true
+orka-wasm.workspace = true
 toml_edit = { workspace = true }
 similar = { workspace = true }
-colored = "3"
+colored.workspace = true
 dirs = "6"
 rustyline = "15"
 indicatif = "0.17"
-tokio-tungstenite = "0.26"
-futures-util = "0.3"
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 uuid.workspace = true
 termimad = "0.30"
 syntect = { version = "5", default-features = false, features = [
