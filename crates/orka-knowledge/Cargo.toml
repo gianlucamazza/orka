@@ -16,7 +16,7 @@ uuid.workspace = true
 chrono.workspace = true
 reqwest.workspace = true
 qdrant-client = "1"
-fastembed = "4"
+fastembed = "5"
 text-splitter = { version = "0.16", features = ["tiktoken-rs"] }
 pdf-extract = "0.7"
 

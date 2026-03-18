@@ -142,8 +142,6 @@ impl MarkdownRenderer {
 
     /// Render a fenced code block with syntax highlighting via syntect.
     fn render_code_block_inline(&self, block: &str) {
-        let theme = &self.theme_set.themes[&self.theme_name];
-
         // Parse the fence: ```lang\n...\n```
         let mut lines = block.lines();
         let first_line = lines.next().unwrap_or("");
@@ -155,6 +153,17 @@ impl MarkdownRenderer {
             &code_lines[..code_lines.len() - 1]
         } else {
             &code_lines[..]
+        };
+
+        let Some(theme) = self.theme_set.themes.get(&self.theme_name) else {
+            // Theme missing — print without highlighting
+            let mut out = std::io::stdout().lock();
+            let _ = writeln!(out, "\x1b[90m───\x1b[0m");
+            for line in code_lines {
+                let _ = writeln!(out, "  {line}");
+            }
+            let _ = writeln!(out, "\x1b[90m───\x1b[0m");
+            return;
         };
 
         let syntax = if lang.is_empty() {

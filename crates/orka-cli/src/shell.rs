@@ -72,18 +72,20 @@ pub fn classify_input(line: &str) -> InputAction {
                     v.trim().to_string(),
                 ));
             }
-            if !kv.is_empty() {
-                return InputAction::Error("export: usage: export KEY=VALUE".to_string());
+            if kv.is_empty() {
+                return InputAction::Error("export: usage: !export KEY=VALUE".to_string());
             }
+            return InputAction::Error("export: usage: !export KEY=VALUE".to_string());
         }
         if let Some(key) = rest
             .strip_prefix("unset")
             .filter(|s| s.is_empty() || s.starts_with(char::is_whitespace))
         {
             let key = key.trim();
-            if !key.is_empty() {
-                return InputAction::Builtin(Builtin::Unset(key.to_string()));
+            if key.is_empty() {
+                return InputAction::Error("unset: usage: !unset KEY".to_string());
             }
+            return InputAction::Builtin(Builtin::Unset(key.to_string()));
         }
         if rest == "history" {
             return InputAction::Builtin(Builtin::History);
@@ -95,7 +97,9 @@ pub fn classify_input(line: &str) -> InputAction {
     if let Some(rest) = trimmed.strip_prefix('/') {
         let cmd_name = rest.split_whitespace().next().unwrap_or("").to_lowercase();
         return match cmd_name.as_str() {
-            "quit" | "exit" | "help" | "clear" => InputAction::SlashLocal(trimmed.to_string()),
+            "quit" | "exit" | "help" | "clear" | "think" | "feedback" => {
+                InputAction::SlashLocal(trimmed.to_string())
+            }
             _ => InputAction::SlashServer(trimmed.to_string()),
         };
     }
@@ -253,6 +257,14 @@ mod tests {
             classify_input("/clear"),
             InputAction::SlashLocal("/clear".to_string())
         );
+        assert_eq!(
+            classify_input("/think"),
+            InputAction::SlashLocal("/think".to_string())
+        );
+        assert_eq!(
+            classify_input("/feedback good"),
+            InputAction::SlashLocal("/feedback good".to_string())
+        );
     }
 
     #[test]
@@ -325,6 +337,16 @@ mod tests {
             classify_input("!export FOO"),
             InputAction::Error(_)
         ));
+    }
+
+    #[test]
+    fn classify_bare_export_is_error() {
+        assert!(matches!(classify_input("!export"), InputAction::Error(_)));
+    }
+
+    #[test]
+    fn classify_bare_unset_is_error() {
+        assert!(matches!(classify_input("!unset"), InputAction::Error(_)));
     }
 
     #[test]

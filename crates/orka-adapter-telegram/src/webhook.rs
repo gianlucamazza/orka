@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{Json, Router, extract::State, routing::post};
+use orka_core::traits::MemoryStore;
 use orka_core::types::MessageSink;
 use serde_json::json;
 use tokio::sync::Mutex;
@@ -11,7 +12,7 @@ use tracing::{error, info, warn};
 
 use crate::TelegramAuthGuard;
 use crate::api::TelegramApi;
-use crate::polling::{extract_user_info, process_message};
+use crate::polling::{extract_user_info, process_message, resolve_session};
 use crate::types::{CallbackQuery, Update};
 use orka_core::types::SessionId;
 
@@ -20,6 +21,7 @@ struct WebhookState {
     api: Arc<TelegramApi>,
     sink: Arc<Mutex<Option<MessageSink>>>,
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
+    memory: Option<Arc<dyn MemoryStore>>,
     auth_guard: Arc<TelegramAuthGuard>,
 }
 
@@ -52,9 +54,17 @@ async fn handle_update(
     };
 
     if let Some(msg) = msg_opt {
-        process_message(&state.api, msg, &state.sessions, &sink, is_edited).await;
+        process_message(
+            &state.api,
+            msg,
+            &state.sessions,
+            &state.memory,
+            &sink,
+            is_edited,
+        )
+        .await;
     } else if let Some(cq) = update.callback_query {
-        handle_callback_query(&state.api, cq, &state.sessions, &sink).await;
+        handle_callback_query(&state.api, cq, &state.sessions, &state.memory, &sink).await;
     }
 
     axum::http::StatusCode::OK
@@ -64,6 +74,7 @@ async fn handle_callback_query(
     api: &Arc<TelegramApi>,
     cq: CallbackQuery,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
+    memory: &Option<Arc<dyn MemoryStore>>,
     sink: &MessageSink,
 ) {
     use orka_core::types::{Envelope, EventPayload, MessageId, Payload};
@@ -71,8 +82,7 @@ async fn handle_callback_query(
     let chat_id = cq.message.as_ref().map(|m| m.chat.id);
 
     let session_id = if let Some(cid) = chat_id {
-        let mut s = sessions.lock().await;
-        *s.entry(cid).or_insert_with(SessionId::new)
+        resolve_session(cid, sessions, memory).await
     } else {
         SessionId::new()
     };
@@ -116,10 +126,12 @@ async fn handle_callback_query(
 }
 
 /// Start the webhook HTTP server.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_webhook_server(
     api: Arc<TelegramApi>,
     sink: Arc<Mutex<Option<MessageSink>>>,
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
+    memory: Option<Arc<dyn MemoryStore>>,
     webhook_url: String,
     port: u16,
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
@@ -144,6 +156,7 @@ pub(crate) async fn run_webhook_server(
         api: api.clone(),
         sink,
         sessions,
+        memory,
         auth_guard,
     };
 

@@ -1,3 +1,5 @@
+/// Claude Code delegation skill — runs `claude --print` as a subprocess.
+pub mod claude_code;
 /// Environment variable inspection skills.
 pub mod env;
 /// Filesystem skills: read, write, list, search, watch.

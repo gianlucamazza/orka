@@ -1359,6 +1359,9 @@ pub struct OsConfig {
     /// Privileged sudo configuration.
     #[serde(default)]
     pub sudo: SudoConfig,
+    /// Claude Code delegation skill configuration.
+    #[serde(default)]
+    pub claude_code: ClaudeCodeConfig,
 }
 
 impl Default for OsConfig {
@@ -1376,8 +1379,50 @@ impl Default for OsConfig {
             max_list_entries: default_os_max_list_entries(),
             sensitive_env_patterns: default_os_sensitive_env_patterns(),
             sudo: SudoConfig::default(),
+            claude_code: ClaudeCodeConfig::default(),
         }
     }
+}
+
+/// Configuration for the `claude_code` delegation skill.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClaudeCodeConfig {
+    /// Tri-state enable flag: `"auto"` (default) probes for `claude` on PATH,
+    /// `"true"` forces registration, `"false"` disables unconditionally.
+    #[serde(default = "default_claude_code_enabled")]
+    pub enabled: String,
+    /// Claude model to use (e.g. `"claude-sonnet-4-6"`). Uses Claude Code's default if unset.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Maximum agentic turns for a single task (`--max-turns`).
+    #[serde(default)]
+    pub max_turns: Option<u32>,
+    /// Execution timeout in seconds (default 300).
+    #[serde(default = "default_claude_code_timeout_secs")]
+    pub timeout_secs: u64,
+    /// Working directory for the `claude` subprocess. Defaults to the process cwd.
+    #[serde(default)]
+    pub working_dir: Option<String>,
+}
+
+impl Default for ClaudeCodeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_claude_code_enabled(),
+            model: None,
+            max_turns: None,
+            timeout_secs: default_claude_code_timeout_secs(),
+            working_dir: None,
+        }
+    }
+}
+
+fn default_claude_code_enabled() -> String {
+    "auto".into()
+}
+
+fn default_claude_code_timeout_secs() -> u64 {
+    300
 }
 
 /// Privileged command execution via sudo.

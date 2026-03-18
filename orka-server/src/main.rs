@@ -29,6 +29,83 @@ use tracing_subscriber::EnvFilter;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const GIT_SHA: &str = env!("ORKA_GIT_SHA");
 const BUILD_DATE: &str = env!("ORKA_BUILD_DATE");
+
+const GITHUB_LATEST_URL: &str = "https://api.github.com/repos/gianlucamazza/orka/releases/latest";
+
+/// Spawn a fire-and-forget task that checks for a newer release on GitHub
+/// and logs a warning if one exists. Never blocks startup.
+fn spawn_update_check() {
+    tokio::spawn(async {
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .user_agent(format!("orka-server/{VERSION}"))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let Ok(resp) = client
+            .get(GITHUB_LATEST_URL)
+            .header("Accept", "application/vnd.github.v3+json")
+            .send()
+            .await
+        else {
+            return;
+        };
+        let Ok(json) = resp.json::<serde_json::Value>().await else {
+            return;
+        };
+        let Some(tag) = json["tag_name"].as_str() else {
+            return;
+        };
+        let latest = tag.trim_start_matches('v');
+        if semver_gt(latest, VERSION) {
+            let upgrade_hint = upgrade_hint_for_server();
+            warn!(
+                current = VERSION,
+                latest, upgrade_hint, "A new version of orka-server is available."
+            );
+        }
+    });
+}
+
+/// Returns an upgrade hint string based on the server binary's install location.
+fn upgrade_hint_for_server() -> &'static str {
+    let is_docker = std::path::Path::new("/.dockerenv").exists()
+        || std::fs::read_to_string("/proc/1/cgroup")
+            .map(|c| c.contains("docker") || c.contains("containerd"))
+            .unwrap_or(false);
+    if is_docker {
+        return "Pull the latest image and recreate the container.";
+    }
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return "See https://github.com/gianlucamazza/orka/releases",
+    };
+    let s = exe.to_string_lossy();
+    if s.starts_with("/usr/bin/") {
+        "Run: yay -Syu orka-git"
+    } else if s.starts_with("/usr/local/bin/") {
+        "Run: orka update  (or re-run install.sh)"
+    } else if s.contains("/.cargo/bin/") {
+        "Run: cargo install orka"
+    } else {
+        "See https://github.com/gianlucamazza/orka/releases"
+    }
+}
+
+/// Returns true if `a` is a higher semver than `b` (major.minor.patch only).
+fn semver_gt(a: &str, b: &str) -> bool {
+    let parse = |v: &str| -> (u64, u64, u64) {
+        let mut it = v.split('.').filter_map(|p| p.parse::<u64>().ok());
+        (
+            it.next().unwrap_or(0),
+            it.next().unwrap_or(0),
+            it.next().unwrap_or(0),
+        )
+    };
+    parse(a) > parse(b)
+}
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -360,6 +437,7 @@ async fn main() -> anyhow::Result<()> {
         build_date = BUILD_DATE,
         "Orka server starting"
     );
+    spawn_update_check();
     debug!(?config, "loaded configuration");
 
     // 3. Create infra
@@ -770,6 +848,7 @@ async fn main() -> anyhow::Result<()> {
         let bus = bus.clone();
         let shutdown = shutdown.clone();
         let tg_config = config.adapters.telegram.clone();
+        let tg_memory = memory.clone();
         async move {
             let tg_config = tg_config.as_ref()?;
             let secret_name = tg_config
@@ -784,7 +863,8 @@ async fn main() -> anyhow::Result<()> {
                         return None;
                     }
                     let tg: Arc<dyn ChannelAdapter> = Arc::new(
-                        orka_adapter_telegram::TelegramAdapter::new(tg_config.clone(), token),
+                        orka_adapter_telegram::TelegramAdapter::new(tg_config.clone(), token)
+                            .with_memory(tg_memory),
                     );
                     if let Err(e) =
                         start_adapter(tg.clone(), bus, shutdown, tg_config.workspace.clone()).await
@@ -1326,6 +1406,7 @@ async fn main() -> anyhow::Result<()> {
     );
     info!(graph_id = %graph.id, "agent graph built");
 
+    let memory_for_worker = memory.clone();
     let executor = Arc::new(orka_agent::GraphExecutor::new(orka_agent::ExecutorDeps {
         skills: skills.clone(),
         memory,
@@ -1346,7 +1427,8 @@ async fn main() -> anyhow::Result<()> {
         config.worker.concurrency,
         config.queue.max_retries,
     )
-    .with_retry_delay(config.worker.retry_base_delay_ms);
+    .with_retry_delay(config.worker.retry_base_delay_ms)
+    .with_memory(memory_for_worker);
     let worker_cancel = shutdown.clone();
     let worker_handle = tokio::spawn(async move {
         if let Err(e) = worker_pool.run(worker_cancel).await {

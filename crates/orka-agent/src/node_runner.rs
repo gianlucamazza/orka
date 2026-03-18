@@ -33,9 +33,16 @@ fn truncate_tool_result(content: &str, max_chars: usize) -> String {
     if content.len() <= max_chars {
         return content.to_string();
     }
-    let truncated = &content[..max_chars];
+    // Walk back from max_chars to find a valid UTF-8 char boundary.
+    // Equivalent to str::floor_char_boundary (stable since 1.91), which
+    // exceeds our MSRV of 1.85.
+    let mut boundary = max_chars;
+    while !content.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    let truncated = &content[..boundary];
     format!(
-        "{truncated}\n\n[truncated, showing first {max_chars} chars of {} total]",
+        "{truncated}\n\n[truncated, showing first {boundary} chars of {} total]",
         content.len()
     )
 }
@@ -197,6 +204,9 @@ pub async fn run_agent_node(
     let handoff_tools = build_handoff_tools(agent, graph);
     tools.extend(handoff_tools);
 
+    let envelope = &ctx.trigger;
+    let message_id = envelope.id;
+
     // Build system prompt
     let system_prompt = {
         let mut sp = agent.system_prompt.build(&agent.display_name);
@@ -222,6 +232,15 @@ pub async fn run_agent_node(
                                 count: principles.len(),
                             }))
                             .await;
+                        deps.stream_registry
+                            .send(orka_core::stream::StreamChunk::new(
+                                ctx.session_id,
+                                envelope.channel.clone(),
+                                Some(envelope.id),
+                                orka_core::stream::StreamChunkKind::PrinciplesUsed {
+                                    count: principles.len() as u32,
+                                },
+                            ));
                     }
                 }
                 Err(e) => {
@@ -246,10 +265,7 @@ pub async fn run_agent_node(
     let max_tool_retries: u32 = 2;
     let mut tool_error_counts: HashMap<String, u32> = HashMap::new();
     let max_result_chars: usize = 50_000;
-    let skill_timeout = std::time::Duration::from_secs(120);
-
-    let envelope = &ctx.trigger;
-    let message_id = envelope.id;
+    let skill_timeout = std::time::Duration::from_secs(agent.skill_timeout_secs);
 
     let mut messages = ctx.messages().await;
     let mut iterations = 0usize;
@@ -263,7 +279,7 @@ pub async fn run_agent_node(
         // Truncate history to fit context window
         let budget =
             available_history_budget(context_window, output_budget, &system_prompt, &tools);
-        let (truncated, dropped) = truncate_history(messages, budget);
+        let (truncated, dropped) = truncate_history(messages, budget, false);
         messages = truncated;
         if dropped > 0 {
             warn!(
@@ -271,6 +287,22 @@ pub async fn run_agent_node(
                 remaining = messages.len(),
                 "truncated history to fit context window"
             );
+            let history_tokens: u32 = messages
+                .iter()
+                .map(orka_llm::context::estimate_message_tokens)
+                .sum();
+            deps.stream_registry
+                .send(orka_core::stream::StreamChunk::new(
+                    ctx.session_id,
+                    envelope.channel.clone(),
+                    Some(envelope.id),
+                    orka_core::stream::StreamChunkKind::ContextInfo {
+                        history_tokens,
+                        context_window,
+                        messages_truncated: dropped as u32,
+                        summary_generated: false,
+                    },
+                ));
         }
 
         let llm_span = info_span!(
@@ -318,14 +350,16 @@ pub async fn run_agent_node(
             (completion.usage.input_tokens + completion.usage.output_tokens) as u64;
         ctx.add_tokens(iteration_tokens);
 
+        let llm_model = agent
+            .llm_config
+            .model
+            .clone()
+            .unwrap_or_else(|| "default".into());
+
         deps.event_sink
             .emit(DomainEvent::new(DomainEventKind::LlmCompleted {
                 message_id,
-                model: agent
-                    .llm_config
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "default".into()),
+                model: llm_model.clone(),
                 input_tokens: completion.usage.input_tokens,
                 output_tokens: completion.usage.output_tokens,
                 reasoning_tokens: completion.usage.reasoning_tokens,
@@ -333,6 +367,25 @@ pub async fn run_agent_node(
                 estimated_cost_usd: None,
             }))
             .await;
+
+        deps.stream_registry
+            .send(orka_core::stream::StreamChunk::new(
+                ctx.session_id,
+                envelope.channel.clone(),
+                Some(envelope.id),
+                orka_core::stream::StreamChunkKind::Usage {
+                    input_tokens: completion.usage.input_tokens,
+                    output_tokens: completion.usage.output_tokens,
+                    cache_read_tokens: (completion.usage.cache_read_input_tokens > 0)
+                        .then_some(completion.usage.cache_read_input_tokens),
+                    cache_creation_tokens: (completion.usage.cache_creation_input_tokens > 0)
+                        .then_some(completion.usage.cache_creation_input_tokens),
+                    reasoning_tokens: (completion.usage.reasoning_tokens > 0)
+                        .then_some(completion.usage.reasoning_tokens),
+                    model: llm_model,
+                    cost_usd: None,
+                },
+            ));
 
         // Parse response — separate thinking, text, and tool calls
         let mut thinking_text = String::new();

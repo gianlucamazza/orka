@@ -167,6 +167,19 @@ impl GraphExecutor {
 
             match &node.kind {
                 NodeKind::Agent => {
+                    // Emit AgentSwitch so adapters can show which agent is responding
+                    {
+                        use orka_core::stream::{StreamChunk, StreamChunkKind};
+                        self.deps.stream_registry.send(StreamChunk::new(
+                            ctx.session_id,
+                            ctx.trigger.channel.clone(),
+                            Some(ctx.trigger.id),
+                            StreamChunkKind::AgentSwitch {
+                                agent_id: node.agent.id.0.to_string(),
+                                display_name: node.agent.display_name.clone(),
+                            },
+                        ));
+                    }
                     let result = run_agent_node(&node.agent, ctx, &self.deps, graph)
                         .instrument(agent_span)
                         .await?;
@@ -224,6 +237,18 @@ impl GraphExecutor {
                                         continue;
                                     }
                                 };
+                                {
+                                    use orka_core::stream::{StreamChunk, StreamChunkKind};
+                                    self.deps.stream_registry.send(StreamChunk::new(
+                                        ctx.session_id,
+                                        ctx.trigger.channel.clone(),
+                                        Some(ctx.trigger.id),
+                                        StreamChunkKind::AgentSwitch {
+                                            agent_id: target_node.agent.id.0.to_string(),
+                                            display_name: target_node.agent.display_name.clone(),
+                                        },
+                                    ));
+                                }
                                 let delegate_result =
                                     run_agent_node(&target_node.agent, ctx, &self.deps, graph)
                                         .await?;
@@ -300,6 +325,18 @@ impl GraphExecutor {
                         let graph_clone = graph.clone();
 
                         join_set.spawn(async move {
+                            {
+                                use orka_core::stream::{StreamChunk, StreamChunkKind};
+                                deps.stream_registry.send(StreamChunk::new(
+                                    ctx.session_id,
+                                    ctx.trigger.channel.clone(),
+                                    Some(ctx.trigger.id),
+                                    StreamChunkKind::AgentSwitch {
+                                        agent_id: target_node.agent.id.0.to_string(),
+                                        display_name: target_node.agent.display_name.clone(),
+                                    },
+                                ));
+                            }
                             run_agent_node(&target_node.agent, &ctx, &deps, &graph_clone).await
                         });
                     }
@@ -323,6 +360,18 @@ impl GraphExecutor {
 
                 NodeKind::FanIn => {
                     // FanIn: same as Agent but reads merged results from context
+                    {
+                        use orka_core::stream::{StreamChunk, StreamChunkKind};
+                        self.deps.stream_registry.send(StreamChunk::new(
+                            ctx.session_id,
+                            ctx.trigger.channel.clone(),
+                            Some(ctx.trigger.id),
+                            StreamChunkKind::AgentSwitch {
+                                agent_id: node.agent.id.0.to_string(),
+                                display_name: node.agent.display_name.clone(),
+                            },
+                        ));
+                    }
                     let result = run_agent_node(&node.agent, ctx, &self.deps, graph)
                         .instrument(agent_span)
                         .await?;

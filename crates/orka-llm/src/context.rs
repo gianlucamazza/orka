@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use tiktoken_rs::CoreBPE;
 
-use crate::client::{ChatContent, ChatMessageExt, ContentBlockInput, ToolDefinition};
+use crate::client::{ChatContent, ChatMessageExt, ContentBlockInput, Role, ToolDefinition};
 
 /// Model family hint for selecting the right tokenizer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,9 +72,9 @@ pub fn estimate_message_tokens_with_hint(msg: &ChatMessageExt, hint: TokenizerHi
                 ContentBlockInput::ToolResult { content, .. } => {
                     estimate_tokens_with_hint(content, hint)
                 }
-                ContentBlockInput::Thinking { thinking } => {
-                    estimate_tokens_with_hint(thinking, hint)
-                }
+                // Thinking blocks are stripped before sending to the API (see anthropic.rs
+                // build_ext_messages), so they must not count against the token budget.
+                ContentBlockInput::Thinking { .. } => 0,
                 ContentBlockInput::Unknown => 0,
             })
             .sum(),
@@ -130,21 +130,78 @@ pub fn available_history_budget_with_hint(
         .saturating_sub(tools_tokens)
 }
 
-/// Truncate history to fit within available tokens, dropping oldest messages first.
+/// Returns true if `msg` starts a new logical conversation turn.
+///
+/// A turn-starting message is a user message with at least one `Text` block
+/// (as opposed to a user message that only carries `ToolResult` blocks, which
+/// is the API format for tool responses and belongs to the *previous* turn).
+fn is_user_text_turn(msg: &ChatMessageExt) -> bool {
+    if msg.role != Role::User {
+        return false;
+    }
+    match &msg.content {
+        ChatContent::Text(_) => true,
+        ChatContent::Blocks(blocks) => blocks
+            .iter()
+            .any(|b| matches!(b, ContentBlockInput::Text { .. })),
+    }
+}
+
+/// Group `messages` into logical conversation turns.
+///
+/// A turn begins with a user text message and extends until (but not including)
+/// the next user text message.  Tool-result user messages are part of the
+/// *previous* turn because they belong to the assistant's last tool call.
+///
+/// Returns a `Vec<Range<usize>>`, one per turn.
+pub fn group_into_turns(messages: &[ChatMessageExt]) -> Vec<std::ops::Range<usize>> {
+    let mut turns = Vec::new();
+    let mut turn_start: Option<usize> = None;
+
+    for (i, msg) in messages.iter().enumerate() {
+        if is_user_text_turn(msg) {
+            if let Some(start) = turn_start {
+                turns.push(start..i);
+            }
+            turn_start = Some(i);
+        }
+    }
+    if let Some(start) = turn_start {
+        turns.push(start..messages.len());
+    }
+    turns
+}
+
+/// Truncate history to fit within available tokens, dropping oldest turns first.
+///
+/// When `protect_first_turn` is `true` the first conversation turn is never
+/// dropped, regardless of budget pressure.
 ///
 /// Returns (kept_messages, dropped_count).
 pub fn truncate_history(
     messages: Vec<ChatMessageExt>,
     available_tokens: u32,
+    protect_first_turn: bool,
 ) -> (Vec<ChatMessageExt>, usize) {
-    truncate_history_with_hint(messages, available_tokens, TokenizerHint::Unknown)
+    truncate_history_with_hint(
+        messages,
+        available_tokens,
+        TokenizerHint::Unknown,
+        protect_first_turn,
+    )
 }
 
 /// Truncate history using a specific tokenizer hint.
+///
+/// Drops whole conversation *turns* from the oldest end rather than individual
+/// messages to avoid splitting assistant `tool_use` / user `tool_result` pairs.
+/// The most-recent turn is always protected. When `protect_first_turn` is
+/// `true`, the first turn is also never dropped.
 pub fn truncate_history_with_hint(
     messages: Vec<ChatMessageExt>,
     available_tokens: u32,
     hint: TokenizerHint,
+    protect_first_turn: bool,
 ) -> (Vec<ChatMessageExt>, usize) {
     let total: u32 = messages
         .iter()
@@ -154,18 +211,56 @@ pub fn truncate_history_with_hint(
         return (messages, 0);
     }
 
-    // Drop from the front until we fit
+    let turns = group_into_turns(&messages);
+
+    // Need at least two turns to drop anything while protecting the last turn.
+    if turns.len() <= 1 {
+        return (messages, 0);
+    }
+
+    let turn_tokens: Vec<u32> = turns
+        .iter()
+        .map(|r| {
+            messages[r.clone()]
+                .iter()
+                .map(|m| estimate_message_tokens_with_hint(m, hint))
+                .sum()
+        })
+        .collect();
+
+    // Drop turns from the front, always protecting the last (current) turn.
+    // When protect_first_turn is set, skip turn index 0.
     let mut running = total;
-    let mut drop_count = 0;
-    for msg in &messages {
+    let mut dropped_turn_indices: Vec<usize> = Vec::new();
+
+    for (turn_idx, _turn_range) in turns[..turns.len() - 1].iter().enumerate() {
         if running <= available_tokens {
             break;
         }
-        running -= estimate_message_tokens_with_hint(msg, hint);
-        drop_count += 1;
+        if protect_first_turn && turn_idx == 0 {
+            continue;
+        }
+        running -= turn_tokens[turn_idx];
+        dropped_turn_indices.push(turn_idx);
     }
 
-    let kept = messages.into_iter().skip(drop_count).collect();
+    if dropped_turn_indices.is_empty() {
+        return (messages, 0);
+    }
+
+    // Build the set of message indices that belong to dropped turns.
+    let dropped_msg_indices: std::collections::HashSet<usize> = dropped_turn_indices
+        .into_iter()
+        .flat_map(|ti| turns[ti].clone())
+        .collect();
+
+    let drop_count = dropped_msg_indices.len();
+    let kept = messages
+        .into_iter()
+        .enumerate()
+        .filter(|(idx, _)| !dropped_msg_indices.contains(idx))
+        .map(|(_, m)| m)
+        .collect();
     (kept, drop_count)
 }
 
@@ -283,13 +378,15 @@ mod tests {
                 content: ChatContent::Text("hello".into()),
             },
         ];
-        let (kept, dropped) = truncate_history(messages.clone(), 100_000);
+        let (kept, dropped) = truncate_history(messages.clone(), 100_000, false);
         assert_eq!(dropped, 0);
         assert_eq!(kept.len(), 2);
     }
 
     #[test]
     fn truncate_history_drops_oldest() {
+        // 10 user-text turns, each 29 tokens (25 content + 4 overhead).
+        // The last turn is protected, so at most 9 can be dropped.
         let messages: Vec<ChatMessageExt> = (0..10)
             .map(|_| ChatMessageExt {
                 role: Role::User,
@@ -298,7 +395,7 @@ mod tests {
             .collect();
 
         // Total: 10 * 29 = 290 tokens. Budget: 100 -> need to drop some.
-        let (kept, dropped) = truncate_history(messages, 100);
+        let (kept, dropped) = truncate_history(messages, 100, false);
         assert!(dropped > 0);
         assert!(kept.len() < 10);
         // Verify remaining fits in budget
@@ -307,13 +404,89 @@ mod tests {
     }
 
     #[test]
-    fn truncate_history_drops_all_if_needed() {
+    fn thinking_blocks_not_counted_in_token_estimate() {
+        // Thinking blocks are stripped before sending to the API, so they must not
+        // inflate the token count and cause unnecessary history truncation.
+        let msg_with_thinking = ChatMessageExt {
+            role: Role::Assistant,
+            content: ChatContent::Blocks(vec![
+                ContentBlockInput::Thinking {
+                    thinking: "x".repeat(10_000),
+                },
+                ContentBlockInput::Text {
+                    text: "hello".into(),
+                },
+            ]),
+        };
+        let msg_text_only = ChatMessageExt {
+            role: Role::Assistant,
+            content: ChatContent::Blocks(vec![ContentBlockInput::Text {
+                text: "hello".into(),
+            }]),
+        };
+        // Both messages should have the same token estimate: only the text block counts.
+        assert_eq!(
+            estimate_message_tokens(&msg_with_thinking),
+            estimate_message_tokens(&msg_text_only),
+        );
+    }
+
+    #[test]
+    fn truncate_history_single_turn_protected() {
+        // A single turn (or single oversized message) is never dropped because
+        // we must always preserve the current user request.
         let messages = vec![ChatMessageExt {
             role: Role::User,
             content: ChatContent::Text("x".repeat(1000)),
         }];
-        let (kept, dropped) = truncate_history(messages, 1);
-        assert_eq!(dropped, 1);
-        assert!(kept.is_empty());
+        let (kept, dropped) = truncate_history(messages, 1, false);
+        assert_eq!(dropped, 0);
+        assert_eq!(kept.len(), 1);
+    }
+
+    #[test]
+    fn truncate_history_first_turn_protected() {
+        // When protect_first_turn is true, the first turn survives even under extreme budget pressure.
+        let mut messages: Vec<ChatMessageExt> = (0..6)
+            .map(|_| ChatMessageExt {
+                role: Role::User,
+                content: ChatContent::Text("x".repeat(100)),
+            })
+            .collect();
+        // Add a final turn so there are >1 turns.
+        messages.push(ChatMessageExt {
+            role: Role::User,
+            content: ChatContent::Text("last request".into()),
+        });
+
+        let first_content = messages[0].content.clone();
+        let (kept, _dropped) = truncate_history(messages, 50, true);
+        // The first message must always be in the result.
+        assert!(kept
+            .iter()
+            .any(|m| matches!((&m.content, &first_content), (ChatContent::Text(a), ChatContent::Text(b)) if a == b)));
+    }
+
+    #[test]
+    fn group_into_turns_basic() {
+        use crate::client::Role;
+        let messages = vec![
+            ChatMessageExt {
+                role: Role::User,
+                content: ChatContent::Text("hi".into()),
+            },
+            ChatMessageExt {
+                role: Role::Assistant,
+                content: ChatContent::Text("hello".into()),
+            },
+            ChatMessageExt {
+                role: Role::User,
+                content: ChatContent::Text("next".into()),
+            },
+        ];
+        let turns = group_into_turns(&messages);
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[0], 0..2);
+        assert_eq!(turns[1], 2..3);
     }
 }

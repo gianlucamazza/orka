@@ -12,24 +12,15 @@ fn channel_id_returns_telegram() {
     assert_eq!(adapter.channel_id(), "telegram");
 }
 
-/// Simulates the session-map logic used inside the adapter: same chat_id always
-/// yields the same SessionId, different chat_ids yield different SessionIds.
+/// Verifies that the same chat_id always resolves to the same SessionId (in-memory path)
+/// and that different chat_ids yield different SessionIds.
 #[tokio::test]
 async fn session_map_consistency() {
     let sessions: Arc<Mutex<HashMap<i64, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));
 
-    let sid1 = {
-        let mut s = sessions.lock().await;
-        *s.entry(12345).or_insert_with(SessionId::new)
-    };
-    let sid2 = {
-        let mut s = sessions.lock().await;
-        *s.entry(12345).or_insert_with(SessionId::new)
-    };
-    let sid3 = {
-        let mut s = sessions.lock().await;
-        *s.entry(99999).or_insert_with(SessionId::new)
-    };
+    let sid1 = orka_adapter_telegram::polling::resolve_session(12345, &sessions, &None).await;
+    let sid2 = orka_adapter_telegram::polling::resolve_session(12345, &sessions, &None).await;
+    let sid3 = orka_adapter_telegram::polling::resolve_session(99999, &sessions, &None).await;
 
     assert_eq!(sid1, sid2, "same chat_id must produce same SessionId");
     assert_ne!(

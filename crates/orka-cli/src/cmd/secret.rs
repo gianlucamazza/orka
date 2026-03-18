@@ -1,13 +1,14 @@
+use std::sync::Arc;
+
 use orka_core::SecretValue;
 use orka_core::config::OrkaConfig;
 use orka_core::traits::SecretManager;
-use orka_secrets::RedisSecretManager;
 
 use crate::client::Result;
 
-fn create_manager() -> Result<RedisSecretManager> {
+fn create_manager() -> Result<Arc<dyn SecretManager>> {
     let config = OrkaConfig::load(None)?;
-    let mgr = RedisSecretManager::new(&config.redis.url)?;
+    let mgr = orka_secrets::create_secret_manager(&config)?;
     Ok(mgr)
 }
 

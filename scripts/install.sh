@@ -255,9 +255,9 @@ fi
 # hard-to-debug crashes from stale intermediate builds.
 NEWEST_SRC=$(find "$REPO_ROOT" \( -name target -o -name .git \) -prune -o \
 	-type f \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \) -printf '%T@\n' | sort -rn | head -1)
-OLDEST_BIN=$(stat -c '%Y' "$SERVER_BIN" "$CLI_BIN" | sort -n | head -1)
+NEWEST_BIN=$(stat -c '%Y' "$SERVER_BIN" "$CLI_BIN" | sort -rn | head -1)
 
-if [[ -n "$NEWEST_SRC" ]] && ((${OLDEST_BIN%%.*} < ${NEWEST_SRC%%.*})); then
+if [[ -n "$NEWEST_SRC" ]] && ((${NEWEST_BIN%%.*} < ${NEWEST_SRC%%.*})); then
 	warn "Release binaries are older than source files!"
 	warn "Run 'cargo build --release' before installing to avoid stale-binary issues."
 	if [[ "$FORCE" == true ]]; then

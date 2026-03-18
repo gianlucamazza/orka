@@ -41,7 +41,7 @@ impl EmbeddingProvider for LocalEmbeddingProvider {
         let model = self.model.clone();
 
         tokio::task::spawn_blocking(move || {
-            let model = model.blocking_lock();
+            let mut model = model.blocking_lock();
             model
                 .embed(texts, None)
                 .map_err(|e| orka_core::Error::Knowledge(format!("embedding failed: {e}")))

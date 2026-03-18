@@ -76,6 +76,14 @@ backend = "log" # "log" | "redis" | "otel"
 # args = ["-y", "@example/mcp-server"]
 # env = { "KEY" = "value" }             # environment variables for the MCP server process
 
+# Expose Claude Code tools (Read, Edit, Bash, etc.) as Orka skills via MCP.
+# Requires `claude` CLI installed and authenticated.
+# Tools appear as: claude-code/read, claude-code/edit, claude-code/bash, etc.
+# [[mcp.servers]]
+# name = "claude-code"
+# command = "claude"
+# args = ["mcp"]
+
 # [mcp.serve]
 # enabled = false
 # transport = "stdio"                   # "stdio" or "sse"
@@ -131,7 +139,7 @@ max_iterations = 15
 # model = "claude-opus-4-6"                         # use Opus for complex reasoning
 # model = "claude-sonnet-4-6"                       # default — best cost/quality balance
 # max_tokens = 4096                                 # override [llm] default max_tokens
-# context_window_tokens = 200000
+# context_window_tokens = 1000000
 # max_tokens_per_session = 1000000
 heartbeat_interval_secs = 30
 # summarization_model = "claude-haiku-4-5-20251001" # cheaper model for history summarization
@@ -142,6 +150,8 @@ heartbeat_interval_secs = 30
 # max_tool_retries = 2                  # retries before self-correction hint
 # temperature = 0.7                     # LLM sampling temperature (0.0–2.0)
 # thinking_budget_tokens = 10000        # Anthropic extended thinking budget
+#                                        # NOTE: thinking_budget_tokens MUST be < max_tokens
+#                                        # (set max_tokens here or under [llm] to a value > budget)
 # reasoning_effort = "medium"           # OpenAI o-series: "low", "medium", "high"
 
 [tools]
@@ -214,6 +224,15 @@ permission_level = "admin"
 # max_list_entries = 1000
 # allowed_commands = []                 # explicit allow-list (empty = all non-blocked allowed)
 # sensitive_env_patterns = ["*_KEY", "*_SECRET", "*_TOKEN", "*_PASSWORD"]
+
+# Delegate complete coding tasks to Claude Code (`claude --print`).
+# Auto-enabled when `claude` CLI is found on PATH; override with enabled = "true"/"false".
+# [os.claude_code]
+# enabled = "auto"
+# model = "claude-sonnet-4-6"   # optional — uses Claude Code's default if unset
+# max_turns = 10                # optional — limit agentic turns
+# timeout_secs = 300            # default: 300s
+# working_dir = "."             # optional — defaults to process cwd
 
 [os.sudo]
 enabled = true
@@ -293,7 +312,7 @@ max_concurrent = 4
 # soul = "inline system prompt (alternative to soul_file)"
 # model = "claude-sonnet-4-6"
 # max_iterations = 5
-# context_window = 200000
+# context_window = 1000000
 # handoff_targets = ["coder", "reviewer"]
 # tools = { allow = ["web_search", "shell"] }  # or { deny = ["shell"] }
 # temperature = 0.5

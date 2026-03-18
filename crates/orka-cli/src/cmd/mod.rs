@@ -8,3 +8,4 @@ pub mod secret;
 pub mod send;
 pub mod status;
 pub mod sudo;
+pub mod update;

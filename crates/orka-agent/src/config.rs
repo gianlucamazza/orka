@@ -113,6 +113,7 @@ pub async fn build_single_agent_graph(
     let mut agent = Agent::new(agent_id.clone(), &agent_cfg.display_name);
     agent.system_prompt = system_prompt;
     agent.max_iterations = agent_cfg.max_iterations;
+    agent.skill_timeout_secs = agent_cfg.skill_timeout_secs;
     agent.llm_config = AgentLlmConfig {
         model: agent_cfg.model.clone(),
         max_tokens: agent_cfg.max_tokens,

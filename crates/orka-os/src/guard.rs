@@ -329,6 +329,7 @@ mod tests {
                 "*_PASSWORD".into(),
             ],
             sudo: orka_core::config::SudoConfig::default(),
+            claude_code: orka_core::config::ClaudeCodeConfig::default(),
         }
     }
 
@@ -444,6 +445,7 @@ mod tests {
                 ],
                 ..orka_core::config::SudoConfig::default()
             },
+            claude_code: orka_core::config::ClaudeCodeConfig::default(),
         }
     }
 

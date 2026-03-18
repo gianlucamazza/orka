@@ -64,6 +64,8 @@ pub struct EnvironmentCapabilities {
     pub journalctl: ProbeResult,
     /// The confirmed package update method, if `package_updates.available`.
     pub update_method: Option<PackageUpdateMethod>,
+    /// `claude` CLI availability.
+    pub claude_code: ProbeResult,
 }
 
 impl EnvironmentCapabilities {
@@ -81,6 +83,7 @@ impl EnvironmentCapabilities {
         let (package_updates, update_method) = probe_package_updates(no_new_privileges).await;
         let systemctl = probe_systemctl().await;
         let journalctl = probe_journalctl().await;
+        let claude_code = probe_claude_code().await;
 
         debug!(
             no_new_privileges,
@@ -88,6 +91,7 @@ impl EnvironmentCapabilities {
             update_method = ?update_method,
             systemctl = systemctl.available,
             journalctl = journalctl.available,
+            claude_code = claude_code.available,
             "environment capabilities probed"
         );
 
@@ -97,6 +101,7 @@ impl EnvironmentCapabilities {
             systemctl,
             journalctl,
             update_method,
+            claude_code,
         }
     }
 }
@@ -199,6 +204,15 @@ async fn probe_systemctl() -> ProbeResult {
         ProbeResult::ok("systemctl --version")
     } else {
         ProbeResult::unavailable("systemctl --version failed or not found")
+    }
+}
+
+async fn probe_claude_code() -> ProbeResult {
+    let ok = run_probe("claude", &["--version"], Duration::from_secs(2)).await;
+    if ok {
+        ProbeResult::ok("claude --version")
+    } else {
+        ProbeResult::unavailable("claude CLI not found or not functional")
     }
 }
 

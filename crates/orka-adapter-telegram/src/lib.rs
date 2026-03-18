@@ -8,7 +8,7 @@
 mod api;
 mod markdown;
 mod media;
-mod polling;
+pub mod polling;
 mod types;
 mod webhook;
 
@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::config::TelegramAdapterConfig;
-use orka_core::traits::ChannelAdapter;
+use orka_core::traits::{ChannelAdapter, MemoryStore};
 use orka_core::types::{MessageSink, OutboundMessage, Payload, SessionId};
 use orka_core::{Error, Result};
 use serde_json::json;
@@ -72,6 +72,7 @@ pub struct TelegramAdapter {
     sink: Arc<Mutex<Option<MessageSink>>>,
     shutdown: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
+    memory: Option<Arc<dyn MemoryStore>>,
 }
 
 impl TelegramAdapter {
@@ -84,7 +85,16 @@ impl TelegramAdapter {
             sink: Arc::new(Mutex::new(None)),
             shutdown: Arc::new(Mutex::new(None)),
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            memory: None,
         }
+    }
+
+    /// Attach a memory store so that chat-id → session-id mappings survive restarts.
+    ///
+    /// Mappings are persisted under the key `orka:adapter_session:telegram:{chat_id}`.
+    pub fn with_memory(mut self, memory: Arc<dyn MemoryStore>) -> Self {
+        self.memory = Some(memory);
+        self
     }
 }
 
@@ -102,6 +112,7 @@ impl ChannelAdapter for TelegramAdapter {
 
         let api = self.api.clone();
         let sessions = self.sessions.clone();
+        let memory = self.memory.clone();
         let mode = self.config.mode.as_deref().unwrap_or("polling").to_string();
 
         let auth_guard = Arc::new(TelegramAuthGuard::from_config(&self.config));
@@ -123,6 +134,7 @@ impl ChannelAdapter for TelegramAdapter {
                         api,
                         sink_arc,
                         sessions,
+                        memory,
                         webhook_url,
                         port,
                         shutdown_rx,
@@ -134,7 +146,8 @@ impl ChannelAdapter for TelegramAdapter {
             }
             _ => {
                 tokio::spawn(async move {
-                    polling::run_polling_loop(api, sink, sessions, shutdown_rx, auth_guard).await;
+                    polling::run_polling_loop(api, sink, sessions, memory, shutdown_rx, auth_guard)
+                        .await;
                 });
                 info!("Telegram adapter started (long polling)");
             }

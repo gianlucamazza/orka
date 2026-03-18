@@ -29,9 +29,10 @@ fn truncate_tool_result(content: &str, max_chars: usize) -> String {
     if content.len() <= max_chars {
         return content.to_string();
     }
-    let truncated = &content[..max_chars];
+    let boundary = content.floor_char_boundary(max_chars);
+    let truncated = &content[..boundary];
     format!(
-        "{truncated}\n\n[truncated, showing first {max_chars} chars of {} total]",
+        "{truncated}\n\n[truncated, showing first {boundary} chars of {} total]",
         content.len()
     )
 }
@@ -236,6 +237,7 @@ impl WorkspaceHandler {
 
     /// Assemble the system prompt from SOUL.md body, TOOLS.md body, current datetime,
     /// and workspace awareness.
+    #[allow(clippy::too_many_arguments)]
     fn build_system_prompt(
         soul_name: &str,
         soul_body: &str,
@@ -244,6 +246,7 @@ impl WorkspaceHandler {
         workspace_name: &str,
         available_workspaces: &[&str],
         principles_section: &str,
+        conversation_summary: Option<&str>,
     ) -> String {
         let mut prompt = if soul_body.is_empty() {
             format!("You are {soul_name}.")
@@ -272,6 +275,13 @@ impl WorkspaceHandler {
              Available workspaces: {ws_list}.\n\
              You can use the workspace_info tool to get details and workspace_switch to change workspace."
         ));
+
+        // Inject prior conversation summary when the history has been condensed.
+        // This is placed after workspace context so the LLM sees it close to the messages.
+        if let Some(summary) = conversation_summary.filter(|s| !s.is_empty()) {
+            prompt.push_str("\n\n## Prior Conversation Context\n");
+            prompt.push_str(summary);
+        }
 
         prompt
     }
@@ -589,34 +599,81 @@ impl WorkspaceHandler {
         (blocks, categories)
     }
 
+    /// Compact oversized tool results in a message list.
+    ///
+    /// Tool results longer than `max_chars` are replaced with a head+tail excerpt to
+    /// reduce the size of the persisted history without losing user-visible context.
+    fn compact_tool_results(
+        messages: Vec<ChatMessageExt>,
+        max_chars: usize,
+    ) -> Vec<ChatMessageExt> {
+        messages
+            .into_iter()
+            .map(|mut msg| {
+                if let ChatContent::Blocks(ref mut blocks) = msg.content {
+                    for block in blocks.iter_mut() {
+                        if let ContentBlockInput::ToolResult { content, .. } = block
+                            && content.len() > max_chars
+                        {
+                            let half = max_chars / 2;
+                            let head = content[..half].to_string();
+                            let tail = content[content.len() - half..].to_string();
+                            let original_len = content.len();
+                            *content = format!(
+                                "{}\n... [truncated, original {original_len} chars] ...\n{}",
+                                head, tail
+                            );
+                        }
+                    }
+                }
+                msg
+            })
+            .collect()
+    }
+
     /// Persist conversation history and token usage to the memory store.
+    ///
+    /// When the history exceeds `max_entries` the oldest messages are summarised
+    /// using incremental rolling summarisation.  The resulting summary text is stored
+    /// separately under `summary_key` and injected into the system prompt on the next
+    /// turn via [`Self::build_system_prompt`].
     #[allow(clippy::too_many_arguments)]
     async fn save_conversation_history(
         &self,
         messages: Vec<ChatMessageExt>,
         max_entries: usize,
-        summarization_threshold: usize,
         summarization_model: Option<&str>,
+        existing_summary: Option<&str>,
         memory_key: &str,
+        summary_key: &str,
         session_tokens: u64,
         token_key: &str,
     ) {
-        let history_to_save = if messages.len() > max_entries {
-            if let (Some(llm), true) = (&self.llm, messages.len() > summarization_threshold) {
-                let split_point = messages.len() - max_entries;
-                let old_messages = &messages[..split_point];
+        // Compact verbose tool results before persisting to keep storage lean.
+        const MAX_TOOL_RESULT_CHARS: usize = 2000;
+        let messages = Self::compact_tool_results(messages, MAX_TOOL_RESULT_CHARS);
 
-                let summary_text =
-                    Self::summarize_messages(llm, old_messages, summarization_model).await;
-                let mut condensed = vec![ChatMessageExt::user(format!(
-                    "[Previous conversation summary: {}]",
-                    summary_text
-                ))];
-                condensed.extend_from_slice(&messages[split_point..]);
-                condensed
+        let history_to_save = if messages.len() > max_entries {
+            let split_point = messages.len() - max_entries;
+            let old_messages = &messages[..split_point];
+
+            let summary_text = if let Some(llm) = &self.llm {
+                Self::summarize_messages(llm, old_messages, summarization_model, existing_summary)
+                    .await
             } else {
-                messages[messages.len() - max_entries..].to_vec()
+                // No LLM configured: fall back to bullet-point extraction.
+                Self::fallback_summary(old_messages)
+            };
+
+            // Persist the summary separately so it can be injected into the system
+            // prompt on the next request without polluting the message list.
+            let summary_entry = MemoryEntry::new(summary_key, serde_json::json!(summary_text))
+                .with_tags(vec!["conversation_summary".to_string()]);
+            if let Err(e) = self.memory.store(summary_key, summary_entry, None).await {
+                warn!(%e, key = %summary_key, "failed to persist conversation summary");
             }
+
+            messages[split_point..].to_vec()
         } else {
             messages
         };
@@ -641,13 +698,8 @@ impl WorkspaceHandler {
         }
     }
 
-    async fn summarize_messages(
-        llm: &Arc<dyn LlmClient>,
-        messages: &[ChatMessageExt],
-        model: Option<&str>,
-    ) -> String {
-        use orka_llm::client::ChatMessage;
-
+    /// Produce a plain-text transcript excerpt from a slice of messages.
+    fn build_transcript(messages: &[ChatMessageExt]) -> String {
         let mut transcript = String::new();
         for msg in messages {
             let text = match &msg.content {
@@ -661,11 +713,15 @@ impl WorkspaceHandler {
                                 parts.push(format!("[called {name}]"))
                             }
                             ContentBlockInput::ToolResult { content, .. } => {
-                                parts.push(format!("[result: {content}]"))
+                                // Keep tool results brief in the transcript.
+                                let excerpt = if content.len() > 200 {
+                                    format!("{}…", &content[..200])
+                                } else {
+                                    content.clone()
+                                };
+                                parts.push(format!("[result: {excerpt}]"))
                             }
-                            _ => {
-                                continue;
-                            }
+                            _ => continue,
                         }
                     }
                     if parts.is_empty() {
@@ -674,21 +730,87 @@ impl WorkspaceHandler {
                         parts.join(" ")
                     }
                 }
-                _ => {
-                    continue;
-                }
+                _ => "[unsupported content]".to_string(),
             };
             transcript.push_str(&format!("{}: {}\n", msg.role, text));
         }
+        transcript
+    }
 
-        let summary_prompt = vec![ChatMessage::user(format!(
-            "Summarize the following conversation concisely, preserving key facts, decisions, and context:\n\n{}",
-            transcript
-        ))];
+    /// Build a minimal summary from user-text messages when LLM summarisation is unavailable.
+    fn fallback_summary(messages: &[ChatMessageExt]) -> String {
+        use orka_llm::client::Role;
+        let bullets: Vec<String> = messages
+            .iter()
+            .filter(|m| m.role == Role::User)
+            .filter_map(|m| match &m.content {
+                ChatContent::Text(t) if !t.is_empty() => {
+                    Some(format!("- {}", t.chars().take(120).collect::<String>()))
+                }
+                ChatContent::Blocks(blocks) => {
+                    let text: String = blocks
+                        .iter()
+                        .filter_map(|b| {
+                            if let ContentBlockInput::Text { text } = b {
+                                Some(text.as_str())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    if text.is_empty() {
+                        None
+                    } else {
+                        Some(format!("- {}", text.chars().take(120).collect::<String>()))
+                    }
+                }
+                _ => None,
+            })
+            .collect();
+
+        if bullets.is_empty() {
+            format!("[{} messages truncated]", messages.len())
+        } else {
+            format!(
+                "Previous conversation (auto-summarized):\n{}",
+                bullets.join("\n")
+            )
+        }
+    }
+
+    /// Summarise a slice of messages, optionally updating an existing rolling summary.
+    ///
+    /// When `existing_summary` is provided the LLM is asked to update it with the new
+    /// turns, preserving user goals and unresolved tasks (incremental rolling pattern).
+    async fn summarize_messages(
+        llm: &Arc<dyn LlmClient>,
+        messages: &[ChatMessageExt],
+        model: Option<&str>,
+        existing_summary: Option<&str>,
+    ) -> String {
+        use orka_llm::client::ChatMessage;
+
+        let transcript = Self::build_transcript(messages);
+
+        let prompt_text = if let Some(old) = existing_summary {
+            format!(
+                "Update this existing summary with the new conversation turns. \
+                 Preserve user goals, constraints, and unresolved tasks.\n\n\
+                 Existing summary:\n{old}\n\nNew turns:\n{transcript}"
+            )
+        } else {
+            format!(
+                "Summarize the following conversation concisely, preserving \
+                 key facts, decisions, and context:\n\n{transcript}"
+            )
+        };
+
+        let summary_prompt = vec![ChatMessage::user(prompt_text)];
 
         let mut options = CompletionOptions::default();
         options.model = model.map(|s| s.to_string());
-        options.max_tokens = Some(512);
+        options.max_tokens = Some(1024);
 
         match llm
             .complete_with_options(
@@ -700,8 +822,8 @@ impl WorkspaceHandler {
         {
             Ok(summary) => summary,
             Err(e) => {
-                tracing::warn!(%e, "failed to summarize conversation, using truncation");
-                format!("[{} messages truncated]", messages.len())
+                tracing::warn!(%e, "failed to summarize conversation, using fallback");
+                Self::fallback_summary(messages)
             }
         }
     }
@@ -889,7 +1011,6 @@ impl AgentHandler for WorkspaceHandler {
         let max_tokens_per_session = agent.max_tokens_per_session;
         let summarization_model = agent.summarization_model.clone();
         let max_entries = agent.max_history_entries;
-        let summarization_threshold = agent.summarization_threshold.unwrap_or(max_entries * 2);
         let context_window = agent
             .context_window_tokens
             .unwrap_or(self.default_context_window);
@@ -934,11 +1055,13 @@ impl AgentHandler for WorkspaceHandler {
         if let Some(ref llm) = self.llm {
             let tools = self.build_tool_definitions();
 
-            // Load conversation history and token usage in parallel
+            // Load conversation history, summary, and token usage in parallel
             let memory_key = format!("conversation:{}", session.id);
+            let summary_key = format!("conversation_summary:{}", session.id);
             let token_key = format!("tokens:{}", session.id);
-            let (history_result, tokens_result) = tokio::join!(
+            let (history_result, summary_result, tokens_result) = tokio::join!(
                 self.memory.recall(&memory_key),
+                self.memory.recall(&summary_key),
                 self.memory.recall(&token_key),
             );
 
@@ -953,6 +1076,15 @@ impl AgentHandler for WorkspaceHandler {
                 Err(e) => {
                     warn!(%e, key = %memory_key, "failed to recall conversation history");
                     Vec::new()
+                }
+            };
+
+            let conversation_summary: Option<String> = match summary_result {
+                Ok(Some(entry)) => entry.value.as_str().map(|s| s.to_string()),
+                Ok(None) => None,
+                Err(e) => {
+                    warn!(%e, key = %summary_key, "failed to recall conversation summary");
+                    None
                 }
             };
 
@@ -1004,6 +1136,14 @@ impl AgentHandler for WorkspaceHandler {
                                 count: principles.len(),
                             }))
                             .await;
+                        self.stream_registry.send(StreamChunk::new(
+                            envelope.session_id,
+                            envelope.channel.clone(),
+                            Some(envelope.id),
+                            StreamChunkKind::PrinciplesUsed {
+                                count: principles.len() as u32,
+                            },
+                        ));
                         ExperienceService::format_principles_section(&principles)
                     }
                     Ok(_) => String::new(),
@@ -1037,6 +1177,7 @@ impl AgentHandler for WorkspaceHandler {
                 &resolved_workspace,
                 &available_ws_refs,
                 &principles_section,
+                conversation_summary.as_deref(),
             );
 
             let mut options = CompletionOptions::default();
@@ -1056,7 +1197,7 @@ impl AgentHandler for WorkspaceHandler {
                 let output_budget = soul_max_tokens.unwrap_or(4096);
                 let budget =
                     available_history_budget(context_window, output_budget, &system_prompt, &tools);
-                let (truncated, dropped) = truncate_history(messages, budget);
+                let (truncated, dropped) = truncate_history(messages, budget, true);
                 messages = truncated;
                 if dropped > 0 {
                     warn!(
@@ -1065,6 +1206,21 @@ impl AgentHandler for WorkspaceHandler {
                         budget,
                         "truncated history to fit context window"
                     );
+                    let history_tokens: u32 = messages
+                        .iter()
+                        .map(orka_llm::context::estimate_message_tokens)
+                        .sum();
+                    self.stream_registry.send(StreamChunk::new(
+                        envelope.session_id,
+                        envelope.channel.clone(),
+                        Some(envelope.id),
+                        StreamChunkKind::ContextInfo {
+                            history_tokens,
+                            context_window,
+                            messages_truncated: dropped as u32,
+                            summary_generated: false,
+                        },
+                    ));
                 }
 
                 let llm_start = std::time::Instant::now();
@@ -1127,6 +1283,24 @@ impl AgentHandler for WorkspaceHandler {
                         estimated_cost_usd: None,
                     }))
                     .await;
+
+                self.stream_registry.send(StreamChunk::new(
+                    envelope.session_id,
+                    envelope.channel.clone(),
+                    Some(envelope.id),
+                    StreamChunkKind::Usage {
+                        input_tokens: completion.usage.input_tokens,
+                        output_tokens: completion.usage.output_tokens,
+                        cache_read_tokens: (completion.usage.cache_read_input_tokens > 0)
+                            .then_some(completion.usage.cache_read_input_tokens),
+                        cache_creation_tokens: (completion.usage.cache_creation_input_tokens > 0)
+                            .then_some(completion.usage.cache_creation_input_tokens),
+                        reasoning_tokens: (completion.usage.reasoning_tokens > 0)
+                            .then_some(completion.usage.reasoning_tokens),
+                        model: llm_model.clone(),
+                        cost_usd: None,
+                    },
+                ));
 
                 // Accumulate token usage
                 let iteration_tokens =
@@ -1326,9 +1500,10 @@ impl AgentHandler for WorkspaceHandler {
                 self.save_conversation_history(
                     messages,
                     max_entries,
-                    summarization_threshold,
                     summarization_model.as_deref(),
+                    conversation_summary.as_deref(),
                     &memory_key,
+                    &summary_key,
                     session_tokens,
                     &token_key,
                 )
@@ -1664,6 +1839,7 @@ mod tests {
             "main",
             &["main", "support"],
             "",
+            None,
         );
         assert!(prompt.contains("You are TestBot."));
         assert!(prompt.contains("workspace \"main\""));
@@ -1683,6 +1859,7 @@ mod tests {
             "main",
             &["main"],
             principles,
+            None,
         );
         assert!(prompt.contains("Learned Principles"));
         assert!(prompt.contains("Use web_search"));
@@ -1690,9 +1867,55 @@ mod tests {
 
     #[test]
     fn system_prompt_omits_principles_when_empty() {
-        let prompt =
-            WorkspaceHandler::build_system_prompt("TestBot", "", "", None, "main", &["main"], "");
+        let prompt = WorkspaceHandler::build_system_prompt(
+            "TestBot",
+            "",
+            "",
+            None,
+            "main",
+            &["main"],
+            "",
+            None,
+        );
         assert!(!prompt.contains("Learned Principles"));
+    }
+
+    #[test]
+    fn system_prompt_injects_summary_in_system_context_not_as_user_message() {
+        let summary = "The user asked about the weather and I explained it was sunny.";
+        let prompt = WorkspaceHandler::build_system_prompt(
+            "TestBot",
+            "",
+            "",
+            None,
+            "main",
+            &["main"],
+            "",
+            Some(summary),
+        );
+        assert!(
+            prompt.contains("## Prior Conversation Context"),
+            "summary section header missing"
+        );
+        assert!(
+            prompt.contains(summary),
+            "summary text missing from system prompt"
+        );
+    }
+
+    #[test]
+    fn system_prompt_omits_summary_section_when_none() {
+        let prompt = WorkspaceHandler::build_system_prompt(
+            "TestBot",
+            "",
+            "",
+            None,
+            "main",
+            &["main"],
+            "",
+            None,
+        );
+        assert!(!prompt.contains("## Prior Conversation Context"));
     }
 
     async fn multi_workspace_registry() -> Arc<WorkspaceRegistry> {

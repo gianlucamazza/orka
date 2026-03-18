@@ -1,14 +1,28 @@
+use std::borrow::Cow;
 use std::path::Path;
 
+use colored::Colorize;
 use rustyline::completion::{Completer, Pair};
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
-use rustyline::validate::Validator;
+use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{Context, Helper};
+
+/// Shell builtins handled by the `!` prefix.
+const SHELL_BUILTINS: &[&str] = &["cd", "export", "unset", "history"];
 
 /// Known local + server slash commands for completion.
 const SLASH_COMMANDS: &[&str] = &[
-    "/quit", "/exit", "/help", "/clear", "/skill", "/skills", "/reset", "/status",
+    "/quit",
+    "/exit",
+    "/help",
+    "/clear",
+    "/skill",
+    "/skills",
+    "/reset",
+    "/status",
+    "/think",
+    "/feedback",
 ];
 
 /// Rustyline helper providing tab-completion for `!` shell commands,
@@ -58,7 +72,8 @@ impl Completer for OrkaHelper {
             }
             // Completing arguments — try file path completion
             let arg = if parts.len() == 2 { parts[1] } else { "" };
-            let (start_in_rest, pairs) = complete_path(arg);
+            let dirs_only = parts[0].eq_ignore_ascii_case("cd");
+            let (start_in_rest, pairs) = complete_path(arg, dirs_only);
             // Offset = 1 (for `!`) + command.len() + 1 (space) + start_in_rest
             let offset = if parts.len() == 2 {
                 1 + parts[0].len() + 1 + start_in_rest
@@ -66,6 +81,20 @@ impl Completer for OrkaHelper {
                 pos
             };
             return Ok((offset, pairs));
+        }
+
+        // After `/feedback ` — complete argument keywords
+        if let Some(rest) = text.strip_prefix("/feedback ") {
+            let prefix = rest.to_lowercase();
+            let matches: Vec<Pair> = ["good", "bad"]
+                .iter()
+                .filter(|k| k.starts_with(prefix.as_str()))
+                .map(|k| Pair {
+                    display: k.to_string(),
+                    replacement: k.to_string(),
+                })
+                .collect();
+            return Ok((text.len() - rest.len(), matches));
         }
 
         // After `/` — complete slash commands
@@ -82,19 +111,173 @@ impl Completer for OrkaHelper {
             return Ok((0, matches));
         }
 
+        // After `@` — complete file paths for attachments.
+        // Only trigger when `@` is at position 0 or preceded by whitespace
+        // to avoid matching email addresses like user@example.com.
+        if let Some(at_pos) = text.rfind('@') {
+            let preceded_by_ws = at_pos == 0
+                || text[..at_pos]
+                    .chars()
+                    .next_back()
+                    .map(|c| c.is_whitespace())
+                    .unwrap_or(true);
+            if preceded_by_ws {
+                let fragment = &text[at_pos + 1..];
+                let (start_in_fragment, pairs) = complete_path(fragment, false);
+                let offset = at_pos + 1 + start_in_fragment;
+                return Ok((offset, pairs));
+            }
+        }
+
         Ok((pos, vec![]))
     }
 }
 
 impl Hinter for OrkaHelper {
     type Hint = String;
+
+    fn hint(&self, line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<String> {
+        // Ghost text for unique `!` builtin prefix matches
+        if let Some(rest) = line.strip_prefix('!') {
+            if !rest.contains(' ') && !rest.is_empty() {
+                let lower = rest.to_lowercase();
+                let matches: Vec<&&str> = SHELL_BUILTINS
+                    .iter()
+                    .filter(|b| b.starts_with(lower.as_str()) && **b != lower.as_str())
+                    .collect();
+                if matches.len() == 1 {
+                    return Some(matches[0][rest.len()..].to_string());
+                }
+            }
+            return None;
+        }
+
+        // Ghost text for unique `/` command prefix matches
+        if !line.starts_with('/') || line.contains(' ') {
+            return None;
+        }
+        let lower = line.to_lowercase();
+        let matches: Vec<&&str> = SLASH_COMMANDS
+            .iter()
+            .filter(|c| c.starts_with(lower.as_str()) && **c != lower.as_str())
+            .collect();
+        if matches.len() == 1 {
+            Some(matches[0][line.len()..].to_string())
+        } else {
+            None
+        }
+    }
 }
 
-impl Highlighter for OrkaHelper {}
+impl Highlighter for OrkaHelper {
+    fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
+        if line.starts_with('!') {
+            Cow::Owned(line.yellow().to_string())
+        } else if line.starts_with('/') {
+            Cow::Owned(line.cyan().to_string())
+        } else {
+            // Highlight `@<token>` in green for agent messages
+            let highlighted = highlight_at_tokens(line);
+            if highlighted == line {
+                Cow::Borrowed(line)
+            } else {
+                Cow::Owned(highlighted)
+            }
+        }
+    }
 
-impl Validator for OrkaHelper {}
+    fn highlight_char(
+        &self,
+        line: &str,
+        _pos: usize,
+        _forced: rustyline::highlight::CmdKind,
+    ) -> bool {
+        line.starts_with('!')
+            || line.starts_with('/')
+            || line.char_indices().any(|(i, c)| {
+                c == '@'
+                    && (i == 0
+                        || line[..i]
+                            .chars()
+                            .next_back()
+                            .map(|p| p.is_whitespace())
+                            .unwrap_or(true))
+            })
+    }
+
+    fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
+        // \x1b[90m = bright black (dark gray) — universally visible ghost text
+        Cow::Owned(format!("\x1b[90m{hint}\x1b[0m"))
+    }
+
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        prompt: &'p str,
+        default: bool,
+    ) -> Cow<'b, str> {
+        if default {
+            // build_prompt already contains per-element ANSI colors.
+            // Strip \x01/\x02 width-markers (only needed for readline width calc).
+            Cow::Owned(prompt.replace(['\x01', '\x02'], ""))
+        } else {
+            // Continuation prompt (multi-line)
+            Cow::Owned(prompt.dimmed().to_string())
+        }
+    }
+}
+
+impl Validator for OrkaHelper {
+    fn validate(&self, ctx: &mut ValidationContext<'_>) -> rustyline::Result<ValidationResult> {
+        let input = ctx.input();
+
+        // Odd number of trailing backslashes → line continuation; even = escaped backslash.
+        let trailing_backslashes = input.chars().rev().take_while(|&c| c == '\\').count();
+        if trailing_backslashes % 2 == 1 {
+            return Ok(ValidationResult::Incomplete);
+        }
+
+        // Unclosed triple-backtick block → continuation
+        let backtick_count = input.matches("```").count();
+        if !backtick_count.is_multiple_of(2) {
+            return Ok(ValidationResult::Incomplete);
+        }
+
+        Ok(ValidationResult::Valid(None))
+    }
+
+    fn validate_while_typing(&self) -> bool {
+        false
+    }
+}
 
 impl Helper for OrkaHelper {}
+
+/// Highlight `@<token>` sequences in green.
+/// Only triggers when `@` is at position 0 or preceded by whitespace
+/// (same guard as `@` completion, to avoid matching email addresses).
+fn highlight_at_tokens(line: &str) -> String {
+    let mut result = String::with_capacity(line.len());
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '@' {
+            let preceded_by_ws = i == 0 || chars[i - 1].is_whitespace();
+            if preceded_by_ws {
+                let token_start = i;
+                i += 1;
+                while i < chars.len() && !chars[i].is_whitespace() {
+                    i += 1;
+                }
+                let token: String = chars[token_start..i].iter().collect();
+                result.push_str(&token.green().to_string());
+                continue;
+            }
+        }
+        result.push(chars[i]);
+        i += 1;
+    }
+    result
+}
 
 /// Collect executable names from $PATH directories (deduplicated, sorted).
 fn collect_path_commands() -> Vec<String> {
@@ -120,7 +303,8 @@ fn collect_path_commands() -> Vec<String> {
 }
 
 /// Complete a file path fragment. Returns (replacement_start_offset, pairs).
-fn complete_path(fragment: &str) -> (usize, Vec<Pair>) {
+/// When `dirs_only` is true, only directory entries are included.
+fn complete_path(fragment: &str, dirs_only: bool) -> (usize, Vec<Pair>) {
     let (dir, prefix) = if let Some(slash_pos) = fragment.rfind('/') {
         let dir_part = &fragment[..=slash_pos];
         let file_part = &fragment[slash_pos + 1..];
@@ -148,11 +332,11 @@ fn complete_path(fragment: &str) -> (usize, Vec<Pair>) {
             if let Some(name) = entry.file_name().to_str()
                 && name.starts_with(&prefix)
             {
-                let suffix = if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                    "/"
-                } else {
-                    " "
-                };
+                let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+                if dirs_only && !is_dir {
+                    continue;
+                }
+                let suffix = if is_dir { "/" } else { " " };
                 pairs.push(Pair {
                     display: name.to_string(),
                     replacement: format!("{name}{suffix}"),
@@ -187,7 +371,7 @@ mod tests {
     #[test]
     fn complete_path_in_tmp() {
         // /tmp should exist and have entries on any Linux system
-        let (offset, _pairs) = complete_path("/tmp/");
+        let (offset, _pairs) = complete_path("/tmp/", false);
         assert_eq!(offset, 5); // after "/tmp/"
     }
 
@@ -205,5 +389,53 @@ mod tests {
         let names: Vec<&str> = matches.iter().map(|p| p.display.as_str()).collect();
         assert!(names.contains(&"/skill"));
         assert!(names.contains(&"/skills"));
+    }
+
+    #[test]
+    fn highlight_char_triggers_for_at_token() {
+        let helper = OrkaHelper::new();
+        use rustyline::highlight::{CmdKind, Highlighter};
+        assert!(helper.highlight_char("check @src/main.rs", 5, CmdKind::ForcedRefresh));
+        assert!(helper.highlight_char("!ls", 1, CmdKind::ForcedRefresh));
+        assert!(helper.highlight_char("/quit", 1, CmdKind::ForcedRefresh));
+        assert!(!helper.highlight_char("plain text", 0, CmdKind::ForcedRefresh));
+    }
+
+    #[test]
+    fn highlight_at_tokens_colors_at_paths() {
+        let result = highlight_at_tokens("attach @src/main.rs here");
+        assert!(result.contains("src/main.rs"));
+        // Plain text not modified
+        assert_eq!(highlight_at_tokens("hello world"), "hello world");
+        // Email-like should not be highlighted (preceded by non-whitespace)
+        let email = highlight_at_tokens("user@example.com");
+        // The '@' is not at position 0 or after whitespace → no green wrapping
+        assert!(!email.contains("\x1b[32m"));
+    }
+
+    #[test]
+    fn feedback_completion() {
+        let helper = OrkaHelper::new();
+        let hist = rustyline::history::DefaultHistory::new();
+        let ctx = Context::new(&hist);
+        let line = "/feedback g";
+        let (start, matches) = helper.complete(line, line.len(), &ctx).unwrap();
+        let names: Vec<&str> = matches.iter().map(|p| p.display.as_str()).collect();
+        assert!(names.contains(&"good"));
+        assert!(!names.contains(&"bad"));
+        assert_eq!(start, "/feedback ".len());
+    }
+
+    #[test]
+    fn builtin_hint_ghost_text() {
+        let helper = OrkaHelper::new();
+        let hist = rustyline::history::DefaultHistory::new();
+        let ctx = Context::new(&hist);
+        // "!c" should hint "d" (completing "cd")
+        let hint = helper.hint("!c", 2, &ctx);
+        assert_eq!(hint.as_deref(), Some("d"));
+        // "!exp" → "ort"
+        let hint2 = helper.hint("!exp", 4, &ctx);
+        assert_eq!(hint2.as_deref(), Some("ort"));
     }
 }

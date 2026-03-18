@@ -101,6 +101,14 @@ enum Commands {
         /// Shell to generate completions for
         shell: clap_complete::Shell,
     },
+    /// Show version information
+    Version {
+        /// Check for available updates
+        #[arg(long)]
+        check: bool,
+    },
+    /// Update orka to the latest release
+    Update,
 }
 
 #[derive(clap::Subcommand)]
@@ -237,6 +245,15 @@ async fn main() {
             clap_complete::generate(shell, &mut Cli::command(), "orka", &mut std::io::stdout());
             Ok(())
         }
+        Commands::Version { check } => {
+            if check {
+                cmd::update::run_check().await
+            } else {
+                println!("orka {}", env!("CARGO_PKG_VERSION"));
+                Ok(())
+            }
+        }
+        Commands::Update => cmd::update::run_update().await,
     };
 
     if let Err(e) = result {

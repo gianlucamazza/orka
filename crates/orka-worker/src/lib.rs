@@ -26,8 +26,9 @@ use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
 use orka_agent::{AgentGraph, ExecutionContext, GraphExecutor};
-use orka_core::traits::{EventSink, MessageBus, PriorityQueue, SessionStore};
-use orka_core::{DomainEvent, DomainEventKind, Envelope, Payload, Priority, Session};
+use orka_core::traits::{EventSink, MemoryStore, MessageBus, PriorityQueue, SessionStore};
+use orka_core::{DomainEvent, DomainEventKind, Envelope, MemoryEntry, Payload, Priority, Session};
+use orka_llm::client::ChatMessageExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -99,6 +100,22 @@ impl WorkerPool {
                         result = queue.pop(Duration::from_secs(5)) => {
                             match result {
                                 Ok(Some(envelope)) => {
+                                    // Create a span that ties the entire envelope processing
+                                    // to both the session and any incoming trace context.
+                                    let trace_id = envelope
+                                        .trace_context
+                                        .trace_id
+                                        .as_deref()
+                                        .unwrap_or("none");
+                                    let process_span = tracing::info_span!(
+                                        "worker.process",
+                                        worker = i,
+                                        message_id = %envelope.id,
+                                        session_id = %envelope.session_id,
+                                        trace_id = %trace_id,
+                                    );
+                                    let _guard = process_span.enter();
+
                                     // Load session
                                     let session = match sessions.get(&envelope.session_id).await {
                                         Ok(Some(s)) => s,
@@ -108,6 +125,39 @@ impl WorkerPool {
                                         }
                                         Err(e) => {
                                             error!(worker = i, %e, "failed to load session");
+                                            let retry_count = envelope
+                                                .metadata
+                                                .get("retry_count")
+                                                .and_then(|v| v.as_u64())
+                                                .unwrap_or(0) as u32;
+                                            if retry_count < max_retries {
+                                                let mut retry_env = envelope.clone();
+                                                retry_env.metadata.insert(
+                                                    "retry_count".to_string(),
+                                                    serde_json::json!(retry_count + 1),
+                                                );
+                                                let delay_ms = retry_base_delay_ms * 3u64.pow(retry_count);
+                                                let not_before = Utc::now() + ChronoDuration::milliseconds(delay_ms as i64);
+                                                retry_env.metadata.insert(
+                                                    "not_before".to_string(),
+                                                    serde_json::json!(not_before.to_rfc3339()),
+                                                );
+                                                retry_env.priority = Priority::Background;
+                                                if let Err(push_err) = queue.push(&retry_env).await {
+                                                    error!(worker = i, %push_err, "failed to re-enqueue after session load failure");
+                                                }
+                                            } else {
+                                                // Notify user and drop.
+                                                let mut err_env = Envelope::text(
+                                                    &envelope.channel,
+                                                    envelope.session_id,
+                                                    "Temporary error loading session. Please retry.",
+                                                );
+                                                err_env.trace_context = envelope.trace_context.clone();
+                                                if let Err(pub_err) = bus.publish("outbound", &err_env).await {
+                                                    error!(worker = i, %pub_err, "failed to publish session error notification");
+                                                }
+                                            }
                                             continue;
                                         }
                                     };
@@ -247,6 +297,7 @@ pub struct WorkerPoolGraph {
     executor: Arc<GraphExecutor>,
     graph: Arc<AgentGraph>,
     event_sink: Arc<dyn EventSink>,
+    memory: Option<Arc<dyn MemoryStore>>,
     concurrency: usize,
     max_retries: u32,
     retry_base_delay_ms: u64,
@@ -272,6 +323,7 @@ impl WorkerPoolGraph {
             executor,
             graph,
             event_sink,
+            memory: None,
             concurrency,
             max_retries,
             retry_base_delay_ms: 5000,
@@ -281,6 +333,15 @@ impl WorkerPoolGraph {
     /// Set the base delay for retry backoff (default: 5000ms).
     pub fn with_retry_delay(mut self, base_delay_ms: u64) -> Self {
         self.retry_base_delay_ms = base_delay_ms;
+        self
+    }
+
+    /// Attach a memory store for conversation history persistence.
+    ///
+    /// When set, the graph pool loads conversation history before each execution
+    /// and saves it afterward, enabling multi-turn conversations in the graph path.
+    pub fn with_memory(mut self, memory: Arc<dyn MemoryStore>) -> Self {
+        self.memory = Some(memory);
         self
     }
 
@@ -296,6 +357,7 @@ impl WorkerPoolGraph {
             let executor = self.executor.clone();
             let graph = self.graph.clone();
             let event_sink = self.event_sink.clone();
+            let memory = self.memory.clone();
             let cancel = shutdown.clone();
             let max_retries = self.max_retries;
             let retry_base_delay_ms = self.retry_base_delay_ms;
@@ -335,11 +397,63 @@ impl WorkerPoolGraph {
                                     let start = std::time::Instant::now();
                                     let ctx = ExecutionContext::new(envelope.clone());
 
+                                    // Load conversation history from memory store (if available)
+                                    // so the graph path has the same multi-turn continuity as WorkspaceHandler.
+                                    if let Some(ref mem) = memory {
+                                        let history_key = format!("conversation:{}", envelope.session_id);
+                                        match mem.recall(&history_key).await {
+                                            Ok(Some(entry)) => {
+                                                let history: Vec<ChatMessageExt> =
+                                                    serde_json::from_value(entry.value)
+                                                        .unwrap_or_default();
+                                                if !history.is_empty() {
+                                                    ctx.set_messages(history).await;
+                                                }
+                                            }
+                                            Ok(None) => {}
+                                            Err(e) => {
+                                                warn!(worker = i, %e, session_id = %envelope.session_id, "failed to load conversation history");
+                                            }
+                                        }
+                                    }
+
+                                    // Append the current user message so the graph sees the live input.
+                                    let user_text = match &envelope.payload {
+                                        Payload::Text(t) => Some(t.clone()),
+                                        Payload::Media(m) => m.caption.clone().or_else(|| Some(format!("[media: {}]", m.mime_type))),
+                                        Payload::Command(c) => Some(format!("/{}", c.name)),
+                                        Payload::Event(_) => None,
+                                        _ => None,
+                                    };
+                                    if let Some(text) = user_text {
+                                        ctx.push_message(ChatMessageExt::user(text)).await;
+                                    }
+
                                     match executor.execute(&graph, &ctx).await {
                                         Ok(result) => {
                                             let duration_ms = start.elapsed().as_millis() as u64;
                                             let outbound_msgs = result.into_outbound_messages(&ctx);
                                             let reply_count = outbound_msgs.len();
+
+                                            // Persist updated conversation history
+                                            if let Some(ref mem) = memory {
+                                                let history_key = format!("conversation:{}", envelope.session_id);
+                                                let msgs = ctx.messages().await;
+                                                if !msgs.is_empty() {
+                                                    match serde_json::to_value(&msgs) {
+                                                        Ok(v) => {
+                                                            let entry = MemoryEntry::new(&history_key, v)
+                                                                .with_tags(vec!["conversation".to_string()]);
+                                                            if let Err(e) = mem.store(&history_key, entry, None).await {
+                                                                warn!(worker = i, %e, session_id = %envelope.session_id, "failed to save conversation history");
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            warn!(worker = i, %e, "failed to serialize conversation history");
+                                                        }
+                                                    }
+                                                }
+                                            }
 
                                             for msg in &outbound_msgs {
                                                 let mut out_env = Envelope::text(

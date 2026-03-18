@@ -2,55 +2,43 @@ use std::path::Path;
 
 use colored::Colorize;
 
-/// Build the shell prompt: `~/Workspace/orka (main) ▶ `
-///
-/// ANSI escape sequences are wrapped in `\x01`/`\x02` (RL_PROMPT_START/END_IGNORE)
-/// so rustyline correctly calculates the visible prompt width.
+/// Wrap ANSI escape sequences with rustyline invisible-character markers (`\x01`…`\x02`)
+/// so rustyline measures prompt display width correctly (no cursor drift on long lines).
+fn rl_escape(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 16);
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' && chars.peek() == Some(&'[') {
+            result.push('\x01');
+            result.push(c);
+            for nc in chars.by_ref() {
+                result.push(nc);
+                if nc.is_ascii_alphabetic() {
+                    result.push('\x02');
+                    break;
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+/// Build the shell prompt: `~/Workspace/orka (main) ❯ `
 pub fn build_prompt(cwd: &Path, last_exit: Option<i32>) -> String {
     let dir = shorten_path(cwd);
     let branch = git_branch(cwd);
     let indicator = match last_exit {
-        Some(0) | None => rl_escape("▶".green().to_string()),
-        Some(_) => rl_escape("▶".red().to_string()),
+        Some(0) | None => rl_escape(&"❯".green().to_string()),
+        Some(_) => rl_escape(&"❯".red().to_string()),
     };
     if branch.is_empty() {
         format!("{dir} {indicator} ")
     } else {
-        let branch_escaped = rl_escape(branch.dimmed().to_string());
-        format!("{dir} ({branch_escaped}) {indicator} ")
+        let branch_display = rl_escape(&branch.dimmed().to_string());
+        format!("{dir} ({branch_display}) {indicator} ")
     }
-}
-
-/// Wrap ANSI CSI escape sequences in RL_PROMPT_START_IGNORE (`\x01`) /
-/// RL_PROMPT_END_IGNORE (`\x02`) so rustyline ignores them when measuring
-/// the prompt's display width.
-fn rl_escape(s: String) -> String {
-    let mut out = String::with_capacity(s.len() + 16);
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        // CSI sequence: ESC [ — all bytes in this sequence are ASCII
-        if bytes[i] == b'\x1b' && bytes.get(i + 1) == Some(&b'[') {
-            out.push('\x01');
-            out.push_str("\x1b[");
-            i += 2;
-            while i < bytes.len() {
-                let b = bytes[i];
-                out.push(b as char);
-                i += 1;
-                if b.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-            out.push('\x02');
-        } else {
-            // Pass through the full Unicode character (may be multi-byte UTF-8)
-            let ch = s[i..].chars().next().unwrap();
-            out.push(ch);
-            i += ch.len_utf8();
-        }
-    }
-    out
 }
 
 /// Shorten a path by replacing $HOME with `~`.
@@ -123,12 +111,12 @@ mod tests {
     fn prompt_success_exit() {
         let p = build_prompt(Path::new("/tmp"), Some(0));
         assert!(p.contains("/tmp"));
-        assert!(p.contains("▶"));
+        assert!(p.contains("❯"));
     }
 
     #[test]
     fn prompt_no_exit_yet() {
         let p = build_prompt(Path::new("/tmp"), None);
-        assert!(p.contains("▶"));
+        assert!(p.contains("❯"));
     }
 }

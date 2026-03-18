@@ -38,6 +38,7 @@ impl ServerCommand for ResetCommand {
     ) -> Result<Vec<OutboundMessage>> {
         let history_key = format!("conversation:{}", envelope.session_id);
         let token_key = format!("tokens:{}", envelope.session_id);
+        let summary_key = format!("conversation_summary:{}", envelope.session_id);
 
         self.memory
             .store(
@@ -54,6 +55,14 @@ impl ServerCommand for ResetCommand {
                     token_key.clone(),
                     serde_json::json!({"input": 0, "output": 0}),
                 ),
+                None,
+            )
+            .await?;
+
+        self.memory
+            .store(
+                &summary_key,
+                MemoryEntry::new(summary_key.clone(), serde_json::json!("")),
                 None,
             )
             .await?;

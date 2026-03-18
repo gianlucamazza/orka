@@ -7,7 +7,7 @@
 use toml_edit::{Array, DocumentMut, Item, Table, value};
 
 /// The config version that this build of Orka expects.
-pub const CURRENT_CONFIG_VERSION: u32 = 2;
+pub const CURRENT_CONFIG_VERSION: u32 = 3;
 
 /// Result of a successful migration.
 #[derive(Debug, Clone)]
@@ -59,7 +59,11 @@ type MigrateFn = fn(&mut DocumentMut, &mut Vec<String>) -> Result<(), String>;
 
 /// Registry of migrations. Each entry is `(target_version, migrate_fn)`.
 /// The function migrates from `target_version - 1` to `target_version`.
-const MIGRATIONS: &[(u32, MigrateFn)] = &[(1, migrate_v0_to_v1), (2, migrate_v1_to_v2)];
+const MIGRATIONS: &[(u32, MigrateFn)] = &[
+    (1, migrate_v0_to_v1),
+    (2, migrate_v1_to_v2),
+    (3, migrate_v2_to_v3),
+];
 
 /// Read `config_version` from a parsed TOML document. Returns 0 if absent.
 fn read_version(doc: &DocumentMut) -> u32 {
@@ -196,6 +200,31 @@ fn migrate_v1_to_v2(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
     Ok(())
 }
 
+/// v2 → v3: convert `os.claude_code.enabled` from bool to string tri-state.
+///
+/// In v2 the field was `bool`; in v3 it is `"auto" | "true" | "false"`.
+/// If the field is already a string or absent, this is a no-op (beyond the
+/// version bump).
+fn migrate_v2_to_v3(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
+    if let Some(os_item) = doc.get_mut("os")
+        && let Some(os_table) = os_item.as_table_mut()
+        && let Some(cc_item) = os_table.get_mut("claude_code")
+        && let Some(cc_table) = cc_item.as_table_mut()
+        && let Some(enabled_item) = cc_table.get("enabled")
+        && let Some(b) = enabled_item.as_bool()
+    {
+        let replacement = if b { "true" } else { "false" };
+        cc_table.insert("enabled", value(replacement));
+        warnings.push(format!(
+            "Converted os.claude_code.enabled from boolean to \"{replacement}\". \
+             Use \"auto\" to auto-detect claude CLI on PATH."
+        ));
+    }
+
+    doc.insert("config_version", value(3i64));
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,17 +239,17 @@ port = 8080
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 0);
-        assert_eq!(result.to_version, 2);
+        assert_eq!(result.to_version, 3);
         assert!(!result.warnings.is_empty());
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 2);
+        assert_eq!(read_version(&doc), 3);
     }
 
     #[test]
     fn current_version_is_noop() {
         let raw = r#"
-config_version = 2
+config_version = 3
 
 [server]
 host = "127.0.0.1"
@@ -236,7 +265,7 @@ host = "127.0.0.1"
         let err = migrate_if_needed(raw).unwrap_err();
         assert!(matches!(
             err,
-            MigrationError::FutureVersion { found: 999, max: 2 }
+            MigrationError::FutureVersion { found: 999, max: 3 }
         ));
         let msg = err.to_string();
         assert!(msg.contains("999"));
@@ -257,14 +286,14 @@ permission_level = "read-only"
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 1);
-        assert_eq!(result.to_version, 2);
+        assert_eq!(result.to_version, 3);
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("[agent]"));
         assert!(result.warnings[0].contains("[tools]"));
         assert!(result.warnings[0].contains("[os.sudo]"));
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 2);
+        assert_eq!(read_version(&doc), 3);
 
         // [agent] defaults
         let agent = doc["agent"].as_table().expect("[agent] missing");
@@ -318,8 +347,8 @@ sudo_path = "/usr/bin/sudo"
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 1);
-        assert_eq!(result.to_version, 2);
-        // No sections were added, so no warning about added sections
+        assert_eq!(result.to_version, 3);
+        // No sections were added or converted, so no warnings
         assert!(
             result.warnings.is_empty(),
             "unexpected warnings: {:?}",
@@ -360,5 +389,102 @@ port = 8080
         let raw = "config_version = [invalid";
         let err = migrate_if_needed(raw).unwrap_err();
         assert!(matches!(err, MigrationError::Parse(_)));
+    }
+
+    #[test]
+    fn v2_to_v3_converts_enabled_true() {
+        let raw = r#"config_version = 2
+
+[os.claude_code]
+enabled = true
+"#;
+        let (migrated, result) = migrate_if_needed(raw).unwrap();
+        let result = result.expect("should have migration result");
+        assert_eq!(result.from_version, 2);
+        assert_eq!(result.to_version, 3);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].contains("\"true\""));
+
+        let doc: DocumentMut = migrated.parse().unwrap();
+        assert_eq!(read_version(&doc), 3);
+        assert_eq!(doc["os"]["claude_code"]["enabled"].as_str(), Some("true"));
+    }
+
+    #[test]
+    fn v2_to_v3_converts_enabled_false() {
+        let raw = r#"config_version = 2
+
+[os.claude_code]
+enabled = false
+"#;
+        let (migrated, result) = migrate_if_needed(raw).unwrap();
+        let result = result.expect("should have migration result");
+        assert_eq!(result.from_version, 2);
+        assert_eq!(result.to_version, 3);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].contains("\"false\""));
+
+        let doc: DocumentMut = migrated.parse().unwrap();
+        assert_eq!(doc["os"]["claude_code"]["enabled"].as_str(), Some("false"));
+    }
+
+    #[test]
+    fn v2_to_v3_no_claude_code_section_is_noop() {
+        let raw = r#"config_version = 2
+
+[server]
+host = "127.0.0.1"
+"#;
+        let (migrated, result) = migrate_if_needed(raw).unwrap();
+        let result = result.expect("should have migration result");
+        assert_eq!(result.from_version, 2);
+        assert_eq!(result.to_version, 3);
+        assert!(
+            result.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            result.warnings
+        );
+
+        let doc: DocumentMut = migrated.parse().unwrap();
+        assert_eq!(read_version(&doc), 3);
+    }
+
+    #[test]
+    fn v2_to_v3_string_enabled_unchanged() {
+        // If someone already has enabled = "auto", it should be left as-is.
+        let raw = r#"config_version = 2
+
+[os.claude_code]
+enabled = "auto"
+"#;
+        let (migrated, result) = migrate_if_needed(raw).unwrap();
+        let result = result.expect("should have migration result");
+        assert!(
+            result.warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            result.warnings
+        );
+
+        let doc: DocumentMut = migrated.parse().unwrap();
+        assert_eq!(doc["os"]["claude_code"]["enabled"].as_str(), Some("auto"));
+    }
+
+    #[test]
+    fn v0_to_v3_chain() {
+        let raw = r#"
+[server]
+host = "127.0.0.1"
+port = 8080
+"#;
+        let (migrated, result) = migrate_if_needed(raw).unwrap();
+        let result = result.expect("should have migration result");
+        assert_eq!(result.from_version, 0);
+        assert_eq!(result.to_version, 3);
+
+        let doc: DocumentMut = migrated.parse().unwrap();
+        assert_eq!(read_version(&doc), 3);
+        // v1→v2 sections should be present
+        assert!(doc.get("agent").is_some());
+        assert!(doc.get("tools").is_some());
     }
 }

@@ -134,6 +134,8 @@ pub struct Agent {
     pub handoff_targets: Vec<AgentId>,
     /// Maximum LLM iterations before giving up.
     pub max_iterations: usize,
+    /// Per-skill execution timeout in seconds.
+    pub skill_timeout_secs: u64,
 }
 
 impl Agent {
@@ -146,6 +148,7 @@ impl Agent {
             llm_config: AgentLlmConfig::default(),
             handoff_targets: Vec::new(),
             max_iterations: 15,
+            skill_timeout_secs: 120,
         }
     }
 }

@@ -59,12 +59,15 @@ jobs:
           cd artifacts
           chmod +x orka-server orka
           tar czf orka-linux-x86_64.tar.gz orka-server orka
+          sha256sum orka-linux-x86_64.tar.gz > sha256sums.txt
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           body_path: RELEASE_NOTES.md
-          files: artifacts/orka-linux-x86_64.tar.gz
+          files: |
+            artifacts/orka-linux-x86_64.tar.gz
+            artifacts/sha256sums.txt
 
   docker:
     name: Push Docker Image

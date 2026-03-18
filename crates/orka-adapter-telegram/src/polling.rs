@@ -3,18 +3,62 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use orka_core::MemoryEntry;
+use orka_core::traits::MemoryStore;
 use orka_core::types::{
     CommandPayload, Envelope, EventPayload, MessageId, MessageSink, Payload, SessionId,
 };
 use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 use crate::TelegramAuthGuard;
 use crate::api::TelegramApi;
 use crate::media::resolve_inbound_media;
 use crate::types::{CallbackQuery, TelegramMessage, Update};
 use orka_core::types::backoff_delay;
+
+/// Resolve the session ID for a given Telegram chat ID.
+///
+/// Resolution order:
+/// 1. In-memory map (hot path, zero-cost after the first lookup)
+/// 2. Persistent memory store (survives restarts)
+/// 3. Generate a new ID and persist it
+pub async fn resolve_session(
+    chat_id: i64,
+    sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
+    memory: &Option<Arc<dyn MemoryStore>>,
+) -> SessionId {
+    // Fast path: already in memory
+    if let Some(sid) = sessions.lock().await.get(&chat_id).copied() {
+        return sid;
+    }
+
+    // Slow path: check persistent store
+    let key = format!("orka:adapter_session:telegram:{chat_id}");
+    if let Some(mem) = memory
+        && let Ok(Some(entry)) = mem.recall(&key).await
+        && let Some(sid_str) = entry.value.as_str()
+        && let Ok(uuid) = Uuid::parse_str(sid_str)
+    {
+        let sid = SessionId(uuid);
+        sessions.lock().await.insert(chat_id, sid);
+        return sid;
+    }
+
+    // Not found anywhere — create a new one and persist it
+    let sid = SessionId::new();
+    sessions.lock().await.insert(chat_id, sid);
+    if let Some(mem) = memory {
+        let entry = MemoryEntry::new(&key, serde_json::json!(sid.to_string()))
+            .with_tags(vec!["adapter_session".to_string()]);
+        if let Err(e) = mem.store(&key, entry, None).await {
+            warn!(%e, chat_id, "failed to persist Telegram session mapping");
+        }
+    }
+    sid
+}
 
 /// Extract `(user_id, username)` from any update type for auth checking.
 pub(crate) fn extract_user_info(update: &Update) -> Option<(i64, Option<String>)> {
@@ -31,6 +75,7 @@ pub(crate) async fn run_polling_loop(
     api: Arc<TelegramApi>,
     sink: MessageSink,
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
+    memory: Option<Arc<dyn MemoryStore>>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     auth_guard: Arc<TelegramAuthGuard>,
 ) {
@@ -56,7 +101,7 @@ pub(crate) async fn run_polling_loop(
                 error_count = 0;
                 for update in updates {
                     offset = update.update_id + 1;
-                    handle_update(&api, update, &sessions, &sink, &auth_guard).await;
+                    handle_update(&api, update, &sessions, &memory, &sink, &auth_guard).await;
                 }
             }
             Err(e) => {
@@ -72,6 +117,7 @@ async fn handle_update(
     api: &Arc<TelegramApi>,
     update: Update,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
+    memory: &Option<Arc<dyn MemoryStore>>,
     sink: &MessageSink,
     auth_guard: &TelegramAuthGuard,
 ) {
@@ -89,7 +135,7 @@ async fn handle_update(
     }
 
     if let Some(cq) = update.callback_query {
-        process_callback_query(api, cq, sessions, sink).await;
+        process_callback_query(api, cq, sessions, memory, sink).await;
         return;
     }
 
@@ -99,7 +145,7 @@ async fn handle_update(
         _ => return,
     };
 
-    process_message(api, msg, sessions, sink, is_edited).await;
+    process_message(api, msg, sessions, memory, sink, is_edited).await;
 }
 
 /// Process a regular or edited message.
@@ -107,15 +153,12 @@ pub(crate) async fn process_message(
     api: &Arc<TelegramApi>,
     msg: TelegramMessage,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
+    memory: &Option<Arc<dyn MemoryStore>>,
     sink: &MessageSink,
     is_edited: bool,
 ) {
     let chat_id = msg.chat.id;
-
-    let session_id = {
-        let mut s = sessions.lock().await;
-        *s.entry(chat_id).or_insert_with(SessionId::new)
-    };
+    let session_id = resolve_session(chat_id, sessions, memory).await;
 
     // Fire-and-forget typing indicator
     {
@@ -236,13 +279,13 @@ async fn process_callback_query(
     api: &Arc<TelegramApi>,
     cq: CallbackQuery,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
+    memory: &Option<Arc<dyn MemoryStore>>,
     sink: &MessageSink,
 ) {
     let chat_id = cq.message.as_ref().map(|m| m.chat.id);
 
     let session_id = if let Some(cid) = chat_id {
-        let mut s = sessions.lock().await;
-        *s.entry(cid).or_insert_with(SessionId::new)
+        resolve_session(cid, sessions, memory).await
     } else {
         SessionId::new()
     };

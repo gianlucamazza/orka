@@ -203,7 +203,7 @@ orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
 
 # Knowledge & RAG
 qdrant-client = "1"
-fastembed = "4"
+fastembed = "5"
 text-splitter = { version = "0.16", features = ["tiktoken-rs"] }
 tiktoken-rs = "0.6"
 pdf-extract = "0.7"

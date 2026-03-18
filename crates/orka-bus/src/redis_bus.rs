@@ -157,7 +157,42 @@ impl MessageBus for RedisBus {
                                         }
                                     }
                                     Err(e) => {
-                                        warn!(error = %e, "failed to deserialize envelope");
+                                        warn!(error = %e, entry_id = %entry_id, "failed to deserialize envelope, routing to DLQ");
+                                        // XACK to remove from the PEL so the entry is not
+                                        // redelivered indefinitely, then XADD raw payload to
+                                        // the DLQ stream for offline inspection.
+                                        let pool_dlq = pool.clone();
+                                        let key_dlq = key.clone();
+                                        let group_dlq = group.clone();
+                                        let entry_id_dlq = entry_id.clone();
+                                        let raw_dlq = envelope_json.clone();
+                                        let err_dlq = e.to_string();
+                                        tokio::spawn(async move {
+                                            let mut conn = match pool_dlq.get().await {
+                                                Ok(c) => c,
+                                                Err(e) => {
+                                                    error!(error = %e, "failed to get connection for DLQ routing");
+                                                    return;
+                                                }
+                                            };
+                                            let _ = redis::cmd("XACK")
+                                                .arg(&key_dlq)
+                                                .arg(&group_dlq)
+                                                .arg(&entry_id_dlq)
+                                                .query_async::<i64>(&mut conn)
+                                                .await;
+                                            let _ = redis::cmd("XADD")
+                                                .arg("orka:bus:dlq")
+                                                .arg("*")
+                                                .arg("raw")
+                                                .arg(&raw_dlq)
+                                                .arg("error")
+                                                .arg(&err_dlq)
+                                                .arg("source_stream")
+                                                .arg(&key_dlq)
+                                                .query_async::<String>(&mut conn)
+                                                .await;
+                                        });
                                     }
                                 }
                             }

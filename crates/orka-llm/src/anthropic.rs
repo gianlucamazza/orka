@@ -203,6 +203,31 @@ impl AnthropicClient {
             .collect()
     }
 
+    /// Clamp `budget_tokens` to `max_tokens - 1` if it would equal or exceed `max_tokens`.
+    /// The Anthropic API returns a 400 error when `budget_tokens >= max_tokens`.
+    fn validated_thinking(
+        thinking: &Option<crate::client::ThinkingConfig>,
+        max_tokens: u32,
+    ) -> Option<crate::client::ThinkingConfig> {
+        match thinking {
+            Some(crate::client::ThinkingConfig::Enabled { budget_tokens })
+                if *budget_tokens >= max_tokens =>
+            {
+                let clamped = max_tokens.saturating_sub(1);
+                tracing::warn!(
+                    budget_tokens,
+                    max_tokens,
+                    clamped,
+                    "thinking budget_tokens >= max_tokens; clamping to max_tokens - 1"
+                );
+                Some(crate::client::ThinkingConfig::Enabled {
+                    budget_tokens: clamped,
+                })
+            }
+            other => other.clone(),
+        }
+    }
+
     /// Build API messages from ChatMessage.
     fn build_simple_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         messages
@@ -233,6 +258,7 @@ impl LlmClient for AnthropicClient {
     ) -> Result<String> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
+        let thinking = Self::validated_thinking(&options.thinking, max_tokens);
         let api_messages = Self::build_simple_messages(&messages);
 
         let mut body = json!({
@@ -242,7 +268,7 @@ impl LlmClient for AnthropicClient {
             "messages": api_messages,
         });
 
-        match &options.thinking {
+        match &thinking {
             Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
                 body["thinking"] = json!({
                     "type": "enabled",
@@ -280,6 +306,7 @@ impl LlmClient for AnthropicClient {
     ) -> Result<CompletionResponse> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
+        let thinking = Self::validated_thinking(&options.thinking, max_tokens);
         let api_messages = Self::build_ext_messages(messages);
 
         let api_tools: Vec<serde_json::Value> = tools
@@ -304,7 +331,7 @@ impl LlmClient for AnthropicClient {
         }
 
         // Extended thinking: inject thinking param and force temperature=1 (Anthropic requirement)
-        match &options.thinking {
+        match &thinking {
             Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
                 body["thinking"] = json!({
                     "type": "enabled",
@@ -433,6 +460,7 @@ impl LlmClient for AnthropicClient {
     ) -> Result<LlmToolStream> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
+        let thinking = Self::validated_thinking(&options.thinking, max_tokens);
         let api_messages = Self::build_ext_messages(messages);
 
         let api_tools: Vec<serde_json::Value> = tools
@@ -457,7 +485,7 @@ impl LlmClient for AnthropicClient {
             body["tools"] = json!(api_tools);
         }
 
-        match &options.thinking {
+        match &thinking {
             Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
                 body["thinking"] = json!({
                     "type": "enabled",
@@ -809,6 +837,45 @@ mod tests {
         });
         let blocks = AnthropicClient::parse_content_blocks(&resp);
         assert_eq!(blocks.len(), 1);
+    }
+
+    #[test]
+    fn validated_thinking_clamps_when_budget_exceeds_max() {
+        let thinking = Some(crate::client::ThinkingConfig::Enabled {
+            budget_tokens: 10000,
+        });
+        let result = AnthropicClient::validated_thinking(&thinking, 8192);
+        assert!(
+            matches!(result, Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) if budget_tokens == 8191)
+        );
+    }
+
+    #[test]
+    fn validated_thinking_clamps_when_equal() {
+        let thinking = Some(crate::client::ThinkingConfig::Enabled {
+            budget_tokens: 8192,
+        });
+        let result = AnthropicClient::validated_thinking(&thinking, 8192);
+        assert!(
+            matches!(result, Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) if budget_tokens == 8191)
+        );
+    }
+
+    #[test]
+    fn validated_thinking_passthrough_when_valid() {
+        let thinking = Some(crate::client::ThinkingConfig::Enabled {
+            budget_tokens: 5000,
+        });
+        let result = AnthropicClient::validated_thinking(&thinking, 8192);
+        assert!(
+            matches!(result, Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) if budget_tokens == 5000)
+        );
+    }
+
+    #[test]
+    fn validated_thinking_none_passthrough() {
+        let result = AnthropicClient::validated_thinking(&None, 8192);
+        assert!(result.is_none());
     }
 
     #[test]

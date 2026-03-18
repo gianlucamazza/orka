@@ -188,6 +188,21 @@ pub fn create_os_skills_with_approval(
         }
     }
 
+    // Claude Code delegation skill — optional, requires `claude` CLI on PATH.
+    // "auto" (default): register only if probe found claude; "true": always register;
+    // "false": never register.
+    let claude_code_available = match config.claude_code.enabled.as_str() {
+        "true" => true,
+        "false" => false,
+        _ => caps.map(|c| c.claude_code.available).unwrap_or(false),
+    };
+    if claude_code_available {
+        info!("claude_code skill auto-enabled");
+        result.push(Arc::new(skills::claude_code::ClaudeCodeSkill::new(
+            &config.claude_code,
+        )));
+    }
+
     info!(
         permission_level = %level,
         skill_count = result.len(),

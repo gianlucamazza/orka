@@ -76,6 +76,50 @@ pub enum StreamChunkKind {
     },
     /// An incremental thinking/reasoning chunk (extended thinking models).
     ThinkingDelta(String),
+    /// Token usage and cost for a single LLM call.
+    Usage {
+        /// Input tokens consumed.
+        input_tokens: u32,
+        /// Output tokens generated.
+        output_tokens: u32,
+        /// Tokens read from cache, if any.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_read_tokens: Option<u32>,
+        /// Tokens written to cache, if any.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_creation_tokens: Option<u32>,
+        /// Reasoning/thinking tokens, if any.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reasoning_tokens: Option<u32>,
+        /// Model identifier used for this call.
+        model: String,
+        /// Estimated cost in USD, if available.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cost_usd: Option<f64>,
+    },
+    /// An agent switch in a multi-agent graph execution.
+    AgentSwitch {
+        /// Internal agent identifier.
+        agent_id: String,
+        /// Human-readable agent name.
+        display_name: String,
+    },
+    /// Context window pressure — emitted when history was truncated.
+    ContextInfo {
+        /// Estimated tokens currently in history.
+        history_tokens: u32,
+        /// Total context window size for the model.
+        context_window: u32,
+        /// Number of messages dropped to fit the context window.
+        messages_truncated: u32,
+        /// Whether a summary was generated to replace dropped turns.
+        summary_generated: bool,
+    },
+    /// Number of learned principles injected into the system prompt.
+    PrinciplesUsed {
+        /// Count of principles applied.
+        count: u32,
+    },
     /// The stream is complete.
     Done,
 }
@@ -268,6 +312,26 @@ mod tests {
                 result_summary: Some("Found 3 results".into()),
             },
             StreamChunkKind::ThinkingDelta("I should think...".into()),
+            StreamChunkKind::Usage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_read_tokens: Some(10),
+                cache_creation_tokens: None,
+                reasoning_tokens: Some(20),
+                model: "claude-sonnet-4-6".into(),
+                cost_usd: Some(0.001),
+            },
+            StreamChunkKind::AgentSwitch {
+                agent_id: "agent-1".into(),
+                display_name: "Research Agent".into(),
+            },
+            StreamChunkKind::ContextInfo {
+                history_tokens: 5000,
+                context_window: 200_000,
+                messages_truncated: 3,
+                summary_generated: false,
+            },
+            StreamChunkKind::PrinciplesUsed { count: 2 },
             StreamChunkKind::Done,
         ];
 
@@ -371,6 +435,55 @@ mod tests {
         .unwrap();
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["data"]["result_summary"], "Found 5 results");
+
+        // Usage
+        let json = serde_json::to_string(&StreamChunkKind::Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: None,
+            cache_creation_tokens: None,
+            reasoning_tokens: None,
+            model: "claude-sonnet-4-6".into(),
+            cost_usd: None,
+        })
+        .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "Usage");
+        assert_eq!(v["data"]["input_tokens"], 100);
+        assert_eq!(v["data"]["output_tokens"], 50);
+        assert_eq!(v["data"]["model"], "claude-sonnet-4-6");
+        assert!(v["data"]["cache_read_tokens"].is_null());
+
+        // AgentSwitch
+        let json = serde_json::to_string(&StreamChunkKind::AgentSwitch {
+            agent_id: "a1".into(),
+            display_name: "Research".into(),
+        })
+        .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "AgentSwitch");
+        assert_eq!(v["data"]["agent_id"], "a1");
+        assert_eq!(v["data"]["display_name"], "Research");
+
+        // ContextInfo
+        let json = serde_json::to_string(&StreamChunkKind::ContextInfo {
+            history_tokens: 5000,
+            context_window: 200_000,
+            messages_truncated: 2,
+            summary_generated: false,
+        })
+        .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "ContextInfo");
+        assert_eq!(v["data"]["history_tokens"], 5000);
+        assert_eq!(v["data"]["messages_truncated"], 2);
+        assert_eq!(v["data"]["summary_generated"], false);
+
+        // PrinciplesUsed
+        let json = serde_json::to_string(&StreamChunkKind::PrinciplesUsed { count: 3 }).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "PrinciplesUsed");
+        assert_eq!(v["data"]["count"], 3);
 
         // Done
         let json = serde_json::to_string(&StreamChunkKind::Done).unwrap();
