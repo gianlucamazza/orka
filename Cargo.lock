@@ -4010,6 +4010,8 @@ name = "orka-adapter-telegram"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum 0.8.8",
+ "chrono",
  "orka-core",
  "reqwest",
  "serde",
@@ -4204,6 +4206,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "testcontainers",
  "text-splitter",
  "tokio",
  "tracing",
@@ -4432,6 +4435,7 @@ dependencies = [
  "orka-worker",
  "orka-workspace",
  "redis",
+ "sd-notify",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -5844,6 +5848,15 @@ dependencies = [
  "precomputed-hash",
  "selectors",
  "tendril",
+]
+
+[[package]]
+name = "sd-notify"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b943eadf71d8b69e661330cb0e2656e31040acf21ee7708e2c238a0ec6af2bf4"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
