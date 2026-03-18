@@ -1,0 +1,250 @@
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
+
+use orka_core::{Envelope, SessionId};
+use orka_llm::client::ChatMessageExt;
+use serde_json::Value;
+use tokio::sync::RwLock;
+use uuid::Uuid;
+
+use crate::agent::AgentId;
+
+/// Unique identifier for a single graph execution run.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RunId(pub Uuid);
+
+impl RunId {
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+}
+
+impl Default for RunId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for RunId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A typed key for values stored in the execution context.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SlotKey {
+    /// Agent namespace, or "__shared" for cross-agent values.
+    pub namespace: String,
+    /// Key name within the namespace.
+    pub name: String,
+}
+
+impl SlotKey {
+    pub fn agent(agent_id: &AgentId, name: impl Into<String>) -> Self {
+        Self {
+            namespace: agent_id.0.to_string(),
+            name: name.into(),
+        }
+    }
+
+    pub fn shared(name: impl Into<String>) -> Self {
+        Self {
+            namespace: "__shared".into(),
+            name: name.into(),
+        }
+    }
+}
+
+/// A single state mutation recorded for observability.
+#[derive(Debug, Clone)]
+pub struct StateChange {
+    pub timestamp: Instant,
+    pub key: SlotKey,
+    pub agent: AgentId,
+    pub old_value: Option<Value>,
+    pub new_value: Value,
+}
+
+/// Shared, typed execution state that flows through the graph.
+///
+/// All access to `state` and `messages` is protected by `RwLock` so
+/// fan-out nodes can read concurrently and write to separate namespaces.
+#[derive(Clone)]
+pub struct ExecutionContext {
+    pub run_id: RunId,
+    pub session_id: SessionId,
+    pub trigger: Envelope,
+    pub started_at: Instant,
+    state: Arc<RwLock<std::collections::HashMap<SlotKey, Value>>>,
+    messages: Arc<RwLock<Vec<ChatMessageExt>>>,
+    changelog: Arc<RwLock<VecDeque<StateChange>>>,
+    usage: Arc<AtomicU64>,
+}
+
+impl ExecutionContext {
+    pub fn new(trigger: Envelope) -> Self {
+        let session_id = trigger.session_id;
+        Self {
+            run_id: RunId::new(),
+            session_id,
+            trigger,
+            started_at: Instant::now(),
+            state: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            messages: Arc::new(RwLock::new(Vec::new())),
+            changelog: Arc::new(RwLock::new(VecDeque::new())),
+            usage: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Read a value from the state map.
+    pub async fn get(&self, key: &SlotKey) -> Option<Value> {
+        self.state.read().await.get(key).cloned()
+    }
+
+    /// Read and deserialize a typed value.
+    pub async fn get_typed<T: serde::de::DeserializeOwned>(&self, key: &SlotKey) -> Option<T> {
+        let v = self.get(key).await?;
+        serde_json::from_value(v).ok()
+    }
+
+    /// Write a value to the state map, recording the change.
+    pub async fn set(&self, agent: &AgentId, key: SlotKey, value: Value) {
+        let old_value = {
+            let mut state = self.state.write().await;
+            let old = state.get(&key).cloned();
+            state.insert(key.clone(), value.clone());
+            old
+        };
+
+        let change = StateChange {
+            timestamp: Instant::now(),
+            key: key.clone(),
+            agent: agent.clone(),
+            old_value,
+            new_value: value,
+        };
+
+        tracing::info!(
+            namespace = %key.namespace,
+            name = %key.name,
+            agent = %agent,
+            "execution_context.state_change"
+        );
+
+        self.changelog.write().await.push_back(change);
+    }
+
+    /// Get the current conversation messages.
+    pub async fn messages(&self) -> Vec<ChatMessageExt> {
+        self.messages.read().await.clone()
+    }
+
+    /// Append a message to the conversation.
+    pub async fn push_message(&self, msg: ChatMessageExt) {
+        self.messages.write().await.push(msg);
+    }
+
+    /// Replace the conversation messages (e.g., after history truncation).
+    pub async fn set_messages(&self, msgs: Vec<ChatMessageExt>) {
+        *self.messages.write().await = msgs;
+    }
+
+    /// Accumulate token usage.
+    pub fn add_tokens(&self, n: u64) {
+        self.usage.fetch_add(n, Ordering::Relaxed);
+    }
+
+    /// Get total tokens consumed.
+    pub fn total_tokens(&self) -> u64 {
+        self.usage.load(Ordering::Relaxed)
+    }
+
+    /// Get the full changelog for observability.
+    pub async fn changelog(&self) -> Vec<StateChange> {
+        self.changelog.read().await.iter().cloned().collect()
+    }
+
+    /// Elapsed time since this run started.
+    pub fn elapsed_ms(&self) -> u64 {
+        self.started_at.elapsed().as_millis() as u64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orka_core::{Envelope, SessionId};
+
+    fn make_context() -> ExecutionContext {
+        let env = Envelope::text("test-channel", SessionId::new(), "hello");
+        ExecutionContext::new(env)
+    }
+
+    #[tokio::test]
+    async fn get_returns_none_for_missing_key() {
+        let ctx = make_context();
+        let key = SlotKey::shared("missing");
+        assert!(ctx.get(&key).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_then_get_roundtrip() {
+        let ctx = make_context();
+        let agent = AgentId::new("a1");
+        let key = SlotKey::agent(&agent, "score");
+        ctx.set(&agent, key.clone(), serde_json::json!(42)).await;
+        assert_eq!(ctx.get(&key).await, Some(serde_json::json!(42)));
+    }
+
+    #[tokio::test]
+    async fn set_records_changelog() {
+        let ctx = make_context();
+        let agent = AgentId::new("a1");
+        let key = SlotKey::shared("status");
+        ctx.set(&agent, key.clone(), serde_json::json!("pending"))
+            .await;
+        ctx.set(&agent, key.clone(), serde_json::json!("done"))
+            .await;
+
+        let log = ctx.changelog().await;
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].new_value, serde_json::json!("pending"));
+        assert_eq!(log[0].old_value, None);
+        assert_eq!(log[1].new_value, serde_json::json!("done"));
+        assert_eq!(log[1].old_value, Some(serde_json::json!("pending")));
+    }
+
+    #[tokio::test]
+    async fn token_accounting() {
+        let ctx = make_context();
+        assert_eq!(ctx.total_tokens(), 0);
+        ctx.add_tokens(100);
+        ctx.add_tokens(50);
+        assert_eq!(ctx.total_tokens(), 150);
+    }
+
+    #[tokio::test]
+    async fn messages_push_and_read() {
+        let ctx = make_context();
+        assert!(ctx.messages().await.is_empty());
+        ctx.push_message(orka_llm::client::ChatMessageExt::user("hi"))
+            .await;
+        assert_eq!(ctx.messages().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn slot_key_namespacing() {
+        let ctx = make_context();
+        let a1 = AgentId::new("agent1");
+        let a2 = AgentId::new("agent2");
+        let k1 = SlotKey::agent(&a1, "x");
+        let k2 = SlotKey::agent(&a2, "x");
+        ctx.set(&a1, k1.clone(), serde_json::json!(1)).await;
+        ctx.set(&a2, k2.clone(), serde_json::json!(2)).await;
+        assert_eq!(ctx.get(&k1).await, Some(serde_json::json!(1)));
+        assert_eq!(ctx.get(&k2).await, Some(serde_json::json!(2)));
+    }
+}
