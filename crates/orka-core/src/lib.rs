@@ -36,7 +36,7 @@ pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 pub use types::{
     CommandPayload, DomainEvent, DomainEventKind, Envelope, EventId, EventPayload, MediaPayload,
-    MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage, Payload, Priority,
+    MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage, Payload, Priority, RunId,
     SecretValue, Session, SessionId, SkillContext, SkillInput, SkillOutput, SkillSchema,
     TraceContext, backoff_delay,
 };

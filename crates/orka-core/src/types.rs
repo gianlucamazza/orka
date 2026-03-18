@@ -66,6 +66,29 @@ impl std::fmt::Display for SessionId {
     }
 }
 
+/// Unique identifier for a graph execution run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RunId(pub Uuid);
+
+impl RunId {
+    /// Create a new unique run ID (UUID v7).
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+}
+
+impl Default for RunId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for RunId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Unique identifier for a domain event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EventId(pub Uuid);
@@ -271,6 +294,49 @@ pub enum DomainEventKind {
     },
     /// Periodic liveness signal from the observe subsystem.
     Heartbeat,
+    /// Emitted when an agent hands off or delegates to another agent.
+    AgentDelegated {
+        /// Graph run identifier.
+        run_id: String,
+        /// Agent that initiated the delegation.
+        source_agent: String,
+        /// Agent receiving the delegation.
+        target_agent: String,
+        /// Delegation mode (e.g. `"handoff"`, `"parallel"`).
+        mode: String,
+        /// Human-readable reason for the delegation.
+        reason: String,
+    },
+    /// Emitted when a single agent node completes within a graph execution.
+    AgentCompleted {
+        /// Graph run identifier.
+        run_id: String,
+        /// ID of the agent that completed.
+        agent_id: String,
+        /// Number of agentic loop iterations taken.
+        iterations: usize,
+        /// Total tokens consumed.
+        tokens: u64,
+        /// Wall-clock duration in milliseconds.
+        duration_ms: u64,
+        /// Whether the agent completed successfully.
+        success: bool,
+    },
+    /// Emitted when the entire graph execution completes.
+    GraphCompleted {
+        /// Graph run identifier.
+        run_id: String,
+        /// ID of the graph definition.
+        graph_id: String,
+        /// IDs of all agents that ran.
+        agents_executed: Vec<String>,
+        /// Sum of all agent iterations.
+        total_iterations: usize,
+        /// Sum of all tokens consumed.
+        total_tokens: u64,
+        /// Total wall-clock duration in milliseconds.
+        duration_ms: u64,
+    },
 }
 
 /// Context available to skills during execution.

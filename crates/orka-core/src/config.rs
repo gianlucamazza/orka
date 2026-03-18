@@ -110,6 +110,12 @@ pub struct OrkaConfig {
     /// Experience / self-learning configuration.
     #[serde(default)]
     pub experience: ExperienceConfig,
+    /// Multi-agent definitions (replaces single `[agent]` for multi-agent deployments).
+    #[serde(default)]
+    pub agents: Vec<AgentDef>,
+    /// Graph topology for multi-agent execution.
+    #[serde(default)]
+    pub graph: Option<GraphDef>,
 }
 
 /// Web search and read configuration.
@@ -293,6 +299,9 @@ pub struct TelegramAdapterConfig {
 pub struct DiscordAdapterConfig {
     /// Secret store path for the Discord bot token.
     pub bot_token_secret: Option<String>,
+    /// Discord application ID (required for slash command registration).
+    #[serde(default)]
+    pub application_id: Option<String>,
     /// Workspace name to route messages to (uses default if unset).
     #[serde(default)]
     pub workspace: Option<String>,
@@ -915,6 +924,121 @@ fn default_skill_timeout_secs() -> u64 {
 
 fn default_max_tool_retries() -> u32 {
     2
+}
+
+/// Definition for a single agent in a multi-agent deployment.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentDef {
+    /// Unique agent identifier.
+    pub id: String,
+    /// Human-readable display name.
+    pub display_name: String,
+    /// Path to the agent's soul/system-prompt file.
+    #[serde(default)]
+    pub soul_file: Option<String>,
+    /// Inline soul/system-prompt text (overrides `soul_file` if both set).
+    #[serde(default)]
+    pub soul: Option<String>,
+    /// Path to the agent's tools configuration file.
+    #[serde(default)]
+    pub tools_file: Option<String>,
+    /// LLM model override (uses global default if unset).
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Maximum agentic loop iterations.
+    #[serde(default)]
+    pub max_iterations: Option<usize>,
+    /// Maximum output tokens per LLM call.
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    /// Context window size override.
+    #[serde(default)]
+    pub context_window: Option<u32>,
+    /// Agent IDs this agent may hand off to.
+    #[serde(default)]
+    pub handoff_targets: Vec<String>,
+    /// Tool allow/deny scope for this agent.
+    #[serde(default)]
+    pub tools: Option<ToolScopeDef>,
+}
+
+/// Tool scope definition: allow-list or deny-list.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ToolScopeDef {
+    /// Only the listed tools are available.
+    Allow {
+        /// Names of allowed tools.
+        allow: Vec<String>,
+    },
+    /// All tools except the listed ones are available.
+    Deny {
+        /// Names of denied tools.
+        deny: Vec<String>,
+    },
+}
+
+/// Graph topology definition.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GraphDef {
+    /// Optional graph identifier.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// ID of the entry-point agent.
+    pub entry: String,
+    /// IDs of terminal agents (execution stops here).
+    #[serde(default)]
+    pub terminal: Vec<String>,
+    /// Maximum total iterations across all agents.
+    #[serde(default)]
+    pub max_total_iterations: Option<usize>,
+    /// Maximum total tokens consumed across all agents.
+    #[serde(default)]
+    pub max_total_tokens: Option<u64>,
+    /// Maximum wall-clock execution time in seconds.
+    #[serde(default)]
+    pub max_duration_secs: Option<u64>,
+    /// Directed edges between agents.
+    #[serde(default)]
+    pub edges: Vec<EdgeDef>,
+}
+
+/// An edge definition in the graph.
+#[derive(Debug, Clone, Deserialize)]
+pub struct EdgeDef {
+    /// Source agent ID.
+    pub from: String,
+    /// Destination agent ID.
+    pub to: String,
+    /// Optional condition that must hold for this edge to be taken.
+    #[serde(default)]
+    pub condition: Option<EdgeConditionDef>,
+    /// Edge priority (higher = preferred when multiple edges are eligible).
+    #[serde(default)]
+    pub priority: Option<u32>,
+}
+
+/// Edge condition definition.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum EdgeConditionDef {
+    /// Take this edge when a state key matches a value.
+    #[serde(rename = "state_match")]
+    StateMatch {
+        /// State key to test.
+        key: String,
+        /// Expected value.
+        value: serde_json::Value,
+    },
+    /// Take this edge when the agent output contains a substring.
+    #[serde(rename = "output_contains")]
+    OutputContains {
+        /// Substring to match in the agent output.
+        pattern: String,
+    },
+    /// Always take this edge (unconditional).
+    #[serde(rename = "always")]
+    Always,
 }
 
 /// Tool enable/disable configuration.
@@ -1978,6 +2102,7 @@ impl fmt::Debug for DiscordAdapterConfig {
                 "bot_token_secret",
                 &self.bot_token_secret.as_ref().map(|_| "***"),
             )
+            .field("application_id", &self.application_id)
             .field("workspace", &self.workspace)
             .finish()
     }
@@ -2052,6 +2177,8 @@ mod tests {
             scheduler: SchedulerConfig::default(),
             http: HttpClientConfig::default(),
             experience: ExperienceConfig::default(),
+            agents: Vec::new(),
+            graph: None,
         });
         assert_eq!(cfg.server.port, 8080);
         assert_eq!(cfg.bus.backend, "redis");
@@ -2092,6 +2219,8 @@ mod tests {
             scheduler: SchedulerConfig::default(),
             http: HttpClientConfig::default(),
             experience: ExperienceConfig::default(),
+            agents: Vec::new(),
+            graph: None,
         }
     }
 
