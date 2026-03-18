@@ -26,7 +26,7 @@ orka-experience.workspace = true
 futures-util = "0.3"
 
 [dev-dependencies]
-orka-core = { workspace = true, features = ["test-util"] }
+orka-core.workspace = true
 orka-llm.workspace = true
 orka-skills.workspace = true
 orka-workspace.workspace = true

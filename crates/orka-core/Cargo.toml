@@ -5,9 +5,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[features]
-default = []
-test-util = []
 
 [dependencies]
 async-trait.workspace = true

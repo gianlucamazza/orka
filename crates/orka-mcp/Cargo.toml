@@ -18,6 +18,6 @@ futures-util.workspace = true
 axum.workspace = true
 
 [dev-dependencies]
-orka-core = { workspace = true, features = ["test-util"] }
+orka-core.workspace = true
 orka-skills.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros"] }

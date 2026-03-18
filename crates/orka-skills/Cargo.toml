@@ -17,5 +17,5 @@ tokio.workspace = true
 jsonschema.workspace = true
 
 [dev-dependencies]
-orka-core = { workspace = true, features = ["test-util"] }
+orka-core.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
