@@ -23,8 +23,8 @@ fi
 RUST_VER=$(rustc --version | grep -oP '\d+\.\d+')
 RUST_MAJOR=$(echo "$RUST_VER" | cut -d. -f1)
 RUST_MINOR=$(echo "$RUST_VER" | cut -d. -f2)
-if ((RUST_MAJOR < 1 || (RUST_MAJOR == 1 && RUST_MINOR < 75))); then
-	error "Rust >= 1.75 required (found $RUST_VER). Run: rustup update stable"
+if ((RUST_MAJOR < 1 || (RUST_MAJOR == 1 && RUST_MINOR < 85))); then
+	error "Rust >= 1.85 required (found $RUST_VER). Run: rustup update stable"
 	exit 1
 fi
 info "Rust $RUST_VER ✓"
@@ -57,9 +57,9 @@ else
 fi
 
 # ── Start Redis ──────────────────────────────────────────────────────
-if ! systemctl is-active --quiet redis.service; then
-	info "Starting redis.service..."
-	sudo systemctl enable --now redis.service
+if ! systemctl is-active --quiet valkey.service; then
+	info "Starting valkey.service..."
+	sudo systemctl enable --now valkey.service
 else
 	info "Redis running ✓"
 fi

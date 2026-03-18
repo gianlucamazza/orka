@@ -16,9 +16,8 @@ impl Plugin for HelloPlugin {
     fn execute(&self, input: PluginInput) -> Result<PluginOutput, String> {
         let name = input
             .args
-            .iter()
-            .find(|(k, _)| k == "name")
-            .map(|(_, v)| v.as_str())
+            .get("name")
+            .and_then(|v| v.as_str())
             .unwrap_or("World");
         Ok(PluginOutput {
             data: format!("Hello, {name}!"),

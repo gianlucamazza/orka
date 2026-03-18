@@ -1,4 +1,4 @@
-//! Orka Plugin SDK
+//! Orka Plugin SDK v2
 //!
 //! Plugin authors implement the `Plugin` trait and use the `export_plugin!` macro.
 //!
@@ -6,6 +6,7 @@
 //! ```ignore
 //! use orka_plugin_sdk::{Plugin, PluginInfo, PluginInput, PluginOutput};
 //!
+//! #[derive(Default)]
 //! struct HelloPlugin;
 //!
 //! impl Plugin for HelloPlugin {
@@ -29,6 +30,9 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+/// ABI version exported by v2 plugins.
+pub const ABI_VERSION: i32 = 2;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginInfo {
     pub name: String,
@@ -50,35 +54,69 @@ pub struct PluginOutput {
 pub trait Plugin: Default {
     fn info(&self) -> PluginInfo;
     fn execute(&self, input: PluginInput) -> Result<PluginOutput, String>;
+
+    /// Called once when the plugin is loaded by the host.
+    fn init(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Called by the host before unloading the plugin.
+    fn cleanup(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
-/// Macro to export a plugin. Generates the WASM-compatible FFI functions.
+/// Macro to export a plugin. Generates the WASM-compatible FFI functions (ABI v2).
 #[macro_export]
 macro_rules! export_plugin {
     ($plugin_ty:ty) => {
-        // SAFETY: We encode the return value as a u64 packing (ptr << 32) | len.
-        // This requires that pointers fit in 32 bits (WASM is a 32-bit target).
         #[cfg(target_pointer_width = "32")]
         const _: () = assert!(
             std::mem::size_of::<*const u8>() <= 4,
             "pointer must fit in 32 bits for WASM plugin ABI"
         );
 
+        /// Return ABI version (2).
         #[no_mangle]
-        pub extern "C" fn orka_plugin_info() -> u64 {
+        pub extern "C" fn orka_abi_version() -> i32 {
+            $crate::ABI_VERSION
+        }
+
+        /// Called by the host after loading. Returns 0 on success, 1 on error.
+        #[no_mangle]
+        pub extern "C" fn orka_plugin_init() -> i32 {
+            let plugin = <$plugin_ty>::default();
+            match <$plugin_ty as $crate::Plugin>::init(&plugin) {
+                Ok(()) => 0,
+                Err(_) => 1,
+            }
+        }
+
+        /// Called by the host before unloading. Returns 0 on success, 1 on error.
+        #[no_mangle]
+        pub extern "C" fn orka_plugin_cleanup() -> i32 {
+            let plugin = <$plugin_ty>::default();
+            match <$plugin_ty as $crate::Plugin>::cleanup(&plugin) {
+                Ok(()) => 0,
+                Err(_) => 1,
+            }
+        }
+
+        /// Return plugin metadata as JSON. Encoding: (ptr << 32) | len.
+        #[no_mangle]
+        pub extern "C" fn orka_plugin_info() -> i64 {
             let plugin = <$plugin_ty>::default();
             let info = <$plugin_ty as $crate::Plugin>::info(&plugin);
             let json = serde_json::to_vec(&info).unwrap();
-            let len = json.len() as u64;
-            // SAFETY: json is a valid Vec allocation. We forget it to prevent deallocation
-            // and return the pointer packed with the length for the host to read via WASM memory.
-            let ptr = json.as_ptr() as u64;
+            let len = json.len() as i64;
+            let ptr = json.as_ptr() as i64;
             std::mem::forget(json);
             (ptr << 32) | len
         }
 
+        /// Execute the plugin with JSON input. Encoding: (ptr << 32) | len.
         #[no_mangle]
-        pub extern "C" fn orka_plugin_execute(ptr: u32, len: u32) -> u64 {
+        pub extern "C" fn orka_plugin_execute(ptr: u32, len: u32) -> i64 {
             // SAFETY: The host allocated this memory via `orka_alloc` and wrote `len` bytes
             // starting at `ptr`. The memory is valid for the duration of this call.
             let input_bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
@@ -88,9 +126,8 @@ macro_rules! export_plugin {
                     let err =
                         serde_json::to_vec(&Err::<$crate::PluginOutput, String>(e.to_string()))
                             .unwrap();
-                    let elen = err.len() as u64;
-                    // SAFETY: err is a valid Vec allocation; forgotten to transfer ownership to host.
-                    let eptr = err.as_ptr() as u64;
+                    let elen = err.len() as i64;
+                    let eptr = err.as_ptr() as i64;
                     std::mem::forget(err);
                     return (eptr << 32) | elen;
                 }
@@ -98,18 +135,29 @@ macro_rules! export_plugin {
             let plugin = <$plugin_ty>::default();
             let result = <$plugin_ty as $crate::Plugin>::execute(&plugin, input);
             let json = serde_json::to_vec(&result).unwrap();
-            let rlen = json.len() as u64;
-            // SAFETY: json is a valid Vec allocation; forgotten to transfer ownership to host.
-            let rptr = json.as_ptr() as u64;
+            let rlen = json.len() as i64;
+            let rptr = json.as_ptr() as i64;
             std::mem::forget(json);
             (rptr << 32) | rlen
         }
 
+        /// Allocate `len` bytes of guest memory. Returns the pointer.
         #[no_mangle]
         pub extern "C" fn orka_alloc(len: u32) -> u32 {
             let layout = std::alloc::Layout::from_size_align(len as usize, 1).unwrap();
-            // SAFETY: layout is valid (size > 0 is not guaranteed but alloc handles it).
+            // SAFETY: layout is valid.
             unsafe { std::alloc::alloc(layout) as u32 }
+        }
+
+        /// Free `len` bytes at `ptr` previously allocated by `orka_alloc`.
+        #[no_mangle]
+        pub extern "C" fn orka_dealloc(ptr: u32, len: u32) {
+            if len == 0 {
+                return;
+            }
+            let layout = std::alloc::Layout::from_size_align(len as usize, 1).unwrap();
+            // SAFETY: ptr was allocated by orka_alloc with the same layout.
+            unsafe { std::alloc::dealloc(ptr as *mut u8, layout) }
         }
     };
 }

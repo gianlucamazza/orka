@@ -27,13 +27,13 @@ cargo build --workspace
 ### Running Checks
 
 ```bash
-just ci           # Full check suite: fmt + clippy + test
+just ci           # Full check suite: check + test + clippy + fmt-check
 just test         # Unit tests only
 just clippy       # Lint (warnings are errors)
 just fmt          # Auto-format
 
 cargo test -p orka-core        # Test a single crate
-cargo test -- --include-ignored # Integration tests (requires Redis)
+cargo test -- --ignored        # Integration tests (requires Redis)
 ```
 
 ## Development Workflow
@@ -75,7 +75,7 @@ chore: bump dependencies
 
 ## Architecture
 
-Orka is organized as a Cargo workspace with ~30 crates. Each crate has a single responsibility:
+Orka is organized as a Cargo workspace with ~34 crates. Each crate has a single responsibility:
 
 - **orka-core**: Shared types, traits, and error definitions
 - **orka-bus**: Message bus abstraction (Redis Streams)
@@ -89,6 +89,19 @@ Orka is organized as a Cargo workspace with ~30 crates. Each crate has a single 
 - **orka-web**: Web search and page reading skills
 - **orka-knowledge**: RAG/vector store skills
 - **orka-observe**: Observability (Prometheus metrics, Redis/OTel event sinks)
+- **orka-mcp**: Model Context Protocol server
+- **orka-a2a**: Agent-to-Agent protocol
+- **orka-guardrails**: Input/output validation and content filtering
+- **orka-circuit-breaker**: Circuit breaker pattern for external services
+- **orka-sandbox**: Sandboxed code execution (process + WASM)
+- **orka-secrets**: Secret management (AES-256-GCM)
+- **orka-auth**: JWT and API key authentication
+- **orka-http**: HTTP request skill with SSRF protection
+- **orka-workspace**: Workspace loader and hot-reload watcher
+- **orka-scheduler**: Cron-based task scheduler
+- **orka-experience**: Self-learning loop (trajectory recording, reflection, distillation)
+- **orka-agent**: Agent orchestration and routing
+- **orka-wasm**: WASM runtime utilities
 
 For a deeper dive into each subsystem and how they interact, see [docs/architecture.md](docs/architecture.md).
 

@@ -47,7 +47,7 @@ For a detailed description of each subsystem and their interactions, see [docs/a
 
 - **Multi-channel messaging** — Telegram, Discord, Slack, WhatsApp, custom HTTP/WebSocket
 - **Priority queue** — Redis Sorted Sets with Urgent / Normal / Background lanes
-- **LLM integration** — Anthropic Claude and OpenAI with streaming support
+- **LLM integration** — Anthropic Claude, OpenAI, and Ollama (OpenAI-compatible) with streaming support
 - **Skill system** — Pluggable skills with schema validation and WASM plugin support
 - **MCP server** — Model Context Protocol over JSON-RPC 2.0
 - **A2A protocol** — Agent-to-Agent communication
@@ -76,7 +76,7 @@ For a detailed description of each subsystem and their interactions, see [docs/a
 Copy `.env.example` to `.env` and fill in any required values, then:
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 ### Manual Setup
@@ -121,27 +121,47 @@ curl -X POST http://localhost:8081/api/message \
 
 Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 
-| Section             | Key                | Default                  | Description                           |
-| ------------------- | ------------------ | ------------------------ | ------------------------------------- |
-| `server`            | `host`             | `127.0.0.1`              | Health endpoint bind address          |
-| `server`            | `port`             | `8080`                   | Health endpoint port                  |
-| `redis`             | `url`              | `redis://127.0.0.1:6379` | Redis connection URL                  |
-| `worker`            | `concurrency`      | `4`                      | Number of concurrent workers          |
-| `session`           | `ttl_secs`         | `86400`                  | Session TTL in seconds (24h)          |
-| `queue`             | `max_retries`      | `3`                      | Max retries before dead-letter        |
-| `adapters.custom`   | `host`             | `127.0.0.1`              | Custom adapter bind address           |
-| `adapters.custom`   | `port`             | `8081`                   | Custom adapter port                   |
-| `adapters.telegram` | `bot_token_secret` | —                        | Secret path for bot token             |
-| `adapters.telegram` | `mode`             | `polling`                | `polling` or `webhook`                |
-| `adapters.telegram` | `parse_mode`       | `HTML`                   | Outbound text format                  |
-| `adapters.telegram` | `webhook_url`      | —                        | Public URL for webhook mode           |
-| `adapters.telegram` | `webhook_port`     | `8443`                   | Local port for webhook listener       |
-| `auth`              | `enabled`          | `false`                  | Enable API key authentication         |
-| `sandbox`           | `backend`          | `process`                | Sandbox backend (`process` or `wasm`) |
-| `logging`           | `level`            | `info`                   | Log level                             |
-| `logging`           | `json`             | `false`                  | JSON log format                       |
+| Section                  | Key                       | Default                  | Description                                |
+| ------------------------ | ------------------------- | ------------------------ | ------------------------------------------ |
+| `server`                 | `host`                    | `127.0.0.1`              | Health endpoint bind address               |
+| `server`                 | `port`                    | `8080`                   | Health endpoint port                       |
+| `redis`                  | `url`                     | `redis://127.0.0.1:6379` | Redis connection URL                       |
+| `worker`                 | `concurrency`             | `4`                      | Number of concurrent workers               |
+| `session`                | `ttl_secs`                | `86400`                  | Session TTL in seconds (24h)               |
+| `queue`                  | `max_retries`             | `3`                      | Max retries before dead-letter             |
+| `adapters.custom`        | `host`                    | `127.0.0.1`              | Custom adapter bind address                |
+| `adapters.custom`        | `port`                    | `8081`                   | Custom adapter port                        |
+| `adapters.telegram`      | `bot_token_secret`        | —                        | Secret path for bot token                  |
+| `adapters.telegram`      | `mode`                    | `polling`                | `polling` or `webhook`                     |
+| `adapters.telegram`      | `parse_mode`              | `HTML`                   | Outbound text format                       |
+| `adapters.telegram`      | `webhook_url`             | —                        | Public URL for webhook mode                |
+| `adapters.telegram`      | `webhook_port`            | `8443`                   | Local port for webhook listener            |
+| `auth`                   | `enabled`                 | `false`                  | Enable API key authentication              |
+| `sandbox`                | `backend`                 | `process`                | Sandbox backend (`process` or `wasm`)      |
+| `logging`                | `level`                   | `info`                   | Log level                                  |
+| `logging`                | `json`                    | `false`                  | JSON log format                            |
+| `agent`                  | `id`                      | `orka-default`           | Agent identifier                           |
+| `agent`                  | `max_iterations`          | `15`                     | Max agentic loop iterations per turn       |
+| `agent`                  | `heartbeat_interval_secs` | `30`                     | Streaming heartbeat interval               |
+| `llm`                    | `timeout_secs`            | `120`                    | LLM request timeout                        |
+| `llm`                    | `max_tokens`              | `8192`                   | Default max output tokens                  |
+| `llm.providers`          | `name`                    | —                        | Provider name (array of provider configs)  |
+| `knowledge`              | `enabled`                 | `true`                   | Enable RAG/knowledge base                  |
+| `knowledge.vector_store` | `provider`                | `qdrant`                 | Vector store backend                       |
+| `knowledge.vector_store` | `url`                     | `http://localhost:6334`  | Qdrant endpoint                            |
+| `scheduler`              | `enabled`                 | `true`                   | Enable cron scheduler                      |
+| `scheduler`              | `poll_interval_secs`      | `5`                      | Scheduler polling interval                 |
+| `web`                    | `search_provider`         | `tavily`                 | Web search backend (`tavily` or `searxng`) |
+| `os`                     | `enabled`                 | `true`                   | Enable OS integration skills               |
+| `os`                     | `permission_level`        | `admin`                  | OS skill permission level                  |
+| `http`                   | `enabled`                 | `true`                   | Enable HTTP request skill                  |
+| `plugins`                | `dir`                     | `plugins`                | Directory for WASM plugin files            |
+| `guardrails`             | `blocked_keywords`        | `[]`                     | Keywords that trigger message blocking     |
+| `guardrails`             | `pii_filter`              | `false`                  | Enable PII redaction                       |
+| `mcp.servers`            | `name`                    | —                        | MCP server name (array of server configs)  |
+| `mcp.servers`            | `command`                 | —                        | Command to launch MCP server               |
 
-Environment variables use `ORKA__` prefix with `__` as separator (e.g., `ORKA__REDIS__URL`).
+For a complete reference, see [`orka.toml`](orka.toml). Environment variables use `ORKA__` prefix with `__` as separator (e.g., `ORKA__REDIS__URL`).
 
 ## Workspaces
 
@@ -161,7 +181,7 @@ Workspaces support hot-reloading via filesystem watcher.
 cargo test --workspace
 
 # Run with Redis integration tests
-cargo test --workspace -- --include-ignored
+cargo test --workspace -- --ignored
 
 # Check formatting
 cargo fmt --all -- --check
@@ -200,7 +220,6 @@ orka/
 │   ├── orka-llm/             # LLM providers (Anthropic, OpenAI)
 │   ├── orka-mcp/             # Model Context Protocol server
 │   ├── orka-a2a/             # Agent-to-Agent protocol
-│   ├── orka-router/          # Agent routing & delegation
 │   ├── orka-guardrails/      # Input/output guardrails
 │   ├── orka-circuit-breaker/ # Circuit breaker pattern
 │   ├── orka-web/             # Web content extraction
@@ -209,6 +228,8 @@ orka/
 │   ├── orka-knowledge/       # RAG & vector knowledge base
 │   ├── orka-scheduler/       # Cron-based task scheduler
 │   ├── orka-experience/      # Self-learning experience system
+│   ├── orka-agent/           # Agent orchestration and routing
+│   ├── orka-wasm/            # WASM runtime utilities
 │   ├── orka-cli/             # CLI tool
 │   └── orka-adapter-*/       # Channel adapters
 ├── sdk/

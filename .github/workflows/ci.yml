@@ -35,9 +35,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       qdrant:
-        image: qdrant/qdrant:latest
+        image: qdrant/qdrant:v1.14.0
         ports:
           - 6333:6333
+          - 6334:6334
         options: >-
           --health-cmd "curl -f http://localhost:6333/healthz || exit 1"
           --health-interval 10s
@@ -55,10 +56,9 @@ jobs:
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
           echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
       - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Clippy

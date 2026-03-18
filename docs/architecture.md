@@ -52,7 +52,7 @@ User / External System
 │  4. Apply guardrails (orka-guardrails)                      │
 │  5. Agentic loop:                                           │
 │       a. LLM call (orka-llm → Anthropic / OpenAI / Ollama) │
-│       b. Stream chunks to client (orka-stream)              │
+│       b. Stream chunks to client (orka-agent)               │
 │       c. Execute tool calls (orka-skills)                   │
 │       d. Repeat until stop reason = end_turn                │
 │  6. Post-task reflection → trajectory recording             │
@@ -146,6 +146,32 @@ exit codes are emitted as `PrivilegedCommandExecuted` domain events.
 `SecretManager` implementations: environment variable backend (default),
 HashiCorp Vault backend, and an in-memory backend for tests. Secrets are
 wrapped in `SecretValue` which is `!Clone` and zeroizes on drop.
+
+### MCP Server (orka-mcp)
+
+Implements the [Model Context Protocol](https://modelcontextprotocol.io/) over JSON-RPC 2.0 via stdio. The MCP server exposes Orka's skill registry as MCP tools, allowing any MCP-compatible client (Claude Desktop, Cursor, etc.) to invoke Orka skills directly without going through the message bus.
+
+### A2A Protocol (orka-a2a)
+
+Agent-to-Agent communication protocol. Agents can delegate sub-tasks to other Orka agents (local or remote) by publishing structured `A2ARequest` envelopes to the bus. Responses are correlated back to the originating session. This enables multi-agent workflows where specialized agents collaborate to complete complex tasks.
+
+### CLI (orka-cli)
+
+Command-line interface for workspace management, config validation, and administration:
+
+```
+orka-cli config check          # Validate orka.toml
+orka-cli config migrate        # Migrate config to current schema version
+orka-cli sudo check            # Generate sudoers template for configured commands
+```
+
+The CLI is a thin shell around `orka-core` and `orka-workspace` — it shares configuration and type definitions with the server.
+
+### LLM Router (orka-llm)
+
+Multi-provider LLM client with prefix-based routing. Each configured provider declares a list of model name prefixes (e.g., `["claude"]` for Anthropic, `["gpt", "o1"]` for OpenAI). When a workspace specifies a model name, the router selects the matching provider. Falls back to the first provider if no prefix matches.
+
+Supports streaming responses (Server-Sent Events forwarded to the adapter), per-provider cost tracking, and configurable retry/timeout policies.
 
 ## Skill execution
 

@@ -37,7 +37,7 @@ services:
     environment:
       ORKA_HOST_HOSTNAME: ${HOSTNAME}
       # Enable debug-level logging for all first-party crates in development.
-      RUST_LOG: info,orka_server=debug,orka_core=debug,orka_worker=debug,orka_llm=debug,orka_adapter_custom=debug,orka_adapter_telegram=debug,orka_bus=debug,orka_memory=debug,orka_observe=debug,orka_auth=debug,orka_skills=debug,orka_web=debug,orka_mcp=debug,orka_router=debug,orka_session=debug,orka_workspace=debug
+      RUST_LOG: info,orka_server=debug,orka_core=debug,orka_worker=debug,orka_llm=debug,orka_adapter_custom=debug,orka_adapter_telegram=debug,orka_bus=debug,orka_memory=debug,orka_observe=debug,orka_auth=debug,orka_skills=debug,orka_web=debug,orka_mcp=debug,orka_session=debug,orka_workspace=debug
       RUST_BACKTRACE: 1
     # Allow writes for the cargo target cache volume.
     read_only: false

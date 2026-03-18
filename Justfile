@@ -13,7 +13,7 @@ test:
 
 # Run clippy lints
 clippy:
-    cargo clippy --workspace -- -D warnings
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # Check formatting
 fmt-check:
@@ -25,11 +25,11 @@ fmt:
 
 # Start infra (Redis)
 infra:
-    docker-compose up -d
+    docker compose up -d
 
 # Stop infra
 infra-down:
-    docker-compose down
+    docker compose down
 
 # Run server with infra
 up: infra run
@@ -163,6 +163,10 @@ setup-sudoers:
     @echo ""
     @echo "Sudoers template: deploy/orka.sudoers"
     @echo "To install: sudo install -m 0440 deploy/orka.sudoers /etc/sudoers.d/orka"
+
+# Open workspace documentation in browser
+docs:
+    cargo doc --workspace --no-deps --open
 
 # Regenerate CHANGELOG.md from git history
 changelog:
