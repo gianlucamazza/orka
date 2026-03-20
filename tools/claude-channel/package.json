@@ -1,0 +1,23 @@
+{
+  "name": "orka-claude-channel",
+  "version": "0.1.0",
+  "description": "Claude Code MCP channel plugin for Orka — bridges chat platform messages into Claude Code sessions",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "orka-claude-channel": "src/index.ts"
+  },
+  "scripts": {
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.14",
+    "typescript": "^5.8.0"
+  },
+  "license": "MIT OR Apache-2.0"
+}

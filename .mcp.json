@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "orka": {
+      "command": "bun",
+      "args": ["tools/claude-channel/src/index.ts"],
+      "env": {
+        "ORKA_URL": "http://localhost:8081",
+        "ORKA_API_URL": "http://localhost:8080"
+      }
+    }
+  }
+}
