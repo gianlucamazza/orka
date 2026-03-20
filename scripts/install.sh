@@ -309,7 +309,7 @@ uninstall() {
 }
 
 # ── Install ───────────────────────────────────────────────────────────
-install() {
+do_install() {
 	local WAS_RUNNING=false
 	local SERVER_BIN="$REPO_ROOT/target/${PROFILE}/orka-server"
 	local CLI_BIN="$REPO_ROOT/target/${PROFILE}/orka"
@@ -321,7 +321,7 @@ install() {
 	local FISH_COMP_DIR="/usr/share/fish/vendor_completions.d"
 	local version git_rev
 
-	trap 'rm -f "$SUDOERS_TMP"' EXIT
+	trap 'rm -f "$SUDOERS_TMP"' RETURN
 
 	# ── Check pre-built binaries ──────────────────────────────────────
 	if [[ ! -f "$SERVER_BIN" || ! -f "$CLI_BIN" ]]; then
@@ -606,5 +606,5 @@ install() {
 # ── Dispatch ─────────────────────────────────────────────────────────
 case "$ACTION" in
 uninstall) uninstall ;;
-*) install ;;
+*) do_install ;;
 esac
