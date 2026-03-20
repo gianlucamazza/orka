@@ -82,6 +82,10 @@ setup:
 install: build-release
     sudo ./scripts/install.sh
 
+# Build debug binaries, then install as systemd service (requires sudo)
+install-debug:
+    cargo build && sudo ./scripts/install.sh --profile debug
+
 # Uninstall orka-server and orka CLI (requires sudo)
 uninstall:
     sudo ./scripts/install.sh --uninstall --yes
