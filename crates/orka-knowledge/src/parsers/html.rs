@@ -31,3 +31,27 @@ impl DocumentParser for HtmlParser {
         Ok(text)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn html_strips_nested_tags() {
+        let result = HtmlParser.parse(b"<div><p>hello</p></div>").unwrap();
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn html_collapses_whitespace() {
+        let input = b"<div>  foo  </div>\n\n\n<p>  bar  </p>";
+        let result = HtmlParser.parse(input).unwrap();
+        assert_eq!(result, "foo\nbar");
+    }
+
+    #[test]
+    fn html_empty_input() {
+        let result = HtmlParser.parse(b"").unwrap();
+        assert_eq!(result, "");
+    }
+}

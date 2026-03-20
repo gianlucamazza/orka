@@ -325,3 +325,71 @@ fn value_to_string(value: &redis::Value) -> Option<String> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stream_key_format() {
+        assert_eq!(RedisBus::stream_key("events"), "orka:bus:events");
+    }
+
+    #[test]
+    fn stream_key_empty_topic() {
+        assert_eq!(RedisBus::stream_key(""), "orka:bus:");
+    }
+
+    #[test]
+    fn value_to_string_bulk_string() {
+        let v = redis::Value::BulkString(b"hello".to_vec());
+        assert_eq!(value_to_string(&v), Some("hello".into()));
+    }
+
+    #[test]
+    fn value_to_string_simple_string() {
+        let v = redis::Value::SimpleString("ok".into());
+        assert_eq!(value_to_string(&v), Some("ok".into()));
+    }
+
+    #[test]
+    fn value_to_string_non_string_returns_none() {
+        let v = redis::Value::Int(42);
+        assert_eq!(value_to_string(&v), None);
+    }
+
+    /// Build a minimal XREADGROUP response with one stream, one entry.
+    fn xread_response(entry_id: &str, field: &str, value: &str) -> redis::Value {
+        redis::Value::Array(vec![redis::Value::Array(vec![
+            redis::Value::BulkString(b"orka:bus:test".to_vec()),
+            redis::Value::Array(vec![redis::Value::Array(vec![
+                redis::Value::BulkString(entry_id.as_bytes().to_vec()),
+                redis::Value::Array(vec![
+                    redis::Value::BulkString(field.as_bytes().to_vec()),
+                    redis::Value::BulkString(value.as_bytes().to_vec()),
+                ]),
+            ])]),
+        ])])
+    }
+
+    #[test]
+    fn parse_xreadgroup_valid_single_entry() {
+        let resp = xread_response("1-0", "envelope", r#"{"id":"msg1"}"#);
+        let result = parse_xreadgroup_response(&resp).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "1-0");
+        assert_eq!(result[0].1, r#"{"id":"msg1"}"#);
+    }
+
+    #[test]
+    fn parse_xreadgroup_empty_array_returns_none() {
+        let resp = redis::Value::Array(vec![]);
+        assert!(parse_xreadgroup_response(&resp).is_none());
+    }
+
+    #[test]
+    fn parse_xreadgroup_missing_envelope_field() {
+        let resp = xread_response("1-0", "other_field", "data");
+        assert!(parse_xreadgroup_response(&resp).is_none());
+    }
+}

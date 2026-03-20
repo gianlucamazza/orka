@@ -65,3 +65,55 @@ impl From<LlmError> for orka_core::Error {
         orka_core::Error::llm_msg(msg)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_error_display() {
+        let e = LlmError::Auth("bad key".into());
+        assert_eq!(e.to_string(), "authentication error: bad key");
+    }
+
+    #[test]
+    fn rate_limit_error_display() {
+        let e = LlmError::RateLimit("quota".into());
+        assert_eq!(e.to_string(), "rate limit exceeded: quota");
+    }
+
+    #[test]
+    fn context_window_error_display() {
+        let e = LlmError::ContextWindow("too long".into());
+        assert_eq!(e.to_string(), "context window exceeded: too long");
+    }
+
+    #[test]
+    fn provider_error_display() {
+        let e = LlmError::Provider {
+            status: 500,
+            message: "internal".into(),
+        };
+        assert_eq!(e.to_string(), "provider error 500: internal");
+    }
+
+    #[test]
+    fn parse_and_stream_error_display() {
+        assert!(
+            LlmError::Parse("bad json".into())
+                .to_string()
+                .contains("parse error")
+        );
+        assert!(
+            LlmError::Stream("cut off".into())
+                .to_string()
+                .contains("stream error")
+        );
+    }
+
+    #[test]
+    fn llm_error_converts_to_core_error() {
+        let e: orka_core::Error = LlmError::Auth("x".into()).into();
+        assert!(e.to_string().contains("llm error"));
+    }
+}

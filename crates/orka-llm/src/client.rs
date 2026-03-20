@@ -563,4 +563,93 @@ mod tests {
         assert!(matches!(&blocks[1], ContentBlockInput::Thinking { .. }));
         assert!(matches!(&blocks[2], ContentBlockInput::ToolUse { .. }));
     }
+
+    #[test]
+    fn role_display_variants() {
+        assert_eq!(Role::System.to_string(), "system");
+        assert_eq!(Role::User.to_string(), "user");
+        assert_eq!(Role::Assistant.to_string(), "assistant");
+        assert_eq!(Role::Tool.to_string(), "tool");
+    }
+
+    #[test]
+    fn chat_message_user_constructor() {
+        let msg = ChatMessage::user("hi");
+        assert_eq!(msg.role, Role::User);
+        assert!(matches!(msg.content, ChatContent::Text(s) if s == "hi"));
+    }
+
+    #[test]
+    fn chat_message_assistant_constructor() {
+        let msg = ChatMessage::assistant("reply");
+        assert_eq!(msg.role, Role::Assistant);
+        assert!(matches!(msg.content, ChatContent::Text(s) if s == "reply"));
+    }
+
+    #[test]
+    fn chat_message_system_constructor() {
+        let msg = ChatMessage::system("instructions");
+        assert_eq!(msg.role, Role::System);
+        assert!(matches!(msg.content, ChatContent::Text(s) if s == "instructions"));
+    }
+
+    #[test]
+    fn tool_definition_new() {
+        let td = ToolDefinition::new(
+            "search",
+            "web search",
+            serde_json::json!({"type": "object"}),
+        );
+        assert_eq!(td.name, "search");
+        assert_eq!(td.description, "web search");
+        assert_eq!(td.input_schema["type"], "object");
+    }
+
+    #[test]
+    fn tool_call_new() {
+        let tc = ToolCall::new("id-1", "search", serde_json::json!({"q": "rust"}));
+        assert_eq!(tc.id, "id-1");
+        assert_eq!(tc.name, "search");
+        assert_eq!(tc.input["q"], "rust");
+    }
+
+    #[test]
+    fn tool_result_new() {
+        let tr = ToolResult::new("id-1", "found it", true);
+        assert_eq!(tr.tool_use_id, "id-1");
+        assert_eq!(tr.content, "found it");
+        assert!(tr.is_error);
+    }
+
+    #[test]
+    fn reasoning_effort_as_str() {
+        assert_eq!(ReasoningEffort::Low.as_str(), "low");
+        assert_eq!(ReasoningEffort::Medium.as_str(), "medium");
+        assert_eq!(ReasoningEffort::High.as_str(), "high");
+    }
+
+    #[test]
+    fn usage_new_sets_fields() {
+        let u = Usage::new(100, 50);
+        assert_eq!(u.input_tokens, 100);
+        assert_eq!(u.output_tokens, 50);
+        assert_eq!(u.cache_read_input_tokens, 0);
+        assert_eq!(u.cache_creation_input_tokens, 0);
+        assert_eq!(u.reasoning_tokens, 0);
+    }
+
+    #[test]
+    fn stop_reason_serde_roundtrip() {
+        for (reason, expected_json) in [
+            (StopReason::EndTurn, "\"end_turn\""),
+            (StopReason::MaxTokens, "\"max_tokens\""),
+            (StopReason::ToolUse, "\"tool_use\""),
+            (StopReason::StopSequence, "\"stop_sequence\""),
+        ] {
+            let json = serde_json::to_string(&reason).unwrap();
+            assert_eq!(json, expected_json);
+            let back: StopReason = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, reason);
+        }
+    }
 }

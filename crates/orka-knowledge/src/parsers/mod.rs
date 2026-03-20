@@ -28,3 +28,57 @@ pub fn detect_format(path: &str) -> Box<dyn DocumentParser> {
         Box::new(plaintext::PlaintextParser)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_format_html() {
+        let parser = detect_format("page.html");
+        let result = parser.parse(b"<b>hi</b>").unwrap();
+        assert_eq!(result, "hi");
+    }
+
+    #[test]
+    fn detect_format_htm() {
+        let parser = detect_format("page.htm");
+        let result = parser.parse(b"<p>hello</p>").unwrap();
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn detect_format_md() {
+        let parser = detect_format("readme.md");
+        let result = parser.parse(b"# title").unwrap();
+        assert_eq!(result, "# title");
+    }
+
+    #[test]
+    fn detect_format_markdown_ext() {
+        let parser = detect_format("doc.markdown");
+        let result = parser.parse(b"text").unwrap();
+        assert_eq!(result, "text");
+    }
+
+    #[test]
+    fn detect_format_txt() {
+        let parser = detect_format("notes.txt");
+        let result = parser.parse(b"plain").unwrap();
+        assert_eq!(result, "plain");
+    }
+
+    #[test]
+    fn detect_format_unknown_falls_to_plaintext() {
+        let parser = detect_format("file.docx");
+        let result = parser.parse(b"data").unwrap();
+        assert_eq!(result, "data");
+    }
+
+    #[test]
+    fn detect_format_case_insensitive() {
+        let parser = detect_format("PAGE.HTML");
+        let result = parser.parse(b"<i>ok</i>").unwrap();
+        assert_eq!(result, "ok");
+    }
+}

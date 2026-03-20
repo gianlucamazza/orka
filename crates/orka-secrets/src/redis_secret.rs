@@ -275,4 +275,23 @@ mod tests {
     fn key_prefix_format() {
         assert_eq!(RedisSecretManager::key("my/path"), "orka:secret:my/path");
     }
+
+    #[test]
+    fn encrypt_decrypt_empty_data() {
+        let key = [0xCCu8; 32];
+        let mgr = manager_with_key(&key);
+        let encrypted = mgr.encrypt(b"").unwrap();
+        let decrypted = mgr.decrypt(&encrypted).unwrap();
+        assert!(decrypted.is_empty());
+    }
+
+    #[test]
+    fn key_with_special_characters() {
+        assert_eq!(
+            RedisSecretManager::key("with spaces"),
+            "orka:secret:with spaces"
+        );
+        assert_eq!(RedisSecretManager::key("a/b/c"), "orka:secret:a/b/c");
+        assert_eq!(RedisSecretManager::key("ünïcödé"), "orka:secret:ünïcödé");
+    }
 }

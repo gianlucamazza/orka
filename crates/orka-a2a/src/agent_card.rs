@@ -39,3 +39,42 @@ pub fn build_agent_card(
         authentication: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use orka_core::testing::EchoSkill;
+
+    #[test]
+    fn build_agent_card_empty_registry() {
+        let skills = SkillRegistry::new();
+        let card = build_agent_card("bot", "A bot", "http://localhost", &skills);
+        assert_eq!(card.name, "bot");
+        assert_eq!(card.url, "http://localhost/a2a");
+        assert!(card.skills.is_empty());
+    }
+
+    #[test]
+    fn build_agent_card_with_skill() {
+        let mut skills = SkillRegistry::new();
+        skills.register(Arc::new(EchoSkill));
+        let card = build_agent_card("bot", "A bot", "http://localhost", &skills);
+        assert_eq!(card.skills.len(), 1);
+        assert_eq!(card.skills[0].id, "echo");
+        assert!(!card.skills[0].description.is_empty());
+    }
+
+    #[test]
+    fn build_agent_card_capabilities() {
+        let skills = SkillRegistry::new();
+        let card = build_agent_card("bot", "desc", "http://x", &skills);
+        assert!(card.capabilities.streaming);
+        assert!(!card.capabilities.push_notifications);
+        assert!(card.capabilities.state_transition_history);
+        assert_eq!(card.default_input_modes, vec!["text/plain"]);
+        assert_eq!(card.default_output_modes, vec!["text/plain"]);
+        assert!(card.authentication.is_none());
+    }
+}
