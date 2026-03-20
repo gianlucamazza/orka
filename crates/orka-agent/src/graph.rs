@@ -215,6 +215,29 @@ mod tests {
     }
 
     #[test]
+    fn with_termination_overrides_defaults() {
+        let graph = make_graph().with_termination(TerminationPolicy {
+            max_total_iterations: 10,
+            max_total_tokens: Some(5000),
+            ..Default::default()
+        });
+        assert_eq!(graph.termination.max_total_iterations, 10);
+        assert_eq!(graph.termination.max_total_tokens, Some(5000));
+    }
+
+    #[test]
+    fn nodes_iter_returns_all() {
+        let mut graph = make_graph();
+        for name in ["entry", "mid", "end"] {
+            graph.add_node(GraphNode {
+                agent: Agent::new(name, name),
+                kind: NodeKind::Agent,
+            });
+        }
+        assert_eq!(graph.nodes_iter().count(), 3);
+    }
+
+    #[test]
     fn termination_policy_defaults() {
         let graph = make_graph();
         assert_eq!(graph.termination.max_total_iterations, 50);

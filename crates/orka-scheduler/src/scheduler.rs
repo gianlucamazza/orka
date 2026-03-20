@@ -1,4 +1,4 @@
-use crate::store::RedisScheduleStore;
+use crate::store::ScheduleStore;
 use chrono::Utc;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use tracing::{debug, error, info, warn};
 
 /// Async poll loop that checks for due tasks and executes them.
 pub struct Scheduler {
-    store: Arc<RedisScheduleStore>,
+    store: Arc<dyn ScheduleStore>,
     skills: Arc<dyn SkillRegistry>,
     poll_interval_secs: u64,
     max_concurrent: usize,
@@ -30,7 +30,7 @@ impl Scheduler {
     /// `poll_interval_secs` controls how often due tasks are checked.
     /// `max_concurrent` limits how many tasks run simultaneously.
     pub fn new(
-        store: Arc<RedisScheduleStore>,
+        store: Arc<dyn ScheduleStore>,
         skills: Arc<dyn SkillRegistry>,
         poll_interval_secs: u64,
         max_concurrent: usize,
@@ -169,5 +169,122 @@ mod tests {
         use cron::Schedule as CronSchedule;
         let result = CronSchedule::from_str("not a cron");
         assert!(result.is_err());
+    }
+
+    use crate::memory_store::InMemoryScheduleStore;
+    use crate::types::Schedule;
+
+    fn make_schedule(id: &str, name: &str, skill: &str, next_run: i64) -> Schedule {
+        Schedule {
+            id: id.to_string(),
+            name: name.to_string(),
+            cron: None,
+            run_at: None,
+            timezone: None,
+            skill: Some(skill.to_string()),
+            args: None,
+            message: None,
+            next_run,
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+            completed: false,
+        }
+    }
+
+    /// Mock skill registry that records invocations.
+    struct MockSkillRegistry {
+        invocations: Arc<tokio::sync::Mutex<Vec<(String, orka_core::SkillInput)>>>,
+    }
+
+    impl MockSkillRegistry {
+        fn new() -> Self {
+            Self {
+                invocations: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            }
+        }
+
+        async fn invocation_count(&self) -> usize {
+            self.invocations.lock().await.len()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SkillRegistry for MockSkillRegistry {
+        async fn invoke(
+            &self,
+            name: &str,
+            input: orka_core::SkillInput,
+        ) -> orka_core::Result<orka_core::SkillOutput> {
+            self.invocations
+                .lock()
+                .await
+                .push((name.to_string(), input));
+            Ok(orka_core::SkillOutput::new(serde_json::json!({"ok": true})))
+        }
+    }
+
+    #[tokio::test]
+    async fn poll_and_execute_fires_due_task() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skills = Arc::new(MockSkillRegistry::new());
+
+        // Add a task that is already due
+        let s = make_schedule("s1", "test-task", "echo", 0);
+        store.add(&s).await.unwrap();
+
+        let scheduler = Scheduler::new(store.clone(), skills.clone(), 1, 4);
+        scheduler.poll_and_execute().await.unwrap();
+
+        // Wait for spawned task
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(skills.invocation_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn no_tasks_due_is_noop() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skills = Arc::new(MockSkillRegistry::new());
+
+        // Add a task in the far future
+        let s = make_schedule("s1", "future", "echo", i64::MAX);
+        store.add(&s).await.unwrap();
+
+        let scheduler = Scheduler::new(store, skills.clone(), 1, 4);
+        scheduler.poll_and_execute().await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(skills.invocation_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn one_shot_removed_after_execution() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skills = Arc::new(MockSkillRegistry::new());
+
+        let s = make_schedule("s1", "one-shot", "echo", 0);
+        store.add(&s).await.unwrap();
+
+        let scheduler = Scheduler::new(store.clone(), skills, 1, 4);
+        scheduler.poll_and_execute().await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(store.list(true).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn recurring_schedule_updates_next_run() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skills = Arc::new(MockSkillRegistry::new());
+
+        let mut s = make_schedule("s1", "recurring", "echo", 0);
+        s.cron = Some("0 * * * * *".to_string()); // every minute
+        store.add(&s).await.unwrap();
+
+        let scheduler = Scheduler::new(store.clone(), skills, 1, 4);
+        scheduler.poll_and_execute().await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let schedules = store.list(true).await.unwrap();
+        assert_eq!(schedules.len(), 1);
+        assert!(schedules[0].next_run > 0); // Updated to future
     }
 }

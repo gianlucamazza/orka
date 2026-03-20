@@ -125,3 +125,117 @@ pub struct Artifact {
     /// Content parts of the artifact.
     pub parts: Vec<MessagePart>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_agent_card() -> AgentCard {
+        AgentCard {
+            name: "test-agent".into(),
+            description: "A test agent".into(),
+            url: "http://localhost:8080".into(),
+            version: "1.0.0".into(),
+            capabilities: AgentCapabilities {
+                streaming: true,
+                push_notifications: false,
+                state_transition_history: true,
+            },
+            skills: vec![AgentSkill {
+                id: "echo".into(),
+                name: "Echo".into(),
+                description: "Echoes input".into(),
+                input_schema: Some(serde_json::json!({"type": "object"})),
+            }],
+            default_input_modes: vec!["text/plain".into()],
+            default_output_modes: vec!["text/plain".into()],
+            authentication: Some(AuthConfig {
+                auth_type: "bearer".into(),
+            }),
+        }
+    }
+
+    fn sample_task() -> Task {
+        Task {
+            id: "task-001".into(),
+            status: TaskStatus::Completed,
+            messages: vec![
+                A2aMessage {
+                    role: "user".into(),
+                    parts: vec![MessagePart::Text {
+                        text: "Hello".into(),
+                    }],
+                },
+                A2aMessage {
+                    role: "agent".into(),
+                    parts: vec![MessagePart::Text {
+                        text: "Hi there!".into(),
+                    }],
+                },
+            ],
+            artifacts: vec![Artifact {
+                name: "response".into(),
+                parts: vec![MessagePart::Text {
+                    text: "Hi there!".into(),
+                }],
+            }],
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn agent_card_json_snapshot() {
+        let card = sample_agent_card();
+        insta::assert_json_snapshot!("agent_card", card);
+    }
+
+    #[test]
+    fn task_json_snapshot() {
+        let task = sample_task();
+        insta::assert_json_snapshot!("task", task);
+    }
+
+    #[test]
+    fn agent_card_roundtrip() {
+        let card = sample_agent_card();
+        let json = serde_json::to_string(&card).unwrap();
+        let parsed: AgentCard = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, card.name);
+        assert_eq!(parsed.skills.len(), card.skills.len());
+    }
+
+    #[test]
+    fn task_status_serialization() {
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Submitted).unwrap(),
+            "\"submitted\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Working).unwrap(),
+            "\"working\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Completed).unwrap(),
+            "\"completed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Failed).unwrap(),
+            "\"failed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskStatus::Canceled).unwrap(),
+            "\"canceled\""
+        );
+    }
+
+    #[test]
+    fn message_part_tagged_serialization() {
+        let part = MessagePart::Text {
+            text: "hello".into(),
+        };
+        let json = serde_json::to_value(&part).unwrap();
+        assert_eq!(json["type"], "text");
+        assert_eq!(json["text"], "hello");
+    }
+}

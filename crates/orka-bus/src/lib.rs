@@ -29,3 +29,29 @@ pub fn create_bus(
         ))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with_backend(backend: &str) -> orka_core::config::OrkaConfig {
+        serde_json::from_value(serde_json::json!({
+            "bus": { "backend": backend }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn memory_backend_succeeds() {
+        let config = config_with_backend("memory");
+        let bus = create_bus(&config);
+        assert!(bus.is_ok());
+    }
+
+    #[test]
+    fn unsupported_backend_errors() {
+        let config = config_with_backend("nats");
+        let bus = create_bus(&config);
+        assert!(bus.is_err());
+    }
+}

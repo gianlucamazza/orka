@@ -30,3 +30,53 @@ impl WasmEngine {
 pub struct WasmModule {
     pub(crate) module: Module,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_creates_successfully() {
+        let engine = WasmEngine::new();
+        assert!(engine.is_ok());
+    }
+
+    #[test]
+    fn compile_minimal_wat() {
+        let engine = WasmEngine::new().unwrap();
+        let wat = b"(module)";
+        let module = engine.compile(wat);
+        assert!(module.is_ok());
+    }
+
+    #[test]
+    fn compile_invalid_bytes_fails() {
+        let engine = WasmEngine::new().unwrap();
+        let result = engine.compile(b"not wasm at all");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn compile_wat_with_export() {
+        let engine = WasmEngine::new().unwrap();
+        let wat = br#"
+            (module
+                (func (export "add") (param i32 i32) (result i32)
+                    local.get 0
+                    local.get 1
+                    i32.add
+                )
+            )
+        "#;
+        assert!(engine.compile(wat).is_ok());
+    }
+
+    #[test]
+    fn engine_clone_is_cheap() {
+        let engine = WasmEngine::new().unwrap();
+        let cloned = engine.clone();
+        // Both should compile successfully — they share the inner Arc
+        assert!(engine.compile(b"(module)").is_ok());
+        assert!(cloned.compile(b"(module)").is_ok());
+    }
+}

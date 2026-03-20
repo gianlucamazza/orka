@@ -864,3 +864,150 @@ pub fn backoff_delay(attempt: u32, base_secs: u64, max_secs: u64) -> std::time::
     let secs = base_secs.saturating_mul(1u64.checked_shl(attempt).unwrap_or(u64::MAX));
     std::time::Duration::from_secs(secs.min(max_secs))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    // --- SkillInput accessors ---
+
+    fn make_input(args: serde_json::Value) -> SkillInput {
+        let map: HashMap<String, serde_json::Value> =
+            serde_json::from_value(args).unwrap_or_default();
+        SkillInput::new(map)
+    }
+
+    #[test]
+    fn skill_input_get_string_present() {
+        let input = make_input(json!({"name": "alice"}));
+        assert_eq!(input.get_string("name").unwrap(), "alice");
+    }
+
+    #[test]
+    fn skill_input_get_string_missing() {
+        let input = make_input(json!({}));
+        assert!(input.get_string("name").is_err());
+    }
+
+    #[test]
+    fn skill_input_get_string_wrong_type() {
+        let input = make_input(json!({"name": 42}));
+        assert!(input.get_string("name").is_err());
+    }
+
+    #[test]
+    fn skill_input_get_optional_string_present() {
+        let input = make_input(json!({"x": "hello"}));
+        assert_eq!(input.get_optional_string("x"), Some("hello"));
+    }
+
+    #[test]
+    fn skill_input_get_optional_string_missing() {
+        let input = make_input(json!({}));
+        assert_eq!(input.get_optional_string("x"), None);
+    }
+
+    #[test]
+    fn skill_input_get_i64_and_get_bool() {
+        let input = make_input(json!({"count": 7, "flag": true}));
+        assert_eq!(input.get_i64("count").unwrap(), 7);
+        assert!(input.get_bool("flag").unwrap());
+        assert!(input.get_i64("missing").is_err());
+        assert!(input.get_bool("missing").is_err());
+    }
+
+    // --- OutboundMessage metadata ---
+
+    #[test]
+    fn require_meta_str_present() {
+        let mut msg = OutboundMessage::text("ch", SessionId::new(), "hi", None);
+        msg.metadata.insert("chat_id".into(), json!("123"));
+        assert_eq!(msg.require_meta_str("chat_id").unwrap(), "123");
+    }
+
+    #[test]
+    fn require_meta_str_missing() {
+        let msg = OutboundMessage::text("ch", SessionId::new(), "hi", None);
+        assert!(msg.require_meta_str("nope").is_err());
+    }
+
+    #[test]
+    fn require_meta_i64_present_and_missing() {
+        let mut msg = OutboundMessage::text("ch", SessionId::new(), "hi", None);
+        msg.metadata.insert("num".into(), json!(42));
+        assert_eq!(msg.require_meta_i64("num").unwrap(), 42);
+        assert!(msg.require_meta_i64("nope").is_err());
+    }
+
+    // --- Envelope and MemoryEntry builders ---
+
+    #[test]
+    fn envelope_text_creates_text_payload() {
+        let sid = SessionId::new();
+        let env = Envelope::text("telegram", sid, "hello world");
+        assert_eq!(env.channel, "telegram");
+        assert_eq!(env.session_id, sid);
+        assert!(matches!(env.payload, Payload::Text(ref s) if s == "hello world"));
+        assert_eq!(env.priority, Priority::Normal);
+    }
+
+    #[test]
+    fn envelope_insert_meta() {
+        let mut env = Envelope::text("ch", SessionId::new(), "x");
+        env.insert_meta("key1", json!("val1"));
+        env.insert_meta("key2", json!(42));
+        assert_eq!(env.metadata.get("key1").unwrap(), &json!("val1"));
+        assert_eq!(env.metadata.get("key2").unwrap(), &json!(42));
+    }
+
+    #[test]
+    fn memory_entry_with_tags() {
+        let entry = MemoryEntry::new("user:prefs", json!({"theme": "dark"}))
+            .with_tags(vec!["user".into(), "settings".into()]);
+        assert_eq!(entry.key, "user:prefs");
+        assert_eq!(entry.tags, vec!["user", "settings"]);
+        assert_eq!(entry.value, json!({"theme": "dark"}));
+    }
+
+    // --- SecretValue ---
+
+    #[test]
+    fn secret_value_expose_bytes() {
+        let sv = SecretValue::new(b"key123".to_vec());
+        assert_eq!(sv.expose(), b"key123");
+    }
+
+    #[test]
+    fn secret_value_expose_str_valid_utf8() {
+        let sv = SecretValue::new(b"hello".to_vec());
+        assert_eq!(sv.expose_str(), Some("hello"));
+    }
+
+    #[test]
+    fn secret_value_expose_str_invalid_utf8() {
+        let sv = SecretValue::new(vec![0xFF, 0xFE]);
+        assert_eq!(sv.expose_str(), None);
+    }
+
+    // --- backoff_delay ---
+
+    #[test]
+    fn backoff_delay_first_attempt() {
+        assert_eq!(backoff_delay(0, 2, 60), Duration::from_secs(2));
+    }
+
+    #[test]
+    fn backoff_delay_exponential() {
+        // 1 * 2^3 = 8
+        assert_eq!(backoff_delay(3, 1, 60), Duration::from_secs(8));
+    }
+
+    #[test]
+    fn backoff_delay_capped_at_max() {
+        // 1 * 2^10 = 1024, capped at 30
+        assert_eq!(backoff_delay(10, 1, 30), Duration::from_secs(30));
+    }
+}

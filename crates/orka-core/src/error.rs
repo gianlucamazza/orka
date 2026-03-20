@@ -374,3 +374,50 @@ impl Error {
 
 /// Convenience alias used throughout the Orka crate ecosystem.
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_category_skill_categorized() {
+        let e = Error::SkillCategorized {
+            message: "timeout".into(),
+            category: ErrorCategory::Timeout,
+        };
+        assert_eq!(e.category(), ErrorCategory::Timeout);
+    }
+
+    #[test]
+    fn error_category_auth() {
+        let e = Error::Auth("token expired".into());
+        assert_eq!(e.category(), ErrorCategory::Environmental);
+    }
+
+    #[test]
+    fn error_category_other() {
+        let e = Error::Other("unknown".into());
+        assert_eq!(e.category(), ErrorCategory::Unknown);
+    }
+
+    #[test]
+    fn error_bus_factory() {
+        let e = Error::bus("connection refused");
+        assert!(e.to_string().contains("bus error"));
+        assert!(e.to_string().contains("connection refused"));
+    }
+
+    #[test]
+    fn error_sandbox_msg_factory() {
+        let e = Error::sandbox_msg("permission denied");
+        assert!(e.to_string().contains("sandbox error"));
+        assert!(e.to_string().contains("permission denied"));
+    }
+
+    #[test]
+    fn error_worker_msg_factory() {
+        let e = Error::worker_msg("handler crashed");
+        assert!(e.to_string().contains("worker error"));
+        assert!(e.to_string().contains("handler crashed"));
+    }
+}

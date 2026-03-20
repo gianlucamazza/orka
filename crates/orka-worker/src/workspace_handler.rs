@@ -2025,4 +2025,89 @@ mod tests {
         let result = handler.handle_builtin_tool(&call, &session, "main").await;
         assert!(result.is_none());
     }
+
+    // --- Pure helper tests ---
+
+    #[test]
+    fn truncate_short_content_unchanged() {
+        let s = "short content";
+        assert_eq!(truncate_tool_result(s, 100), s);
+    }
+
+    #[test]
+    fn truncate_long_content_shows_boundary() {
+        let s = "a".repeat(1000);
+        let result = truncate_tool_result(&s, 100);
+        assert!(result.contains("[truncated"));
+        assert!(result.contains("1000 total"));
+        assert!(result.len() < s.len());
+    }
+
+    #[test]
+    fn truncate_multibyte_respects_char_boundary() {
+        // 4-byte emoji repeated; truncation must not panic
+        let s = "🦀".repeat(100);
+        let result = truncate_tool_result(&s, 50);
+        assert!(result.contains("[truncated"));
+    }
+
+    #[test]
+    fn tool_metadata_web_search() {
+        let input = serde_json::json!({"query": "rust async"});
+        let (cat, summary) = tool_metadata("web_search", &input);
+        assert_eq!(cat.as_deref(), Some("search"));
+        assert!(summary.unwrap().contains("rust async"));
+    }
+
+    #[test]
+    fn tool_metadata_http_request() {
+        let input = serde_json::json!({"method": "POST", "url": "https://api.example.com"});
+        let (cat, summary) = tool_metadata("http_request", &input);
+        assert_eq!(cat.as_deref(), Some("http"));
+        assert!(summary.unwrap().contains("POST https://api.example.com"));
+    }
+
+    #[test]
+    fn tool_metadata_unknown_tool() {
+        let (cat, summary) = tool_metadata("custom_tool", &serde_json::json!({}));
+        assert!(cat.is_none());
+        assert!(summary.is_none());
+    }
+
+    #[test]
+    fn summarize_result_error_truncates() {
+        let long_err = "x".repeat(200);
+        let result = summarize_result("any_tool", &long_err, true).unwrap();
+        assert!(result.len() < 100);
+        assert!(result.ends_with('…'));
+    }
+
+    #[test]
+    fn summarize_result_web_search_counts() {
+        let json_array = r#"[{"title":"a"},{"title":"b"}]"#;
+        let result = summarize_result("web_search", json_array, false).unwrap();
+        assert_eq!(result, "Found 2 results");
+    }
+
+    #[test]
+    fn build_transcript_formats_roles() {
+        let msgs = vec![ChatMessage::user("hello"), ChatMessage::assistant("world")];
+        let t = WorkspaceHandler::build_transcript(&msgs);
+        assert!(t.contains("user: hello"));
+        assert!(t.contains("assistant: world"));
+    }
+
+    #[test]
+    fn fallback_summary_extracts_user_bullets() {
+        let msgs = vec![
+            ChatMessage::user("first question"),
+            ChatMessage::assistant("response"),
+            ChatMessage::user("second question"),
+        ];
+        let s = WorkspaceHandler::fallback_summary(&msgs);
+        assert!(s.contains("- first question"));
+        assert!(s.contains("- second question"));
+        // Assistant messages should not appear as bullets
+        assert!(!s.contains("- response"));
+    }
 }

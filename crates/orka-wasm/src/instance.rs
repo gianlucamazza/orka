@@ -151,3 +151,86 @@ impl WasmInstance {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::WasmEngine;
+
+    fn compile_wat(wat: &[u8]) -> WasmModule {
+        let engine = WasmEngine::new().unwrap();
+        engine.compile(wat).unwrap()
+    }
+
+    #[test]
+    fn build_and_call_add_function() {
+        let module = compile_wat(
+            br#"
+            (module
+                (func (export "add") (param i32 i32) (result i32)
+                    local.get 0
+                    local.get 1
+                    i32.add
+                )
+            )
+        "#,
+        );
+        let limits = WasmLimits::default();
+        let mut inst = WasmInstance::build(&module, &limits, None, &[]).unwrap();
+        let result: i32 = inst.call("add", (3i32, 4i32)).unwrap();
+        assert_eq!(result, 7);
+    }
+
+    #[test]
+    fn call_missing_export_fails() {
+        let module = compile_wat(b"(module)");
+        let limits = WasmLimits::default();
+        let mut inst = WasmInstance::build(&module, &limits, None, &[]).unwrap();
+        let result = inst.call::<(), ()>("nonexistent", ());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_write_memory() {
+        let module = compile_wat(
+            br#"
+            (module
+                (memory (export "memory") 1)
+            )
+        "#,
+        );
+        let limits = WasmLimits::default();
+        let mut inst = WasmInstance::build(&module, &limits, None, &[]).unwrap();
+
+        let data = b"hello wasm";
+        inst.write_memory(0, data).unwrap();
+        let read_back = inst.read_memory(0, data.len() as u32).unwrap();
+        assert_eq!(read_back, data);
+    }
+
+    #[test]
+    fn read_memory_out_of_bounds() {
+        let module = compile_wat(
+            br#"
+            (module
+                (memory (export "memory") 1)
+            )
+        "#,
+        );
+        let limits = WasmLimits::default();
+        let mut inst = WasmInstance::build(&module, &limits, None, &[]).unwrap();
+        // 1 page = 64KiB. Reading past that should fail.
+        let result = inst.read_memory(0, 100_000);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn into_output_returns_empty_for_no_io() {
+        let module = compile_wat(b"(module)");
+        let limits = WasmLimits::default();
+        let inst = WasmInstance::build(&module, &limits, None, &[]).unwrap();
+        let (stdout, stderr) = inst.into_output();
+        assert!(stdout.is_empty());
+        assert!(stderr.is_empty());
+    }
+}

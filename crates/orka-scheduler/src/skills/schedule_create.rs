@@ -6,17 +6,17 @@ use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::store::RedisScheduleStore;
+use crate::store::ScheduleStore;
 use crate::types::Schedule;
 
 /// Skill that creates a new schedule entry in the store.
 pub struct ScheduleCreateSkill {
-    store: Arc<RedisScheduleStore>,
+    store: Arc<dyn ScheduleStore>,
 }
 
 impl ScheduleCreateSkill {
     /// Create a new skill backed by the given schedule store.
-    pub fn new(store: Arc<RedisScheduleStore>) -> Self {
+    pub fn new(store: Arc<dyn ScheduleStore>) -> Self {
         Self { store }
     }
 }

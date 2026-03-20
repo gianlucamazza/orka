@@ -102,3 +102,82 @@ pub fn register_all(
         agent_config.clone(),
     )));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockCommand {
+        cmd_name: &'static str,
+        cmd_desc: &'static str,
+    }
+
+    #[async_trait]
+    impl ServerCommand for MockCommand {
+        fn name(&self) -> &str {
+            self.cmd_name
+        }
+        fn description(&self) -> &str {
+            self.cmd_desc
+        }
+        fn usage(&self) -> &str {
+            ""
+        }
+        async fn execute(
+            &self,
+            _args: &[String],
+            _envelope: &Envelope,
+            _session: &Session,
+        ) -> Result<Vec<OutboundMessage>> {
+            Ok(vec![])
+        }
+    }
+
+    fn mock_cmd(name: &'static str, desc: &'static str) -> Arc<dyn ServerCommand> {
+        Arc::new(MockCommand {
+            cmd_name: name,
+            cmd_desc: desc,
+        })
+    }
+
+    #[test]
+    fn registry_new_is_empty() {
+        let reg = CommandRegistry::new();
+        assert!(reg.list().is_empty());
+    }
+
+    #[test]
+    fn register_and_get() {
+        let mut reg = CommandRegistry::new();
+        reg.register(mock_cmd("test", "a test command"));
+        assert!(reg.get("test").is_some());
+        assert_eq!(reg.get("test").unwrap().name(), "test");
+    }
+
+    #[test]
+    fn get_missing_returns_none() {
+        let reg = CommandRegistry::new();
+        assert!(reg.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn list_sorted_alphabetically() {
+        let mut reg = CommandRegistry::new();
+        reg.register(mock_cmd("zebra", "z"));
+        reg.register(mock_cmd("alpha", "a"));
+        reg.register(mock_cmd("mid", "m"));
+        let names: Vec<&str> = reg.list().iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, vec!["alpha", "mid", "zebra"]);
+    }
+
+    #[test]
+    fn help_text_includes_all_commands() {
+        let mut reg = CommandRegistry::new();
+        reg.register(mock_cmd("skills", "list skills"));
+        reg.register(mock_cmd("reset", "clear memory"));
+        let help = reg.help_text();
+        assert!(help.contains("/skills"));
+        assert!(help.contains("/reset"));
+        assert!(help.contains("list skills"));
+    }
+}

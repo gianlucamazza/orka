@@ -1,3 +1,5 @@
+/// In-memory vector store backend for testing.
+pub mod memory;
 /// Qdrant vector database backend implementation.
 pub mod qdrant;
 

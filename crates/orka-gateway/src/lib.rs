@@ -201,7 +201,8 @@ impl Gateway {
         }
     }
 
-    async fn process(&self, mut envelope: Envelope) -> orka_core::Result<()> {
+    /// Process a single inbound envelope (public for testing).
+    pub async fn process(&self, mut envelope: Envelope) -> orka_core::Result<()> {
         // Generate trace context if missing
         if envelope.trace_context.trace_id.is_none() {
             envelope.trace_context.trace_id = Some(uuid::Uuid::now_v7().to_string());
@@ -275,5 +276,172 @@ impl Gateway {
         // Ack
         self.bus.ack(&envelope.id).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orka_core::testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore};
+    use orka_core::{DomainEventKind, SessionId};
+    use std::time::Duration;
+
+    fn test_gateway(
+        rate_limit: u32,
+    ) -> (
+        Gateway,
+        Arc<InMemoryQueue>,
+        Arc<InMemoryEventSink>,
+        Arc<InMemorySessionStore>,
+    ) {
+        let bus = Arc::new(InMemoryBus::new());
+        let sessions = Arc::new(InMemorySessionStore::new());
+        let queue = Arc::new(InMemoryQueue::new());
+        let workspace = Arc::new(WorkspaceLoader::new("/tmp/test-workspace"));
+        let event_sink = Arc::new(InMemoryEventSink::new());
+
+        let gw = Gateway::new(
+            bus,
+            sessions.clone(),
+            queue.clone(),
+            workspace,
+            event_sink.clone(),
+            None, // no Redis
+            rate_limit,
+            60,
+        );
+        (gw, queue, event_sink, sessions)
+    }
+
+    #[tokio::test]
+    async fn process_enqueues_message() {
+        let (gw, queue, _, _) = test_gateway(0);
+        let env = Envelope::text("telegram", SessionId::new(), "hello");
+        gw.process(env).await.unwrap();
+        assert_eq!(queue.len().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn process_creates_session_if_missing() {
+        let (gw, _, _, sessions) = test_gateway(0);
+        let sid = SessionId::new();
+        let env = Envelope::text("telegram", sid, "hello");
+        gw.process(env).await.unwrap();
+        assert!(sessions.get(&sid).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn process_reuses_existing_session() {
+        let (gw, _, _, sessions) = test_gateway(0);
+        let sid = SessionId::new();
+        let session = orka_core::Session::new("telegram", "user1");
+        let mut s = session;
+        s.id = sid;
+        sessions.put(&s).await.unwrap();
+
+        let env = Envelope::text("telegram", sid, "hello");
+        gw.process(env).await.unwrap();
+
+        // Should still be one session, not two
+        let all = sessions.list(100).await.unwrap();
+        assert_eq!(all.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn rate_limit_drops_excess() {
+        let (gw, queue, _, _) = test_gateway(2);
+        let sid = SessionId::new();
+
+        for i in 0..3 {
+            let env = Envelope::text("ch", sid, format!("msg{i}"));
+            let _ = gw.process(env).await;
+        }
+
+        // Only 2 should be enqueued
+        assert_eq!(queue.len().await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn rate_limit_zero_means_unlimited() {
+        let (gw, queue, _, _) = test_gateway(0);
+        let sid = SessionId::new();
+
+        for i in 0..10 {
+            let env = Envelope::text("ch", sid, format!("msg{i}"));
+            gw.process(env).await.unwrap();
+        }
+        assert_eq!(queue.len().await.unwrap(), 10);
+    }
+
+    #[tokio::test]
+    async fn resolve_priority_direct_is_urgent() {
+        let (gw, queue, _, _) = test_gateway(0);
+        let mut env = Envelope::text("ch", SessionId::new(), "dm");
+        env.metadata
+            .insert("chat_type".into(), serde_json::json!("direct"));
+        gw.process(env).await.unwrap();
+
+        let msg = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
+        assert_eq!(msg.priority, orka_core::Priority::Urgent);
+    }
+
+    #[tokio::test]
+    async fn resolve_priority_group_is_normal() {
+        let (gw, queue, _, _) = test_gateway(0);
+        let mut env = Envelope::text("ch", SessionId::new(), "group msg");
+        env.metadata
+            .insert("chat_type".into(), serde_json::json!("group"));
+        gw.process(env).await.unwrap();
+
+        let msg = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
+        assert_eq!(msg.priority, orka_core::Priority::Normal);
+    }
+
+    #[tokio::test]
+    async fn dedup_without_redis_accepts_all() {
+        let (gw, queue, _, _) = test_gateway(0);
+        let env = Envelope::text("ch", SessionId::new(), "msg");
+        // Send same envelope twice — without Redis, dedup is disabled
+        gw.process(env.clone()).await.unwrap();
+        gw.process(env).await.unwrap();
+        assert_eq!(queue.len().await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn event_sink_receives_message_received() {
+        let (gw, _, event_sink, _) = test_gateway(0);
+        let env = Envelope::text("telegram", SessionId::new(), "hello");
+        gw.process(env).await.unwrap();
+
+        let events = event_sink.events().await;
+        assert!(events.iter().any(|e| matches!(
+            &e.kind,
+            DomainEventKind::MessageReceived { channel, .. } if channel == "telegram"
+        )));
+    }
+
+    #[tokio::test]
+    async fn event_sink_receives_session_created() {
+        let (gw, _, event_sink, _) = test_gateway(0);
+        let env = Envelope::text("telegram", SessionId::new(), "hello");
+        gw.process(env).await.unwrap();
+
+        let events = event_sink.events().await;
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(&e.kind, DomainEventKind::SessionCreated { .. }))
+        );
+    }
+
+    #[tokio::test]
+    async fn trace_context_generated_if_missing() {
+        let (gw, queue, _, _) = test_gateway(0);
+        let env = Envelope::text("ch", SessionId::new(), "hello");
+        assert!(env.trace_context.trace_id.is_none());
+
+        gw.process(env).await.unwrap();
+        let msg = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
+        assert!(msg.trace_context.trace_id.is_some());
     }
 }

@@ -1162,4 +1162,42 @@ mod tests {
         let text = "send to user@example.com please";
         assert_eq!(expand_file_attachments(text), text);
     }
+
+    #[test]
+    fn expand_file_attachments_reads_real_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        std::fs::write(&file_path, "fn main() {}").unwrap();
+        let text = format!("check @{}", file_path.display());
+        let result = expand_file_attachments(&text);
+        assert!(result.contains("```rs"));
+        assert!(result.contains("fn main() {}"));
+        assert!(result.contains("```"));
+    }
+
+    #[test]
+    fn expand_file_attachments_missing_file_left_as_is() {
+        let result = expand_file_attachments("look at @/nonexistent/file.txt please");
+        assert!(result.contains("@/nonexistent/file.txt"));
+    }
+
+    #[test]
+    fn expand_file_attachments_multiple_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let f1 = dir.path().join("a.py");
+        let f2 = dir.path().join("b.py");
+        std::fs::write(&f1, "print('a')").unwrap();
+        std::fs::write(&f2, "print('b')").unwrap();
+        let text = format!("@{} and @{}", f1.display(), f2.display());
+        let result = expand_file_attachments(&text);
+        assert!(result.contains("print('a')"));
+        assert!(result.contains("print('b')"));
+    }
+
+    #[test]
+    fn expand_file_attachments_bare_at_sign() {
+        // A lone `@` with no path should be left as-is
+        let result = expand_file_attachments("@ alone");
+        assert!(result.contains('@'));
+    }
 }

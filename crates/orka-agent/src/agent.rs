@@ -201,6 +201,49 @@ mod tests {
     }
 
     #[test]
+    fn agent_id_display() {
+        let id = AgentId::new("router");
+        assert_eq!(id.to_string(), "router");
+    }
+
+    #[test]
+    fn agent_id_from_string() {
+        let id = AgentId::from("test".to_string());
+        assert_eq!(id.0.as_ref(), "test");
+    }
+
+    #[test]
+    fn agent_id_serde_roundtrip() {
+        let id = AgentId::new("researcher");
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"researcher\"");
+        let back: AgentId = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, id);
+    }
+
+    #[test]
+    fn system_prompt_build_empty_persona() {
+        let sp = SystemPrompt::default();
+        let built = sp.build("Bot");
+        assert_eq!(built, "You are Bot.");
+    }
+
+    #[test]
+    fn system_prompt_build_skips_empty_dynamic_sections() {
+        let mut sp = SystemPrompt {
+            persona: "Helpful.".into(),
+            ..Default::default()
+        };
+        sp.dynamic_sections.insert("empty".into(), String::new());
+        sp.dynamic_sections
+            .insert("filled".into(), "Real content.".into());
+        let built = sp.build("Bot");
+        assert!(built.contains("Real content."));
+        // No double blank lines from the empty section
+        assert!(!built.contains("\n\n\n\n"));
+    }
+
+    #[test]
     fn system_prompt_build_includes_all_sections() {
         let mut sp = SystemPrompt {
             persona: "I am helpful.".into(),

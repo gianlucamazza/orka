@@ -11,6 +11,9 @@ option_try
 dump.rdb
 .fastembed_cache/
 
+# Proptest regression files
+proptest-regressions/
+
 # Local build config
 .cargo/
 

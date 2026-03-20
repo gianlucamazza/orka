@@ -3,16 +3,16 @@ use orka_core::traits::Skill;
 use orka_core::{Result, SkillInput, SkillOutput, SkillSchema};
 use std::sync::Arc;
 
-use crate::store::RedisScheduleStore;
+use crate::store::ScheduleStore;
 
 /// Skill that lists all active schedules from the store.
 pub struct ScheduleListSkill {
-    store: Arc<RedisScheduleStore>,
+    store: Arc<dyn ScheduleStore>,
 }
 
 impl ScheduleListSkill {
     /// Create a new skill backed by the given schedule store.
-    pub fn new(store: Arc<RedisScheduleStore>) -> Self {
+    pub fn new(store: Arc<dyn ScheduleStore>) -> Self {
         Self { store }
     }
 }

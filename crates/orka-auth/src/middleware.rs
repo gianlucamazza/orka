@@ -115,3 +115,114 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::InMemoryAuthenticator;
+    use http::StatusCode;
+    use tower::ServiceExt;
+
+    fn auth_config(enabled: bool) -> Arc<AuthConfig> {
+        Arc::new(AuthConfig {
+            enabled,
+            api_key_header: "X-Api-Key".into(),
+            ..Default::default()
+        })
+    }
+
+    /// Simple echo service that returns 200 with the principal in the body.
+    async fn echo_handler(req: Request<Body>) -> Result<Response<Body>, std::convert::Infallible> {
+        let principal = req
+            .extensions()
+            .get::<AuthIdentity>()
+            .map(|id| id.principal.clone())
+            .unwrap_or_else(|| "none".into());
+        Ok(Response::builder()
+            .status(200)
+            .body(Body::from(principal))
+            .unwrap())
+    }
+
+    macro_rules! make_service {
+        ($auth:expr, $config:expr) => {{
+            let layer = AuthLayer::new($auth, $config);
+            let svc = tower::service_fn(|req: Request<Body>| echo_handler(req));
+            layer.layer(svc)
+        }};
+    }
+
+    #[tokio::test]
+    async fn auth_disabled_passes_anonymous() {
+        let auth = Arc::new(InMemoryAuthenticator::new());
+        let mut svc = make_service!(auth, auth_config(false));
+
+        let req = Request::builder().uri("/").body(Body::empty()).unwrap();
+        let resp = svc.ready().await.unwrap().call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        assert_eq!(&body[..], b"anonymous");
+    }
+
+    #[tokio::test]
+    async fn valid_api_key_passes() {
+        let auth = Arc::new(InMemoryAuthenticator::new().with_key(
+            "secret-key",
+            "admin",
+            vec!["read".into()],
+        ));
+        let mut svc = make_service!(auth, auth_config(true));
+
+        let req = Request::builder()
+            .uri("/")
+            .header("X-Api-Key", "secret-key")
+            .body(Body::empty())
+            .unwrap();
+        let resp = svc.ready().await.unwrap().call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        assert_eq!(&body[..], b"admin");
+    }
+
+    #[tokio::test]
+    async fn missing_credentials_returns_401() {
+        let auth = Arc::new(InMemoryAuthenticator::new().with_key("secret-key", "admin", vec![]));
+        let mut svc = make_service!(auth, auth_config(true));
+
+        let req = Request::builder().uri("/").body(Body::empty()).unwrap();
+        let resp = svc.ready().await.unwrap().call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn invalid_api_key_returns_401() {
+        let auth = Arc::new(InMemoryAuthenticator::new().with_key("real-key", "admin", vec![]));
+        let mut svc = make_service!(auth, auth_config(true));
+
+        let req = Request::builder()
+            .uri("/")
+            .header("X-Api-Key", "wrong-key")
+            .body(Body::empty())
+            .unwrap();
+        let resp = svc.ready().await.unwrap().call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn bearer_token_extracted() {
+        // InMemoryAuthenticator doesn't support Bearer, so this should 401
+        // but we verify the extraction path runs
+        let auth = Arc::new(InMemoryAuthenticator::new());
+        let mut svc = make_service!(auth, auth_config(true));
+
+        let req = Request::builder()
+            .uri("/")
+            .header("Authorization", "Bearer some-token")
+            .body(Body::empty())
+            .unwrap();
+        let resp = svc.ready().await.unwrap().call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+}

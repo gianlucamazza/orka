@@ -150,3 +150,48 @@ impl McpServer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orka_core::testing::InMemorySecretManager;
+
+    fn test_server() -> McpServer {
+        let skills = Arc::new(SkillRegistry::new());
+        let secrets: Arc<dyn SecretManager> = Arc::new(InMemorySecretManager::new());
+        McpServer::new(skills, secrets)
+    }
+
+    #[tokio::test]
+    async fn handle_initialize_returns_server_info() {
+        let server = test_server();
+        let req = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize"});
+        let resp = server.handle_request(req).await.unwrap();
+        assert_eq!(resp["jsonrpc"], "2.0");
+        assert_eq!(resp["id"], 1);
+        assert_eq!(resp["result"]["serverInfo"]["name"], "orka");
+        assert!(resp["result"]["protocolVersion"].is_string());
+    }
+
+    #[tokio::test]
+    async fn handle_unknown_method_returns_error() {
+        let server = test_server();
+        let req = json!({"jsonrpc": "2.0", "id": 2, "method": "nonexistent/method"});
+        let resp = server.handle_request(req).await.unwrap();
+        assert_eq!(resp["error"]["code"], -32601);
+        assert!(
+            resp["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("nonexistent/method")
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_tools_list_returns_empty_array() {
+        let server = test_server();
+        let req = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"});
+        let resp = server.handle_request(req).await.unwrap();
+        assert_eq!(resp["result"]["tools"], json!([]));
+    }
+}

@@ -193,3 +193,194 @@ impl Default for SkillRegistry {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orka_core::testing::EchoSkill;
+
+    /// A skill that always fails with an environmental error.
+    struct FailingSkill;
+
+    #[async_trait::async_trait]
+    impl Skill for FailingSkill {
+        fn name(&self) -> &str {
+            "failing"
+        }
+        fn description(&self) -> &str {
+            "always fails"
+        }
+        fn schema(&self) -> orka_core::SkillSchema {
+            orka_core::SkillSchema::new(
+                serde_json::json!({"type": "object", "additionalProperties": true}),
+            )
+        }
+        async fn execute(&self, _input: SkillInput) -> Result<SkillOutput> {
+            Err(Error::SkillCategorized {
+                message: "env failure".into(),
+                category: ErrorCategory::Environmental,
+            })
+        }
+    }
+
+    fn empty_input() -> SkillInput {
+        SkillInput::new(Default::default())
+    }
+
+    #[test]
+    fn register_and_get() {
+        let mut reg = SkillRegistry::new();
+        reg.register(Arc::new(EchoSkill));
+        assert!(reg.get("echo").is_some());
+        assert!(reg.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn list_skills() {
+        let mut reg = SkillRegistry::new();
+        reg.register(Arc::new(EchoSkill));
+        let names = reg.list();
+        assert!(names.contains(&"echo"));
+    }
+
+    #[tokio::test]
+    async fn invoke_valid_skill() {
+        let mut reg = SkillRegistry::new();
+        reg.register(Arc::new(EchoSkill));
+        let input = SkillInput::new(
+            [("msg".into(), serde_json::json!("hi"))]
+                .into_iter()
+                .collect(),
+        );
+        let output = reg.invoke("echo", input).await.unwrap();
+        assert_eq!(output.data, serde_json::json!({"msg": "hi"}));
+    }
+
+    #[tokio::test]
+    async fn invoke_unknown_skill_errors() {
+        let reg = SkillRegistry::new();
+        let result = reg.invoke("nonexistent", empty_input()).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn invoke_with_scopes_allowed() {
+        let mut reg = SkillRegistry::new();
+        reg.register(Arc::new(EchoSkill));
+        let scopes = vec!["skill:echo".to_string()];
+        let result = reg.invoke_with_scopes("echo", empty_input(), &scopes).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn invoke_with_scopes_denied() {
+        let mut reg = SkillRegistry::new();
+        reg.register(Arc::new(EchoSkill));
+        let scopes = vec!["skill:other".to_string()];
+        let result = reg.invoke_with_scopes("echo", empty_input(), &scopes).await;
+        assert!(matches!(result, Err(Error::Auth(_))));
+    }
+
+    #[tokio::test]
+    async fn invoke_with_wildcard_scope() {
+        let mut reg = SkillRegistry::new();
+        reg.register(Arc::new(EchoSkill));
+        let scopes = vec!["skill:*".to_string()];
+        let result = reg.invoke_with_scopes("echo", empty_input(), &scopes).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn invoke_with_empty_scopes_allows() {
+        let mut reg = SkillRegistry::new();
+        reg.register(Arc::new(EchoSkill));
+        let scopes: Vec<String> = vec![];
+        let result = reg.invoke_with_scopes("echo", empty_input(), &scopes).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn circuit_breaker_opens_after_failures() {
+        let mut reg = SkillRegistry::new();
+        reg.register(Arc::new(FailingSkill));
+
+        // ENV_CIRCUIT_CONFIG has failure_threshold = 3
+        for _ in 0..3 {
+            let _ = reg.invoke("failing", empty_input()).await;
+        }
+
+        // Circuit should now be open
+        let result = reg.invoke("failing", empty_input()).await;
+        assert!(matches!(
+            result,
+            Err(Error::SkillCategorized {
+                category: ErrorCategory::Environmental,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn list_available_excludes_open_circuits() {
+        let mut reg = SkillRegistry::new();
+        reg.register(Arc::new(EchoSkill));
+        reg.register(Arc::new(FailingSkill));
+
+        assert_eq!(reg.list_available().len(), 2);
+
+        reg.force_open("failing");
+
+        let available = reg.list_available();
+        assert!(available.contains(&"echo"));
+        assert!(!available.contains(&"failing"));
+    }
+
+    #[tokio::test]
+    async fn register_with_init_calls_lifecycle() {
+        let mut reg = SkillRegistry::new();
+        reg.register_with_init(Arc::new(EchoSkill)).await.unwrap();
+        assert!(reg.get("echo").is_some());
+    }
+
+    #[tokio::test]
+    async fn invoke_validates_schema() {
+        let mut reg = SkillRegistry::new();
+
+        /// Skill with strict schema requiring a "query" field.
+        struct StrictSkill;
+        #[async_trait::async_trait]
+        impl Skill for StrictSkill {
+            fn name(&self) -> &str {
+                "strict"
+            }
+            fn description(&self) -> &str {
+                "strict schema"
+            }
+            fn schema(&self) -> orka_core::SkillSchema {
+                orka_core::SkillSchema::new(serde_json::json!({
+                    "type": "object",
+                    "properties": { "query": { "type": "string" } },
+                    "required": ["query"]
+                }))
+            }
+            async fn execute(&self, _input: SkillInput) -> Result<SkillOutput> {
+                Ok(SkillOutput::new(serde_json::json!(null)))
+            }
+        }
+
+        reg.register(Arc::new(StrictSkill));
+
+        // Empty input should fail schema validation
+        let result = reg.invoke("strict", empty_input()).await;
+        assert!(result.is_err());
+
+        // Valid input should succeed
+        let input = SkillInput::new(
+            [("query".into(), serde_json::json!("test"))]
+                .into_iter()
+                .collect(),
+        );
+        let result = reg.invoke("strict", input).await;
+        assert!(result.is_ok());
+    }
+}

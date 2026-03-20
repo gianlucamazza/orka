@@ -43,4 +43,51 @@ mod tests {
         let (p2, l2) = unpack_ptr_len(packed);
         assert_eq!((ptr, len), (p2, l2));
     }
+
+    #[test]
+    fn pack_zero_values() {
+        let packed = pack_ptr_len(0, 0);
+        assert_eq!(packed, 0);
+        assert_eq!(unpack_ptr_len(packed), (0, 0));
+    }
+
+    #[test]
+    fn pack_max_values() {
+        let packed = pack_ptr_len(u32::MAX, u32::MAX);
+        let (ptr, len) = unpack_ptr_len(packed);
+        assert_eq!(ptr, u32::MAX);
+        assert_eq!(len, u32::MAX);
+    }
+
+    #[test]
+    fn pack_ptr_only() {
+        let packed = pack_ptr_len(100, 0);
+        let (ptr, len) = unpack_ptr_len(packed);
+        assert_eq!(ptr, 100);
+        assert_eq!(len, 0);
+    }
+
+    #[test]
+    fn pack_len_only() {
+        let packed = pack_ptr_len(0, 256);
+        let (ptr, len) = unpack_ptr_len(packed);
+        assert_eq!(ptr, 0);
+        assert_eq!(len, 256);
+    }
+
+    #[test]
+    fn abi_version_is_2() {
+        assert_eq!(ABI_VERSION, 2);
+    }
+
+    #[test]
+    fn export_names_are_prefixed() {
+        assert!(exports::ABI_VERSION.starts_with("orka_"));
+        assert!(exports::PLUGIN_INFO.starts_with("orka_"));
+        assert!(exports::PLUGIN_INIT.starts_with("orka_"));
+        assert!(exports::PLUGIN_EXECUTE.starts_with("orka_"));
+        assert!(exports::PLUGIN_CLEANUP.starts_with("orka_"));
+        assert!(exports::ALLOC.starts_with("orka_"));
+        assert!(exports::DEALLOC.starts_with("orka_"));
+    }
 }

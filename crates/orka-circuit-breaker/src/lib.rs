@@ -300,4 +300,146 @@ mod tests {
         fn assert_send_sync<T: Send + Sync + 'static>() {}
         assert_send_sync::<CircuitBreaker>();
     }
+
+    fn test_config() -> CircuitBreakerConfig {
+        CircuitBreakerConfig {
+            failure_threshold: 3,
+            success_threshold: 2,
+            open_duration: Duration::from_millis(100),
+        }
+    }
+
+    #[tokio::test]
+    async fn closed_passes_through_on_success() {
+        let cb = CircuitBreaker::new(test_config());
+        let result: Result<i32, CircuitBreakerError<&str>> = cb.call(|| async { Ok(42) }).await;
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[tokio::test]
+    async fn closed_opens_after_threshold_failures() {
+        let cb = CircuitBreaker::new(test_config());
+        for _ in 0..3 {
+            let _: Result<(), CircuitBreakerError<&str>> = cb.call(|| async { Err("fail") }).await;
+        }
+        assert_eq!(cb.state(), CircuitState::Open);
+    }
+
+    #[tokio::test]
+    async fn open_rejects_immediately() {
+        let cb = CircuitBreaker::new(test_config());
+        for _ in 0..3 {
+            let _: Result<(), CircuitBreakerError<&str>> = cb.call(|| async { Err("fail") }).await;
+        }
+        let result: Result<i32, CircuitBreakerError<&str>> = cb.call(|| async { Ok(42) }).await;
+        assert!(matches!(result, Err(CircuitBreakerError::Open)));
+    }
+
+    #[tokio::test]
+    async fn open_transitions_to_halfopen_after_duration() {
+        tokio::time::pause();
+        let cb = CircuitBreaker::new(test_config());
+        for _ in 0..3 {
+            let _: Result<(), CircuitBreakerError<&str>> = cb.call(|| async { Err("fail") }).await;
+        }
+        assert_eq!(cb.state(), CircuitState::Open);
+
+        tokio::time::advance(Duration::from_millis(150)).await;
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+    }
+
+    #[tokio::test]
+    async fn halfopen_closes_after_success_threshold() {
+        tokio::time::pause();
+        let cb = CircuitBreaker::new(test_config());
+        // Trip to Open
+        for _ in 0..3 {
+            let _: Result<(), CircuitBreakerError<&str>> = cb.call(|| async { Err("fail") }).await;
+        }
+        // Advance past open_duration
+        tokio::time::advance(Duration::from_millis(150)).await;
+
+        // success_threshold = 2
+        let _: Result<i32, CircuitBreakerError<&str>> = cb.call(|| async { Ok(1) }).await;
+        let _: Result<i32, CircuitBreakerError<&str>> = cb.call(|| async { Ok(2) }).await;
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[tokio::test]
+    async fn halfopen_reopens_on_failure() {
+        tokio::time::pause();
+        let cb = CircuitBreaker::new(test_config());
+        for _ in 0..3 {
+            let _: Result<(), CircuitBreakerError<&str>> = cb.call(|| async { Err("fail") }).await;
+        }
+        tokio::time::advance(Duration::from_millis(150)).await;
+
+        // Fail during half-open probe
+        let _: Result<(), CircuitBreakerError<&str>> =
+            cb.call(|| async { Err("fail again") }).await;
+        assert_eq!(cb.state(), CircuitState::Open);
+    }
+
+    #[test]
+    fn record_success_resets_failure_count() {
+        let cb = CircuitBreaker::new(test_config());
+        cb.record_failure();
+        cb.record_failure();
+        cb.record_success();
+        // Should not trip even after one more failure
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[test]
+    fn record_failure_trips_circuit() {
+        let cb = CircuitBreaker::new(test_config());
+        for _ in 0..3 {
+            cb.record_failure();
+        }
+        assert_eq!(cb.state(), CircuitState::Open);
+    }
+
+    #[test]
+    fn reset_returns_to_closed() {
+        let cb = CircuitBreaker::new(test_config());
+        for _ in 0..3 {
+            cb.record_failure();
+        }
+        assert_eq!(cb.state(), CircuitState::Open);
+        cb.reset();
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[tokio::test]
+    async fn success_in_closed_resets_failure_count() {
+        let cb = CircuitBreaker::new(test_config());
+        // 2 failures then a success should reset counter
+        let _: Result<(), CircuitBreakerError<&str>> = cb.call(|| async { Err("fail") }).await;
+        let _: Result<(), CircuitBreakerError<&str>> = cb.call(|| async { Err("fail") }).await;
+        let _: Result<i32, CircuitBreakerError<&str>> = cb.call(|| async { Ok(1) }).await;
+        // Now only 1 more failure should not trip (need 3)
+        let _: Result<(), CircuitBreakerError<&str>> = cb.call(|| async { Err("fail") }).await;
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[tokio::test]
+    async fn only_one_halfopen_probe_at_a_time() {
+        tokio::time::pause();
+        let cb = CircuitBreaker::new(test_config());
+        for _ in 0..3 {
+            let _: Result<(), CircuitBreakerError<&str>> = cb.call(|| async { Err("fail") }).await;
+        }
+        tokio::time::advance(Duration::from_millis(150)).await;
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        // Simulate concurrent call: manually set probes counter
+        use std::sync::atomic::Ordering;
+        cb.half_open_probes.store(1, Ordering::SeqCst);
+
+        // Second call should be rejected
+        let result: Result<i32, CircuitBreakerError<&str>> = cb.call(|| async { Ok(42) }).await;
+        assert!(matches!(result, Err(CircuitBreakerError::Open)));
+    }
 }

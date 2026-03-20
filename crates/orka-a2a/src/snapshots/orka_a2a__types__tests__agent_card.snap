@@ -1,0 +1,34 @@
+---
+source: crates/orka-a2a/src/types.rs
+expression: card
+---
+{
+  "name": "test-agent",
+  "description": "A test agent",
+  "url": "http://localhost:8080",
+  "version": "1.0.0",
+  "capabilities": {
+    "streaming": true,
+    "push_notifications": false,
+    "state_transition_history": true
+  },
+  "skills": [
+    {
+      "id": "echo",
+      "name": "Echo",
+      "description": "Echoes input",
+      "inputSchema": {
+        "type": "object"
+      }
+    }
+  ],
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "authentication": {
+    "type": "bearer"
+  }
+}

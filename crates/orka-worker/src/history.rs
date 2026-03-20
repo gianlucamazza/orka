@@ -64,3 +64,67 @@ pub async fn save_history_compact(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orka_llm::client::{ChatContent, ChatMessage, ContentBlockInput, Role};
+
+    fn user_msg(text: &str) -> ChatMessage {
+        ChatMessage::user(text)
+    }
+
+    fn tool_result_msg(content: &str) -> ChatMessage {
+        ChatMessage::new(
+            Role::User,
+            ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
+                tool_use_id: "t1".into(),
+                content: content.into(),
+                is_error: false,
+            }]),
+        )
+    }
+
+    #[test]
+    fn compact_tool_results_no_truncation() {
+        let msgs = vec![tool_result_msg("short result")];
+        let result = compact_tool_results(msgs, 1000);
+        if let ChatContent::Blocks(ref blocks) = result[0].content
+            && let ContentBlockInput::ToolResult { content, .. } = &blocks[0]
+        {
+            assert_eq!(content, "short result");
+        } else {
+            panic!("expected ToolResult block");
+        }
+    }
+
+    #[test]
+    fn compact_tool_results_truncates_long_result() {
+        let long = "x".repeat(5000);
+        let msgs = vec![tool_result_msg(&long)];
+        let result = compact_tool_results(msgs, 100);
+        if let ChatContent::Blocks(ref blocks) = result[0].content
+            && let ContentBlockInput::ToolResult { content, .. } = &blocks[0]
+        {
+            assert!(content.contains("[truncated"));
+            assert!(content.contains("5000"));
+            assert!(content.len() < long.len());
+        } else {
+            panic!("expected ToolResult block");
+        }
+    }
+
+    #[test]
+    fn compact_tool_results_preserves_non_tool_messages() {
+        let msgs = vec![user_msg("hello"), tool_result_msg("data")];
+        let result = compact_tool_results(msgs, 1000);
+        assert_eq!(result.len(), 2);
+        assert!(matches!(result[0].content, ChatContent::Text(ref t) if t == "hello"));
+    }
+
+    #[test]
+    fn compact_tool_results_empty_vec() {
+        let result = compact_tool_results(vec![], 100);
+        assert!(result.is_empty());
+    }
+}

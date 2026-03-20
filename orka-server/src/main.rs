@@ -1390,7 +1390,7 @@ async fn main() -> anyhow::Result<()> {
                     axum::Json(list)
                 }
             }))
-            .route("/api/v1/skills/:name", axum::routing::get(move |Path(name): Path<String>| {
+            .route("/api/v1/skills/{name}", axum::routing::get(move |Path(name): Path<String>| {
                 let skills = s2.clone();
                 async move {
                     match skills.get(&name) {
@@ -1469,7 +1469,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 })
             )
-            .route("/api/v1/schedules/:id", axum::routing::delete(move |Path(id): Path<String>| {
+            .route("/api/v1/schedules/{id}", axum::routing::delete(move |Path(id): Path<String>| {
                 let store = sc3.clone();
                 async move {
                     let Some(store) = store else {
@@ -1503,7 +1503,7 @@ async fn main() -> anyhow::Result<()> {
                     axum::Json(list)
                 }
             }))
-            .route("/api/v1/workspaces/:name", axum::routing::get(move |Path(ws_name): Path<String>| {
+            .route("/api/v1/workspaces/{name}", axum::routing::get(move |Path(ws_name): Path<String>| {
                 let registry = w2.clone();
                 async move {
                     match registry.get(&ws_name) {
@@ -1636,7 +1636,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 })
             )
-            .route("/api/v1/sessions/:id",
+            .route("/api/v1/sessions/{id}",
                 axum::routing::get(move |Path(id): Path<String>| {
                     let sessions = ss2.clone();
                     async move {
@@ -1920,4 +1920,31 @@ async fn main() -> anyhow::Result<()> {
     info!("Orka server stopped");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn semver_gt_newer_major() {
+        assert!(semver_gt("2.0.0", "1.0.0"));
+    }
+
+    #[test]
+    fn semver_gt_older_returns_false() {
+        assert!(!semver_gt("1.0.0", "2.0.0"));
+    }
+
+    #[test]
+    fn semver_gt_equal_returns_false() {
+        assert!(!semver_gt("1.2.3", "1.2.3"));
+    }
+
+    #[test]
+    fn default_env_var_known_and_unknown() {
+        assert_eq!(default_env_var("anthropic"), "ANTHROPIC_API_KEY");
+        assert_eq!(default_env_var("openai"), "OPENAI_API_KEY");
+        assert_eq!(default_env_var("unknown_provider"), "");
+    }
 }

@@ -59,6 +59,18 @@ pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn S
         &config.vector_store.url,
     )?);
 
+    create_knowledge_skills_with(config, embedding_provider, vector_store)
+}
+
+/// Create knowledge/RAG skills with pre-built provider and store.
+///
+/// This variant is useful for testing (pass in-memory implementations) or
+/// when the caller wants to control the embedding/vector backends directly.
+pub fn create_knowledge_skills_with(
+    config: &KnowledgeConfig,
+    embedding_provider: Arc<dyn EmbeddingProvider>,
+    vector_store: Arc<dyn VectorStore>,
+) -> Result<Vec<Arc<dyn Skill>>> {
     let full_collection = format!(
         "{}{}",
         config.vector_store.collection_prefix, config.vector_store.default_collection

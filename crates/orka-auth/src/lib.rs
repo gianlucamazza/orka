@@ -17,7 +17,8 @@ pub mod middleware;
 /// Identity and credentials types.
 pub mod types;
 
-#[cfg(feature = "test-util")]
+/// In-memory test doubles for authentication (available with `test-util` feature or `#[cfg(test)]`).
+#[cfg(any(feature = "test-util", test))]
 pub mod testing;
 
 pub use api_key::ApiKeyAuthenticator;
@@ -26,5 +27,5 @@ pub use jwt::JwtAuthenticator;
 pub use middleware::{AuthLayer, AuthService};
 pub use types::{AuthIdentity, Credentials};
 
-#[cfg(feature = "test-util")]
+#[cfg(any(feature = "test-util", test))]
 pub use testing::InMemoryAuthenticator;

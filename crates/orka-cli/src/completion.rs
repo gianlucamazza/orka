@@ -243,28 +243,31 @@ impl Highlighter for OrkaHelper {
     }
 }
 
+/// Core validation logic, extracted for testability (rustyline's `ValidationContext` is private).
+fn validate_input(input: &str) -> ValidationResult {
+    // Odd number of trailing backslashes → line continuation; even = escaped backslash.
+    let trailing_backslashes = input.chars().rev().take_while(|&c| c == '\\').count();
+    if trailing_backslashes % 2 == 1 {
+        return ValidationResult::Incomplete;
+    }
+
+    // UI-14: count ``` only at the start of lines (after trim) to avoid
+    // matching inline ``` in prose or being fooled by longer backtick runs.
+    // An odd count means there's an open code fence → request continuation.
+    let fence_count = input
+        .lines()
+        .filter(|line| line.trim_start().starts_with("```"))
+        .count();
+    if !fence_count.is_multiple_of(2) {
+        return ValidationResult::Incomplete;
+    }
+
+    ValidationResult::Valid(None)
+}
+
 impl Validator for OrkaHelper {
     fn validate(&self, ctx: &mut ValidationContext<'_>) -> rustyline::Result<ValidationResult> {
-        let input = ctx.input();
-
-        // Odd number of trailing backslashes → line continuation; even = escaped backslash.
-        let trailing_backslashes = input.chars().rev().take_while(|&c| c == '\\').count();
-        if trailing_backslashes % 2 == 1 {
-            return Ok(ValidationResult::Incomplete);
-        }
-
-        // UI-14: count ``` only at the start of lines (after trim) to avoid
-        // matching inline ``` in prose or being fooled by longer backtick runs.
-        // An odd count means there's an open code fence → request continuation.
-        let fence_count = input
-            .lines()
-            .filter(|line| line.trim_start().starts_with("```"))
-            .count();
-        if !fence_count.is_multiple_of(2) {
-            return Ok(ValidationResult::Incomplete);
-        }
-
-        Ok(ValidationResult::Valid(None))
+        Ok(validate_input(ctx.input()))
     }
 
     fn validate_while_typing(&self) -> bool {
@@ -461,5 +464,50 @@ mod tests {
         // "!exp" → "ort"
         let hint2 = helper.hint("!exp", 4, &ctx);
         assert_eq!(hint2.as_deref(), Some("ort"));
+    }
+
+    #[test]
+    fn validator_trailing_backslash_incomplete() {
+        assert!(matches!(
+            validate_input("hello\\"),
+            ValidationResult::Incomplete
+        ));
+    }
+
+    #[test]
+    fn validator_even_backslashes_valid() {
+        assert!(matches!(
+            validate_input("hello\\\\"),
+            ValidationResult::Valid(_)
+        ));
+    }
+
+    #[test]
+    fn validator_odd_code_fences_incomplete() {
+        assert!(matches!(
+            validate_input("```rust\nfn main() {}"),
+            ValidationResult::Incomplete
+        ));
+    }
+
+    #[test]
+    fn validator_even_code_fences_valid() {
+        assert!(matches!(
+            validate_input("```rust\nfn main() {}\n```"),
+            ValidationResult::Valid(_)
+        ));
+    }
+
+    #[test]
+    fn highlight_hint_respects_no_color() {
+        use rustyline::highlight::Highlighter;
+        let helper = test_helper();
+        // Test that when NO_COLOR is set, hint is returned as-is.
+        // We test the code path directly: highlight_hint checks env var.
+        // Safety: this is a single-threaded test.
+        unsafe { std::env::set_var("NO_COLOR", "1") };
+        let result = helper.highlight_hint("suggestion");
+        assert_eq!(&*result, "suggestion");
+        unsafe { std::env::remove_var("NO_COLOR") };
     }
 }

@@ -375,6 +375,30 @@ mod tests {
         assert!(env.contains_key("PWD"));
     }
 
+    #[tokio::test]
+    async fn execute_shell_echo_returns_zero() {
+        let cwd = std::env::current_dir().unwrap();
+        let code = execute_shell("echo hello", &cwd, &HashMap::new(), &HashSet::new()).await;
+        assert_eq!(code, Some(0));
+    }
+
+    #[tokio::test]
+    async fn execute_shell_false_returns_nonzero() {
+        let cwd = std::env::current_dir().unwrap();
+        let code = execute_shell("false", &cwd, &HashMap::new(), &HashSet::new()).await;
+        assert_ne!(code, Some(0));
+    }
+
+    #[test]
+    fn shellexpand_tilde_expands_to_home() {
+        if let Some(home) = dirs::home_dir() {
+            let result = shellexpand("~/foo/bar");
+            assert_eq!(result, format!("{}/foo/bar", home.display()));
+        }
+        // No tilde → unchanged
+        assert_eq!(shellexpand("/tmp/test"), "/tmp/test");
+    }
+
     #[test]
     fn handle_export_unset() {
         let mut cwd = std::env::current_dir().unwrap();

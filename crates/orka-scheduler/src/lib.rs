@@ -5,11 +5,13 @@
 
 #![warn(missing_docs)]
 
+/// In-memory schedule store for testing.
+pub mod memory_store;
 /// Async scheduler tick loop.
 pub mod scheduler;
 /// Skill implementations for creating, listing, and deleting schedules.
 pub mod skills;
-/// Redis-backed schedule persistence store.
+/// Schedule persistence backends and the [`ScheduleStore`] trait.
 pub mod store;
 /// Core data types for scheduled tasks.
 pub mod types;
@@ -21,11 +23,12 @@ use orka_core::config::SchedulerConfig;
 use orka_core::traits::Skill;
 use tracing::info;
 
+pub use memory_store::InMemoryScheduleStore;
 pub use scheduler::{Scheduler, SkillRegistry};
-pub use store::RedisScheduleStore;
+pub use store::{RedisScheduleStore, ScheduleStore};
 
 /// A list of skills bundled with the schedule store needed to run the scheduler loop.
-pub type SchedulerSkills = (Vec<Arc<dyn Skill>>, Arc<RedisScheduleStore>);
+pub type SchedulerSkills = (Vec<Arc<dyn Skill>>, Arc<dyn ScheduleStore>);
 
 /// Create scheduler skills and the schedule store.
 ///
@@ -34,7 +37,7 @@ pub fn create_scheduler_skills(
     _config: &SchedulerConfig,
     redis_url: &str,
 ) -> Result<SchedulerSkills> {
-    let store = Arc::new(RedisScheduleStore::new(redis_url)?);
+    let store: Arc<dyn ScheduleStore> = Arc::new(RedisScheduleStore::new(redis_url)?);
 
     let create: Arc<dyn Skill> = Arc::new(skills::schedule_create::ScheduleCreateSkill::new(
         store.clone(),

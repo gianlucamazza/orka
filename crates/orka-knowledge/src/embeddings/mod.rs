@@ -1,5 +1,7 @@
 /// Local ONNX-based embedding provider using fastembed.
 pub mod local;
+/// In-memory embedding provider for testing.
+pub mod memory;
 /// OpenAI-compatible embedding provider via REST API.
 pub mod openai;
 

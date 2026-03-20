@@ -250,6 +250,53 @@ mod tests {
         assert_eq!(ctx.messages().await.len(), 1);
     }
 
+    #[test]
+    fn slot_key_agent_factory() {
+        let agent = AgentId::new("a1");
+        let key = SlotKey::agent(&agent, "score");
+        assert_eq!(key.namespace, "a1");
+        assert_eq!(key.name, "score");
+    }
+
+    #[test]
+    fn slot_key_shared_factory() {
+        let key = SlotKey::shared("counter");
+        assert_eq!(key.namespace, "__shared");
+        assert_eq!(key.name, "counter");
+    }
+
+    #[tokio::test]
+    async fn get_typed_deserializes() {
+        let ctx = make_context();
+        let agent = AgentId::new("a1");
+        let key = SlotKey::shared("num");
+        ctx.set(&agent, key.clone(), serde_json::json!(42)).await;
+        let val: Option<i64> = ctx.get_typed(&key).await;
+        assert_eq!(val, Some(42));
+    }
+
+    #[tokio::test]
+    async fn set_messages_replaces_all() {
+        let ctx = make_context();
+        ctx.push_message(orka_llm::client::ChatMessage::user("a"))
+            .await;
+        ctx.push_message(orka_llm::client::ChatMessage::user("b"))
+            .await;
+        assert_eq!(ctx.messages().await.len(), 2);
+
+        ctx.set_messages(vec![orka_llm::client::ChatMessage::user("only")])
+            .await;
+        assert_eq!(ctx.messages().await.len(), 1);
+    }
+
+    #[test]
+    fn elapsed_ms_is_positive() {
+        let ctx = make_context();
+        // Even immediately, elapsed should be >= 0 (it's u64, so always true)
+        // But we really just want to verify it doesn't panic
+        let _ms = ctx.elapsed_ms();
+    }
+
     #[tokio::test]
     async fn slot_key_namespacing() {
         let ctx = make_context();

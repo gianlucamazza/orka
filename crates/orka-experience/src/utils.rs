@@ -44,4 +44,24 @@ mod tests {
         let input = "Some text [{\"text\": \"test\"}] more text";
         assert_eq!(extract_json_array(input), "[{\"text\": \"test\"}]");
     }
+
+    #[test]
+    fn extract_json_array_plain_code_fence() {
+        // Code fence without `json` tag, but content starts with `[`
+        let input = "```\n[{\"text\": \"hello\"}]\n```";
+        assert_eq!(extract_json_array(input), "[{\"text\": \"hello\"}]");
+    }
+
+    #[test]
+    fn extract_json_array_no_brackets() {
+        let input = "plain text without brackets";
+        assert_eq!(extract_json_array(input), "plain text without brackets");
+    }
+
+    #[test]
+    fn extract_json_array_nested_brackets() {
+        let input = "prefix [{\"a\": [1,2]}] suffix";
+        let result = extract_json_array(input);
+        assert_eq!(result, "[{\"a\": [1,2]}]");
+    }
 }

@@ -23,3 +23,4 @@ pdf-extract = "0.7"
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 testcontainers.workspace = true
+proptest.workspace = true

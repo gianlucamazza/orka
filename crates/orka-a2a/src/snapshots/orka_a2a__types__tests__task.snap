@@ -1,0 +1,39 @@
+---
+source: crates/orka-a2a/src/types.rs
+expression: task
+---
+{
+  "id": "task-001",
+  "status": "completed",
+  "messages": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Hello"
+        }
+      ]
+    },
+    {
+      "role": "agent",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Hi there!"
+        }
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "response",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Hi there!"
+        }
+      ]
+    }
+  ]
+}

@@ -122,6 +122,23 @@ mod tests {
     }
 
     #[test]
+    fn rl_escape_wraps_ansi_sequences() {
+        // A raw ANSI sequence: ESC[32m (green)
+        let input = "\x1b[32mhello\x1b[0m";
+        let escaped = rl_escape(input);
+        // Each ESC[...m sequence should be wrapped with \x01 before and \x02 after
+        assert!(escaped.contains("\x01\x1b[32m\x02"));
+        assert!(escaped.contains("\x01\x1b[0m\x02"));
+        assert!(escaped.contains("hello"));
+    }
+
+    #[test]
+    fn rl_escape_plain_text_unchanged() {
+        let input = "plain text";
+        assert_eq!(rl_escape(input), input);
+    }
+
+    #[test]
     fn prompt_success_exit() {
         let p = build_prompt(Path::new("/tmp"), Some(0));
         assert!(p.contains("/tmp"));

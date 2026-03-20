@@ -195,6 +195,62 @@ mod tests {
     }
 
     #[test]
+    fn build_reflection_prompt_success_trajectory() {
+        let reflector = PrincipleReflector::new(Arc::new(MockLlm), None, 1024);
+        let trajectory = crate::types::Trajectory {
+            id: "t1".into(),
+            session_id: "s1".into(),
+            workspace: "default".into(),
+            timestamp: Utc::now(),
+            user_message: "hello".into(),
+            agent_response: "world".into(),
+            skills_used: vec![],
+            iterations: 3,
+            total_tokens: 800,
+            success: true,
+            duration_ms: 2000,
+            errors: vec![],
+        };
+        let prompt = reflector.build_reflection_prompt(&trajectory);
+        assert!(prompt.contains("SUCCESS"));
+        assert!(prompt.contains("3")); // iterations
+        assert!(prompt.contains("800")); // tokens
+    }
+
+    #[test]
+    fn build_reflection_prompt_truncates_long_message() {
+        let reflector = PrincipleReflector::new(Arc::new(MockLlm), None, 1024);
+        let long_msg = "x".repeat(600);
+        let trajectory = crate::types::Trajectory {
+            id: "t1".into(),
+            session_id: "s1".into(),
+            workspace: "default".into(),
+            timestamp: Utc::now(),
+            user_message: long_msg,
+            agent_response: "ok".into(),
+            skills_used: vec![],
+            iterations: 1,
+            total_tokens: 100,
+            success: true,
+            duration_ms: 500,
+            errors: vec![],
+        };
+        let prompt = reflector.build_reflection_prompt(&trajectory);
+        // Should be truncated at 500 chars + "..."
+        assert!(prompt.contains("..."));
+    }
+
+    #[test]
+    fn parse_principles_filters_empty_text() {
+        let reflector = PrincipleReflector::new(Arc::new(MockLlm), None, 1024);
+        let response =
+            r#"[{"text": "", "kind": "do"}, {"text": "valid principle", "kind": "avoid"}]"#;
+        let principles = reflector.parse_principles(response, "default");
+        assert_eq!(principles.len(), 1);
+        assert_eq!(principles[0].text, "valid principle");
+    }
+
+    #[test]
     fn parse_principles_invalid_json() {
         let reflector = PrincipleReflector::new(Arc::new(MockLlm), None, 1024);
         let principles = reflector.parse_principles("not json at all", "default");

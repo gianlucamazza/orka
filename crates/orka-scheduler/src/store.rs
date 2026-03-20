@@ -1,8 +1,36 @@
+use async_trait::async_trait;
 use orka_core::Result;
 use redis::AsyncCommands;
 use std::sync::Arc;
 
 use crate::types::Schedule;
+
+/// Trait for schedule persistence backends.
+#[async_trait]
+pub trait ScheduleStore: Send + Sync + 'static {
+    /// Persist a schedule and register it for future execution.
+    async fn add(&self, schedule: &Schedule) -> Result<()>;
+
+    /// Remove a schedule by ID. Returns `true` if it existed.
+    async fn remove(&self, id: &str) -> Result<bool>;
+
+    /// Return all schedules whose `next_run` timestamp is ≤ `now`.
+    async fn get_due(&self, now: i64) -> Result<Vec<Schedule>>;
+
+    /// List all schedules. Pass `include_completed = true` to include
+    /// one-shot schedules that have already fired.
+    async fn list(&self, include_completed: bool) -> Result<Vec<Schedule>>;
+
+    /// Find a schedule by human-readable name (including completed ones).
+    async fn find_by_name(&self, name: &str) -> Result<Option<Schedule>>;
+
+    /// Update the `next_run` timestamp for a recurring schedule.
+    async fn update_next_run(&self, id: &str, schedule: &Schedule) -> Result<()>;
+}
+
+// ---------------------------------------------------------------------------
+// Redis implementation
+// ---------------------------------------------------------------------------
 
 const SCHEDULE_KEY: &str = "orka:schedules";
 const SCHEDULE_DATA_PREFIX: &str = "orka:schedule:";
@@ -26,9 +54,11 @@ impl RedisScheduleStore {
             pool: Arc::new(pool),
         })
     }
+}
 
-    /// Persist a schedule and add it to the sorted set with `next_run` as score.
-    pub async fn add(&self, schedule: &Schedule) -> Result<()> {
+#[async_trait]
+impl ScheduleStore for RedisScheduleStore {
+    async fn add(&self, schedule: &Schedule) -> Result<()> {
         let mut conn =
             self.pool.get().await.map_err(|e| {
                 orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
@@ -54,8 +84,7 @@ impl RedisScheduleStore {
         Ok(())
     }
 
-    /// Remove a schedule by ID. Returns `true` if it existed.
-    pub async fn remove(&self, id: &str) -> Result<bool> {
+    async fn remove(&self, id: &str) -> Result<bool> {
         let mut conn =
             self.pool.get().await.map_err(|e| {
                 orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
@@ -73,14 +102,12 @@ impl RedisScheduleStore {
         Ok(removed > 0)
     }
 
-    /// Return all schedules whose `next_run` timestamp is ≤ `now`.
-    pub async fn get_due(&self, now: i64) -> Result<Vec<Schedule>> {
+    async fn get_due(&self, now: i64) -> Result<Vec<Schedule>> {
         let mut conn =
             self.pool.get().await.map_err(|e| {
                 orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
             })?;
 
-        // Get all schedule IDs with score <= now
         let ids: Vec<String> = conn
             .zrangebyscore(SCHEDULE_KEY, "-inf", now as f64)
             .await
@@ -103,8 +130,7 @@ impl RedisScheduleStore {
         Ok(schedules)
     }
 
-    /// List all schedules. Pass `include_completed = true` to include one-shot schedules that have already fired.
-    pub async fn list(&self, include_completed: bool) -> Result<Vec<Schedule>> {
+    async fn list(&self, include_completed: bool) -> Result<Vec<Schedule>> {
         let mut conn =
             self.pool.get().await.map_err(|e| {
                 orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
@@ -133,14 +159,12 @@ impl RedisScheduleStore {
         Ok(schedules)
     }
 
-    /// Find a schedule by human-readable name (including completed ones).
-    pub async fn find_by_name(&self, name: &str) -> Result<Option<Schedule>> {
+    async fn find_by_name(&self, name: &str) -> Result<Option<Schedule>> {
         let all = self.list(true).await?;
         Ok(all.into_iter().find(|s| s.name == name))
     }
 
-    /// Update the `next_run` timestamp for a recurring schedule.
-    pub async fn update_next_run(&self, _id: &str, schedule: &Schedule) -> Result<()> {
+    async fn update_next_run(&self, _id: &str, schedule: &Schedule) -> Result<()> {
         self.add(schedule).await
     }
 }

@@ -11,12 +11,14 @@ pub struct InMemoryAuthenticator {
 }
 
 impl InMemoryAuthenticator {
+    /// Create an empty authenticator with no registered keys.
     pub fn new() -> Self {
         Self {
             keys: HashMap::new(),
         }
     }
 
+    /// Register an API key mapped to a named identity with the given scopes.
     pub fn with_key(mut self, key: &str, name: &str, scopes: Vec<String>) -> Self {
         self.keys.insert(
             key.to_owned(),

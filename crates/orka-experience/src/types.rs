@@ -131,6 +131,82 @@ pub struct HandoffTrace {
     pub reason: String,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_trajectory() -> Trajectory {
+        Trajectory {
+            id: "t1".into(),
+            session_id: "s1".into(),
+            workspace: "default".into(),
+            timestamp: Utc::now(),
+            user_message: "hello".into(),
+            agent_response: "world".into(),
+            skills_used: vec![SkillTrace {
+                name: "web_search".into(),
+                duration_ms: 100,
+                success: true,
+                error_category: None,
+                error_message: None,
+            }],
+            iterations: 2,
+            total_tokens: 500,
+            success: true,
+            duration_ms: 1500,
+            errors: vec![],
+        }
+    }
+
+    #[test]
+    fn trajectory_serde_roundtrip() {
+        let t = sample_trajectory();
+        let json = serde_json::to_string(&t).unwrap();
+        let back: Trajectory = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, "t1");
+        assert_eq!(back.skills_used.len(), 1);
+        assert!(back.success);
+    }
+
+    #[test]
+    fn skill_trace_serde_optional_fields() {
+        let trace = SkillTrace {
+            name: "echo".into(),
+            duration_ms: 50,
+            success: true,
+            error_category: None,
+            error_message: None,
+        };
+        let json = serde_json::to_string(&trace).unwrap();
+        // Optional fields should be omitted
+        assert!(!json.contains("error_category"));
+        assert!(!json.contains("error_message"));
+    }
+
+    #[test]
+    fn principle_kind_serde() {
+        let do_json = serde_json::to_string(&PrincipleKind::Do).unwrap();
+        assert_eq!(do_json, "\"do\"");
+        let avoid_json = serde_json::to_string(&PrincipleKind::Avoid).unwrap();
+        assert_eq!(avoid_json, "\"avoid\"");
+        let back: PrincipleKind = serde_json::from_str("\"do\"").unwrap();
+        assert_eq!(back, PrincipleKind::Do);
+    }
+
+    #[test]
+    fn structural_action_serde() {
+        let action = StructuralAction::DisableSkill {
+            skill_name: "broken".into(),
+            reason: "keeps failing".into(),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("disable_skill"));
+        let back: StructuralAction = serde_json::from_str(&json).unwrap();
+        let StructuralAction::DisableSkill { skill_name, .. } = back;
+        assert_eq!(skill_name, "broken");
+    }
+}
+
 /// A trajectory record aggregated from a full multi-agent graph execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphTrajectory {

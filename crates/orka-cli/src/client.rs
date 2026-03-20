@@ -202,6 +202,29 @@ mod tests {
     }
 
     #[test]
+    fn ws_url_handles_multiple_trailing_slashes() {
+        let client = OrkaClient::new("http://localhost:8080///", None);
+        let url = client.ws_url("sess1");
+        assert_eq!(url, "ws://localhost:8080/api/v1/ws?session_id=sess1");
+    }
+
+    #[test]
+    fn resolve_session_id_uuid_format_valid() {
+        let id = OrkaClient::resolve_session_id(None);
+        // UUID v7: 8-4-4-4-12 format, all hex + hyphens
+        assert_eq!(id.len(), 36);
+        let parts: Vec<&str> = id.split('-').collect();
+        assert_eq!(parts.len(), 5);
+        assert_eq!(parts[0].len(), 8);
+        assert_eq!(parts[1].len(), 4);
+        assert_eq!(parts[2].len(), 4);
+        assert_eq!(parts[3].len(), 4);
+        assert_eq!(parts[4].len(), 12);
+        // Version nibble (first char of 3rd group) should be '7' for UUID v7
+        assert!(parts[2].starts_with('7'), "expected UUID v7, got {id}");
+    }
+
+    #[test]
     fn new_trims_trailing_slash_from_base_url() {
         let client = OrkaClient::new("http://localhost:8080/", None);
         assert_eq!(client.base_url(), "http://localhost:8080");

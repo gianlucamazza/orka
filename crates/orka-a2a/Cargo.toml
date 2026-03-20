@@ -24,3 +24,4 @@ tokio = { workspace = true, features = ["test-util", "macros"] }
 axum = { workspace = true }
 tower = { workspace = true }
 http.workspace = true
+insta.workspace = true

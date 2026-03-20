@@ -36,3 +36,17 @@ impl From<&SandboxLimitsConfig> for WasmLimits {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_limits_are_reasonable() {
+        let limits = WasmLimits::default();
+        assert_eq!(limits.fuel, Some(1_000_000_000));
+        assert_eq!(limits.max_memory_bytes, 64 * 1024 * 1024);
+        assert_eq!(limits.max_output_bytes, 1024 * 1024);
+        assert_eq!(limits.timeout, Duration::from_secs(30));
+    }
+}

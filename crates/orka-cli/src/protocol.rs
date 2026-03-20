@@ -124,4 +124,91 @@ mod tests {
             WsMessage::Unknown(_)
         ));
     }
+
+    #[test]
+    fn classifies_usage_chunk() {
+        let raw = r#"{"type":"Usage","data":{"input_tokens":1500,"output_tokens":300,"model":"claude-sonnet-4-20250514"}}"#;
+        match classify_ws_message(raw) {
+            WsMessage::Stream(StreamChunkKind::Usage {
+                input_tokens,
+                output_tokens,
+                model,
+                ..
+            }) => {
+                assert_eq!(input_tokens, 1500);
+                assert_eq!(output_tokens, 300);
+                assert_eq!(model, "claude-sonnet-4-20250514");
+            }
+            other => panic!("expected Usage, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_thinking_delta_chunk() {
+        let raw = r#"{"type":"ThinkingDelta","data":"Let me think..."}"#;
+        match classify_ws_message(raw) {
+            WsMessage::Stream(StreamChunkKind::ThinkingDelta(s)) => {
+                assert_eq!(s, "Let me think...")
+            }
+            other => panic!("expected ThinkingDelta, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_agent_switch_chunk() {
+        let raw = r#"{"type":"AgentSwitch","data":{"agent_id":"a1","display_name":"Researcher"}}"#;
+        match classify_ws_message(raw) {
+            WsMessage::Stream(StreamChunkKind::AgentSwitch { display_name, .. }) => {
+                assert_eq!(display_name, "Researcher");
+            }
+            other => panic!("expected AgentSwitch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_context_info_chunk() {
+        let raw = r#"{"type":"ContextInfo","data":{"history_tokens":50000,"context_window":128000,"messages_truncated":3,"summary_generated":true}}"#;
+        match classify_ws_message(raw) {
+            WsMessage::Stream(StreamChunkKind::ContextInfo {
+                history_tokens,
+                context_window,
+                messages_truncated,
+                ..
+            }) => {
+                assert_eq!(history_tokens, 50000);
+                assert_eq!(context_window, 128000);
+                assert_eq!(messages_truncated, 3);
+            }
+            other => panic!("expected ContextInfo, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_principles_used_chunk() {
+        let raw = r#"{"type":"PrinciplesUsed","data":{"count":5}}"#;
+        match classify_ws_message(raw) {
+            WsMessage::Stream(StreamChunkKind::PrinciplesUsed { count }) => {
+                assert_eq!(count, 5);
+            }
+            other => panic!("expected PrinciplesUsed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_legacy_content_field_as_final() {
+        let raw = r#"{"content":"response via content"}"#;
+        match classify_ws_message(raw) {
+            WsMessage::Final(text) => assert_eq!(text, "response via content"),
+            other => panic!("expected Final, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_legacy_message_field_as_final() {
+        let raw = r#"{"message":"response via message"}"#;
+        match classify_ws_message(raw) {
+            WsMessage::Final(text) => assert_eq!(text, "response via message"),
+            other => panic!("expected Final, got {other:?}"),
+        }
+    }
 }

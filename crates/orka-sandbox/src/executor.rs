@@ -70,3 +70,39 @@ pub trait SandboxExecutor: Send + Sync + 'static {
     /// Execute the given sandbox request and return the result.
     async fn execute(&self, req: SandboxRequest) -> orka_core::Result<SandboxResult>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sandbox_limits_default_values() {
+        let limits = SandboxLimits::default();
+        assert_eq!(limits.timeout, Duration::from_secs(30));
+        assert_eq!(limits.max_memory_bytes, 64 * 1024 * 1024);
+        assert_eq!(limits.max_output_bytes, 1024 * 1024);
+    }
+
+    #[test]
+    fn sandbox_lang_variants() {
+        // Smoke test: all variants are constructible and serializable
+        for lang in [SandboxLang::Wasm, SandboxLang::Python, SandboxLang::Bash] {
+            let json = serde_json::to_string(&lang).unwrap();
+            assert!(!json.is_empty());
+        }
+    }
+
+    #[test]
+    fn sandbox_request_builder() {
+        let req = SandboxRequest {
+            code: b"print('hi')".to_vec(),
+            language: SandboxLang::Python,
+            stdin: Some(b"input".to_vec()),
+            env: HashMap::from([("KEY".into(), "VAL".into())]),
+            limits: SandboxLimits::default(),
+        };
+        assert_eq!(req.code, b"print('hi')");
+        assert!(req.stdin.is_some());
+        assert_eq!(req.env.get("KEY").unwrap(), "VAL");
+    }
+}

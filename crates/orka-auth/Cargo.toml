@@ -28,3 +28,5 @@ chrono.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+tower = { workspace = true, features = ["util"] }
+http-body-util = "0.1"

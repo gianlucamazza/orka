@@ -530,4 +530,77 @@ mod tests {
         r.reset();
         assert!(r.buffer.is_empty());
     }
+
+    #[test]
+    fn find_closing_fence_4_backtick() {
+        let s = "````rust\ncode here\n````\n";
+        let pos = find_closing_fence_full(s);
+        assert!(pos.is_some());
+        assert_eq!(pos.unwrap(), s.len());
+    }
+
+    #[test]
+    fn find_closing_fence_inner_3_does_not_close_4() {
+        // A 3-backtick fence inside a 4-backtick block should not close it
+        let s = "````\ninner ```\nstill inside\n````\n";
+        let pos = find_closing_fence_full(s);
+        assert!(pos.is_some());
+        let block = &s[..pos.unwrap()];
+        assert!(block.contains("still inside"));
+    }
+
+    #[test]
+    fn find_closing_fence_no_newline_returns_none() {
+        // No newline at all — can't even find the opening line end
+        assert_eq!(find_closing_fence_full("```rust"), None);
+    }
+
+    #[test]
+    fn split_blocks_numbered_list_across_blank_lines() {
+        let text = "1. First item\n\n2. Second item\n\n3. Third item";
+        let blocks = split_blocks(text);
+        // Should be kept as one block (list continuity)
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].contains("First"));
+        assert!(blocks[0].contains("Third"));
+    }
+
+    #[test]
+    fn has_list_start_all_variants() {
+        assert!(has_list_start("- item"));
+        assert!(has_list_start("* item"));
+        assert!(has_list_start("+ item"));
+        assert!(has_list_start("1. item"));
+        assert!(has_list_start("42. item"));
+    }
+
+    #[test]
+    fn has_list_start_non_list() {
+        assert!(!has_list_start("just text"));
+        assert!(!has_list_start(""));
+        assert!(!has_list_start("-no space"));
+        assert!(!has_list_start("a. not a number"));
+    }
+
+    #[test]
+    fn normalize_gfm_table_to_prose_transition() {
+        // UI-15: blank line should be inserted between table and prose
+        let input = "| A | B |\n|---|---|\n| 1 | 2 |\nSome text after";
+        let out = normalize_gfm_tables(input);
+        // The prose should be preceded by an extra blank line
+        assert!(out.contains("\n\nSome text after"));
+    }
+
+    #[test]
+    fn streaming_partial_code_fence_not_rendered() {
+        let mut r = MarkdownRenderer::new();
+        // Push an opening fence without closing — should not render
+        r.push_delta("```rust\nfn main() {}\n");
+        assert!(r.buffer.contains("```rust"));
+        // Now close it
+        r.push_delta("```\n\nAfter code");
+        // The code block should be consumed, "After code" remains
+        assert!(!r.buffer.contains("```rust"));
+        assert!(r.buffer.contains("After code"));
+    }
 }

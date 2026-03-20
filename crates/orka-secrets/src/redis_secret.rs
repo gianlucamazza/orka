@@ -63,7 +63,7 @@ impl RedisSecretManager {
     }
 
     /// Encrypt plaintext bytes. Returns nonce || ciphertext.
-    fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
+    pub(crate) fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
         let cipher = match &self.cipher {
             Some(c) => c,
             None => return Ok(plaintext.to_vec()),
@@ -83,7 +83,7 @@ impl RedisSecretManager {
     }
 
     /// Decrypt nonce || ciphertext back to plaintext.
-    fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
+    pub(crate) fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
         let cipher = match &self.cipher {
             Some(c) => c,
             None => return Ok(data.to_vec()),
@@ -192,5 +192,87 @@ impl SecretManager for RedisSecretManager {
         }
 
         Ok(paths)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: create a manager with encryption, using a dummy Redis URL
+    /// (pool creation succeeds but no actual connection is made until used).
+    fn manager_with_key(key: &[u8; 32]) -> RedisSecretManager {
+        RedisSecretManager::with_encryption("redis://localhost:6379", Some(key)).unwrap()
+    }
+
+    fn manager_plaintext() -> RedisSecretManager {
+        RedisSecretManager::new("redis://localhost:6379").unwrap()
+    }
+
+    #[test]
+    fn encrypt_decrypt_roundtrip() {
+        let key = [0xABu8; 32];
+        let mgr = manager_with_key(&key);
+        let plaintext = b"super secret value";
+        let encrypted = mgr.encrypt(plaintext).unwrap();
+        assert_ne!(encrypted, plaintext); // must differ
+        let decrypted = mgr.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn plaintext_mode_passthrough() {
+        let mgr = manager_plaintext();
+        let data = b"not encrypted";
+        let encrypted = mgr.encrypt(data).unwrap();
+        assert_eq!(encrypted, data); // no encryption
+        let decrypted = mgr.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted, data);
+    }
+
+    #[test]
+    fn encrypt_produces_different_ciphertexts() {
+        let key = [0x42u8; 32];
+        let mgr = manager_with_key(&key);
+        let plaintext = b"same input";
+        let ct1 = mgr.encrypt(plaintext).unwrap();
+        let ct2 = mgr.encrypt(plaintext).unwrap();
+        // Different random nonces => different ciphertexts
+        assert_ne!(ct1, ct2);
+        // But both decrypt to the same plaintext
+        assert_eq!(mgr.decrypt(&ct1).unwrap(), plaintext);
+        assert_eq!(mgr.decrypt(&ct2).unwrap(), plaintext);
+    }
+
+    #[test]
+    fn decrypt_too_short_data_fails() {
+        let key = [0x01u8; 32];
+        let mgr = manager_with_key(&key);
+        // Less than NONCE_SIZE bytes
+        let result = mgr.decrypt(&[0u8; 5]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn decrypt_tampered_ciphertext_fails() {
+        let key = [0x99u8; 32];
+        let mgr = manager_with_key(&key);
+        let mut encrypted = mgr.encrypt(b"original").unwrap();
+        // Flip a byte in the ciphertext portion
+        let last = encrypted.len() - 1;
+        encrypted[last] ^= 0xFF;
+        assert!(mgr.decrypt(&encrypted).is_err());
+    }
+
+    #[test]
+    fn invalid_key_length_fails() {
+        let result =
+            RedisSecretManager::with_encryption("redis://localhost:6379", Some(&[0u8; 16]));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn key_prefix_format() {
+        assert_eq!(RedisSecretManager::key("my/path"), "orka:secret:my/path");
     }
 }
