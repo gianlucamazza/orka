@@ -189,6 +189,9 @@ impl WorkspaceHandler {
             Some(envelope.id),
         );
         msg.metadata = envelope.metadata.clone();
+        msg.metadata
+            .entry("source_channel".into())
+            .or_insert_with(|| serde_json::Value::String(envelope.channel.clone()));
         msg
     }
 

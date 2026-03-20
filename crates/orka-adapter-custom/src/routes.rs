@@ -163,6 +163,7 @@ pub async fn handle_health() -> impl IntoResponse {
 #[derive(Deserialize)]
 struct WsParams {
     session_id: String,
+    channels: Option<String>, // comma-separated, e.g. "telegram,discord"
 }
 
 async fn handle_ws(
@@ -177,8 +178,21 @@ async fn handle_ws(
         }
     };
 
+    let channel_filter = params.channels.as_deref().map(|s| {
+        s.split(',')
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty())
+            .collect::<Vec<_>>()
+    });
+
     ws.on_upgrade(move |socket| {
-        handle_ws_connection(socket, state.ws_registry, state.stream_registry, session_id)
+        handle_ws_connection(
+            socket,
+            state.ws_registry,
+            state.stream_registry,
+            session_id,
+            channel_filter,
+        )
     })
 }
 
@@ -187,6 +201,7 @@ async fn handle_ws_connection(
     registry: WsRegistry,
     stream_registry: StreamRegistry,
     session_id: SessionId,
+    channel_filter: Option<Vec<String>>,
 ) {
     info!(%session_id, "WebSocket connected");
 
@@ -198,7 +213,7 @@ async fn handle_ws_connection(
     let send_task = tokio::spawn(async move {
         loop {
             tokio::select! {
-                // Stream chunks (real-time deltas, tool status)
+                // Stream chunks (real-time deltas, tool status) — always forwarded
                 chunk = stream_rx.recv() => {
                     if let Some(chunk) = chunk
                         && let Ok(json) = serde_json::to_string(&chunk.kind)
@@ -210,6 +225,14 @@ async fn handle_ws_connection(
                 msg = rx.recv() => {
                     match msg {
                         Some(text) => {
+                            // Apply channel filter: skip if channel not in the allowed list
+                            if let Some(ref filter) = channel_filter
+                                && let Ok(val) = serde_json::from_str::<serde_json::Value>(&text)
+                                && let Some(ch) = val.get("channel").and_then(|v| v.as_str())
+                                && !filter.iter().any(|f| f == ch)
+                            {
+                                continue;
+                            }
                             if ws_sink.send(Message::Text(text.into())).await.is_err() {
                                 break;
                             }

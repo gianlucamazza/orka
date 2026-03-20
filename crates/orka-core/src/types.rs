@@ -749,6 +749,15 @@ impl OutboundMessage {
             .and_then(|v| v.as_i64())
             .ok_or_else(|| crate::Error::Other(format!("missing metadata key: {key}")))
     }
+
+    /// Set `source_channel` in metadata and return self (builder-style).
+    pub fn with_source_channel(mut self, channel: &str) -> Self {
+        self.metadata.insert(
+            "source_channel".into(),
+            serde_json::Value::String(channel.into()),
+        );
+        self
+    }
 }
 
 /// A stored session with associated state.
@@ -940,6 +949,35 @@ mod tests {
         msg.metadata.insert("num".into(), json!(42));
         assert_eq!(msg.require_meta_i64("num").unwrap(), 42);
         assert!(msg.require_meta_i64("nope").is_err());
+    }
+
+    #[test]
+    fn with_source_channel_sets_metadata() {
+        let msg = OutboundMessage::text("ch", SessionId::new(), "hi", None)
+            .with_source_channel("telegram");
+        assert_eq!(
+            msg.metadata
+                .get("source_channel")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "telegram"
+        );
+    }
+
+    #[test]
+    fn with_source_channel_overwrites_existing() {
+        let mut msg = OutboundMessage::text("ch", SessionId::new(), "hi", None);
+        msg.metadata.insert("source_channel".into(), json!("old"));
+        let msg = msg.with_source_channel("new");
+        assert_eq!(
+            msg.metadata
+                .get("source_channel")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "new"
+        );
     }
 
     // --- Envelope and MemoryEntry builders ---

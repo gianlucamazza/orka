@@ -231,7 +231,10 @@ mod tests {
     fn ws_url_encodes_special_chars_in_session_id() {
         let client = OrkaClient::new("http://localhost:8080", None);
         let url = client.ws_url("sess&id=1 2");
-        assert_eq!(url, "ws://localhost:8080/api/v1/ws?session_id=sess%26id%3D1%202");
+        assert_eq!(
+            url,
+            "ws://localhost:8080/api/v1/ws?session_id=sess%26id%3D1%202"
+        );
     }
 
     #[test]

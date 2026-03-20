@@ -61,6 +61,9 @@ impl ExecutionResult {
             Some(ctx.trigger.id),
         );
         msg.metadata = ctx.trigger.metadata.clone();
+        msg.metadata
+            .entry("source_channel".into())
+            .or_insert_with(|| serde_json::Value::String(ctx.trigger.channel.clone()));
         vec![msg]
     }
 }

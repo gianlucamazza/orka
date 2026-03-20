@@ -679,7 +679,9 @@ pub async fn run(
 
     loop {
         let (plain_prompt, colored_prompt) = build_prompt(&cwd, last_exit);
-        *colored_prompt_shared.lock().unwrap_or_else(|e| e.into_inner()) = colored_prompt;
+        *colored_prompt_shared
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = colored_prompt;
 
         // Send plain prompt (no ANSI) to the editor thread so rustyline measures width correctly
         if prompt_tx.send(plain_prompt).is_err() {

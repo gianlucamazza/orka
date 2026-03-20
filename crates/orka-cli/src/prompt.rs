@@ -145,6 +145,9 @@ mod tests {
     #[test]
     fn prompt_plain_has_no_ansi() {
         let (plain, _) = build_prompt(Path::new("/tmp"), Some(1));
-        assert!(!plain.contains('\x1b'), "plain prompt must not contain ANSI escapes");
+        assert!(
+            !plain.contains('\x1b'),
+            "plain prompt must not contain ANSI escapes"
+        );
     }
 }
