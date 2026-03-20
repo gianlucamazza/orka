@@ -90,10 +90,17 @@ fn current_version() -> &'static str {
 }
 
 /// Returns true if `tag` is a higher semver than the current binary.
+///
+/// Pre-release suffixes (e.g. `-rc.1`, `-beta`) are stripped from each
+/// segment before parsing so that `v0.5.0-rc.1` compares correctly against
+/// `v0.5.0` instead of silently being treated as patch `0`.
 fn is_newer(tag: &str) -> bool {
     let parse = |v: &str| -> (u64, u64, u64) {
         let v = v.trim_start_matches('v');
-        let mut it = v.split('.').filter_map(|p| p.parse::<u64>().ok());
+        // Strip pre-release suffix from each dot-segment before parsing.
+        let mut it = v
+            .split('.')
+            .filter_map(|p| p.split('-').next()?.parse::<u64>().ok());
         (
             it.next().unwrap_or(0),
             it.next().unwrap_or(0),
@@ -317,6 +324,12 @@ pub async fn run_update() -> Result<()> {
             return Err(format!("Checksum mismatch: expected {expected}, got {actual}").into());
         }
         println!("{} Checksum verified.", "\u{2713}".green().bold());
+    } else {
+        eprintln!(
+            "{} No checksum file ({sha256_asset_name}) found in release assets. \
+             Skipping integrity verification.",
+            "\u{26a0}".yellow()
+        );
     }
 
     // 5. Extract the `orka` binary from the tarball (was step 4)
@@ -328,13 +341,11 @@ pub async fn run_update() -> Result<()> {
     std::fs::create_dir_all(&extract_dir)?;
 
     let status = tokio::process::Command::new("tar")
-        .args([
-            "xzf",
-            tarball_path.to_str().unwrap(),
-            "-C",
-            extract_dir.to_str().unwrap(),
-            "orka",
-        ])
+        .arg("xzf")
+        .arg(&tarball_path)
+        .arg("-C")
+        .arg(&extract_dir)
+        .arg("orka")
         .status()
         .await?;
 
@@ -353,9 +364,15 @@ pub async fn run_update() -> Result<()> {
 
     // 6. Atomically replace the running binary (safe on Linux)
     let current_exe = std::env::current_exe()?;
-    std::fs::rename(&new_binary, &current_exe).or_else(|_| {
-        // Cross-filesystem fallback: copy + overwrite
-        std::fs::copy(&new_binary, &current_exe).map(|_| ())
+    std::fs::rename(&new_binary, &current_exe).or_else(|_| -> std::io::Result<()> {
+        // Cross-filesystem fallback: copy to a sibling temp file, then rename.
+        // This avoids leaving a partially-written binary if the process is killed
+        // mid-copy (a plain fs::copy + overwrite is not atomic).
+        let tmp_exe = current_exe.with_extension("update_tmp");
+        std::fs::copy(&new_binary, &tmp_exe)?;
+        std::fs::rename(&tmp_exe, &current_exe).inspect_err(|_| {
+            let _ = std::fs::remove_file(&tmp_exe);
+        })
     })?;
 
     write_cache(&release.tag_name);

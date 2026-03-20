@@ -13,34 +13,37 @@ pub enum WsMessage {
 
 /// Classify a raw WebSocket text frame into a typed message.
 ///
-/// 1. Try deserializing as `StreamChunkKind` (`{"type":"Delta","data":"..."}`)
-/// 2. Try extracting text from OutboundMessage shape or legacy fields
-/// 3. Fall back to `Unknown`
+/// 1. Parse as `serde_json::Value` (single parse for the whole message)
+/// 2. Try deserializing that value as `StreamChunkKind`
+/// 3. Try extracting text from OutboundMessage shape or legacy fields
+/// 4. Fall back to `Unknown`
 pub fn classify_ws_message(raw: &str) -> WsMessage {
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return WsMessage::Unknown(raw.to_string());
+    };
+
     // Stream chunk: top-level { "type": "Delta"|"ToolStart"|... }
-    if let Ok(kind) = serde_json::from_str::<StreamChunkKind>(raw) {
+    if let Ok(kind) = serde_json::from_value::<StreamChunkKind>(parsed.clone()) {
         return WsMessage::Stream(kind);
     }
 
-    // OutboundMessage or legacy shapes
-    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(raw) {
-        // OutboundMessage: { payload: { data: "..." } }
-        if let Some(data) = parsed
-            .get("payload")
-            .and_then(|p| p.get("data"))
-            .and_then(|d| d.as_str())
-        {
-            return WsMessage::Final(data.to_string());
-        }
-        // Legacy fields
-        if let Some(text) = parsed
-            .get("text")
-            .or_else(|| parsed.get("content"))
-            .or_else(|| parsed.get("message"))
-            .and_then(|v| v.as_str())
-        {
-            return WsMessage::Final(text.to_string());
-        }
+    // OutboundMessage: { payload: { data: "..." } }
+    if let Some(data) = parsed
+        .get("payload")
+        .and_then(|p| p.get("data"))
+        .and_then(|d| d.as_str())
+    {
+        return WsMessage::Final(data.to_string());
+    }
+
+    // Legacy fields
+    if let Some(text) = parsed
+        .get("text")
+        .or_else(|| parsed.get("content"))
+        .or_else(|| parsed.get("message"))
+        .and_then(|v| v.as_str())
+    {
+        return WsMessage::Final(text.to_string());
     }
 
     WsMessage::Unknown(raw.to_string())

@@ -7,6 +7,10 @@
 
 An agent orchestration platform built in Rust. Orka routes messages from external channels through a priority queue to AI-powered agent handlers, with support for skills, sandboxed code execution, and workspace-based configuration.
 
+<p align="center">
+  <img src="demo/orka-chat.gif" alt="Orka CLI demo" width="720">
+</p>
+
 ## Architecture
 
 ```

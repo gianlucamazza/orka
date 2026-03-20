@@ -30,9 +30,11 @@ impl LocalWorkspace {
 
 /// Discover SOUL.md / TOOLS.md starting from CWD, walking up to find an
 /// `orka.toml` workspace root. Returns `None` if neither file is found.
+///
+/// The walk is not bounded to `$HOME` so that projects outside the home
+/// directory (e.g. `/opt/project/`) are discovered correctly.
 pub fn discover() -> Option<LocalWorkspace> {
     let cwd = std::env::current_dir().ok()?;
-    let home = dirs::home_dir();
 
     // First check CWD for the files directly
     let soul = try_read(&cwd, "SOUL.md");
@@ -48,11 +50,6 @@ pub fn discover() -> Option<LocalWorkspace> {
     // Walk up looking for orka.toml as workspace root marker
     let mut dir = cwd.parent().map(Path::to_path_buf);
     while let Some(ref d) = dir {
-        if let Some(ref h) = home
-            && !d.starts_with(h)
-        {
-            break;
-        }
         if d.join("orka.toml").exists() {
             let soul = try_read(d, "SOUL.md");
             let tools = try_read(d, "TOOLS.md");

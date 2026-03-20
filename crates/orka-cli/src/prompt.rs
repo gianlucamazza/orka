@@ -2,43 +2,37 @@ use std::path::Path;
 
 use colored::Colorize;
 
-/// Wrap ANSI escape sequences with rustyline invisible-character markers (`\x01`…`\x02`)
-/// so rustyline measures prompt display width correctly (no cursor drift on long lines).
-fn rl_escape(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() + 16);
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' && chars.peek() == Some(&'[') {
-            result.push('\x01');
-            result.push(c);
-            for nc in chars.by_ref() {
-                result.push(nc);
-                if nc.is_ascii_alphabetic() {
-                    result.push('\x02');
-                    break;
-                }
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
 /// Build the shell prompt: `~/Workspace/orka (main) ❯ `
-pub fn build_prompt(cwd: &Path, last_exit: Option<i32>) -> String {
+///
+/// Returns `(plain, colored)` where `plain` has no ANSI codes (passed to
+/// `readline()` for correct width calculation) and `colored` is the styled
+/// version returned by `Highlighter::highlight_prompt`.
+pub fn build_prompt(cwd: &Path, last_exit: Option<i32>) -> (String, String) {
     let dir = shorten_path(cwd);
     let branch = git_branch(cwd);
-    let indicator = match last_exit {
-        Some(0) | None => rl_escape(&"❯".green().to_string()),
-        Some(_) => rl_escape(&"❯".red().to_string()),
-    };
-    if branch.is_empty() {
-        format!("{dir} {indicator} ")
+    let (plain, colored) = if branch.is_empty() {
+        let indicator_plain = "❯";
+        let indicator_colored = match last_exit {
+            Some(0) | None => "❯".green().to_string(),
+            Some(_) => "❯".red().to_string(),
+        };
+        (
+            format!("{dir} {indicator_plain} "),
+            format!("{dir} {indicator_colored} "),
+        )
     } else {
-        let branch_display = rl_escape(&branch.dimmed().to_string());
-        format!("{dir} ({branch_display}) {indicator} ")
-    }
+        let indicator_plain = "❯";
+        let indicator_colored = match last_exit {
+            Some(0) | None => "❯".green().to_string(),
+            Some(_) => "❯".red().to_string(),
+        };
+        let branch_colored = branch.dimmed().to_string();
+        (
+            format!("{dir} ({branch}) {indicator_plain} "),
+            format!("{dir} ({branch_colored}) {indicator_colored} "),
+        )
+    };
+    (plain, colored)
 }
 
 /// Shorten a path by replacing $HOME with `~`.
@@ -66,7 +60,15 @@ fn git_branch(cwd: &Path) -> String {
             // Git worktree: .git is a file containing "gitdir: <path>"
             let raw = std::fs::read_to_string(&git_path).unwrap_or_default();
             if let Some(gitdir) = raw.trim().strip_prefix("gitdir: ") {
-                std::path::PathBuf::from(gitdir).join("HEAD")
+                // Resolve relative gitdir paths relative to the directory containing
+                // the .git file, not the process CWD.
+                let gitdir_path = std::path::PathBuf::from(gitdir);
+                let resolved = if gitdir_path.is_absolute() {
+                    gitdir_path
+                } else {
+                    d.join(gitdir_path)
+                };
+                resolved.join("HEAD")
             } else {
                 dir = d.parent();
                 continue;
@@ -122,32 +124,27 @@ mod tests {
     }
 
     #[test]
-    fn rl_escape_wraps_ansi_sequences() {
-        // A raw ANSI sequence: ESC[32m (green)
-        let input = "\x1b[32mhello\x1b[0m";
-        let escaped = rl_escape(input);
-        // Each ESC[...m sequence should be wrapped with \x01 before and \x02 after
-        assert!(escaped.contains("\x01\x1b[32m\x02"));
-        assert!(escaped.contains("\x01\x1b[0m\x02"));
-        assert!(escaped.contains("hello"));
-    }
-
-    #[test]
-    fn rl_escape_plain_text_unchanged() {
-        let input = "plain text";
-        assert_eq!(rl_escape(input), input);
-    }
-
-    #[test]
     fn prompt_success_exit() {
-        let p = build_prompt(Path::new("/tmp"), Some(0));
-        assert!(p.contains("/tmp"));
-        assert!(p.contains("❯"));
+        let (plain, colored) = build_prompt(Path::new("/tmp"), Some(0));
+        assert!(plain.contains("/tmp"));
+        assert!(plain.contains("❯"));
+        // Plain prompt must not contain any ANSI escape sequences
+        assert!(!plain.contains('\x1b'));
+        // Colored prompt must contain the indicator (ANSI may be stripped in non-TTY tests)
+        assert!(colored.contains("❯"));
     }
 
     #[test]
     fn prompt_no_exit_yet() {
-        let p = build_prompt(Path::new("/tmp"), None);
-        assert!(p.contains("❯"));
+        let (plain, colored) = build_prompt(Path::new("/tmp"), None);
+        assert!(plain.contains("❯"));
+        assert!(!plain.contains('\x1b'));
+        assert!(colored.contains("❯"));
+    }
+
+    #[test]
+    fn prompt_plain_has_no_ansi() {
+        let (plain, _) = build_prompt(Path::new("/tmp"), Some(1));
+        assert!(!plain.contains('\x1b'), "plain prompt must not contain ANSI escapes");
     }
 }

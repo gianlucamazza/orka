@@ -36,11 +36,16 @@ static PATH_COMMANDS: LazyLock<Vec<String>> = LazyLock::new(collect_path_command
 pub struct OrkaHelper {
     /// Shared working directory, kept in sync with the REPL's `!cd` state.
     shell_cwd: Arc<Mutex<PathBuf>>,
+    /// Colored version of the current prompt, updated by the REPL before each readline call.
+    colored_prompt: Arc<Mutex<String>>,
 }
 
 impl OrkaHelper {
-    pub fn new(shell_cwd: Arc<Mutex<PathBuf>>) -> Self {
-        Self { shell_cwd }
+    pub fn new(shell_cwd: Arc<Mutex<PathBuf>>, colored_prompt: Arc<Mutex<String>>) -> Self {
+        Self {
+            shell_cwd,
+            colored_prompt,
+        }
     }
 }
 
@@ -233,9 +238,13 @@ impl Highlighter for OrkaHelper {
         default: bool,
     ) -> Cow<'b, str> {
         if default {
-            // build_prompt already contains per-element ANSI colors.
-            // Strip \x01/\x02 width-markers (only needed for readline width calc).
-            Cow::Owned(prompt.replace(['\x01', '\x02'], ""))
+            // Return the colored prompt stored by the REPL; the plain prompt was passed
+            // to readline() so rustyline measures width correctly (no cursor drift).
+            let guard = self
+                .colored_prompt
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            Cow::Owned(guard.clone())
         } else {
             // Continuation prompt (multi-line)
             Cow::Owned(prompt.dimmed().to_string())
@@ -258,7 +267,7 @@ fn validate_input(input: &str) -> ValidationResult {
         .lines()
         .filter(|line| line.trim_start().starts_with("```"))
         .count();
-    if !fence_count.is_multiple_of(2) {
+    if fence_count % 2 != 0 {
         return ValidationResult::Incomplete;
     }
 
@@ -384,8 +393,15 @@ fn shellexpand_dir(s: &str) -> std::path::PathBuf {
 mod tests {
     use super::*;
 
+    /// Mutex to serialise tests that mutate environment variables.
+    static ENV_MUTEX: std::sync::LazyLock<std::sync::Mutex<()>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
+
     fn test_helper() -> OrkaHelper {
-        OrkaHelper::new(Arc::new(Mutex::new(PathBuf::from("."))))
+        OrkaHelper::new(
+            Arc::new(Mutex::new(PathBuf::from("."))),
+            Arc::new(Mutex::new(String::new())),
+        )
     }
 
     #[test]
@@ -501,13 +517,13 @@ mod tests {
     #[test]
     fn highlight_hint_respects_no_color() {
         use rustyline::highlight::Highlighter;
+        // Serialise env-var access across parallel test threads.
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let helper = test_helper();
-        // Test that when NO_COLOR is set, hint is returned as-is.
-        // We test the code path directly: highlight_hint checks env var.
-        // Safety: this is a single-threaded test.
+        // SAFETY: guarded by ENV_MUTEX — no other test runs concurrently here.
         unsafe { std::env::set_var("NO_COLOR", "1") };
         let result = helper.highlight_hint("suggestion");
-        assert_eq!(&*result, "suggestion");
         unsafe { std::env::remove_var("NO_COLOR") };
+        assert_eq!(&*result, "suggestion");
     }
 }

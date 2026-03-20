@@ -189,11 +189,24 @@ fn expand_file_attachments(text: &str) -> String {
             continue;
         }
 
-        // Collect the path token (non-whitespace characters after `@`)
-        let path_str: String = chars.by_ref().take_while(|c| !c.is_whitespace()).collect();
+        // Collect the path token (non-whitespace characters after `@`).
+        // Manually peek so we can capture and restore the exact delimiter character
+        // (space, newline, tab, …) instead of always substituting a space.
+        let mut path_str = String::new();
+        let mut delimiter: Option<char> = None;
+        while let Some(&c) = chars.peek() {
+            if c.is_whitespace() {
+                delimiter = chars.next(); // consume and save the delimiter
+                break;
+            }
+            path_str.push(chars.next().unwrap());
+        }
 
         if path_str.is_empty() {
             result.push('@');
+            if let Some(d) = delimiter {
+                result.push(d);
+            }
             prev_was_whitespace_or_start = false;
             continue;
         }
@@ -203,10 +216,9 @@ fn expand_file_attachments(text: &str) -> String {
             Ok(content) => {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 result.push_str(&format!("\n```{ext}\n{content}\n```\n"));
-                // UI-18: only restore the space delimiter when take_while actually
-                // consumed one (i.e. there is more text following @path).
-                if chars.peek().is_some() {
-                    result.push(' ');
+                // Restore the original delimiter character (preserves newlines, tabs, etc.)
+                if let Some(d) = delimiter {
+                    result.push(d);
                 }
                 prev_was_whitespace_or_start = true;
             }
@@ -214,8 +226,8 @@ fn expand_file_attachments(text: &str) -> String {
                 // Unreadable — leave the token as-is
                 result.push('@');
                 result.push_str(&path_str);
-                if chars.peek().is_some() {
-                    result.push(' ');
+                if let Some(d) = delimiter {
+                    result.push(d);
                 }
                 prev_was_whitespace_or_start = true;
             }
@@ -231,8 +243,8 @@ pub async fn run(
 ) -> Result<()> {
     let sid = OrkaClient::resolve_session_id(session_id);
 
-    // Wait for server to be ready before attempting WebSocket connection
-    client.wait_for_ready(300, Duration::from_secs(1)).await?;
+    // Wait for server to be ready before attempting WebSocket connection (~30s total)
+    client.wait_for_ready(30, Duration::from_secs(1)).await?;
 
     // Welcome banner
     print_banner();
@@ -288,10 +300,6 @@ pub async fn run(
     // Channel to pass the completed response text back to the REPL (for /save, /history)
     let (response_tx, mut response_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
-    // Shared waiting spinner — set by REPL loop after send, cleared by WS task on first event
-    let waiting_spinner: Arc<Mutex<Option<ProgressBar>>> = Arc::new(Mutex::new(None));
-    let waiting_spinner_ws = waiting_spinner.clone();
-
     // Shared last usage (overwritten by each Usage chunk; read after Done)
     // (input_tokens, output_tokens, reasoning_tokens, model)
     type UsageInfo = Option<(u32, u32, Option<u32>, String)>;
@@ -311,14 +319,6 @@ pub async fn run(
 
         let mut renderer = crate::markdown::MarkdownRenderer::new();
         let mut current_ws_read = ws_read;
-
-        /// Clear the waiting spinner if it's still active.
-        fn clear_waiting(ws: &Arc<Mutex<Option<ProgressBar>>>) {
-            let mut guard = ws.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(pb) = guard.take() {
-                pb.finish_and_clear();
-            }
-        }
 
         'reconnect: loop {
             let mut streaming = false;
@@ -346,11 +346,9 @@ pub async fn run(
                                 display_name,
                                 ..
                             }) => {
-                                clear_waiting(&waiting_spinner_ws);
                                 current_agent = display_name;
                             }
                             WsMessage::Stream(StreamChunkKind::PrinciplesUsed { count }) => {
-                                clear_waiting(&waiting_spinner_ws);
                                 // UI-1: route through multi so output serialises with spinners
                                 multi
                                     .println(format!(
@@ -407,7 +405,6 @@ pub async fn run(
                                 }
                             }
                             WsMessage::Stream(StreamChunkKind::ThinkingDelta(delta)) => {
-                                clear_waiting(&waiting_spinner_ws);
                                 if think_enabled_ws.load(Ordering::Relaxed) {
                                     if !thinking_shown {
                                         // UI-1: route through multi
@@ -435,7 +432,6 @@ pub async fn run(
                                 }
                             }
                             WsMessage::Stream(StreamChunkKind::Delta(data)) => {
-                                clear_waiting(&waiting_spinner_ws);
                                 if !streaming {
                                     print_agent_header(&current_agent, &multi);
                                     streaming = true;
@@ -452,7 +448,6 @@ pub async fn run(
                                 input_summary,
                                 category,
                             }) => {
-                                clear_waiting(&waiting_spinner_ws);
                                 let icon = category_icon(category.as_deref());
                                 let label = match &input_summary {
                                     Some(s) => format!("{icon} {name}: {s}"),
@@ -516,7 +511,6 @@ pub async fn run(
                                 // Internal LLM events — silent
                             }
                             WsMessage::Stream(StreamChunkKind::Done) => {
-                                clear_waiting(&waiting_spinner_ws);
                                 // UI-3: drain orphaned tool spinners with a full line each
                                 // (original used print! without flush, risking glued output).
                                 // UI-1: route through multi to serialise with progress bars.
@@ -539,16 +533,16 @@ pub async fn run(
                                 }
                                 renderer.reset();
                                 streaming = false;
-                                streamed_this_turn = false; // UI-10: reset between agent switches
                                 thinking_shown = false;
                                 if !turn_done_sent {
-                                    let _ = done_tx.send(());
+                                    // Send response before done so try_recv() in the REPL
+                                    // always finds the response after receiving the done signal.
                                     let _ = response_tx.send(std::mem::take(&mut current_response));
+                                    let _ = done_tx.send(());
                                     turn_done_sent = true;
                                 }
                             }
                             WsMessage::Final(content) => {
-                                clear_waiting(&waiting_spinner_ws);
                                 if streamed_this_turn {
                                     streamed_this_turn = false;
                                     continue;
@@ -559,8 +553,9 @@ pub async fn run(
                                 multi.println("").ok();
                                 thinking_shown = false;
                                 if !turn_done_sent {
-                                    let _ = done_tx.send(());
+                                    // Send response before done (same ordering guarantee as Done branch).
                                     let _ = response_tx.send(content.clone());
+                                    let _ = done_tx.send(());
                                     turn_done_sent = true;
                                 }
                             }
@@ -568,7 +563,6 @@ pub async fn run(
                                 // Unknown stream chunk kind — ignore
                             }
                             WsMessage::Unknown(raw) => {
-                                clear_waiting(&waiting_spinner_ws);
                                 // UI-1: route through multi
                                 multi.println(format!("\n{raw}")).ok();
                                 // Intentionally no done_tx.send() — Unknown events are not turn completions
@@ -627,13 +621,16 @@ pub async fn run(
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
     ));
     let shell_cwd_shared = shell_cwd_helper.clone();
+    let colored_prompt_shared: Arc<std::sync::Mutex<String>> =
+        Arc::new(std::sync::Mutex::new(String::new()));
+    let colored_prompt_editor = colored_prompt_shared.clone();
     std::thread::spawn(move || {
         let config = rustyline::Config::builder()
             .auto_add_history(true)
             .max_history_size(10_000)
             .expect("valid history size")
             .build();
-        let helper = OrkaHelper::new(shell_cwd_helper);
+        let helper = OrkaHelper::new(shell_cwd_helper, colored_prompt_editor);
         let mut editor =
             match rustyline::Editor::<OrkaHelper, rustyline::history::DefaultHistory>::with_config(
                 config,
@@ -680,15 +677,12 @@ pub async fn run(
     let mut last_response = String::new();
     let mut ctrl_c_count: u32 = 0;
 
-    let waiting_spinner_style = ProgressStyle::with_template("{spinner:.cyan} {msg}")
-        .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
-
     loop {
-        let prompt = build_prompt(&cwd, last_exit);
+        let (plain_prompt, colored_prompt) = build_prompt(&cwd, last_exit);
+        *colored_prompt_shared.lock().unwrap_or_else(|e| e.into_inner()) = colored_prompt;
 
-        // Send prompt to the editor thread
-        if prompt_tx.send(prompt).is_err() {
+        // Send plain prompt (no ANSI) to the editor thread so rustyline measures width correctly
+        if prompt_tx.send(plain_prompt).is_err() {
             break;
         }
 
@@ -921,8 +915,9 @@ pub async fn run(
                 let expanded = expand_file_attachments(&stripped);
                 let user_input = expanded.clone();
 
-                // Re-send workspace metadata after /reset (server clears its context)
-                if expanded.starts_with("/reset") {
+                // Re-send workspace metadata after /reset (server clears its context).
+                // Use exact match to avoid false positives like "/resetall".
+                if expanded == "/reset" || expanded.starts_with("/reset ") {
                     workspace_sent = false;
                 }
 
@@ -936,17 +931,6 @@ pub async fn run(
                 let start = Instant::now();
                 match client.send_message(&expanded, &sid, metadata).await {
                     Ok(_) => {
-                        // Start waiting spinner
-                        let pb = multi.add(ProgressBar::new_spinner());
-                        pb.set_style(waiting_spinner_style.clone());
-                        pb.set_message("Waiting for response...");
-                        pb.enable_steady_tick(Duration::from_millis(80));
-                        {
-                            let mut guard =
-                                waiting_spinner.lock().unwrap_or_else(|e| e.into_inner());
-                            *guard = Some(pb);
-                        }
-
                         // Drain stale signals, then wait for this turn's response.
                         // Ctrl-C cancels the local wait; disconnect_notify fires if WS drops.
                         while done_rx.try_recv().is_ok() {}
@@ -962,6 +946,7 @@ pub async fn run(
                                         break;
                                     }
                                     Err(_) => {
+                                        ctrl_c_count = 0;
                                         eprintln!(
                                             "{}",
                                             format!(
@@ -1027,27 +1012,12 @@ pub async fn run(
                             }
                             _ = disconnect_notify.notified() => {
                                 // WS dropped while we were waiting for a response
-                                {
-                                    let mut guard = waiting_spinner
-                                        .lock()
-                                        .unwrap_or_else(|e| e.into_inner());
-                                    if let Some(pb) = guard.take() {
-                                        pb.finish_and_clear();
-                                    }
-                                }
+                                ctrl_c_count = 0;
                                 println!("{}", "\nConnection lost. Reconnect will be attempted on next input.".yellow());
                                 // Don't break — ws_alive is now false; reconnect triggers on next send
                             }
                             _ = tokio::signal::ctrl_c() => {
-                                // Cancel in-flight wait — clear spinner and return to prompt
-                                {
-                                    let mut guard = waiting_spinner
-                                        .lock()
-                                        .unwrap_or_else(|e| e.into_inner());
-                                    if let Some(pb) = guard.take() {
-                                        pb.finish_and_clear();
-                                    }
-                                }
+                                // Cancel in-flight wait — return to prompt
                                 println!("{}", "\nCancelled.".yellow());
                                 // Don't break — return to prompt
                             }

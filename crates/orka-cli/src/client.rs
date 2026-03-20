@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::time::Duration;
 
 use serde_json::json;
@@ -6,6 +7,23 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+/// Percent-encode a string for use as a URL query parameter value.
+/// Passes through unreserved characters (A-Z a-z 0-9 - _ . ~) unchanged.
+fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => {
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+    }
+    out
+}
 
 pub struct OrkaClient {
     http: reqwest::Client,
@@ -143,7 +161,8 @@ impl OrkaClient {
         } else {
             self.base_url.replacen("http://", "ws://", 1)
         };
-        format!("{ws_base}/api/v1/ws?session_id={session_id}")
+        let encoded = percent_encode(session_id);
+        format!("{ws_base}/api/v1/ws?session_id={encoded}")
     }
 
     /// Connect a WebSocket to the given session, sending the API key as an
@@ -206,6 +225,23 @@ mod tests {
         let client = OrkaClient::new("http://localhost:8080///", None);
         let url = client.ws_url("sess1");
         assert_eq!(url, "ws://localhost:8080/api/v1/ws?session_id=sess1");
+    }
+
+    #[test]
+    fn ws_url_encodes_special_chars_in_session_id() {
+        let client = OrkaClient::new("http://localhost:8080", None);
+        let url = client.ws_url("sess&id=1 2");
+        assert_eq!(url, "ws://localhost:8080/api/v1/ws?session_id=sess%26id%3D1%202");
+    }
+
+    #[test]
+    fn percent_encode_safe_chars_unchanged() {
+        assert_eq!(percent_encode("abc-def_1.2~3"), "abc-def_1.2~3");
+    }
+
+    #[test]
+    fn percent_encode_special_chars() {
+        assert_eq!(percent_encode("a&b=c #"), "a%26b%3Dc%20%23");
     }
 
     #[test]

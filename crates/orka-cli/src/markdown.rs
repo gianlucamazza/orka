@@ -17,6 +17,8 @@ pub struct MarkdownRenderer {
     theme_set: ThemeSet,
     theme_name: String,
     buffer: String,
+    /// Cached value of `NO_COLOR` env var at construction time.
+    no_color: bool,
 }
 
 impl MarkdownRenderer {
@@ -41,6 +43,7 @@ impl MarkdownRenderer {
             theme_set: ThemeSet::load_defaults(),
             theme_name: "base16-eighties.dark".to_string(),
             buffer: String::new(),
+            no_color: std::env::var_os("NO_COLOR").is_some(),
         }
     }
 
@@ -163,8 +166,8 @@ impl MarkdownRenderer {
 
     /// Render a fenced code block with syntax highlighting via syntect.
     fn render_code_block_inline(&self, block: &str) {
-        // UI-5: respect NO_COLOR — suppress all ANSI escape sequences when set
-        let no_color = std::env::var_os("NO_COLOR").is_some();
+        // UI-5: respect NO_COLOR — cached at construction time to avoid per-call env lookup
+        let no_color = self.no_color;
 
         // Parse the fence: ```lang\n...\n```
         let mut lines = block.lines();
@@ -224,6 +227,12 @@ impl MarkdownRenderer {
             }
         }
         let _ = writeln!(out, "{border}");
+    }
+}
+
+impl Default for MarkdownRenderer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
