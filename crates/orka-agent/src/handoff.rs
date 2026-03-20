@@ -1,3 +1,5 @@
+//! Agent handoff types for control transfer between agents in a graph.
+
 use std::collections::HashMap;
 
 use serde_json::Value;
@@ -16,9 +18,14 @@ pub enum HandoffMode {
 /// A handoff request from one agent to another.
 #[derive(Debug, Clone)]
 pub struct Handoff {
+    /// The agent initiating the handoff.
     pub from: AgentId,
+    /// The target agent to hand off to.
     pub to: AgentId,
+    /// Human-readable reason logged for observability.
     pub reason: String,
+    /// Optional key-value data passed to the target agent's context.
     pub context_transfer: HashMap<String, Value>,
+    /// Whether to transfer or delegate control.
     pub mode: HandoffMode,
 }

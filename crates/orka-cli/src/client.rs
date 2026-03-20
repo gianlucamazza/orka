@@ -1,6 +1,9 @@
 use std::time::Duration;
 
 use serde_json::json;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+use tokio_tungstenite::tungstenite::http::HeaderValue;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -13,7 +16,11 @@ pub struct OrkaClient {
 impl OrkaClient {
     pub fn new(base_url: &str, api_key: Option<&str>) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("failed to build HTTP client"),
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.map(String::from),
         }
@@ -23,13 +30,22 @@ impl OrkaClient {
         &self.base_url
     }
 
+    /// Build a request with the correct base URL and API key header attached.
+    fn request_builder(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{path}", self.base_url);
+        let mut req = self.http.request(method, &url);
+        if let Some(key) = &self.api_key {
+            req = req.header("X-Api-Key", key);
+        }
+        req
+    }
+
     pub async fn send_message(
         &self,
         text: &str,
         session_id: &str,
         metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
     ) -> Result<serde_json::Value> {
-        let url = format!("{}/api/v1/message", self.base_url);
         let mut payload = json!({
             "text": text,
             "session_id": session_id,
@@ -39,11 +55,11 @@ impl OrkaClient {
         {
             payload["metadata"] = json!(meta);
         }
-        let mut req = self.http.post(&url).json(&payload);
-        if let Some(key) = &self.api_key {
-            req = req.header("X-Api-Key", key);
-        }
-        let resp = req.send().await?;
+        let resp = self
+            .request_builder(reqwest::Method::POST, "/api/v1/message")
+            .json(&payload)
+            .send()
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
@@ -65,12 +81,9 @@ impl OrkaClient {
     }
 
     pub async fn get(&self, path: &str) -> std::result::Result<reqwest::Response, reqwest::Error> {
-        let url = format!("{}{path}", self.base_url);
-        let mut req = self.http.get(&url);
-        if let Some(key) = &self.api_key {
-            req = req.header("X-Api-Key", key);
-        }
-        req.send().await
+        self.request_builder(reqwest::Method::GET, path)
+            .send()
+            .await
     }
 
     pub async fn post(
@@ -78,11 +91,7 @@ impl OrkaClient {
         path: &str,
         body: Option<serde_json::Value>,
     ) -> std::result::Result<reqwest::Response, reqwest::Error> {
-        let url = format!("{}{path}", self.base_url);
-        let mut req = self.http.post(&url);
-        if let Some(key) = &self.api_key {
-            req = req.header("X-Api-Key", key);
-        }
+        let mut req = self.request_builder(reqwest::Method::POST, path);
         if let Some(b) = body {
             req = req.json(&b);
         }
@@ -93,19 +102,16 @@ impl OrkaClient {
         &self,
         path: &str,
     ) -> std::result::Result<reqwest::Response, reqwest::Error> {
-        let url = format!("{}{path}", self.base_url);
-        let mut req = self.http.delete(&url);
-        if let Some(key) = &self.api_key {
-            req = req.header("X-Api-Key", key);
-        }
-        req.send().await
+        self.request_builder(reqwest::Method::DELETE, path)
+            .send()
+            .await
     }
 
-    /// Resolve an optional session ID, generating a new UUID v4 if absent.
+    /// Resolve an optional session ID, generating a new UUID v7 if absent.
     pub fn resolve_session_id(session_id: Option<&str>) -> String {
         session_id
             .map(String::from)
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+            .unwrap_or_else(|| uuid::Uuid::now_v7().to_string())
     }
 
     /// Poll the health endpoint until the server responds 200.
@@ -137,10 +143,67 @@ impl OrkaClient {
         } else {
             self.base_url.replacen("http://", "ws://", 1)
         };
-        let mut url = format!("{ws_base}/api/v1/ws?session_id={session_id}");
+        format!("{ws_base}/api/v1/ws?session_id={session_id}")
+    }
+
+    /// Connect a WebSocket to the given session, sending the API key as an
+    /// `X-Api-Key` request header instead of a query-string parameter.
+    pub async fn ws_connect(
+        &self,
+        session_id: &str,
+    ) -> Result<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>> {
+        let url = self.ws_url(session_id);
+        let mut req = url
+            .clone()
+            .into_client_request()
+            .map_err(|e| format!("invalid WS URL: {e}"))?;
         if let Some(key) = &self.api_key {
-            url.push_str(&format!("&api_key={key}"));
+            let val = HeaderValue::from_str(key)
+                .map_err(|e| format!("invalid API key for WS header: {e}"))?;
+            req.headers_mut().insert("X-Api-Key", val);
         }
-        url
+        let (ws, _) = connect_async(req)
+            .await
+            .map_err(|e| format!("Failed to connect WebSocket to {url}: {e}"))?;
+        Ok(ws)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_session_id_returns_provided_value() {
+        let id = OrkaClient::resolve_session_id(Some("my-session"));
+        assert_eq!(id, "my-session");
+    }
+
+    #[test]
+    fn resolve_session_id_generates_uuid_when_none() {
+        let id = OrkaClient::resolve_session_id(None);
+        // UUID v7 is 36 chars: 8-4-4-4-12
+        assert_eq!(id.len(), 36);
+        assert!(id.contains('-'));
+    }
+
+    #[test]
+    fn ws_url_converts_http_to_ws() {
+        let client = OrkaClient::new("http://localhost:8080", None);
+        let url = client.ws_url("abc");
+        assert_eq!(url, "ws://localhost:8080/api/v1/ws?session_id=abc");
+    }
+
+    #[test]
+    fn ws_url_converts_https_to_wss() {
+        let client = OrkaClient::new("https://example.com", None);
+        let url = client.ws_url("xyz");
+        assert_eq!(url, "wss://example.com/api/v1/ws?session_id=xyz");
+    }
+
+    #[test]
+    fn new_trims_trailing_slash_from_base_url() {
+        let client = OrkaClient::new("http://localhost:8080/", None);
+        assert_eq!(client.base_url(), "http://localhost:8080");
     }
 }

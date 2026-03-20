@@ -11,11 +11,14 @@ use orka_core::{
 
 use orka_experience::ExperienceService;
 use orka_llm::client::{
-    ChatContent, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
+    ChatContent, ChatMessage, CompletionOptions, CompletionResponse, ContentBlock,
     ContentBlockInput, LlmClient, LlmToolStream, StopReason, StreamEvent, ToolCall, ToolDefinition,
     Usage,
 };
-use orka_llm::context::{available_history_budget, truncate_history};
+use orka_llm::context::{
+    TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
+    truncate_history_with_hint,
+};
 use orka_skills::SkillRegistry;
 use orka_workspace::WorkspaceRegistry;
 use tracing::{Instrument, debug, info, info_span, warn};
@@ -599,36 +602,9 @@ impl WorkspaceHandler {
         (blocks, categories)
     }
 
-    /// Compact oversized tool results in a message list.
-    ///
-    /// Tool results longer than `max_chars` are replaced with a head+tail excerpt to
-    /// reduce the size of the persisted history without losing user-visible context.
-    fn compact_tool_results(
-        messages: Vec<ChatMessageExt>,
-        max_chars: usize,
-    ) -> Vec<ChatMessageExt> {
-        messages
-            .into_iter()
-            .map(|mut msg| {
-                if let ChatContent::Blocks(ref mut blocks) = msg.content {
-                    for block in blocks.iter_mut() {
-                        if let ContentBlockInput::ToolResult { content, .. } = block
-                            && content.len() > max_chars
-                        {
-                            let half = max_chars / 2;
-                            let head = content[..half].to_string();
-                            let tail = content[content.len() - half..].to_string();
-                            let original_len = content.len();
-                            *content = format!(
-                                "{}\n... [truncated, original {original_len} chars] ...\n{}",
-                                head, tail
-                            );
-                        }
-                    }
-                }
-                msg
-            })
-            .collect()
+    /// Compact oversized tool results — delegates to the shared [`crate::history`] module.
+    fn compact_tool_results(messages: Vec<ChatMessage>, max_chars: usize) -> Vec<ChatMessage> {
+        crate::history::compact_tool_results(messages, max_chars)
     }
 
     /// Persist conversation history and token usage to the memory store.
@@ -640,7 +616,7 @@ impl WorkspaceHandler {
     #[allow(clippy::too_many_arguments)]
     async fn save_conversation_history(
         &self,
-        messages: Vec<ChatMessageExt>,
+        messages: Vec<ChatMessage>,
         max_entries: usize,
         summarization_model: Option<&str>,
         existing_summary: Option<&str>,
@@ -699,7 +675,7 @@ impl WorkspaceHandler {
     }
 
     /// Produce a plain-text transcript excerpt from a slice of messages.
-    fn build_transcript(messages: &[ChatMessageExt]) -> String {
+    fn build_transcript(messages: &[ChatMessage]) -> String {
         let mut transcript = String::new();
         for msg in messages {
             let text = match &msg.content {
@@ -738,7 +714,7 @@ impl WorkspaceHandler {
     }
 
     /// Build a minimal summary from user-text messages when LLM summarisation is unavailable.
-    fn fallback_summary(messages: &[ChatMessageExt]) -> String {
+    fn fallback_summary(messages: &[ChatMessage]) -> String {
         use orka_llm::client::Role;
         let bullets: Vec<String> = messages
             .iter()
@@ -785,7 +761,7 @@ impl WorkspaceHandler {
     /// turns, preserving user goals and unresolved tasks (incremental rolling pattern).
     async fn summarize_messages(
         llm: &Arc<dyn LlmClient>,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         model: Option<&str>,
         existing_summary: Option<&str>,
     ) -> String {
@@ -840,6 +816,7 @@ impl WorkspaceHandler {
         use futures_util::StreamExt;
 
         let mut text = String::new();
+        let mut thinking = String::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         let mut current_tool_id: Option<String> = None;
         let mut current_tool_name: Option<String> = None;
@@ -850,6 +827,15 @@ impl WorkspaceHandler {
         while let Some(event) = stream.next().await {
             let event = event?;
             match event {
+                StreamEvent::ThinkingDelta(delta) => {
+                    stream_registry.send(StreamChunk::new(
+                        *session_id,
+                        channel.to_string(),
+                        reply_to.copied(),
+                        StreamChunkKind::ThinkingDelta(delta.clone()),
+                    ));
+                    thinking.push_str(&delta);
+                }
                 StreamEvent::TextDelta(delta) => {
                     stream_registry.send(StreamChunk::new(
                         *session_id,
@@ -918,6 +904,9 @@ impl WorkspaceHandler {
         }
 
         let mut blocks = Vec::new();
+        if !thinking.is_empty() {
+            blocks.push(ContentBlock::Thinking(thinking));
+        }
         if !text.is_empty() {
             blocks.push(ContentBlock::Text(text));
         }
@@ -1065,7 +1054,7 @@ impl AgentHandler for WorkspaceHandler {
                 self.memory.recall(&token_key),
             );
 
-            let history: Vec<ChatMessageExt> = match history_result {
+            let history: Vec<ChatMessage> = match history_result {
                 Ok(Some(entry)) => {
                     serde_json::from_value(entry.value).unwrap_or_else(|e| {
                         warn!(%e, key = %memory_key, "failed to deserialize conversation history, starting fresh");
@@ -1104,7 +1093,7 @@ impl AgentHandler for WorkspaceHandler {
             };
 
             let mut messages = history;
-            messages.push(ChatMessageExt::user(text.clone()));
+            messages.push(ChatMessage::user(text.clone()));
 
             let available_ws = self.workspace_registry.list_names();
             let available_ws_refs: Vec<&str> = available_ws.to_vec();
@@ -1195,9 +1184,15 @@ impl AgentHandler for WorkspaceHandler {
 
                 // Pre-flight truncation: ensure messages fit context window
                 let output_budget = soul_max_tokens.unwrap_or(4096);
-                let budget =
-                    available_history_budget(context_window, output_budget, &system_prompt, &tools);
-                let (truncated, dropped) = truncate_history(messages, budget, true);
+                let hint = TokenizerHint::from_model(soul_model.as_deref());
+                let budget = available_history_budget_with_hint(
+                    context_window,
+                    output_budget,
+                    &system_prompt,
+                    &tools,
+                    hint,
+                );
+                let (truncated, dropped) = truncate_history_with_hint(messages, budget, hint, true);
                 messages = truncated;
                 if dropped > 0 {
                     warn!(
@@ -1208,7 +1203,7 @@ impl AgentHandler for WorkspaceHandler {
                     );
                     let history_tokens: u32 = messages
                         .iter()
-                        .map(orka_llm::context::estimate_message_tokens)
+                        .map(|m| estimate_message_tokens_with_hint(m, hint))
                         .sum();
                     self.stream_registry.send(StreamChunk::new(
                         envelope.session_id,
@@ -1356,7 +1351,7 @@ impl AgentHandler for WorkspaceHandler {
                 if tool_calls.is_empty() {
                     // No tool calls — final response
                     final_text = response_text;
-                    messages.push(ChatMessageExt::assistant(final_text.clone()));
+                    messages.push(ChatMessage::assistant(final_text.clone()));
                     // Emit iteration event before breaking
                     self.event_sink
                         .emit(DomainEvent::new(DomainEventKind::AgentIteration {
@@ -1392,7 +1387,7 @@ impl AgentHandler for WorkspaceHandler {
                             input: call.input.clone(),
                         });
                     }
-                    messages.push(ChatMessageExt::new(
+                    messages.push(ChatMessage::new(
                         orka_llm::client::Role::Assistant,
                         ChatContent::Blocks(blocks),
                     ));
@@ -1463,7 +1458,7 @@ impl AgentHandler for WorkspaceHandler {
                 }
 
                 // Add tool results as a user message
-                messages.push(ChatMessageExt::new(
+                messages.push(ChatMessage::new(
                     orka_llm::client::Role::User,
                     ChatContent::Blocks(corrected_blocks),
                 ));
@@ -1495,20 +1490,21 @@ impl AgentHandler for WorkspaceHandler {
                 StreamChunkKind::Done,
             ));
 
-            if !final_text.is_empty() {
-                // Save conversation history and token usage
-                self.save_conversation_history(
-                    messages,
-                    max_entries,
-                    summarization_model.as_deref(),
-                    conversation_summary.as_deref(),
-                    &memory_key,
-                    &summary_key,
-                    session_tokens,
-                    &token_key,
-                )
-                .await;
+            // Always persist conversation history, even if final_text is empty
+            // (e.g. when the LLM stream fails mid-turn, tool calls should still be saved).
+            self.save_conversation_history(
+                messages,
+                max_entries,
+                summarization_model.as_deref(),
+                conversation_summary.as_deref(),
+                &memory_key,
+                &summary_key,
+                session_tokens,
+                &token_key,
+            )
+            .await;
 
+            if !final_text.is_empty() {
                 // Post-handler experience reflection (async, non-blocking for user response)
                 if let (Some(exp), Some(mut tc)) = (&self.experience, trajectory_collector.take()) {
                     tc.set_response(final_text.clone());

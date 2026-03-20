@@ -4,10 +4,13 @@ use std::collections::HashMap;
 
 use orka_core::{DomainEvent, DomainEventKind, SkillInput};
 use orka_llm::client::{
-    ChatContent, ChatMessageExt, CompletionOptions, ContentBlock, ContentBlockInput, LlmToolStream,
+    ChatContent, ChatMessage, CompletionOptions, ContentBlock, ContentBlockInput, LlmToolStream,
     StreamEvent, ToolCall, ToolDefinition, Usage,
 };
-use orka_llm::context::{available_history_budget, truncate_history};
+use orka_llm::context::{
+    TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
+    truncate_history_with_hint,
+};
 use tracing::{Instrument, debug, info, info_span, warn};
 
 use crate::agent::Agent;
@@ -277,9 +280,15 @@ pub async fn run_agent_node(
         let iteration_start = std::time::Instant::now();
 
         // Truncate history to fit context window
-        let budget =
-            available_history_budget(context_window, output_budget, &system_prompt, &tools);
-        let (truncated, dropped) = truncate_history(messages, budget, false);
+        let hint = TokenizerHint::from_model(agent.llm_config.model.as_deref());
+        let budget = available_history_budget_with_hint(
+            context_window,
+            output_budget,
+            &system_prompt,
+            &tools,
+            hint,
+        );
+        let (truncated, dropped) = truncate_history_with_hint(messages, budget, hint, true);
         messages = truncated;
         if dropped > 0 {
             warn!(
@@ -289,7 +298,7 @@ pub async fn run_agent_node(
             );
             let history_tokens: u32 = messages
                 .iter()
-                .map(orka_llm::context::estimate_message_tokens)
+                .map(|m| estimate_message_tokens_with_hint(m, hint))
                 .sum();
             deps.stream_registry
                 .send(orka_core::stream::StreamChunk::new(
@@ -426,7 +435,7 @@ pub async fn run_agent_node(
 
         if regular_calls.is_empty() && handoff_call.is_none() {
             // No tool calls — final response
-            messages.push(ChatMessageExt::assistant(response_text.clone()));
+            messages.push(ChatMessage::assistant(response_text.clone()));
             final_response = Some(response_text);
 
             deps.event_sink
@@ -496,7 +505,7 @@ pub async fn run_agent_node(
                 input: hc.input.clone(),
             });
             if !blocks.is_empty() {
-                messages.push(ChatMessageExt::new(
+                messages.push(ChatMessage::new(
                     orka_llm::client::Role::Assistant,
                     ChatContent::Blocks(blocks),
                 ));
@@ -519,7 +528,7 @@ pub async fn run_agent_node(
                     input: call.input.clone(),
                 });
             }
-            messages.push(ChatMessageExt::new(
+            messages.push(ChatMessage::new(
                 orka_llm::client::Role::Assistant,
                 ChatContent::Blocks(blocks),
             ));
@@ -642,7 +651,7 @@ pub async fn run_agent_node(
             result_blocks.push(ContentBlockInput::Text { text: hint });
         }
 
-        messages.push(ChatMessageExt::new(
+        messages.push(ChatMessage::new(
             orka_llm::client::Role::User,
             ChatContent::Blocks(result_blocks),
         ));

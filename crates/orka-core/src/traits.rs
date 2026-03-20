@@ -52,6 +52,11 @@ pub trait SessionStore: Send + Sync + 'static {
 
     /// Delete a session.
     async fn delete(&self, id: &SessionId) -> Result<()>;
+
+    /// List recent sessions, up to `limit`. Default: returns empty list.
+    async fn list(&self, _limit: usize) -> Result<Vec<Session>> {
+        Ok(Vec::new())
+    }
 }
 
 /// Key-value memory store with TTL and search.
@@ -68,6 +73,21 @@ pub trait MemoryStore: Send + Sync + 'static {
 
     /// Compact expired or low-priority entries. Returns number of entries removed.
     async fn compact(&self) -> Result<usize>;
+
+    /// Try to acquire a distributed session lock using an atomic SET NX operation.
+    ///
+    /// Returns `true` if the lock was acquired, `false` if another worker already holds it.
+    /// The lock expires automatically after `ttl_ms` milliseconds.
+    ///
+    /// Default implementation always returns `true` (no-op; safe for single-worker or in-memory use).
+    async fn try_acquire_session_lock(&self, _session_id: &str, _ttl_ms: u64) -> bool {
+        true
+    }
+
+    /// Release a session lock previously acquired with [`Self::try_acquire_session_lock`].
+    ///
+    /// Default implementation is a no-op.
+    async fn release_session_lock(&self, _session_id: &str) {}
 }
 
 /// Priority queue for ordered message processing.

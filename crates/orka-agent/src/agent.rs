@@ -1,3 +1,5 @@
+//! Agent definition and related identifier, scope, and LLM-config types.
+
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
@@ -22,6 +24,7 @@ impl<'de> Deserialize<'de> for AgentId {
 }
 
 impl AgentId {
+    /// Create a new `AgentId` from any value that converts to `Arc<str>`.
     pub fn new(id: impl Into<Arc<str>>) -> Self {
         Self(id.into())
     }
@@ -106,9 +109,13 @@ impl SystemPrompt {
 /// Per-agent LLM configuration overrides.
 #[derive(Debug, Clone, Default)]
 pub struct AgentLlmConfig {
+    /// Override the model name (e.g. `"claude-sonnet-4-6"`).
     pub model: Option<String>,
+    /// Override the maximum number of output tokens.
     pub max_tokens: Option<u32>,
+    /// Override the context window size in tokens.
     pub context_window: Option<u32>,
+    /// Override the sampling temperature (0.0–1.0).
     pub temperature: Option<f32>,
     /// Extended thinking / reasoning configuration.
     pub thinking: Option<ThinkingConfig>,
@@ -139,6 +146,7 @@ pub struct Agent {
 }
 
 impl Agent {
+    /// Create a new agent with default configuration.
     pub fn new(id: impl Into<AgentId>, display_name: impl Into<String>) -> Self {
         Self {
             id: id.into(),

@@ -28,7 +28,7 @@ pub mod swappable;
 
 pub use anthropic::AnthropicClient;
 pub use client::{
-    ChatContent, ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
+    ChatContent, ChatMessage, CompletionOptions, CompletionResponse, ContentBlock,
     ContentBlockInput, LlmClient, LlmStream, LlmToolStream, ReasoningEffort, Role, StopReason,
     StreamEvent, ThinkingConfig, ToolCall, ToolDefinition, ToolResult, Usage,
 };

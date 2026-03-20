@@ -82,7 +82,7 @@ docker compose up
 ### Manual Setup
 
 ```bash
-# Start Redis
+# Start Redis (or Valkey — a fully compatible drop-in replacement)
 docker run -d -p 6379:6379 redis:7-alpine
 
 # Build and run
@@ -112,7 +112,7 @@ The server starts two endpoints:
 ### Send a message
 
 ```bash
-curl -X POST http://localhost:8081/api/message \
+curl -X POST http://localhost:8081/api/v1/message \
   -H "Content-Type: application/json" \
   -d '{"channel": "custom", "text": "Hello, Orka!"}'
 ```
@@ -142,27 +142,27 @@ Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 | `logging`                | `json`                    | `false`                  | JSON log format                                                 |
 | `agent`                  | `id`                      | `orka-default`           | Agent identifier                                                |
 | `agent`                  | `max_iterations`          | `10`                     | Max agentic loop iterations per turn                            |
-| `agent`                  | `heartbeat_interval_secs` | `30`                     | Streaming heartbeat interval                                    |
+| `agent`                  | `heartbeat_interval_secs` | —                        | Streaming heartbeat interval (optional)                         |
 | `llm`                    | `timeout_secs`            | `30`                     | LLM request timeout                                             |
 | `llm`                    | `max_tokens`              | `8192`                   | Default max output tokens                                       |
 | `llm.providers`          | `name`                    | —                        | Provider name (array of provider configs)                       |
-| `knowledge`              | `enabled`                 | `true`                   | Enable RAG/knowledge base                                       |
+| `knowledge`              | `enabled`                 | `false`                  | Enable RAG/knowledge base                                       |
 | `knowledge.vector_store` | `provider`                | `qdrant`                 | Vector store backend                                            |
 | `knowledge.vector_store` | `url`                     | `http://localhost:6334`  | Qdrant endpoint                                                 |
-| `scheduler`              | `enabled`                 | `true`                   | Enable cron scheduler                                           |
+| `scheduler`              | `enabled`                 | `false`                  | Enable cron scheduler                                           |
 | `scheduler`              | `poll_interval_secs`      | `5`                      | Scheduler polling interval                                      |
-| `web`                    | `search_provider`         | `none`                   | Web search backend (`tavily` or `searxng`)                      |
-| `os`                     | `enabled`                 | `true`                   | Enable OS integration skills                                    |
-| `os`                     | `permission_level`        | `admin`                  | OS skill permission level                                       |
-| `http`                   | `enabled`                 | `true`                   | Enable HTTP request skill                                       |
-| `plugins`                | `dir`                     | `plugins`                | Directory for WASM plugin files                                 |
+| `web`                    | `search_provider`         | `none`                   | Web search backend (`tavily`, `brave`, `searxng`, or `none`)    |
+| `os`                     | `enabled`                 | `false`                  | Enable OS integration skills                                    |
+| `os`                     | `permission_level`        | `read-only`              | OS skill permission level                                       |
+| `http`                   | `enabled`                 | `false`                  | Enable HTTP request skill                                       |
+| `plugins`                | `dir`                     | —                        | Directory for WASM plugin files (optional)                      |
 | `guardrails`             | `blocked_keywords`        | `[]`                     | Keywords that trigger message blocking                          |
 | `guardrails`             | `pii_filter`              | `false`                  | Enable PII redaction                                            |
 | `mcp.servers`            | `name`                    | —                        | MCP server name (array of server configs)                       |
 | `mcp.servers`            | `command`                 | —                        | Command to launch MCP server                                    |
 | `mcp.serve`              | `enabled`                 | `false`                  | Expose Orka as an MCP server                                    |
 | `mcp.serve`              | `transport`               | `stdio`                  | `stdio` or `sse`                                                |
-| `bus`                    | `backend`                 | `redis`                  | Message bus backend                                             |
+| `bus`                    | `backend`                 | `redis`                  | Message bus backend (`redis`, `nats`, or `memory`)              |
 | `bus`                    | `block_ms`                | `5000`                   | XREADGROUP BLOCK timeout (ms)                                   |
 | `bus`                    | `batch_size`              | `10`                     | Messages per read batch                                         |
 | `memory`                 | `backend`                 | `auto`                   | `redis`, `memory`, or `auto`                                    |
@@ -242,8 +242,47 @@ For a complete reference, see [`orka.toml`](orka.toml).
 | `RUST_LOG`                   | Overrides `logging.level` via tracing `EnvFilter`       |
 | `ORKA_GIT_SHA`               | Git SHA embedded at build time                          |
 | `ORKA_BUILD_DATE`            | Build date embedded at build time                       |
+| `ORKA_NO_UPDATE_CHECK`       | Disable automatic update check on CLI startup           |
 
 Config fields can also be overridden via `ORKA__<SECTION>__<KEY>` (e.g., `ORKA__REDIS__URL`).
+
+### API Endpoints
+
+**Server (`:8080`):**
+
+| Method   | Path                            | Description                                          |
+| -------- | ------------------------------- | ---------------------------------------------------- |
+| `GET`    | `/health`                       | Health check                                         |
+| `GET`    | `/health/live`                  | Liveness probe                                       |
+| `GET`    | `/health/ready`                 | Readiness probe                                      |
+| `GET`    | `/metrics`                      | Prometheus metrics (when `observe.backend = "otel"`) |
+| `GET`    | `/docs`                         | Swagger UI (OpenAPI)                                 |
+| `GET`    | `/api/v1/version`               | Version info                                         |
+| `GET`    | `/api/v1/dlq`                   | List dead-letter entries                             |
+| `DELETE` | `/api/v1/dlq`                   | Purge dead-letter queue                              |
+| `POST`   | `/api/v1/dlq/{id}/replay`       | Replay a dead-letter entry                           |
+| `GET`    | `/api/v1/skills`                | List registered skills                               |
+| `GET`    | `/api/v1/skills/{name}`         | Skill detail with schema                             |
+| `GET`    | `/api/v1/schedules`             | List scheduled tasks                                 |
+| `POST`   | `/api/v1/schedules`             | Create a schedule                                    |
+| `DELETE` | `/api/v1/schedules/{id}`        | Delete a schedule                                    |
+| `GET`    | `/api/v1/workspaces`            | List server workspaces                               |
+| `GET`    | `/api/v1/workspaces/{name}`     | Workspace detail                                     |
+| `GET`    | `/api/v1/graph`                 | Agent graph topology                                 |
+| `GET`    | `/api/v1/experience/status`     | Experience system status                             |
+| `GET`    | `/api/v1/experience/principles` | Retrieve learned principles                          |
+| `POST`   | `/api/v1/experience/distill`    | Trigger principle distillation                       |
+| `GET`    | `/api/v1/sessions`              | List active sessions                                 |
+| `GET`    | `/api/v1/sessions/{id}`         | Session detail                                       |
+| `DELETE` | `/api/v1/sessions/{id}`         | Delete a session                                     |
+
+**Adapter (`:8081`):**
+
+| Method | Path              | Description          |
+| ------ | ----------------- | -------------------- |
+| `POST` | `/api/v1/message` | Send a message       |
+| `GET`  | `/api/v1/ws`      | WebSocket connection |
+| `GET`  | `/api/v1/health`  | Adapter health       |
 
 > **Hot-reload**: Orka watches the `.env` file for changes. API key updates trigger automatic LLM client refresh without restart.
 
@@ -287,8 +326,18 @@ orka secret set|get|list|delete  # Encrypted secret management
 orka config check                # Validate orka.toml
 orka config migrate              # Schema migration (--dry-run)
 orka sudo check                  # Verify sudoers for allowed commands
+orka skill list|describe <name>  # Registered skills
+orka schedule list|create|delete # Scheduled tasks
+orka workspace list|show <name>  # Server workspaces
+orka graph show [--dot]          # Agent graph (text or Graphviz DOT)
+orka experience status|principles|distill  # Self-learning system
+orka session list|show|delete    # Active sessions
+orka metrics [--filter] [--json] # Prometheus metrics
+orka a2a card|send               # A2A agent card / send task
 orka mcp-serve                   # Run as MCP server (stdio)
 orka completions <shell>         # Generate completions (bash/zsh/fish)
+orka version                     # Show version (--check: exit 1 if update available)
+orka update                      # Self-update the CLI binary
 ```
 
 Global flags: `--server <url>`, `--adapter <url>`, `--api-key <key>` (or env vars above).

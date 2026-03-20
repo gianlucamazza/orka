@@ -136,7 +136,7 @@ impl Skill for DocIngestSkill {
             .ensure_collection(collection, self.embeddings.dimensions())
             .await?;
 
-        let document_id = Uuid::new_v4().to_string();
+        let document_id = Uuid::now_v7().to_string();
 
         // Embed and store chunks in batches
         let batch_size = 32;

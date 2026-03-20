@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
 use redis::AsyncCommands;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use orka_core::traits::MemoryStore;
 use orka_core::{Error, MemoryEntry, Result};
@@ -25,6 +25,10 @@ impl RedisMemoryStore {
 
     fn key(k: &str) -> String {
         format!("orka:memory:{k}")
+    }
+
+    fn lock_key(session_id: &str) -> String {
+        format!("orka:lock:session:{session_id}")
     }
 }
 
@@ -233,5 +237,41 @@ impl MemoryStore for RedisMemoryStore {
 
         debug!(removed = count, "memory compact completed");
         Ok(count)
+    }
+
+    async fn try_acquire_session_lock(&self, session_id: &str, ttl_ms: u64) -> bool {
+        let key = Self::lock_key(session_id);
+        match self.pool.get().await {
+            Ok(mut conn) => {
+                // Atomic SET key 1 NX PX ttl_ms — returns "OK" on success, nil if already held
+                let result: Option<String> = redis::cmd("SET")
+                    .arg(&key)
+                    .arg("1")
+                    .arg("NX")
+                    .arg("PX")
+                    .arg(ttl_ms)
+                    .query_async(&mut *conn)
+                    .await
+                    .unwrap_or(None);
+                result.is_some()
+            }
+            Err(e) => {
+                // Fail-open: if Redis is unavailable, allow processing rather than stalling all workers
+                warn!(%e, session_id, "redis conn failed for session lock; proceeding without lock");
+                true
+            }
+        }
+    }
+
+    async fn release_session_lock(&self, session_id: &str) {
+        let key = Self::lock_key(session_id);
+        match self.pool.get().await {
+            Ok(mut conn) => {
+                let _: core::result::Result<i64, _> = conn.del(&key).await;
+            }
+            Err(e) => {
+                warn!(%e, session_id, "redis conn failed for session lock release");
+            }
+        }
     }
 }

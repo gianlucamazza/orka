@@ -1,7 +1,6 @@
 use colored::Colorize;
 use futures_util::StreamExt;
 use orka_core::stream::StreamChunkKind;
-use tokio_tungstenite::connect_async;
 
 use crate::client::{OrkaClient, Result};
 use crate::protocol::{WsMessage, classify_ws_message};
@@ -22,20 +21,21 @@ pub async fn run(
     println!("{} {}", "Sending:".bold(), text);
 
     let metadata = local_workspace.as_ref().map(|ws| ws.to_metadata());
-    let resp = client.send_message(text, &sid, metadata).await?;
 
-    if let Some(msg_id) = resp.get("message_id").and_then(|v| v.as_str()) {
-        println!("{} {}", "Message ID:".bold(), msg_id.dimmed());
-    }
-
-    // Try to connect to WS and wait for a reply with a timeout
-    let ws_url = client.ws_url(&sid);
+    // Connect WebSocket BEFORE sending the HTTP message to avoid missing fast replies.
+    // For quick responses the server may stream the reply before the HTTP call returns,
+    // so the WS connection must be established first.
     println!("{}", "Waiting for reply...".dimmed());
 
-    let ws_result = tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        wait_for_reply(&ws_url),
-    )
+    let ws_result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), async {
+        let ws = client.ws_connect(&sid).await?;
+        let (_write, read) = ws.split();
+        let resp = client.send_message(text, &sid, metadata).await?;
+        if let Some(msg_id) = resp.get("message_id").and_then(|v| v.as_str()) {
+            println!("{} {}", "Message ID:".bold(), msg_id.dimmed());
+        }
+        wait_for_reply(read).await
+    })
     .await;
 
     match ws_result {
@@ -56,10 +56,15 @@ pub async fn run(
     Ok(())
 }
 
-async fn wait_for_reply(ws_url: &str) -> Result<String> {
-    let (ws, _) = connect_async(ws_url).await?;
-    let (_write, mut read) = ws.split();
-
+async fn wait_for_reply<S>(mut read: S) -> Result<String>
+where
+    S: futures_util::Stream<
+            Item = std::result::Result<
+                tokio_tungstenite::tungstenite::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin,
+{
     let mut accumulated = String::new();
 
     while let Some(msg) = read.next().await {

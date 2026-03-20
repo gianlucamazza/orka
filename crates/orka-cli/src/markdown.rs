@@ -55,7 +55,9 @@ impl MarkdownRenderer {
     pub fn flush(&mut self) -> bool {
         if !self.buffer.is_empty() {
             let remaining = std::mem::take(&mut self.buffer);
-            self.render_block(&remaining);
+            // Use render_full so that mixed content (prose then code fence) is
+            // handled correctly even when they arrive in the same final chunk.
+            self.render_full(&remaining);
             true
         } else {
             false
@@ -71,7 +73,10 @@ impl MarkdownRenderer {
     pub fn render_full(&self, text: &str) {
         let blocks = split_blocks(text);
         for block in blocks {
-            if block.trim_start().starts_with("```") && block.matches("```").count() >= 2 {
+            // UI-8: use find_closing_fence_full instead of naive backtick count
+            let block_trimmed = block.trim_start();
+            if block_trimmed.starts_with("```") && find_closing_fence_full(block_trimmed).is_some()
+            {
                 self.render_code_block_inline(block);
             } else {
                 let normalized = normalize_gfm_tables(block);
@@ -119,6 +124,18 @@ impl MarkdownRenderer {
         if let Some(pos) = buf.find("\n\n") {
             return Some(pos);
         }
+
+        // UI-7: incremental flush threshold — render up to the last newline when
+        // the buffer grows large, so long paragraphs stream smoothly instead of
+        // waiting for a paragraph break.
+        const INCREMENTAL_THRESHOLD: usize = 200;
+        if buf.len() >= INCREMENTAL_THRESHOLD
+            && let Some(pos) = buf.rfind('\n')
+            && pos > 0
+        {
+            return Some(pos);
+        }
+
         None
     }
 
@@ -129,11 +146,15 @@ impl MarkdownRenderer {
             return;
         }
 
-        if trimmed.starts_with("```") && trimmed.matches("```").count() >= 2 {
+        // UI-8: use find_closing_fence_full for reliable complete-fence detection
+        if trimmed.starts_with("```") && find_closing_fence_full(trimmed).is_some() {
             self.render_code_block_inline(trimmed);
         } else if trimmed.starts_with("```") {
-            // Unclosed code fence at flush — render as-is
-            self.skin.print_text(block);
+            // UI-12: unclosed code fence at flush — print raw to avoid termimad mangling
+            // (termimad would interpret the opening ``` as an unterminated code block)
+            for line in trimmed.lines() {
+                println!("{line}");
+            }
         } else {
             let normalized = normalize_gfm_tables(block);
             self.skin.print_text(&normalized);
@@ -142,6 +163,9 @@ impl MarkdownRenderer {
 
     /// Render a fenced code block with syntax highlighting via syntect.
     fn render_code_block_inline(&self, block: &str) {
+        // UI-5: respect NO_COLOR — suppress all ANSI escape sequences when set
+        let no_color = std::env::var_os("NO_COLOR").is_some();
+
         // Parse the fence: ```lang\n...\n```
         let mut lines = block.lines();
         let first_line = lines.next().unwrap_or("");
@@ -155,14 +179,20 @@ impl MarkdownRenderer {
             &code_lines[..]
         };
 
+        let border = if no_color {
+            "---"
+        } else {
+            "\x1b[90m───\x1b[0m"
+        };
+
         let Some(theme) = self.theme_set.themes.get(&self.theme_name) else {
             // Theme missing — print without highlighting
             let mut out = std::io::stdout().lock();
-            let _ = writeln!(out, "\x1b[90m───\x1b[0m");
+            let _ = writeln!(out, "{border}");
             for line in code_lines {
                 let _ = writeln!(out, "  {line}");
             }
-            let _ = writeln!(out, "\x1b[90m───\x1b[0m");
+            let _ = writeln!(out, "{border}");
             return;
         };
 
@@ -177,20 +207,23 @@ impl MarkdownRenderer {
         let mut highlighter = HighlightLines::new(syntax, theme);
         let mut out = std::io::stdout().lock();
 
-        // Dim border top
-        let _ = writeln!(out, "\x1b[90m───\x1b[0m");
+        let _ = writeln!(out, "{border}");
         for line in code_lines {
-            match highlighter.highlight_line(line, &self.syntax_set) {
-                Ok(ranges) => {
-                    let escaped = as_24_bit_terminal_escaped(&ranges, false);
-                    let _ = writeln!(out, "  {escaped}\x1b[0m");
-                }
-                Err(_) => {
-                    let _ = writeln!(out, "  {line}");
+            if no_color {
+                let _ = writeln!(out, "  {line}");
+            } else {
+                match highlighter.highlight_line(line, &self.syntax_set) {
+                    Ok(ranges) => {
+                        let escaped = as_24_bit_terminal_escaped(&ranges, false);
+                        let _ = writeln!(out, "  {escaped}\x1b[0m");
+                    }
+                    Err(_) => {
+                        let _ = writeln!(out, "  {line}");
+                    }
                 }
             }
         }
-        let _ = writeln!(out, "\x1b[90m───\x1b[0m");
+        let _ = writeln!(out, "{border}");
     }
 }
 
@@ -256,7 +289,10 @@ fn normalize_gfm_tables(text: &str) -> String {
             }
         } else {
             if in_table {
+                // UI-15: add a blank line at the table→prose transition so
+                // content doesn't get glued directly to the table's last row.
                 in_table = false;
+                out.push('\n');
             }
             out.push_str(line);
         }
@@ -272,30 +308,55 @@ fn normalize_gfm_tables(text: &str) -> String {
 }
 
 /// Find the byte position past a complete fenced code block (opening + closing).
+///
+/// Tracks the opening fence length so that inner fences of a different length
+/// (e.g. 4 backticks inside a 3-backtick block) are not treated as the close.
 fn find_closing_fence_full(s: &str) -> Option<usize> {
-    // s starts with ``` — find the end of the opening line
-    let after_open = s.find('\n')? + 1;
+    // s starts with ``` — find the opening fence delimiter
+    let first_line_end = s.find('\n')? + 1;
+    let first_line = &s[..first_line_end - 1];
+    let fence_len = first_line.chars().take_while(|&c| c == '`').count().max(3);
+    let closing = "`".repeat(fence_len);
+
+    let after_open = first_line_end;
     let rest = &s[after_open..];
     let mut prev = 0;
     for (nl_pos, _) in rest.match_indices('\n') {
-        let line = &rest[prev..nl_pos];
-        if line.trim() == "```" {
+        let line = rest[prev..nl_pos].trim();
+        // Closing fence: exactly `fence_len` backticks, nothing else (no more backticks after)
+        if line == closing
+            || (line.starts_with(&closing) && !line[closing.len()..].starts_with('`'))
+        {
             return Some(after_open + nl_pos + 1);
         }
         prev = nl_pos + 1;
     }
     // Check last line (no trailing newline)
-    if rest[prev..].trim() == "```" {
+    let last = rest[prev..].trim();
+    if last == closing {
         return Some(after_open + rest.len());
     }
     None
+}
+
+/// Return true if `trimmed` (already stripped of leading whitespace) starts a
+/// Markdown list item: unordered (`- `, `* `, `+ `) or ordered (`1. `).
+fn has_list_start(trimmed: &str) -> bool {
+    if trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ") {
+        return true;
+    }
+    // Ordered list: one or more digits followed by ". "
+    if let Some((prefix, _)) = trimmed.split_once(". ") {
+        return !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit());
+    }
+    false
 }
 
 /// Split a full markdown text into blocks for rendering.
 fn split_blocks(text: &str) -> Vec<&str> {
     let mut blocks = Vec::new();
     let mut start = 0;
-    let mut in_fence = false;
+    let mut fence_len: Option<usize> = None; // Some(n) when inside a fence of n backticks
     let bytes = text.as_bytes();
 
     let mut i = 0;
@@ -310,28 +371,58 @@ fn split_blocks(text: &str) -> Vec<&str> {
             i += 1; // skip \n
         }
 
-        if line.trim().starts_with("```") {
-            if !in_fence {
-                in_fence = true;
-            } else {
-                // End of fence — this line ends the block
-                in_fence = false;
+        let trimmed = line.trim();
+        if let Some(open_len) = fence_len {
+            // Inside a code fence — look for matching close
+            let close_len = trimmed.chars().take_while(|&c| c == '`').count();
+            let is_close =
+                close_len >= open_len && trimmed.chars().skip(close_len).all(|c| c.is_whitespace());
+            if is_close {
+                fence_len = None;
                 let block = &text[start..i];
                 if !block.trim().is_empty() {
                     blocks.push(block);
                 }
                 start = i;
             }
-            continue;
-        }
+        } else if trimmed.starts_with("```") {
+            let open_len = trimmed.chars().take_while(|&c| c == '`').count();
+            fence_len = Some(open_len);
+        } else if trimmed.is_empty() && i < text.len() {
+            // UI-21: if the current block contains list items, check whether the
+            // content after this blank line continues the same list.  If so, keep
+            // accumulating to avoid handing termimad a split numbered list (which
+            // would reset item numbering on each fragment).
+            let current_block = &text[start..line_start];
+            let block_has_list = current_block
+                .lines()
+                .any(|l| has_list_start(l.trim_start()));
 
-        if !in_fence && line.trim().is_empty() && i < text.len() {
-            // Paragraph break
-            let block = &text[start..line_start];
-            if !block.trim().is_empty() {
-                blocks.push(block);
+            if block_has_list {
+                let rest = &text[i..];
+                let next_nonempty = rest.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+                let next_t = next_nonempty.trim_start();
+                // Keep accumulating if the next non-empty line is a list item or
+                // indented continuation (e.g. wrapped paragraph inside a list item).
+                let continues_list = has_list_start(next_t)
+                    || next_nonempty.starts_with("  ")
+                    || next_nonempty.starts_with('\t');
+                if !continues_list {
+                    // Different content — split here
+                    if !current_block.trim().is_empty() {
+                        blocks.push(current_block);
+                    }
+                    start = i;
+                }
+                // else: intra-list blank line — continue accumulating
+            } else {
+                // Regular paragraph break (outside fence, no list)
+                let block = &text[start..line_start];
+                if !block.trim().is_empty() {
+                    blocks.push(block);
+                }
+                start = i;
             }
-            start = i;
         }
     }
 

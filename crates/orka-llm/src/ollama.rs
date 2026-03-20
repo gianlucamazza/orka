@@ -3,8 +3,8 @@ use orka_core::Result;
 use tracing::debug;
 
 use crate::client::{
-    ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, LlmClient, LlmStream,
-    LlmToolStream, ToolDefinition,
+    ChatMessage, CompletionOptions, CompletionResponse, LlmClient, LlmStream, LlmToolStream,
+    ToolDefinition,
 };
 use crate::openai::OpenAiClient;
 
@@ -64,7 +64,7 @@ impl LlmClient for OllamaClient {
 
     async fn complete_with_tools(
         &self,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -76,7 +76,7 @@ impl LlmClient for OllamaClient {
 
     async fn complete_stream_with_tools(
         &self,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,

@@ -127,7 +127,7 @@ impl Skill for ScheduleCreateSkill {
             .map(String::from);
 
         let schedule = Schedule {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::now_v7().to_string(),
             name: name.to_string(),
             cron: cron_expr.map(String::from),
             run_at: run_at.map(String::from),

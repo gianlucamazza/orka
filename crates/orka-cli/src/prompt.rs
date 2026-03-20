@@ -56,19 +56,33 @@ fn shorten_path(path: &Path) -> String {
 
 /// Get the current git branch name, or empty string if not in a repo.
 fn git_branch(cwd: &Path) -> String {
-    // Fast path: read .git/HEAD directly
     let mut dir = Some(cwd);
     while let Some(d) = dir {
-        let head = d.join(".git/HEAD");
-        if head.exists()
-            && let Ok(contents) = std::fs::read_to_string(&head)
-        {
+        let git_path = d.join(".git");
+        let head_path = if git_path.is_dir() {
+            // Normal repository
+            git_path.join("HEAD")
+        } else if git_path.is_file() {
+            // Git worktree: .git is a file containing "gitdir: <path>"
+            let raw = std::fs::read_to_string(&git_path).unwrap_or_default();
+            if let Some(gitdir) = raw.trim().strip_prefix("gitdir: ") {
+                std::path::PathBuf::from(gitdir).join("HEAD")
+            } else {
+                dir = d.parent();
+                continue;
+            }
+        } else {
+            dir = d.parent();
+            continue;
+        };
+
+        if let Ok(contents) = std::fs::read_to_string(&head_path) {
             let contents = contents.trim();
             if let Some(refname) = contents.strip_prefix("ref: refs/heads/") {
                 return refname.to_string();
             }
-            // Detached HEAD — show short hash
-            return contents.chars().take(7).collect();
+            // Detached HEAD — show "detached:" prefix with short hash
+            return format!("detached:{}", contents.chars().take(7).collect::<String>());
         }
         dir = d.parent();
     }

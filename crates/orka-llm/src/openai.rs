@@ -7,9 +7,9 @@ use serde_json::json;
 use tracing::debug;
 
 use crate::client::{
-    ChatContent, ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
-    LlmClient, LlmStream, LlmToolStream, RetryableError, StopReason, StreamEvent, ToolCall,
-    ToolDefinition, Usage,
+    ChatContent, ChatMessage, CompletionOptions, CompletionResponse, ContentBlock, LlmClient,
+    LlmStream, LlmToolStream, RetryableError, StopReason, StreamEvent, ToolCall, ToolDefinition,
+    Usage,
 };
 use orka_core::retry::retry_with_backoff;
 use orka_core::{Error, Result};
@@ -167,7 +167,7 @@ impl OpenAiClient {
         (blocks, usage, stop_reason)
     }
 
-    fn build_messages(messages: &[ChatMessageExt]) -> Vec<serde_json::Value> {
+    fn build_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         let mut out = Vec::new();
         for m in messages {
             match &m.content {
@@ -355,7 +355,7 @@ impl LlmClient for OpenAiClient {
 
     async fn complete_with_tools(
         &self,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -418,7 +418,7 @@ impl LlmClient for OpenAiClient {
 
     async fn complete_stream_with_tools(
         &self,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,

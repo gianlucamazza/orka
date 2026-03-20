@@ -3,6 +3,7 @@ use std::sync::Arc;
 use orka_core::Result;
 use orka_core::config::ExperienceConfig;
 use orka_llm::client::LlmClient;
+use rand::Rng as _;
 use tracing::{debug, info, warn};
 
 use orka_core::ErrorCategory;
@@ -237,7 +238,7 @@ impl ExperienceService {
                     // Always reflect on failures
                     true
                 } else {
-                    let sample: f64 = rand::random();
+                    let sample: f64 = rand::rng().random();
                     sample < self.config.sample_rate
                 }
             }

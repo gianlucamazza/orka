@@ -50,3 +50,28 @@ pub async fn run(client: &OrkaClient) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_uptime_seconds_only() {
+        assert_eq!(format_uptime(0), "0s");
+        assert_eq!(format_uptime(59), "59s");
+    }
+
+    #[test]
+    fn format_uptime_minutes_and_seconds() {
+        assert_eq!(format_uptime(60), "1m 00s");
+        assert_eq!(format_uptime(90), "1m 30s");
+        assert_eq!(format_uptime(3599), "59m 59s");
+    }
+
+    #[test]
+    fn format_uptime_hours() {
+        assert_eq!(format_uptime(3600), "1h 00m 00s");
+        assert_eq!(format_uptime(3661), "1h 01m 01s");
+        assert_eq!(format_uptime(7384), "2h 03m 04s");
+    }
+}

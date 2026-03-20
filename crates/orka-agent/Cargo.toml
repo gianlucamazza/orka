@@ -22,7 +22,6 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 futures-util = { workspace = true }
-anyhow = { workspace = true }
 
 [dev-dependencies]
 orka-core = { workspace = true }

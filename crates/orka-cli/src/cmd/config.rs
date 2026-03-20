@@ -9,8 +9,7 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
     let resolved = OrkaConfig::resolve_path(path);
 
     if !resolved.exists() {
-        eprintln!("Config file not found: {}", resolved.display());
-        std::process::exit(1);
+        return Err(format!("Config file not found: {}", resolved.display()).into());
     }
 
     let raw = std::fs::read_to_string(&resolved)?;
@@ -43,10 +42,7 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
 
     match cfg.validate() {
         Ok(()) => println!("\nValidation: OK"),
-        Err(e) => {
-            eprintln!("\nValidation error: {e}");
-            std::process::exit(1);
-        }
+        Err(e) => return Err(format!("Validation error: {e}").into()),
     }
 
     Ok(())
@@ -61,8 +57,7 @@ pub async fn migrate_cmd(
     let resolved = OrkaConfig::resolve_path(path);
 
     if !resolved.exists() {
-        eprintln!("Config file not found: {}", resolved.display());
-        std::process::exit(1);
+        return Err(format!("Config file not found: {}", resolved.display()).into());
     }
 
     let raw = std::fs::read_to_string(&resolved)?;
@@ -110,7 +105,7 @@ pub async fn migrate_cmd(
 }
 
 /// Print a unified diff between two strings.
-fn print_diff(old: &str, new: &str) {
+pub(crate) fn print_diff(old: &str, new: &str) {
     use similar::{ChangeTag, TextDiff};
 
     let diff = TextDiff::from_lines(old, new);
@@ -121,5 +116,26 @@ fn print_diff(old: &str, new: &str) {
             ChangeTag::Equal => " ",
         };
         print!("{sign}{change}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // print_diff writes to stdout; we just verify it doesn't panic.
+    #[test]
+    fn print_diff_identical_input_no_panic() {
+        print_diff("foo = 1\n", "foo = 1\n");
+    }
+
+    #[test]
+    fn print_diff_different_input_no_panic() {
+        print_diff("foo = 1\nbar = 2\n", "foo = 1\nbar = 3\n");
+    }
+
+    #[test]
+    fn print_diff_empty_strings_no_panic() {
+        print_diff("", "");
     }
 }

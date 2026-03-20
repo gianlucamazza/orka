@@ -15,12 +15,19 @@ pub fn unpack_ptr_len(packed: i64) -> (u32, u32) {
 
 /// Well-known export names for the v2 plugin ABI.
 pub mod exports {
+    /// Export name for the ABI version query.
     pub const ABI_VERSION: &str = "orka_abi_version";
+    /// Export name for retrieving plugin metadata.
     pub const PLUGIN_INFO: &str = "orka_plugin_info";
+    /// Export name for the plugin initialisation entry point.
     pub const PLUGIN_INIT: &str = "orka_plugin_init";
+    /// Export name for the main plugin execution entry point.
     pub const PLUGIN_EXECUTE: &str = "orka_plugin_execute";
+    /// Export name for the plugin cleanup/teardown entry point.
     pub const PLUGIN_CLEANUP: &str = "orka_plugin_cleanup";
+    /// Export name for the guest-side memory allocator.
     pub const ALLOC: &str = "orka_alloc";
+    /// Export name for the guest-side memory deallocator.
     pub const DEALLOC: &str = "orka_dealloc";
 }
 

@@ -6,7 +6,7 @@ Orka is an AI agent orchestration framework written in Rust. It manages LLM-powe
 
 ## Workspace Structure
 
-Cargo workspace with ~34 crates under `crates/`, plus `orka-server/` (main binary), `crates/orka-cli/` (CLI binary), and `sdk/orka-plugin-sdk/` (WASM plugin SDK).
+Cargo workspace with ~34 crates (~32 under `crates/`, plus `orka-server/` (main binary) and `sdk/orka-plugin-sdk/` (WASM plugin SDK)).
 
 ## Common Commands
 
@@ -48,4 +48,4 @@ cargo test -- --ignored        # Integration tests (requires Redis)
 
 ## CI
 
-GitHub Actions workflow at `.github/workflows/ci.yml` runs: fmt check, clippy, cargo-audit, cargo-deny, build, unit tests, integration tests with Redis and Qdrant service containers, and commitlint (PR only).
+GitHub Actions workflow at `.github/workflows/ci.yml` runs: fmt check, clippy, cargo-audit, cargo-deny, build, unit tests, integration tests with Redis and Qdrant service containers, MSRV check, coverage, and commitlint (PR only).

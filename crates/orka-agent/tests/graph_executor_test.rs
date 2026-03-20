@@ -58,7 +58,7 @@ impl LlmClient for MockLlm {
 
     async fn complete_with_tools(
         &self,
-        _messages: &[orka_llm::client::ChatMessageExt],
+        _messages: &[orka_llm::client::ChatMessage],
         _system: &str,
         _tools: &[ToolDefinition],
         _options: CompletionOptions,

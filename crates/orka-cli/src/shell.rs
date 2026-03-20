@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -97,7 +97,7 @@ pub fn classify_input(line: &str) -> InputAction {
     if let Some(rest) = trimmed.strip_prefix('/') {
         let cmd_name = rest.split_whitespace().next().unwrap_or("").to_lowercase();
         return match cmd_name.as_str() {
-            "quit" | "exit" | "help" | "clear" | "think" | "feedback" => {
+            "quit" | "exit" | "help" | "clear" | "think" | "feedback" | "history" | "save" => {
                 InputAction::SlashLocal(trimmed.to_string())
             }
             _ => InputAction::SlashServer(trimmed.to_string()),
@@ -122,17 +122,21 @@ pub async fn execute_shell(
     cmd: &str,
     cwd: &Path,
     env_overrides: &HashMap<String, String>,
+    env_removes: &HashSet<String>,
 ) -> Option<i32> {
-    let mut child = match tokio::process::Command::new("bash")
+    let mut command = tokio::process::Command::new("bash");
+    command
         .arg("-c")
         .arg(cmd)
         .current_dir(cwd)
         .envs(env_overrides)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-    {
+        .stderr(Stdio::inherit());
+    for key in env_removes {
+        command.env_remove(key);
+    }
+    let mut child = match command.spawn() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Failed to spawn shell: {e}");
@@ -154,6 +158,7 @@ pub fn handle_builtin(
     builtin: &Builtin,
     cwd: &mut PathBuf,
     env_overrides: &mut HashMap<String, String>,
+    env_removes: &mut HashSet<String>,
 ) -> String {
     match builtin {
         Builtin::Cd(path) => {
@@ -164,6 +169,8 @@ pub fn handle_builtin(
             };
             match target.canonicalize() {
                 Ok(real) if real.is_dir() => {
+                    // Set PWD explicitly so child processes inherit the correct value
+                    env_overrides.insert("PWD".to_string(), real.to_string_lossy().into_owned());
                     *cwd = real;
                     String::new()
                 }
@@ -177,6 +184,8 @@ pub fn handle_builtin(
         }
         Builtin::Unset(k) => {
             env_overrides.remove(k);
+            // Track the unset so execute_shell can pass env_remove to child processes
+            env_removes.insert(k.clone());
             String::new()
         }
         Builtin::History => {
@@ -353,22 +362,38 @@ mod tests {
     fn handle_cd_to_tmp() {
         let mut cwd = std::env::current_dir().unwrap();
         let mut env = HashMap::new();
-        let msg = handle_builtin(&Builtin::Cd(PathBuf::from("/tmp")), &mut cwd, &mut env);
+        let mut removes = HashSet::new();
+        let msg = handle_builtin(
+            &Builtin::Cd(PathBuf::from("/tmp")),
+            &mut cwd,
+            &mut env,
+            &mut removes,
+        );
         assert!(msg.is_empty());
         assert_eq!(cwd, PathBuf::from("/tmp").canonicalize().unwrap());
+        // PWD should be set in env_overrides
+        assert!(env.contains_key("PWD"));
     }
 
     #[test]
     fn handle_export_unset() {
         let mut cwd = std::env::current_dir().unwrap();
         let mut env = HashMap::new();
+        let mut removes = HashSet::new();
         handle_builtin(
             &Builtin::Export("TEST_ORKA_VAR".into(), "42".into()),
             &mut cwd,
             &mut env,
+            &mut removes,
         );
         assert_eq!(env.get("TEST_ORKA_VAR").unwrap(), "42");
-        handle_builtin(&Builtin::Unset("TEST_ORKA_VAR".into()), &mut cwd, &mut env);
+        handle_builtin(
+            &Builtin::Unset("TEST_ORKA_VAR".into()),
+            &mut cwd,
+            &mut env,
+            &mut removes,
+        );
         assert!(!env.contains_key("TEST_ORKA_VAR"));
+        assert!(removes.contains("TEST_ORKA_VAR"));
     }
 }

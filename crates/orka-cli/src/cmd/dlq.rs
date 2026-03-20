@@ -3,6 +3,11 @@ use colored::Colorize;
 
 pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
     let resp = client.get("/api/v1/dlq").await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Server returned {status}: {body}").into());
+    }
     let body: serde_json::Value = resp.json().await?;
 
     if let Some(messages) = body.as_array() {

@@ -80,6 +80,50 @@ enum Commands {
         #[command(subcommand)]
         action: SecretAction,
     },
+    /// List and inspect registered skills
+    Skill {
+        #[command(subcommand)]
+        action: SkillAction,
+    },
+    /// Manage scheduled tasks
+    Schedule {
+        #[command(subcommand)]
+        action: ScheduleAction,
+    },
+    /// List and inspect server workspaces
+    Workspace {
+        #[command(subcommand)]
+        action: WorkspaceAction,
+    },
+    /// Inspect the agent graph topology
+    Graph {
+        #[command(subcommand)]
+        action: GraphAction,
+    },
+    /// Experience / self-learning system
+    Experience {
+        #[command(subcommand)]
+        action: ExperienceAction,
+    },
+    /// Manage active sessions
+    Session {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
+    /// Show Prometheus metrics
+    Metrics {
+        /// Filter metrics by name fragment
+        #[arg(long)]
+        filter: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Agent-to-agent (A2A) protocol
+    A2a {
+        #[command(subcommand)]
+        action: A2aAction,
+    },
     /// Run as MCP server (stdio transport) for Claude Code/Cursor
     McpServe {
         /// Path to orka.toml config file
@@ -142,12 +186,10 @@ enum SudoAction {
 
 #[derive(clap::Subcommand)]
 enum SecretAction {
-    /// Set a secret value
+    /// Set a secret value (value is read from stdin to avoid shell-history exposure)
     Set {
         /// Secret path (e.g. llm/anthropic)
         path: String,
-        /// Secret value
-        value: String,
     },
     /// Get a secret value (masked by default)
     Get {
@@ -177,6 +219,124 @@ enum DlqAction {
     },
     /// Purge all messages from the DLQ
     Purge,
+}
+
+#[derive(clap::Subcommand)]
+enum SkillAction {
+    /// List all registered skills
+    List,
+    /// Show details for a skill (schema, description)
+    Describe {
+        /// Skill name
+        name: String,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum ScheduleAction {
+    /// List all scheduled tasks
+    List,
+    /// Create a new scheduled task
+    Create {
+        /// Schedule name
+        name: String,
+        /// Cron expression (e.g. "0 0 9 * * *")
+        #[arg(long)]
+        cron: Option<String>,
+        /// One-shot ISO-8601 datetime (e.g. "2026-03-20T09:00:00Z")
+        #[arg(long)]
+        run_at: Option<String>,
+        /// Skill to invoke
+        #[arg(long)]
+        skill: Option<String>,
+        /// Skill args as JSON object (e.g. '{"key":"value"}')
+        #[arg(long)]
+        args: Option<String>,
+        /// Message payload (alternative to skill)
+        #[arg(long)]
+        message: Option<String>,
+    },
+    /// Delete a scheduled task
+    Delete {
+        /// Schedule ID
+        id: String,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum WorkspaceAction {
+    /// List all server-side workspaces
+    List,
+    /// Show details for a workspace
+    Show {
+        /// Workspace name
+        name: String,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum GraphAction {
+    /// Show the agent graph structure
+    Show {
+        /// Output as Graphviz DOT format
+        #[arg(long)]
+        dot: bool,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum ExperienceAction {
+    /// Show experience system status
+    Status,
+    /// Retrieve learned principles
+    Principles {
+        /// Workspace to query
+        #[arg(long, default_value = "default")]
+        workspace: String,
+        /// Semantic search query
+        #[arg(long, default_value = "")]
+        query: String,
+        /// Maximum number of principles to return
+        #[arg(long, default_value = "10")]
+        limit: usize,
+    },
+    /// Trigger offline distillation
+    Distill {
+        /// Workspace to distill
+        #[arg(long, default_value = "default")]
+        workspace: String,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum SessionAction {
+    /// List active sessions
+    List {
+        /// Maximum number of sessions to return
+        #[arg(long, default_value = "20")]
+        limit: usize,
+    },
+    /// Show details for a session
+    Show {
+        /// Session ID
+        id: String,
+    },
+    /// Delete a session
+    Delete {
+        /// Session ID
+        id: String,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum A2aAction {
+    /// Show the agent card (capabilities)
+    Card,
+    /// Send a task via A2A JSON-RPC
+    Send {
+        /// Task JSON (or plain text message)
+        task: String,
+    },
 }
 
 #[tokio::main]
@@ -225,8 +385,65 @@ async fn main() {
             DlqAction::Replay { id } => cmd::dlq::replay(&server_client, &id).await,
             DlqAction::Purge => cmd::dlq::purge(&server_client).await,
         },
+        Commands::Skill { action } => match action {
+            SkillAction::List => cmd::skill::list(&server_client).await,
+            SkillAction::Describe { name } => cmd::skill::describe(&server_client, &name).await,
+        },
+        Commands::Schedule { action } => match action {
+            ScheduleAction::List => cmd::schedule::list(&server_client).await,
+            ScheduleAction::Create {
+                name,
+                cron,
+                run_at,
+                skill,
+                args,
+                message,
+            } => {
+                cmd::schedule::create(
+                    &server_client,
+                    &name,
+                    cron.as_deref(),
+                    run_at.as_deref(),
+                    skill.as_deref(),
+                    args.as_deref(),
+                    message.as_deref(),
+                )
+                .await
+            }
+            ScheduleAction::Delete { id } => cmd::schedule::delete(&server_client, &id).await,
+        },
+        Commands::Workspace { action } => match action {
+            WorkspaceAction::List => cmd::workspace_cmd::list(&server_client).await,
+            WorkspaceAction::Show { name } => cmd::workspace_cmd::show(&server_client, &name).await,
+        },
+        Commands::Graph { action } => match action {
+            GraphAction::Show { dot } => cmd::graph::show(&server_client, dot).await,
+        },
+        Commands::Experience { action } => match action {
+            ExperienceAction::Status => cmd::experience::status(&server_client).await,
+            ExperienceAction::Principles {
+                workspace,
+                query,
+                limit,
+            } => cmd::experience::principles(&server_client, &workspace, &query, limit).await,
+            ExperienceAction::Distill { workspace } => {
+                cmd::experience::distill(&server_client, &workspace).await
+            }
+        },
+        Commands::Session { action } => match action {
+            SessionAction::List { limit } => cmd::session::list(&server_client, limit).await,
+            SessionAction::Show { id } => cmd::session::show(&server_client, &id).await,
+            SessionAction::Delete { id } => cmd::session::delete(&server_client, &id).await,
+        },
+        Commands::Metrics { filter, json } => {
+            cmd::metrics::show(&server_client, filter.as_deref(), json).await
+        }
+        Commands::A2a { action } => match action {
+            A2aAction::Card => cmd::a2a::card(&server_client).await,
+            A2aAction::Send { task } => cmd::a2a::send(&server_client, &task).await,
+        },
         Commands::Secret { action } => match action {
-            SecretAction::Set { path, value } => cmd::secret::set(&path, &value).await,
+            SecretAction::Set { path } => cmd::secret::set(&path).await,
             SecretAction::Get { path, reveal } => cmd::secret::get(&path, reveal).await,
             SecretAction::List => cmd::secret::list().await,
             SecretAction::Delete { path } => cmd::secret::delete(&path).await,

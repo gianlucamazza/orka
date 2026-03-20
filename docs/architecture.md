@@ -143,9 +143,11 @@ exit codes are emitted as `PrivilegedCommandExecuted` domain events.
 
 ### Secrets (orka-secrets)
 
-`SecretManager` implementations: environment variable backend (default),
-HashiCorp Vault backend, and an in-memory backend for tests. Secrets are
-wrapped in `SecretValue` which is `!Clone` and zeroizes on drop.
+`SecretManager` implementations: Redis backend with optional AES-256-GCM
+encryption (default), and an in-memory backend for tests. The encryption key
+is supplied via the `ORKA_SECRET_ENCRYPTION_KEY` env var; without it secrets
+are stored in plaintext (development mode). Secrets are wrapped in
+`SecretValue` which is `!Clone` and zeroizes on drop.
 
 ### MCP Server (orka-mcp)
 
@@ -157,15 +159,84 @@ Agent-to-Agent communication protocol. Agents can delegate sub-tasks to other Or
 
 ### CLI (orka-cli)
 
-Command-line interface for workspace management, config validation, and administration:
+Full management CLI for server administration, agent operations, and observability:
 
 ```
-orka-cli config check          # Validate orka.toml
-orka-cli config migrate        # Migrate config to current schema version
-orka-cli sudo check            # Generate sudoers template for configured commands
+orka health                      # Server health check
+orka status                      # Server status (uptime, workers, adapters)
+orka ready                       # Readiness probe (exit 1 if not ready)
+orka send "Hello"                # Send a message (--session-id, --timeout)
+orka chat                        # Interactive session (--session-id)
+orka dlq list|replay|purge       # Dead letter queue management
+orka secret set|get|list|delete  # Encrypted secret management
+orka config check                # Validate orka.toml
+orka config migrate              # Schema migration (--dry-run)
+orka sudo check                  # Verify sudoers for allowed commands
+orka skill list|describe <name>  # Registered skills
+orka schedule list|create|delete # Scheduled tasks
+orka workspace list|show <name>  # Server workspaces
+orka graph show [--dot]          # Agent graph (text or Graphviz DOT)
+orka experience status|principles|distill  # Self-learning system
+orka session list|show|delete    # Active sessions
+orka metrics [--filter] [--json] # Prometheus metrics
+orka a2a card|send               # A2A agent card / send task
+orka mcp-serve                   # Run as MCP server (stdio)
+orka completions <shell>         # Generate completions (bash/zsh/fish)
+orka version                     # Show version (--check: exit 1 if update available)
+orka update                      # Self-update the CLI binary
 ```
 
 The CLI is a thin shell around `orka-core` and `orka-workspace` — it shares configuration and type definitions with the server.
+
+### Multi-Agent Graph Execution (orka-agent)
+
+The `orka-agent` crate implements both single-agent and multi-agent graph
+execution. In graph mode the topology is defined in `orka.toml` under
+`[[agents]]` and `[graph]`. The executor:
+
+1. Resolves the entry-point agent from the graph definition.
+2. Runs the agent's agentic loop to completion.
+3. Evaluates outgoing edge conditions (`state_match`, `output_contains`, or
+   `always`) to select the next agent.
+4. Repeats until a terminal agent is reached or limits are hit
+   (`max_total_iterations`, `max_total_tokens`, `max_duration_secs`).
+
+Handoffs between agents preserve the conversation history and session state,
+allowing specialised agents to collaborate on complex tasks.
+
+### OS Integration (orka-os)
+
+Provides OS-level skills when `os.enabled = true`:
+
+- **shell** — Execute shell commands with allow/deny lists and configurable
+  permission levels (`read-only` → `admin`).
+- **file_read / file_write / file_list** — Filesystem access restricted to
+  `os.allowed_paths`.
+- **process_list** — List running processes.
+- **claude_code** — Delegate coding tasks to the `claude` CLI subprocess
+  (auto-detected or configured via `os.claude_code`).
+- **sudo** — Privileged command execution with optional human confirmation.
+
+All outputs are sanitised against `os.sensitive_env_patterns` before being
+returned to the LLM.
+
+### HTTP Client (orka-http)
+
+Provides an outbound HTTP skill when `http.enabled = true`. Supports GET,
+POST, PUT, PATCH, DELETE with configurable headers and body. SSRF protection
+blocks requests to domains in `http.blocked_domains` (default: AWS metadata
+endpoint). Response bodies are truncated at `http.max_response_bytes`.
+
+Optionally hosts an inbound webhook receiver (`http.webhooks.enabled = true`)
+that turns incoming HTTP callbacks into `Payload::Event` envelopes on the bus.
+
+### Web Search & Read (orka-web)
+
+Provides web search and page-reading skills when `web.search_provider` is
+configured. Supported backends: `tavily`, `brave`, and `searxng`. The `web_read`
+skill fetches and extracts text from a URL, respecting
+`web.max_read_chars` and `web.read_timeout_secs`. Results are cached for
+`web.cache_ttl_secs` seconds.
 
 ### LLM Router (orka-llm)
 
@@ -203,7 +274,6 @@ Every significant event emits a `DomainEvent` to the `EventSink`. The
 `orka-observe` crate subscribes to events and:
 
 - Logs them via `tracing`
-- Exposes them as Server-Sent Events on the `/events` endpoint
 - Records metrics (token counts, latency, cost estimates)
 
 ## Configuration

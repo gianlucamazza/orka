@@ -1,5 +1,6 @@
 use std::borrow::Cow;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use colored::Colorize;
 use rustyline::completion::{Completer, Pair};
@@ -23,20 +24,23 @@ const SLASH_COMMANDS: &[&str] = &[
     "/status",
     "/think",
     "/feedback",
+    "/history",
+    "/save",
 ];
+
+/// Lazily populated list of executables from $PATH (populated on first tab-completion).
+static PATH_COMMANDS: LazyLock<Vec<String>> = LazyLock::new(collect_path_commands);
 
 /// Rustyline helper providing tab-completion for `!` shell commands,
 /// `/` slash commands, and file paths.
 pub struct OrkaHelper {
-    /// Cached sorted list of executables from $PATH.
-    path_commands: Vec<String>,
+    /// Shared working directory, kept in sync with the REPL's `!cd` state.
+    shell_cwd: Arc<Mutex<PathBuf>>,
 }
 
 impl OrkaHelper {
-    pub fn new() -> Self {
-        Self {
-            path_commands: collect_path_commands(),
-        }
+    pub fn new(shell_cwd: Arc<Mutex<PathBuf>>) -> Self {
+        Self { shell_cwd }
     }
 }
 
@@ -58,8 +62,7 @@ impl Completer for OrkaHelper {
             if parts.len() == 1 && !rest.ends_with(' ') {
                 // Completing the command name itself
                 let prefix = parts[0].to_lowercase();
-                let matches: Vec<Pair> = self
-                    .path_commands
+                let matches: Vec<Pair> = PATH_COMMANDS
                     .iter()
                     .filter(|c| c.starts_with(&prefix))
                     .map(|c| Pair {
@@ -73,7 +76,12 @@ impl Completer for OrkaHelper {
             // Completing arguments — try file path completion
             let arg = if parts.len() == 2 { parts[1] } else { "" };
             let dirs_only = parts[0].eq_ignore_ascii_case("cd");
-            let (start_in_rest, pairs) = complete_path(arg, dirs_only);
+            let cwd = self
+                .shell_cwd
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            let (start_in_rest, pairs) = complete_path(arg, dirs_only, &cwd);
             // Offset = 1 (for `!`) + command.len() + 1 (space) + start_in_rest
             let offset = if parts.len() == 2 {
                 1 + parts[0].len() + 1 + start_in_rest
@@ -123,7 +131,12 @@ impl Completer for OrkaHelper {
                     .unwrap_or(true);
             if preceded_by_ws {
                 let fragment = &text[at_pos + 1..];
-                let (start_in_fragment, pairs) = complete_path(fragment, false);
+                let cwd = self
+                    .shell_cwd
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                let (start_in_fragment, pairs) = complete_path(fragment, false, &cwd);
                 let offset = at_pos + 1 + start_in_fragment;
                 return Ok((offset, pairs));
             }
@@ -206,6 +219,10 @@ impl Highlighter for OrkaHelper {
     }
 
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
+        // UI-5: respect NO_COLOR — skip raw ANSI escape when the variable is set
+        if std::env::var_os("NO_COLOR").is_some() {
+            return Cow::Borrowed(hint);
+        }
         // \x1b[90m = bright black (dark gray) — universally visible ghost text
         Cow::Owned(format!("\x1b[90m{hint}\x1b[0m"))
     }
@@ -236,9 +253,14 @@ impl Validator for OrkaHelper {
             return Ok(ValidationResult::Incomplete);
         }
 
-        // Unclosed triple-backtick block → continuation
-        let backtick_count = input.matches("```").count();
-        if !backtick_count.is_multiple_of(2) {
+        // UI-14: count ``` only at the start of lines (after trim) to avoid
+        // matching inline ``` in prose or being fooled by longer backtick runs.
+        // An odd count means there's an open code fence → request continuation.
+        let fence_count = input
+            .lines()
+            .filter(|line| line.trim_start().starts_with("```"))
+            .count();
+        if !fence_count.is_multiple_of(2) {
             return Ok(ValidationResult::Incomplete);
         }
 
@@ -304,7 +326,8 @@ fn collect_path_commands() -> Vec<String> {
 
 /// Complete a file path fragment. Returns (replacement_start_offset, pairs).
 /// When `dirs_only` is true, only directory entries are included.
-fn complete_path(fragment: &str, dirs_only: bool) -> (usize, Vec<Pair>) {
+/// `base_dir` is used as the working directory when `fragment` has no `/` prefix.
+fn complete_path(fragment: &str, dirs_only: bool, base_dir: &Path) -> (usize, Vec<Pair>) {
     let (dir, prefix) = if let Some(slash_pos) = fragment.rfind('/') {
         let dir_part = &fragment[..=slash_pos];
         let file_part = &fragment[slash_pos + 1..];
@@ -314,10 +337,7 @@ fn complete_path(fragment: &str, dirs_only: bool) -> (usize, Vec<Pair>) {
             // replacement starts after the last /
         )
     } else {
-        (
-            std::env::current_dir().unwrap_or_default(),
-            fragment.to_string(),
-        )
+        (base_dir.to_path_buf(), fragment.to_string())
     };
 
     let start_offset = if fragment.contains('/') {
@@ -361,6 +381,10 @@ fn shellexpand_dir(s: &str) -> std::path::PathBuf {
 mod tests {
     use super::*;
 
+    fn test_helper() -> OrkaHelper {
+        OrkaHelper::new(Arc::new(Mutex::new(PathBuf::from("."))))
+    }
+
     #[test]
     fn path_commands_not_empty() {
         let cmds = collect_path_commands();
@@ -371,13 +395,13 @@ mod tests {
     #[test]
     fn complete_path_in_tmp() {
         // /tmp should exist and have entries on any Linux system
-        let (offset, _pairs) = complete_path("/tmp/", false);
+        let (offset, _pairs) = complete_path("/tmp/", false, Path::new("."));
         assert_eq!(offset, 5); // after "/tmp/"
     }
 
     #[test]
     fn slash_commands_complete() {
-        let helper = OrkaHelper::new();
+        let helper = test_helper();
         let (start, matches) = helper
             .complete(
                 "/sk",
@@ -393,7 +417,7 @@ mod tests {
 
     #[test]
     fn highlight_char_triggers_for_at_token() {
-        let helper = OrkaHelper::new();
+        let helper = test_helper();
         use rustyline::highlight::{CmdKind, Highlighter};
         assert!(helper.highlight_char("check @src/main.rs", 5, CmdKind::ForcedRefresh));
         assert!(helper.highlight_char("!ls", 1, CmdKind::ForcedRefresh));
@@ -415,7 +439,7 @@ mod tests {
 
     #[test]
     fn feedback_completion() {
-        let helper = OrkaHelper::new();
+        let helper = test_helper();
         let hist = rustyline::history::DefaultHistory::new();
         let ctx = Context::new(&hist);
         let line = "/feedback g";
@@ -428,7 +452,7 @@ mod tests {
 
     #[test]
     fn builtin_hint_ghost_text() {
-        let helper = OrkaHelper::new();
+        let helper = test_helper();
         let hist = rustyline::history::DefaultHistory::new();
         let ctx = Context::new(&hist);
         // "!c" should hint "d" (completing "cd")

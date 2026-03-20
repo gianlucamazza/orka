@@ -7,7 +7,7 @@ use orka_core::config::AgentConfig;
 use orka_core::testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager};
 use orka_core::traits::MemoryStore;
 use orka_core::{Envelope, Error, Payload, Session};
-use orka_llm::client::{ChatContent, ChatMessage, ChatMessageExt, LlmClient, Role};
+use orka_llm::client::{ChatContent, ChatMessage, LlmClient, Role};
 use orka_skills::SkillRegistry;
 use orka_worker::{
     AgentHandler, CommandRegistry, StreamRegistry, WorkspaceHandler, WorkspaceHandlerConfig,
@@ -171,7 +171,7 @@ async fn multi_turn_conversation_saves_history() {
     // Verify history was saved in memory
     let memory_key = format!("conversation:{}", session.id);
     let entry = memory.recall(&memory_key).await.unwrap().unwrap();
-    let history: Vec<ChatMessageExt> = serde_json::from_value(entry.value).unwrap();
+    let history: Vec<ChatMessage> = serde_json::from_value(entry.value).unwrap();
 
     // Should have 4 messages: user1, assistant1, user2, assistant2
     assert_eq!(history.len(), 4);

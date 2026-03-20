@@ -88,4 +88,38 @@ impl SessionStore for RedisSessionStore {
         debug!(session_id = %id, "session deleted");
         Ok(())
     }
+
+    async fn list(&self, limit: usize) -> Result<Vec<Session>> {
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+
+        let keys: Vec<String> = redis::cmd("SCAN")
+            .arg(0i64)
+            .arg("MATCH")
+            .arg("orka:session:*")
+            .arg("COUNT")
+            .arg(limit.max(100) as i64)
+            .query_async(&mut *conn)
+            .await
+            .map(|(_cursor, keys): (i64, Vec<String>)| keys)
+            .unwrap_or_default();
+
+        let mut sessions = Vec::new();
+        for key in keys.iter().take(limit) {
+            let value: Option<String> = conn
+                .get(key)
+                .await
+                .map_err(|e| Error::bus(format!("redis GET error: {e}")))?;
+            if let Some(json) = value
+                && let Ok(session) = serde_json::from_str::<Session>(&json)
+            {
+                sessions.push(session);
+            }
+        }
+        sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        Ok(sessions)
+    }
 }

@@ -49,7 +49,7 @@ pub fn discover() -> Option<LocalWorkspace> {
     let mut dir = cwd.parent().map(Path::to_path_buf);
     while let Some(ref d) = dir {
         if let Some(ref h) = home
-            && d < h
+            && !d.starts_with(h)
         {
             break;
         }
@@ -96,6 +96,20 @@ mod tests {
     fn try_read_missing_returns_none() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(try_read(tmp.path(), "SOUL.md").is_none());
+    }
+
+    #[test]
+    fn home_boundary_uses_starts_with_not_lexicographic() {
+        // A sibling dir like /home/user2 must NOT stop the walk when home is /home/user
+        // Under the old `d < h` comparison, `/home/user2` < `/home/user` (lexicographic)
+        // was wrong — starts_with gives the correct answer.
+        let home = std::path::PathBuf::from("/home/user");
+        let sibling = std::path::PathBuf::from("/home/user2/project");
+        // sibling does NOT start with home → the walker should NOT break
+        assert!(!sibling.starts_with(&home));
+        // A path under home starts with home → the walker should break
+        let under_home = std::path::PathBuf::from("/home/user/project");
+        assert!(under_home.starts_with(&home));
     }
 
     #[test]

@@ -17,7 +17,7 @@ pub struct WorkspaceEntry {
 /// Top-level Orka configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct OrkaConfig {
-    /// Config schema version (0 = legacy/absent, current = 1).
+    /// Config schema version. `0` = legacy/absent; current version = `3`.
     #[serde(default)]
     pub config_version: u32,
     /// HTTP server bind configuration.
@@ -879,7 +879,12 @@ pub struct AgentConfig {
     /// Number of history tokens that triggers automatic summarization.
     #[serde(default)]
     pub summarization_threshold: Option<usize>,
-    /// Maximum conversation turns to keep in context.
+    /// Maximum number of *messages* (not turns) to retain in the conversation history.
+    ///
+    /// **Note:** This counts individual messages, not conversation turns.
+    /// A single tool-use turn typically produces 3+ messages (user → assistant
+    /// with tool_use block → user with tool_result block).  Set this value at
+    /// least 3× the number of logical turns you want to retain.
     #[serde(default = "default_agent_max_history_entries")]
     pub max_history_entries: usize,
     /// Maximum characters for a single tool result before truncation (default 50_000).
@@ -2068,6 +2073,28 @@ impl OrkaConfig {
                     "default_workspace '{}' not found in [[workspaces]]",
                     default
                 )));
+            }
+        }
+
+        // --- Deprecation warnings ---
+        if self.web.api_key.is_some() {
+            tracing::warn!(
+                "web.api_key is deprecated; use web.api_key_env to avoid leaking credentials in the config file"
+            );
+        }
+        for p in &self.llm.providers {
+            if p.api_key.is_some() && p.api_key_env.is_some() {
+                tracing::warn!(
+                    provider = %p.name,
+                    "llm.providers[{}].api_key is set alongside api_key_env; api_key_env takes precedence — consider removing the inline key",
+                    p.name
+                );
+            } else if p.api_key.is_some() {
+                tracing::warn!(
+                    provider = %p.name,
+                    "llm.providers[{}].api_key is deprecated; use api_key_env or api_key_secret to avoid leaking credentials in the config file",
+                    p.name
+                );
             }
         }
 

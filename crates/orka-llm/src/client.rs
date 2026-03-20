@@ -78,9 +78,6 @@ impl ChatMessage {
     }
 }
 
-/// Backward-compatible alias: `ChatMessageExt` is now the same as `ChatMessage`.
-pub type ChatMessageExt = ChatMessage;
-
 impl ToolDefinition {
     /// Create a new tool definition.
     pub fn new(
@@ -445,7 +442,7 @@ pub trait LlmClient: Send + Sync + 'static {
     /// Default implementation ignores tools and returns text only.
     async fn complete_with_tools(
         &self,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -477,7 +474,7 @@ pub trait LlmClient: Send + Sync + 'static {
     /// Default implementation calls `complete_with_tools()` and yields events from the full response.
     async fn complete_stream_with_tools(
         &self,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,

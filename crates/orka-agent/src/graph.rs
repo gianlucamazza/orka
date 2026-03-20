@@ -1,3 +1,5 @@
+//! Agent graph topology: nodes, edges, conditions, and termination policy.
+
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -22,7 +24,9 @@ pub enum NodeKind {
 /// A node in the agent graph.
 #[derive(Debug, Clone)]
 pub struct GraphNode {
+    /// The agent definition associated with this node.
     pub agent: Agent,
+    /// Execution behaviour for this node.
     pub kind: NodeKind,
 }
 
@@ -41,7 +45,12 @@ pub struct Edge {
 #[derive(Debug, Clone)]
 pub enum EdgeCondition {
     /// A state slot must match a specific JSON value.
-    StateMatch { key: SlotKey, pattern: Value },
+    StateMatch {
+        /// The slot key to inspect.
+        key: SlotKey,
+        /// The JSON value it must equal.
+        pattern: Value,
+    },
     /// The agent's final output text must contain this string.
     OutputContains(String),
     /// Always take this edge (fallback).
@@ -75,14 +84,18 @@ impl Default for TerminationPolicy {
 /// A directed graph of agents with entry point and termination policy.
 #[derive(Debug, Clone)]
 pub struct AgentGraph {
+    /// Unique identifier for this graph (used in events and logs).
     pub id: String,
+    /// Entry-point agent where execution begins.
     pub entry: AgentId,
     nodes: HashMap<AgentId, GraphNode>,
     edges: HashMap<AgentId, Vec<Edge>>,
+    /// Policy controlling when the overall graph run terminates.
     pub termination: TerminationPolicy,
 }
 
 impl AgentGraph {
+    /// Create a new graph with the given id and entry agent.
     pub fn new(id: impl Into<String>, entry: AgentId) -> Self {
         Self {
             id: id.into(),
@@ -93,14 +106,17 @@ impl AgentGraph {
         }
     }
 
+    /// Add a node to the graph, replacing any existing node with the same agent id.
     pub fn add_node(&mut self, node: GraphNode) {
         self.nodes.insert(node.agent.id.clone(), node);
     }
 
+    /// Add a directed edge from `from` to the edge's target.
     pub fn add_edge(&mut self, from: AgentId, edge: Edge) {
         self.edges.entry(from).or_default().push(edge);
     }
 
+    /// Look up a node by agent id.
     pub fn get_node(&self, id: &AgentId) -> Option<&GraphNode> {
         self.nodes.get(id)
     }
@@ -116,9 +132,20 @@ impl AgentGraph {
         edges
     }
 
+    /// Set a custom termination policy (builder style).
     pub fn with_termination(mut self, policy: TerminationPolicy) -> Self {
         self.termination = policy;
         self
+    }
+
+    /// Iterate over all (AgentId, GraphNode) pairs in the graph.
+    pub fn nodes_iter(&self) -> impl Iterator<Item = (&AgentId, &GraphNode)> {
+        self.nodes.iter()
+    }
+
+    /// Iterate over all (AgentId, Vec<Edge>) pairs in the graph.
+    pub fn edges_iter(&self) -> impl Iterator<Item = (&AgentId, &Vec<Edge>)> {
+        self.edges.iter()
     }
 }
 

@@ -3,13 +3,10 @@ use colored::Colorize;
 use crate::client::{OrkaClient, Result};
 
 pub async fn run(client: &OrkaClient) -> Result<()> {
-    let body = match client.get_json("/health/ready").await {
-        Ok(body) => body,
-        Err(e) => {
-            eprintln!("{}: {e}", "Not ready".red());
-            std::process::exit(1);
-        }
-    };
+    let body = client
+        .get_json("/health/ready")
+        .await
+        .map_err(|e| format!("{}: {e}", "Not ready".red()))?;
 
     let ready = body.get("ready").and_then(|v| v.as_bool()).unwrap_or(false);
 
@@ -39,7 +36,7 @@ pub async fn run(client: &OrkaClient) -> Result<()> {
     }
 
     if !ready {
-        std::process::exit(1);
+        return Err("server is not ready".into());
     }
 
     Ok(())

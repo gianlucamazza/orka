@@ -7,8 +7,8 @@ use orka_core::Result;
 use tracing::{debug, warn};
 
 use crate::client::{
-    ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, LlmClient, LlmStream,
-    LlmToolStream, ToolDefinition,
+    ChatMessage, CompletionOptions, CompletionResponse, LlmClient, LlmStream, LlmToolStream,
+    ToolDefinition,
 };
 
 /// Routes LLM requests to the appropriate provider based on model name prefix.
@@ -180,7 +180,7 @@ impl LlmClient for LlmRouter {
 
     async fn complete_with_tools(
         &self,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -210,7 +210,7 @@ impl LlmClient for LlmRouter {
 
     async fn complete_stream_with_tools(
         &self,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,

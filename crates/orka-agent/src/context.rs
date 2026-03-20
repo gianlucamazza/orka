@@ -1,10 +1,12 @@
+//! Shared execution context that flows through the agent graph during a run.
+
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use orka_core::{Envelope, SessionId};
-use orka_llm::client::ChatMessageExt;
+use orka_llm::client::ChatMessage;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -16,6 +18,7 @@ use crate::agent::AgentId;
 pub struct RunId(pub Uuid);
 
 impl RunId {
+    /// Generate a new time-ordered run identifier.
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
@@ -43,6 +46,7 @@ pub struct SlotKey {
 }
 
 impl SlotKey {
+    /// Create a slot key scoped to a specific agent.
     pub fn agent(agent_id: &AgentId, name: impl Into<String>) -> Self {
         Self {
             namespace: agent_id.0.to_string(),
@@ -50,6 +54,7 @@ impl SlotKey {
         }
     }
 
+    /// Create a slot key in the shared cross-agent namespace.
     pub fn shared(name: impl Into<String>) -> Self {
         Self {
             namespace: "__shared".into(),
@@ -61,10 +66,15 @@ impl SlotKey {
 /// A single state mutation recorded for observability.
 #[derive(Debug, Clone)]
 pub struct StateChange {
+    /// Wall-clock time when the change occurred.
     pub timestamp: Instant,
+    /// The slot that was modified.
     pub key: SlotKey,
+    /// The agent that performed the write.
     pub agent: AgentId,
+    /// Previous value, or `None` if this was an insert.
     pub old_value: Option<Value>,
+    /// New value written to the slot.
     pub new_value: Value,
 }
 
@@ -74,17 +84,22 @@ pub struct StateChange {
 /// fan-out nodes can read concurrently and write to separate namespaces.
 #[derive(Clone)]
 pub struct ExecutionContext {
+    /// Unique identifier for this graph execution run.
     pub run_id: RunId,
+    /// Session this run belongs to.
     pub session_id: SessionId,
+    /// The inbound envelope that triggered this run.
     pub trigger: Envelope,
+    /// Wall-clock time when the run started.
     pub started_at: Instant,
     state: Arc<RwLock<std::collections::HashMap<SlotKey, Value>>>,
-    messages: Arc<RwLock<Vec<ChatMessageExt>>>,
+    messages: Arc<RwLock<Vec<ChatMessage>>>,
     changelog: Arc<RwLock<VecDeque<StateChange>>>,
     usage: Arc<AtomicU64>,
 }
 
 impl ExecutionContext {
+    /// Create a new context for the given trigger envelope.
     pub fn new(trigger: Envelope) -> Self {
         let session_id = trigger.session_id;
         Self {
@@ -138,17 +153,17 @@ impl ExecutionContext {
     }
 
     /// Get the current conversation messages.
-    pub async fn messages(&self) -> Vec<ChatMessageExt> {
+    pub async fn messages(&self) -> Vec<ChatMessage> {
         self.messages.read().await.clone()
     }
 
     /// Append a message to the conversation.
-    pub async fn push_message(&self, msg: ChatMessageExt) {
+    pub async fn push_message(&self, msg: ChatMessage) {
         self.messages.write().await.push(msg);
     }
 
     /// Replace the conversation messages (e.g., after history truncation).
-    pub async fn set_messages(&self, msgs: Vec<ChatMessageExt>) {
+    pub async fn set_messages(&self, msgs: Vec<ChatMessage>) {
         *self.messages.write().await = msgs;
     }
 
@@ -230,7 +245,7 @@ mod tests {
     async fn messages_push_and_read() {
         let ctx = make_context();
         assert!(ctx.messages().await.is_empty());
-        ctx.push_message(orka_llm::client::ChatMessageExt::user("hi"))
+        ctx.push_message(orka_llm::client::ChatMessage::user("hi"))
             .await;
         assert_eq!(ctx.messages().await.len(), 1);
     }

@@ -1,3 +1,6 @@
+//! Orka agent definitions, graph topology, and execution engine.
+#![warn(missing_docs)]
+
 pub mod agent;
 pub mod config;
 pub mod context;

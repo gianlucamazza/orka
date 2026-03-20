@@ -22,11 +22,15 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+/// Default Graph API version used when not overridden by the caller.
+const DEFAULT_API_VERSION: &str = "v21.0";
+
 /// WhatsApp Cloud API [`ChannelAdapter`] using webhook verification.
 pub struct WhatsAppAdapter {
     access_token: String,
     phone_number_id: String,
     verify_token: String,
+    api_version: String,
     client: Client,
     sink: Arc<Mutex<Option<MessageSink>>>,
     shutdown: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
@@ -46,12 +50,19 @@ impl WhatsAppAdapter {
             access_token,
             phone_number_id,
             verify_token,
+            api_version: DEFAULT_API_VERSION.to_string(),
             client: Client::new(),
             sink: Arc::new(Mutex::new(None)),
             shutdown: Arc::new(Mutex::new(None)),
             sessions: Arc::new(Mutex::new(HashMap::new())),
             listen_port,
         }
+    }
+
+    /// Override the Graph API version (default: `v21.0`).
+    pub fn with_api_version(mut self, version: impl Into<String>) -> Self {
+        self.api_version = version.into();
+        self
     }
 }
 
@@ -113,6 +124,7 @@ struct WhatsAppMedia {
 struct AppState {
     verify_token: String,
     access_token: String,
+    api_version: String,
     client: Client,
     sink: Arc<Mutex<Option<MessageSink>>>,
     sessions: Arc<Mutex<HashMap<String, SessionId>>>,
@@ -175,6 +187,7 @@ async fn webhook_receive(
                                     &state.client,
                                     &state.access_token,
                                     &media_id,
+                                    &state.api_version,
                                 )
                                 .await
                                 {
@@ -242,9 +255,12 @@ async fn resolve_media_url_inner(
     client: &Client,
     access_token: &str,
     media_id: &str,
+    api_version: &str,
 ) -> Result<String> {
     let resp = client
-        .get(format!("https://graph.facebook.com/v18.0/{media_id}"))
+        .get(format!(
+            "https://graph.facebook.com/{api_version}/{media_id}"
+        ))
         .header("Authorization", format!("Bearer {access_token}"))
         .send()
         .await
@@ -283,6 +299,7 @@ impl ChannelAdapter for WhatsAppAdapter {
         let state = AppState {
             verify_token: self.verify_token.clone(),
             access_token: self.access_token.clone(),
+            api_version: self.api_version.clone(),
             client: self.client.clone(),
             sink: self.sink.clone(),
             sessions: self.sessions.clone(),
@@ -357,8 +374,8 @@ impl ChannelAdapter for WhatsAppAdapter {
             })?;
 
         let url = format!(
-            "https://graph.facebook.com/v18.0/{}/messages",
-            self.phone_number_id
+            "https://graph.facebook.com/{}/{}/messages",
+            self.api_version, self.phone_number_id
         );
 
         let body = match &msg.payload {

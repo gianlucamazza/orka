@@ -2,6 +2,8 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use sha2::Digest as _;
+
 use colored::Colorize;
 use reqwest::Client;
 use serde::Deserialize;
@@ -265,12 +267,19 @@ pub async fn run_update() -> Result<()> {
     }
     println!(" v{latest} available (current: v{current}).");
 
-    // 2. Find the Linux x86_64 tarball asset
+    // 2. Find the platform-specific tarball asset
+    let platform = {
+        let os = match std::env::consts::OS {
+            "macos" => "darwin",
+            other => other,
+        };
+        format!("{os}-{}", std::env::consts::ARCH)
+    };
     let asset = release
         .assets
         .iter()
-        .find(|a| a.name.contains("linux-x86_64") && a.name.ends_with(".tar.gz"))
-        .ok_or_else(|| format!("no Linux x86_64 tarball found in release assets for v{latest}"))?;
+        .find(|a| a.name.contains(&platform) && a.name.ends_with(".tar.gz"))
+        .ok_or_else(|| format!("no {platform} tarball found in release assets for v{latest}"))?;
 
     // 3. Download tarball
     println!("Downloading {}...", asset.name);
@@ -286,7 +295,31 @@ pub async fn run_update() -> Result<()> {
         .bytes()
         .await?;
 
-    // 4. Extract the `orka` binary from the tarball
+    // 4. Verify SHA256 checksum (if a .sha256 asset is present in the release)
+    let sha256_asset_name = format!("{}.sha256", asset.name);
+    if let Some(sha256_asset) = release.assets.iter().find(|a| a.name == sha256_asset_name) {
+        println!("Verifying checksum...");
+        let checksum_text = client
+            .get(&sha256_asset.browser_download_url)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        // Checksum file format: "<hex>  <filename>" or just "<hex>"
+        let expected = checksum_text
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_string();
+        let actual = hex::encode(sha2::Sha256::digest(&bytes));
+        if actual != expected {
+            return Err(format!("Checksum mismatch: expected {expected}, got {actual}").into());
+        }
+        println!("{} Checksum verified.", "\u{2713}".green().bold());
+    }
+
+    // 5. Extract the `orka` binary from the tarball (was step 4)
     let tmpdir = tempfile::tempdir()?;
     let tarball_path = tmpdir.path().join("orka-update.tar.gz");
     std::fs::write(&tarball_path, &bytes)?;
@@ -356,7 +389,7 @@ mod tests {
         // Can't create /.dockerenv in tests, but we can verify the function runs
         // without panic and returns a valid variant.
         let method = detect_install_method();
-        matches!(
+        assert!(matches!(
             method,
             InstallMethod::DirectInstall
                 | InstallMethod::Pacman
@@ -364,7 +397,7 @@ mod tests {
                 | InstallMethod::CargoInstall
                 | InstallMethod::DevBuild
                 | InstallMethod::Unknown
-        );
+        ));
     }
 
     #[test]

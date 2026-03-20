@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- 14 new REST management endpoints: skills listing, scheduler CRUD, workspace inspection, graph topology, experience system (status/principles/distill), session management
+- 8 new CLI commands: `skill`, `schedule`, `workspace`, `graph`, `experience`, `session`, `metrics`, `a2a`
+- `SessionStore::list()` trait method with Redis SCAN and in-memory implementations
+- `AgentGraph::nodes_iter()` / `edges_iter()` public accessors
+- `Serialize` derive on `SoulFrontmatter`
+- MCP serve now uses Redis-backed `SecretManager` when Redis is configured (fallback to in-memory)
+
 ## [1.0.0] - 2026-03-18
 
 ### Added

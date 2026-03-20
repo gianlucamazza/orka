@@ -93,7 +93,7 @@ impl Skill for MemoryStoreSkill {
         // Generate embedding
         let embeddings = self.embeddings.embed(&[content.to_string()]).await?;
 
-        let id = Uuid::new_v4().to_string();
+        let id = Uuid::now_v7().to_string();
         self.store
             .upsert(
                 collection,

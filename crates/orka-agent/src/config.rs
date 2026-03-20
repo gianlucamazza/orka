@@ -14,13 +14,15 @@ use crate::graph::{AgentGraph, Edge, EdgeCondition, GraphNode, NodeKind, Termina
 pub async fn build_graph_from_config(
     config: &OrkaConfig,
     workspace_registry: &WorkspaceRegistry,
-) -> anyhow::Result<AgentGraph> {
+) -> orka_core::Result<AgentGraph> {
     if config.agents.is_empty() {
         return build_single_agent_graph(config, workspace_registry).await;
     }
 
     let graph_def = config.graph.as_ref().ok_or_else(|| {
-        anyhow::anyhow!("[[agents]] is set but [graph] is missing — add [graph] section to config")
+        orka_core::Error::Config(
+            "[[agents]] is set but [graph] is missing — add [graph] section to config".into(),
+        )
     })?;
 
     let graph_id = graph_def.id.clone().unwrap_or_else(|| "default".into());
@@ -93,7 +95,7 @@ pub async fn build_graph_from_config(
 pub async fn build_single_agent_graph(
     config: &OrkaConfig,
     workspace_registry: &WorkspaceRegistry,
-) -> anyhow::Result<AgentGraph> {
+) -> orka_core::Result<AgentGraph> {
     let agent_cfg = &config.agent;
     let agent_id = AgentId::from(agent_cfg.id.as_str());
 

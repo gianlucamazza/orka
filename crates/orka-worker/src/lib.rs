@@ -10,6 +10,8 @@
 pub mod commands;
 /// `AgentHandler` trait and the built-in `EchoHandler`.
 pub mod handler;
+/// Shared conversation-history helpers (compaction + persistence).
+pub mod history;
 /// Re-exports streaming types from `orka-core`.
 pub mod stream;
 /// LLM-powered agent handler with tool loops and guardrails.
@@ -27,8 +29,8 @@ use std::time::Duration;
 use chrono::{Duration as ChronoDuration, Utc};
 use orka_agent::{AgentGraph, ExecutionContext, GraphExecutor};
 use orka_core::traits::{EventSink, MemoryStore, MessageBus, PriorityQueue, SessionStore};
-use orka_core::{DomainEvent, DomainEventKind, Envelope, MemoryEntry, Payload, Priority, Session};
-use orka_llm::client::ChatMessageExt;
+use orka_core::{DomainEvent, DomainEventKind, Envelope, Payload, Priority, Session};
+use orka_llm::client::ChatMessage;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -39,6 +41,7 @@ pub struct WorkerPool {
     bus: Arc<dyn MessageBus>,
     handler: Arc<dyn AgentHandler>,
     event_sink: Arc<dyn EventSink>,
+    session_lock: Option<Arc<dyn MemoryStore>>,
     concurrency: usize,
     max_retries: u32,
     retry_base_delay_ms: u64,
@@ -61,6 +64,7 @@ impl WorkerPool {
             bus,
             handler,
             event_sink,
+            session_lock: None,
             concurrency,
             max_retries,
             retry_base_delay_ms: 5000,
@@ -71,6 +75,15 @@ impl WorkerPool {
     /// Actual delay = base * 3^retry_count.
     pub fn with_retry_delay(mut self, base_delay_ms: u64) -> Self {
         self.retry_base_delay_ms = base_delay_ms;
+        self
+    }
+
+    /// Attach a memory store used for distributed session locking.
+    ///
+    /// When set, each message is processed under a per-session lock to prevent
+    /// concurrent workers from corrupting shared conversation history.
+    pub fn with_session_lock(mut self, memory: Arc<dyn MemoryStore>) -> Self {
+        self.session_lock = Some(memory);
         self
     }
 
@@ -85,6 +98,7 @@ impl WorkerPool {
             let bus = self.bus.clone();
             let handler = self.handler.clone();
             let event_sink = self.event_sink.clone();
+            let session_lock = self.session_lock.clone();
             let cancel = shutdown.clone();
             let max_retries = self.max_retries;
             let retry_base_delay_ms = self.retry_base_delay_ms;
@@ -162,6 +176,26 @@ impl WorkerPool {
                                         }
                                     };
 
+                                    // Acquire per-session lock to prevent concurrent history corruption
+                                    if let Some(ref lock) = session_lock {
+                                        const SESSION_LOCK_TTL_MS: u64 = 120_000;
+                                        if !lock.try_acquire_session_lock(&envelope.session_id.to_string(), SESSION_LOCK_TTL_MS).await {
+                                            // Another worker is processing this session — re-enqueue with 1s delay
+                                            let not_before = Utc::now() + ChronoDuration::milliseconds(1000);
+                                            let mut requeue = envelope.clone();
+                                            requeue.metadata.insert(
+                                                "not_before".to_string(),
+                                                serde_json::json!(not_before.to_rfc3339()),
+                                            );
+                                            if let Err(e) = queue.push(&requeue).await {
+                                                error!(worker = i, %e, session_id = %envelope.session_id, "failed to re-enqueue locked session");
+                                            } else {
+                                                warn!(worker = i, session_id = %envelope.session_id, "session locked by another worker, re-enqueuing with 1s delay");
+                                            }
+                                            continue;
+                                        }
+                                    }
+
                                     // Emit HandlerInvoked
                                     event_sink.emit(DomainEvent::new(
                                         DomainEventKind::HandlerInvoked {
@@ -171,6 +205,7 @@ impl WorkerPool {
                                     )).await;
 
                                     let start = std::time::Instant::now();
+                                    let locked_session_id = envelope.session_id.to_string();
 
                                     // Handle
                                     match handler.handle(&envelope, &session).await {
@@ -263,6 +298,11 @@ impl WorkerPool {
                                                 }
                                             }
                                         }
+                                    }
+
+                                    // Release session lock after handling (success or error)
+                                    if let Some(ref lock) = session_lock {
+                                        lock.release_session_lock(&locked_session_id).await;
                                     }
                                 }
                                 Ok(None) => {
@@ -386,6 +426,25 @@ impl WorkerPoolGraph {
                                         }
                                     };
 
+                                    // Acquire per-session lock to prevent concurrent history corruption
+                                    if let Some(ref lock) = memory {
+                                        const SESSION_LOCK_TTL_MS: u64 = 120_000;
+                                        if !lock.try_acquire_session_lock(&envelope.session_id.to_string(), SESSION_LOCK_TTL_MS).await {
+                                            let not_before = Utc::now() + ChronoDuration::milliseconds(1000);
+                                            let mut requeue = envelope.clone();
+                                            requeue.metadata.insert(
+                                                "not_before".to_string(),
+                                                serde_json::json!(not_before.to_rfc3339()),
+                                            );
+                                            if let Err(e) = queue.push(&requeue).await {
+                                                error!(worker = i, %e, session_id = %envelope.session_id, "failed to re-enqueue locked session");
+                                            } else {
+                                                warn!(worker = i, session_id = %envelope.session_id, "session locked by another worker, re-enqueuing with 1s delay");
+                                            }
+                                            continue;
+                                        }
+                                    }
+
                                     // Emit HandlerInvoked
                                     event_sink.emit(DomainEvent::new(
                                         DomainEventKind::HandlerInvoked {
@@ -395,6 +454,7 @@ impl WorkerPoolGraph {
                                     )).await;
 
                                     let start = std::time::Instant::now();
+                                    let locked_session_id_graph = envelope.session_id.to_string();
                                     let ctx = ExecutionContext::new(envelope.clone());
 
                                     // Load conversation history from memory store (if available)
@@ -403,7 +463,7 @@ impl WorkerPoolGraph {
                                         let history_key = format!("conversation:{}", envelope.session_id);
                                         match mem.recall(&history_key).await {
                                             Ok(Some(entry)) => {
-                                                let history: Vec<ChatMessageExt> =
+                                                let history: Vec<ChatMessage> =
                                                     serde_json::from_value(entry.value)
                                                         .unwrap_or_default();
                                                 if !history.is_empty() {
@@ -426,7 +486,7 @@ impl WorkerPoolGraph {
                                         _ => None,
                                     };
                                     if let Some(text) = user_text {
-                                        ctx.push_message(ChatMessageExt::user(text)).await;
+                                        ctx.push_message(ChatMessage::user(text)).await;
                                     }
 
                                     match executor.execute(&graph, &ctx).await {
@@ -435,24 +495,11 @@ impl WorkerPoolGraph {
                                             let outbound_msgs = result.into_outbound_messages(&ctx);
                                             let reply_count = outbound_msgs.len();
 
-                                            // Persist updated conversation history
+                                            // Persist updated conversation history with compaction
                                             if let Some(ref mem) = memory {
                                                 let history_key = format!("conversation:{}", envelope.session_id);
                                                 let msgs = ctx.messages().await;
-                                                if !msgs.is_empty() {
-                                                    match serde_json::to_value(&msgs) {
-                                                        Ok(v) => {
-                                                            let entry = MemoryEntry::new(&history_key, v)
-                                                                .with_tags(vec!["conversation".to_string()]);
-                                                            if let Err(e) = mem.store(&history_key, entry, None).await {
-                                                                warn!(worker = i, %e, session_id = %envelope.session_id, "failed to save conversation history");
-                                                            }
-                                                        }
-                                                        Err(e) => {
-                                                            warn!(worker = i, %e, "failed to serialize conversation history");
-                                                        }
-                                                    }
-                                                }
+                                                history::save_history_compact(mem.as_ref(), &history_key, msgs).await;
                                             }
 
                                             for msg in &outbound_msgs {
@@ -536,6 +583,11 @@ impl WorkerPoolGraph {
                                                 }
                                             }
                                         }
+                                    }
+
+                                    // Release session lock after graph execution (success or error)
+                                    if let Some(ref lock) = memory {
+                                        lock.release_session_lock(&locked_session_id_graph).await;
                                     }
                                 }
                                 Ok(None) => {

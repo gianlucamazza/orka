@@ -168,19 +168,21 @@ macro_rules! export_plugin {
             }
         }
 
-        /// Return plugin metadata as JSON. Encoding: (ptr << 32) | len.
+        /// Return plugin metadata as JSON. Encoding: (ptr << 32) | len, or 0 on error.
         #[no_mangle]
         pub extern "C" fn orka_plugin_info() -> i64 {
             let plugin = <$plugin_ty>::default();
             let info = <$plugin_ty as $crate::Plugin>::info(&plugin);
-            let json = serde_json::to_vec(&info).unwrap();
+            let Ok(json) = serde_json::to_vec(&info) else {
+                return 0;
+            };
             let len = json.len() as i64;
             let ptr = json.as_ptr() as i64;
             std::mem::forget(json);
             (ptr << 32) | len
         }
 
-        /// Execute the plugin with JSON input. Encoding: (ptr << 32) | len.
+        /// Execute the plugin with JSON input. Encoding: (ptr << 32) | len, or 0 on error.
         #[no_mangle]
         pub extern "C" fn orka_plugin_execute(ptr: u32, len: u32) -> i64 {
             // SAFETY: The host allocated this memory via `orka_alloc` and wrote `len` bytes
@@ -189,9 +191,11 @@ macro_rules! export_plugin {
             let input: $crate::PluginInput = match serde_json::from_slice(input_bytes) {
                 Ok(v) => v,
                 Err(e) => {
-                    let err =
+                    let Ok(err) =
                         serde_json::to_vec(&Err::<$crate::PluginOutput, String>(e.to_string()))
-                            .unwrap();
+                    else {
+                        return 0;
+                    };
                     let elen = err.len() as i64;
                     let eptr = err.as_ptr() as i64;
                     std::mem::forget(err);
@@ -200,18 +204,22 @@ macro_rules! export_plugin {
             };
             let plugin = <$plugin_ty>::default();
             let result = <$plugin_ty as $crate::Plugin>::execute(&plugin, input);
-            let json = serde_json::to_vec(&result).unwrap();
+            let Ok(json) = serde_json::to_vec(&result) else {
+                return 0;
+            };
             let rlen = json.len() as i64;
             let rptr = json.as_ptr() as i64;
             std::mem::forget(json);
             (rptr << 32) | rlen
         }
 
-        /// Allocate `len` bytes of guest memory. Returns the pointer.
+        /// Allocate `len` bytes of guest memory. Returns the pointer, or 0 on failure.
         #[no_mangle]
         pub extern "C" fn orka_alloc(len: u32) -> u32 {
-            let layout = std::alloc::Layout::from_size_align(len as usize, 1).unwrap();
-            // SAFETY: layout is valid.
+            let Ok(layout) = std::alloc::Layout::from_size_align(len as usize, 1) else {
+                return 0;
+            };
+            // SAFETY: layout is valid (size > 0, alignment = 1).
             unsafe { std::alloc::alloc(layout) as u32 }
         }
 
@@ -221,7 +229,9 @@ macro_rules! export_plugin {
             if len == 0 {
                 return;
             }
-            let layout = std::alloc::Layout::from_size_align(len as usize, 1).unwrap();
+            let Ok(layout) = std::alloc::Layout::from_size_align(len as usize, 1) else {
+                return;
+            };
             // SAFETY: ptr was allocated by orka_alloc with the same layout.
             unsafe { std::alloc::dealloc(ptr as *mut u8, layout) }
         }

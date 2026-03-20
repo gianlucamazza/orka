@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// YAML frontmatter parsed from a `SOUL.md` file.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SoulFrontmatter {
     /// Agent name (overrides the workspace directory name when set).
     #[serde(default)]

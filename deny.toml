@@ -25,8 +25,62 @@ allow = [
 ]
 
 [bans]
-multiple-versions = "warn"
+multiple-versions = "deny"
 wildcards = "allow"
+skip = [
+  # axum 0.7 pulled by tonic (qdrant-client, opentelemetry-otlp)
+  { name = "axum" },
+  { name = "axum-core" },
+  { name = "matchit" },
+  { name = "tower" },
+  # base64 pulled by multiple unrelated transitive deps
+  { name = "base64" },
+  # bitflags 1.x still used by inotify/kqueue/redox_syscall
+  { name = "bitflags" },
+  # various crates with multiple versions in transitive dep trees
+  { name = "bit-set" },
+  { name = "bit-vec" },
+  { name = "convert_case" },
+  { name = "core-foundation" },
+  { name = "derive_more" },
+  { name = "fancy-regex" },
+  { name = "foldhash" },
+  { name = "getrandom" },
+  { name = "hashbrown" },
+  { name = "indexmap" },
+  { name = "itertools" },
+  { name = "linux-raw-sys" },
+  { name = "nom" },
+  { name = "phf" },
+  { name = "phf_shared" },
+  { name = "rand" },
+  { name = "rand_chacha" },
+  { name = "rand_core" },
+  { name = "rand_xoshiro" },
+  { name = "redox_users" },
+  { name = "r-efi" },
+  { name = "rustc-hash" },
+  { name = "rustix" },
+  { name = "serde_spanned" },
+  { name = "socket2" },
+  { name = "thiserror" },
+  { name = "thiserror-impl" },
+  { name = "tiktoken-rs" },
+  { name = "tokio-tungstenite" },
+  { name = "toml" },
+  { name = "toml_datetime" },
+  { name = "tungstenite" },
+  { name = "unicode-width" },
+  { name = "ureq" },
+  { name = "wasm-encoder" },
+  { name = "wast" },
+  { name = "webpki-roots" },
+  { name = "windows-core" },
+  { name = "windows-implement" },
+  { name = "windows-interface" },
+  { name = "windows-result" },
+  { name = "windows-sys" },
+]
 
 [sources]
 unknown-registry = "deny"

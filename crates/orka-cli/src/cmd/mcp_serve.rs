@@ -27,7 +27,16 @@ pub async fn run(config_path: Option<&str>) -> Result<()> {
     }
 
     let skills = Arc::new(skills);
-    let secrets: Arc<dyn SecretManager> = Arc::new(InMemorySecretManager::new());
+
+    // Use Redis-backed secret manager if Redis URL is available, else in-memory
+    let secrets: Arc<dyn SecretManager> = if let Some(ref cfg) = config {
+        match orka_secrets::create_secret_manager(cfg) {
+            Ok(mgr) => mgr,
+            Err(_) => Arc::new(InMemorySecretManager::new()),
+        }
+    } else {
+        Arc::new(InMemorySecretManager::new())
+    };
 
     let server = Arc::new(orka_mcp::McpServer::new(skills, secrets));
     server.run_stdio().await.map_err(|e| e.into())

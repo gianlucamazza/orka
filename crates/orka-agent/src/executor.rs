@@ -18,12 +18,19 @@ use crate::node_runner::run_agent_node;
 
 /// External dependencies injected into the executor.
 pub struct ExecutorDeps {
+    /// Skill registry for resolving and calling tools.
     pub skills: Arc<SkillRegistry>,
+    /// Memory store for persisting conversation history.
     pub memory: Arc<dyn MemoryStore>,
+    /// Secret manager for resolving credentials.
     pub secrets: Arc<dyn SecretManager>,
+    /// Optional LLM client override; falls back to the global default if `None`.
     pub llm: Option<Arc<dyn LlmClient>>,
+    /// Sink for emitting domain events.
     pub event_sink: Arc<dyn EventSink>,
+    /// Registry for sending stream chunks to connected sessions.
     pub stream_registry: orka_core::StreamRegistry,
+    /// Optional experience service for post-run reflection.
     pub experience: Option<Arc<ExperienceService>>,
 }
 
@@ -60,10 +67,12 @@ impl ExecutionResult {
 
 /// Executes an `AgentGraph` driven by an `ExecutionContext`.
 pub struct GraphExecutor {
+    /// Shared external dependencies used during execution.
     pub deps: Arc<ExecutorDeps>,
 }
 
 impl GraphExecutor {
+    /// Create a new executor wrapping the given dependencies.
     pub fn new(deps: ExecutorDeps) -> Self {
         Self {
             deps: Arc::new(deps),
@@ -123,7 +132,7 @@ impl GraphExecutor {
             _ => String::new(),
         };
         if !trigger_text.is_empty() && ctx.messages().await.is_empty() {
-            ctx.push_message(orka_llm::client::ChatMessageExt::user(trigger_text.clone()))
+            ctx.push_message(orka_llm::client::ChatMessage::user(trigger_text.clone()))
                 .await;
         }
 
@@ -256,9 +265,10 @@ impl GraphExecutor {
 
                                 if let Some(resp) = delegate_result.response {
                                     // Feed the delegate result back as a tool result message
-                                    ctx.push_message(orka_llm::client::ChatMessageExt::user(
-                                        format!("[Delegate result from {}]: {resp}", handoff.to),
-                                    ))
+                                    ctx.push_message(orka_llm::client::ChatMessage::user(format!(
+                                        "[Delegate result from {}]: {resp}",
+                                        handoff.to
+                                    )))
                                     .await;
                                 }
 

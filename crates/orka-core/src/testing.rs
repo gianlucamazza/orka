@@ -103,6 +103,14 @@ impl SessionStore for InMemorySessionStore {
         sessions.remove(id);
         Ok(())
     }
+
+    async fn list(&self, limit: usize) -> Result<Vec<Session>> {
+        let sessions = self.sessions.lock().await;
+        let mut result: Vec<Session> = sessions.values().cloned().collect();
+        result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        result.truncate(limit);
+        Ok(result)
+    }
 }
 
 // ---------------------------------------------------------------------------

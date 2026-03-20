@@ -7,7 +7,7 @@ use serde_json::json;
 use tracing::debug;
 
 use crate::client::{
-    ChatContent, ChatMessage, ChatMessageExt, CompletionOptions, CompletionResponse, ContentBlock,
+    ChatContent, ChatMessage, CompletionOptions, CompletionResponse, ContentBlock,
     ContentBlockInput, LlmClient, LlmStream, LlmToolStream, RetryableError, StopReason,
     StreamEvent, ToolCall, ToolDefinition, Usage,
 };
@@ -184,9 +184,9 @@ impl AnthropicClient {
             .unwrap_or_default()
     }
 
-    /// Build API messages from ChatMessageExt.
+    /// Build API messages from ChatMessage.
     /// Thinking blocks are filtered out — Anthropic requires they are not re-sent in history.
-    fn build_ext_messages(messages: &[ChatMessageExt]) -> Vec<serde_json::Value> {
+    fn build_ext_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         messages
             .iter()
             .map(|m| match &m.content {
@@ -299,7 +299,7 @@ impl LlmClient for AnthropicClient {
 
     async fn complete_with_tools(
         &self,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,
@@ -453,7 +453,7 @@ impl LlmClient for AnthropicClient {
 
     async fn complete_stream_with_tools(
         &self,
-        messages: &[ChatMessageExt],
+        messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
         options: CompletionOptions,

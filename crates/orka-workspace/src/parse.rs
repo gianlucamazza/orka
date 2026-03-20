@@ -32,7 +32,7 @@ pub fn parse_document<T: DeserializeOwned>(raw: &str) -> Result<Document<T>, ork
     let rest = &after_open[closing_pos + 4..]; // skip "\n---"
     let body = rest.strip_prefix('\n').unwrap_or(rest).to_string();
 
-    let frontmatter: T = serde_yaml::from_str(yaml_str)
+    let frontmatter: T = serde_yml::from_str(yaml_str)
         .map_err(|e| orka_core::Error::Workspace(format!("failed to parse frontmatter: {e}")))?;
 
     Ok(Document { frontmatter, body })
