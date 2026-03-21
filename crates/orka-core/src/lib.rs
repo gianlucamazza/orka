@@ -52,8 +52,8 @@ pub use error::{Error, Result};
 pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 pub use types::{
-    CommandPayload, DomainEvent, DomainEventKind, Envelope, ErrorCategory, EventId, EventPayload,
-    MediaPayload, MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage, Payload,
-    Priority, RunId, SecretValue, Session, SessionId, SkillBudget, SkillContext, SkillInput,
-    SkillOutput, SkillSchema, TraceContext, backoff_delay,
+    CommandArgs, CommandPayload, DomainEvent, DomainEventKind, Envelope, ErrorCategory, EventId,
+    EventPayload, MediaPayload, MemoryEntry, MessageId, MessageSink, MessageStream,
+    OutboundMessage, Payload, Priority, RunId, SecretValue, Session, SessionId, SkillBudget,
+    SkillContext, SkillInput, SkillOutput, SkillSchema, TraceContext, backoff_delay,
 };

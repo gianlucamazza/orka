@@ -121,6 +121,7 @@ impl ChannelAdapter for TelegramAdapter {
             info!(authorized_users = n, "Telegram auth enabled");
         }
 
+        let group_mode = self.config.group_mode.clone();
         match mode.as_str() {
             "webhook" => {
                 let webhook_url =
@@ -139,6 +140,7 @@ impl ChannelAdapter for TelegramAdapter {
                         port,
                         shutdown_rx,
                         auth_guard,
+                        group_mode,
                     )
                     .await;
                 });
@@ -146,8 +148,16 @@ impl ChannelAdapter for TelegramAdapter {
             }
             _ => {
                 tokio::spawn(async move {
-                    polling::run_polling_loop(api, sink, sessions, memory, shutdown_rx, auth_guard)
-                        .await;
+                    polling::run_polling_loop(
+                        api,
+                        sink,
+                        sessions,
+                        memory,
+                        shutdown_rx,
+                        auth_guard,
+                        group_mode,
+                    )
+                    .await;
                 });
                 info!("Telegram adapter started (long polling)");
             }

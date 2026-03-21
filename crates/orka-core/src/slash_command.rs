@@ -34,7 +34,7 @@ pub fn parse_slash_command(input: &str) -> Option<ParsedCommand> {
 
 /// Simple tokenizer supporting quoted arguments.
 /// `key=val` stays as one token; `"hello world"` is a single token with quotes stripped.
-fn tokenize(input: &str) -> Vec<String> {
+pub(crate) fn tokenize(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut in_quote = false;

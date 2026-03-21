@@ -7,14 +7,14 @@ use orka_workspace::WorkspaceRegistry;
 
 use super::ServerCommand;
 
-/// Command that prints agent status information (`/status`).
-pub struct StatusCommand {
+/// Command sent automatically by Telegram when a user opens the chat for the first time (`/start`).
+pub struct StartCommand {
     workspace_registry: Arc<WorkspaceRegistry>,
     agent_config: AgentConfig,
 }
 
-impl StatusCommand {
-    /// Create the command with access to the workspace registry and agent config.
+impl StartCommand {
+    /// Create the command with access to workspace and agent config.
     pub fn new(workspace_registry: Arc<WorkspaceRegistry>, agent_config: AgentConfig) -> Self {
         Self {
             workspace_registry,
@@ -24,47 +24,53 @@ impl StatusCommand {
 }
 
 #[async_trait]
-impl ServerCommand for StatusCommand {
+impl ServerCommand for StartCommand {
     fn name(&self) -> &str {
-        "status"
+        "start"
     }
     fn description(&self) -> &str {
-        "Show session info"
+        "Start a conversation"
     }
     fn usage(&self) -> &str {
-        "/status"
+        "/start"
     }
 
     async fn execute(
         &self,
         _args: &CommandArgs,
         envelope: &Envelope,
-        session: &Session,
+        _session: &Session,
     ) -> Result<Vec<OutboundMessage>> {
         let state = self.workspace_registry.default_state();
         let state = state.read().await;
 
-        let model = self.agent_config.model.as_deref().unwrap_or("(default)");
-
-        let name = state
+        let agent_name = state
             .soul
             .as_ref()
             .and_then(|s| s.frontmatter.name.as_deref())
-            .unwrap_or("(unnamed)");
+            .unwrap_or("Orka Agent");
 
-        let workspace_name = self.workspace_registry.default_name();
-        let workspaces = self.workspace_registry.list_names().join(", ");
+        let description = state
+            .soul
+            .as_ref()
+            .and_then(|s| s.frontmatter.description.as_deref())
+            .unwrap_or("an AI assistant");
+
+        let model = self
+            .agent_config
+            .model
+            .as_deref()
+            .unwrap_or("default model");
 
         let text = format!(
-            "**Session status**\n\
-            **Session ID:** `{}`\n\
-            **Channel:** {}\n\
-            **User:** {}\n\
-            **Agent:** {name}\n\
-            **Model:** `{model}`\n\
-            **Workspace:** {workspace_name}\n\
-            **Available workspaces:** {workspaces}",
-            session.id, session.channel, session.user_id
+            "👋 Welcome! I'm **{agent_name}** — {description}.\n\n\
+            Model: `{model}`\n\n\
+            **Commands:**\n\
+            • **/help** — List all available commands\n\
+            • **/status** — Show session info\n\
+            • **/skills** — List available skills\n\
+            • **/reset** — Clear conversation history\n\n\
+            Just send me a message to get started!"
         );
 
         let mut msg = OutboundMessage::text(

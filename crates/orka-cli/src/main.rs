@@ -184,7 +184,6 @@ enum ConfigAction {
     },
 }
 
-
 #[derive(clap::Subcommand)]
 enum SecretAction {
     /// Set a secret value (value is read from stdin to avoid shell-history exposure)
@@ -293,7 +292,6 @@ enum WorkspaceAction {
         name: String,
     },
 }
-
 
 #[derive(clap::Subcommand)]
 enum ExperienceAction {

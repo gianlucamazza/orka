@@ -1,12 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use orka_core::config::AgentConfig;
 use orka_core::traits::{EventSink, Guardrail, MemoryStore, SecretManager};
 use orka_core::{
-    DomainEvent, DomainEventKind, Envelope, ErrorCategory, MemoryEntry, MessageId, OutboundMessage,
-    Payload, Result, Session, SessionId, SkillInput,
+    CommandArgs, DomainEvent, DomainEventKind, Envelope, ErrorCategory, MemoryEntry, MessageId,
+    OutboundMessage, Payload, Result, Session, SessionId, SkillInput,
 };
 
 use orka_experience::ExperienceService;
@@ -131,6 +133,44 @@ pub struct WorkspaceHandlerConfig {
     pub default_context_window: u32,
 }
 
+/// Sliding-window rate limiter for slash commands, keyed by `(SessionId, command_name)`.
+///
+/// Stores `(window_start, call_count)` per session+command pair and resets the count
+/// after `RATE_WINDOW_SECS` seconds.
+struct CommandRateLimiter {
+    state: Mutex<HashMap<(SessionId, String), (Instant, u32)>>,
+    max_per_window: u32,
+    window_secs: u64,
+}
+
+impl CommandRateLimiter {
+    fn new(max_per_window: u32, window_secs: u64) -> Self {
+        Self {
+            state: Mutex::new(HashMap::new()),
+            max_per_window,
+            window_secs,
+        }
+    }
+
+    /// Returns `true` if the command is allowed, `false` if the limit is exceeded.
+    fn check_and_record(&self, session_id: SessionId, command: &str) -> bool {
+        let mut guard = self.state.lock().unwrap();
+        let key = (session_id, command.to_string());
+        let now = Instant::now();
+        let entry = guard.entry(key).or_insert((now, 0));
+        if now.duration_since(entry.0).as_secs() >= self.window_secs {
+            // Window expired — reset.
+            *entry = (now, 1);
+            true
+        } else if entry.1 < self.max_per_window {
+            entry.1 += 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// LLM-powered agent handler with tool-use loops, guardrails, and experience learning.
 pub struct WorkspaceHandler {
     workspace_registry: Arc<WorkspaceRegistry>,
@@ -146,6 +186,10 @@ pub struct WorkspaceHandler {
     commands: Arc<CommandRegistry>,
     stream_registry: StreamRegistry,
     experience: Option<Arc<ExperienceService>>,
+    /// Per-session rate limiter for slash commands (10 per minute by default).
+    command_rate_limiter: CommandRateLimiter,
+    /// Shared cancellation tokens from the worker pool (used by `/cancel`).
+    session_cancel_tokens: Option<crate::SessionCancelTokens>,
 }
 
 impl WorkspaceHandler {
@@ -178,7 +222,18 @@ impl WorkspaceHandler {
             commands,
             stream_registry,
             experience,
+            command_rate_limiter: CommandRateLimiter::new(10, 60),
+            session_cancel_tokens: None,
         }
+    }
+
+    /// Wire in the shared session cancellation token map from the worker pool.
+    pub fn with_session_cancel_tokens(
+        mut self,
+        tokens: crate::SessionCancelTokens,
+    ) -> Self {
+        self.session_cancel_tokens = Some(tokens);
+        self
     }
 
     fn make_reply(&self, envelope: &Envelope, text: String) -> OutboundMessage {
@@ -957,16 +1012,33 @@ impl WorkspaceHandler {
 #[async_trait]
 impl AgentHandler for WorkspaceHandler {
     async fn handle(&self, envelope: &Envelope, session: &Session) -> Result<Vec<OutboundMessage>> {
+        // Dispatch structured commands directly without round-tripping through text.
+        if let Payload::Command(cmd) = &envelope.payload {
+            if !self
+                .command_rate_limiter
+                .check_and_record(envelope.session_id, &cmd.name)
+            {
+                return Ok(vec![
+                    self.make_reply(
+                        envelope,
+                        "Rate limit exceeded. Please wait a moment before sending another command."
+                            .into(),
+                    ),
+                ]);
+            }
+            let args = CommandArgs::from(cmd.clone());
+            if let Some(handler) = self.commands.get(&cmd.name) {
+                return handler.execute(&args, envelope, session).await;
+            }
+            let help = self.commands.help_text();
+            return Ok(vec![self.make_reply(
+                envelope,
+                format!("Unknown command: /{}\n\n{help}", cmd.name),
+            )]);
+        }
+
         let text = match &envelope.payload {
             Payload::Text(t) => t.clone(),
-            Payload::Command(cmd) => {
-                let mut s = format!("/{}", cmd.name);
-                if let Some(arg) = cmd.args.get("text").and_then(|v| v.as_str()) {
-                    s.push(' ');
-                    s.push_str(arg);
-                }
-                s
-            }
             _ => {
                 return Ok(vec![self.make_reply(
                     envelope,
@@ -974,6 +1046,31 @@ impl AgentHandler for WorkspaceHandler {
                 )]);
             }
         };
+
+        // Dispatch ALL slash commands before the guardrail.  Commands are trusted internal
+        // handlers — there is no reason to run a guardrail check on them.
+        if let Some(parsed) = orka_core::parse_slash_command(&text) {
+            if !self
+                .command_rate_limiter
+                .check_and_record(envelope.session_id, &parsed.name)
+            {
+                return Ok(vec![self.make_reply(
+                    envelope,
+                    "Rate limit exceeded. Please wait a moment before sending another command."
+                        .into(),
+                )]);
+            }
+            let args = CommandArgs::from(parsed.clone());
+            if let Some(handler) = self.commands.get(&parsed.name) {
+                return handler.execute(&args, envelope, session).await;
+            }
+            // Unknown slash command — show help
+            let help = self.commands.help_text();
+            return Ok(vec![self.make_reply(
+                envelope,
+                format!("Unknown command: /{}\n\n{help}", parsed.name),
+            )]);
+        }
 
         // 3-tier workspace resolution:
         //   1. Per-session override from MemoryStore (CLI inline content or named workspace)
@@ -1060,23 +1157,6 @@ impl AgentHandler for WorkspaceHandler {
         } else {
             text
         };
-
-        // Check for slash commands: /command [args...]
-        if let Some(cmd) = orka_core::parse_slash_command(&text) {
-            if cmd.name == "help" {
-                // /help uses the registry to show all commands
-                return Ok(vec![self.make_reply(envelope, self.commands.help_text())]);
-            }
-            if let Some(handler) = self.commands.get(&cmd.name) {
-                return handler.execute(&cmd.args, envelope, session).await;
-            }
-            // Unknown slash command
-            let help = self.commands.help_text();
-            return Ok(vec![self.make_reply(
-                envelope,
-                format!("Unknown command: /{}\n\n{help}", cmd.name),
-            )]);
-        }
 
         // If LLM is configured, run the agent loop
         if let Some(ref llm) = self.llm {
@@ -1223,6 +1303,21 @@ impl AgentHandler for WorkspaceHandler {
             // Track per-tool-name consecutive error counts for self-correction
             let mut tool_error_counts: HashMap<String, u32> = HashMap::new();
             for iteration in 0..max_iterations {
+                // Check for cancellation between iterations.
+                if let Some(ref tokens) = self.session_cancel_tokens {
+                    let cancelled = tokens
+                        .lock()
+                        .unwrap()
+                        .get(&envelope.session_id)
+                        .map(|t| t.is_cancelled())
+                        .unwrap_or(false);
+                    if cancelled {
+                        info!(session_id = %envelope.session_id, "operation cancelled by user");
+                        final_text = "Operation cancelled.".to_string();
+                        break;
+                    }
+                }
+
                 let iteration_start = std::time::Instant::now();
 
                 // Pre-flight truncation: ensure messages fit context window
@@ -1713,6 +1808,7 @@ mod tests {
             secrets.clone(),
             ws_registry.clone(),
             &agent_config,
+            None,
         );
         let commands = Arc::new(commands);
 

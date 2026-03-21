@@ -1,12 +1,13 @@
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::{Envelope, OutboundMessage, Result, Session};
+use orka_core::{CommandArgs, Envelope, OutboundMessage, Result, Session};
 use orka_skills::SkillRegistry;
 
 use super::ServerCommand;
 
-/// Command that lists all registered skills (`/skills`).
+/// Command that lists all registered skills (`/skills [name]`).
 pub struct SkillsCommand {
     skills: Arc<SkillRegistry>,
 }
@@ -27,26 +28,61 @@ impl ServerCommand for SkillsCommand {
         "List available skills"
     }
     fn usage(&self) -> &str {
-        "/skills"
+        "/skills [name]"
     }
 
     async fn execute(
         &self,
-        _args: &[String],
+        args: &CommandArgs,
         envelope: &Envelope,
         _session: &Session,
     ) -> Result<Vec<OutboundMessage>> {
-        let names = self.skills.list();
-        let text = if names.is_empty() {
-            "No skills registered.".to_string()
-        } else {
-            let mut lines = vec!["Available skills:".to_string()];
-            for name in names {
-                if let Some(skill) = self.skills.get(name) {
-                    lines.push(format!("  {name} — {}", skill.description()));
+        let text = if let Some(skill_name) = args.positional(0) {
+            // Detail view for a specific skill.
+            match self.skills.get(skill_name) {
+                None => format!("Unknown skill: **{skill_name}**"),
+                Some(skill) => {
+                    let schema = serde_json::to_string_pretty(&skill.schema().parameters)
+                        .unwrap_or_else(|_| "{}".to_string());
+                    format!(
+                        "**{skill_name}**\n{}\n\nCategory: `{}`\n\n**Input schema:**\n```json\n{schema}\n```",
+                        skill.description(),
+                        skill.category(),
+                    )
                 }
             }
-            lines.join("\n")
+        } else {
+            // List view grouped by category.
+            let infos = self.skills.list_info();
+            if infos.is_empty() {
+                "No skills registered.".to_string()
+            } else {
+                // Skills with open circuit breakers are excluded from list_available().
+                let available_set: HashSet<&str> =
+                    self.skills.list_available().into_iter().collect();
+
+                // Group by category preserving alphabetical order.
+                let mut by_cat: BTreeMap<&str, Vec<(&str, &str, bool)>> = BTreeMap::new();
+                for (name, skill, _circuit) in &infos {
+                    let available = available_set.contains(name);
+                    by_cat.entry(skill.category()).or_default().push((
+                        name,
+                        skill.description(),
+                        available,
+                    ));
+                }
+
+                let mut lines = vec!["**Available skills:**".to_string()];
+                for (cat, skills) in &by_cat {
+                    lines.push(format!("\n_{cat}_"));
+                    for (name, desc, available) in skills {
+                        let status = if *available { "✓" } else { "✗" };
+                        lines.push(format!("• **{name}** {status} — {desc}"));
+                    }
+                }
+                lines.push("\nUse `/skills <name>` for details and input schema.".to_string());
+                lines.join("\n")
+            }
         };
 
         let mut msg = OutboundMessage::text(

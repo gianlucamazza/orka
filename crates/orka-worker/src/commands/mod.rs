@@ -1,11 +1,21 @@
+/// `/cancel` command — abort the current operation.
+pub mod cancel;
+/// `/experience` command — inspect the self-learning system.
+pub mod experience;
+/// `/help` command — shows available commands and usage.
+pub mod help;
 /// `/reset` command — clears session memory.
 pub mod reset;
 /// `/skill` command — invokes a named skill directly.
 pub mod skill;
 /// `/skills` command — lists registered skills.
 pub mod skills;
+/// `/start` command — welcome message for new users.
+pub mod start;
 /// `/status` command — shows agent configuration and workspace info.
 pub mod status;
+/// `/workspace` command — list or switch workspaces.
+pub mod workspace;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +23,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use orka_core::config::AgentConfig;
 use orka_core::traits::{MemoryStore, SecretManager};
-use orka_core::{Envelope, OutboundMessage, Result, Session};
+use orka_core::{CommandArgs, Envelope, OutboundMessage, Result, Session};
+use orka_experience::ExperienceService;
 use orka_skills::SkillRegistry;
 use orka_workspace::WorkspaceRegistry;
 
@@ -26,10 +37,10 @@ pub trait ServerCommand: Send + Sync {
     fn description(&self) -> &str;
     /// Usage string shown in `/help <command>`.
     fn usage(&self) -> &str;
-    /// Execute the command with the parsed argument tokens.
+    /// Execute the command with the parsed arguments.
     async fn execute(
         &self,
-        args: &[String],
+        args: &CommandArgs,
         envelope: &Envelope,
         session: &Session,
     ) -> Result<Vec<OutboundMessage>>;
@@ -93,14 +104,45 @@ pub fn register_all(
     secrets: Arc<dyn SecretManager>,
     workspace_registry: Arc<WorkspaceRegistry>,
     agent_config: &AgentConfig,
+    experience: Option<Arc<ExperienceService>>,
 ) {
+    registry.register(Arc::new(cancel::CancelCommand::new()));
     registry.register(Arc::new(skill::SkillCommand::new(skills.clone(), secrets)));
     registry.register(Arc::new(skills::SkillsCommand::new(skills)));
-    registry.register(Arc::new(reset::ResetCommand::new(memory)));
+    registry.register(Arc::new(reset::ResetCommand::new(memory.clone())));
     registry.register(Arc::new(status::StatusCommand::new(
-        workspace_registry,
+        workspace_registry.clone(),
         agent_config.clone(),
     )));
+    registry.register(Arc::new(start::StartCommand::new(
+        workspace_registry.clone(),
+        agent_config.clone(),
+    )));
+    registry.register(Arc::new(workspace::WorkspaceCommand::new(
+        workspace_registry.clone(),
+        memory,
+    )));
+
+    // `/experience` is only registered when the experience system is enabled.
+    if let Some(exp) = experience
+        && let Some(cmd) = experience::ExperienceCommand::new_if_enabled(exp, workspace_registry)
+    {
+        registry.register(Arc::new(cmd));
+    }
+
+    // `/help` must be registered last so its snapshot includes all other commands.
+    let entries: Vec<(String, String, String)> = registry
+        .list()
+        .into_iter()
+        .map(|(name, desc)| {
+            let usage = registry
+                .get(name)
+                .map(|c| c.usage().to_string())
+                .unwrap_or_default();
+            (name.to_string(), desc.to_string(), usage)
+        })
+        .collect();
+    registry.register(Arc::new(help::HelpCommand::new(entries)));
 }
 
 #[cfg(test)]
@@ -125,7 +167,7 @@ mod tests {
         }
         async fn execute(
             &self,
-            _args: &[String],
+            _args: &CommandArgs,
             _envelope: &Envelope,
             _session: &Session,
         ) -> Result<Vec<OutboundMessage>> {

@@ -301,6 +301,10 @@ pub struct TelegramAdapterConfig {
     /// Additional Telegram user IDs allowed to interact with the bot.
     #[serde(default)]
     pub allowed_users: Option<Vec<i64>>,
+    /// How to handle messages in group chats: "all" (default) processes every message,
+    /// "commands_only" ignores non-command messages in groups/supergroups.
+    #[serde(default)]
+    pub group_mode: Option<String>,
 }
 
 /// Discord bot adapter configuration.

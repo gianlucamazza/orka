@@ -23,16 +23,23 @@ pub use handler::{AgentHandler, EchoHandler};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 pub use workspace_handler::{WorkspaceHandler, WorkspaceHandlerConfig};
 
-use std::sync::Arc;
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
 use orka_agent::{AgentGraph, ExecutionContext, GraphExecutor};
 use orka_core::traits::{EventSink, MemoryStore, MessageBus, PriorityQueue, SessionStore};
+use orka_core::types::SessionId;
 use orka_core::{DomainEvent, DomainEventKind, Envelope, Payload, Priority, Session};
 use orka_llm::client::ChatMessage;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+
+/// Shared map of per-session cancellation tokens.  The worker populates this before
+/// each handler invocation; the `/cancel` command uses it to abort ongoing LLM loops.
+pub type SessionCancelTokens = Arc<Mutex<HashMap<SessionId, CancellationToken>>>;
 
 /// Concurrent worker pool that pops envelopes from a priority queue and dispatches them.
 pub struct WorkerPool {
@@ -45,6 +52,8 @@ pub struct WorkerPool {
     concurrency: usize,
     max_retries: u32,
     retry_base_delay_ms: u64,
+    /// Cancellation tokens shared between the worker loop and the cancel command.
+    session_cancel_tokens: SessionCancelTokens,
 }
 
 impl WorkerPool {
@@ -68,7 +77,14 @@ impl WorkerPool {
             concurrency,
             max_retries,
             retry_base_delay_ms: 5000,
+            session_cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Return a clone of the shared session cancellation token map so that handlers
+    /// (e.g. `WorkspaceHandler`) and commands (e.g. `CancelCommand`) can share it.
+    pub fn session_cancel_tokens(&self) -> SessionCancelTokens {
+        self.session_cancel_tokens.clone()
     }
 
     /// Set the base delay for retry backoff (default: 5000ms).
@@ -99,6 +115,7 @@ impl WorkerPool {
             let handler = self.handler.clone();
             let event_sink = self.event_sink.clone();
             let session_lock = self.session_lock.clone();
+            let session_cancel_tokens = self.session_cancel_tokens.clone();
             let cancel = shutdown.clone();
             let max_retries = self.max_retries;
             let retry_base_delay_ms = self.retry_base_delay_ms;
@@ -175,6 +192,43 @@ impl WorkerPool {
                                             continue;
                                         }
                                     };
+
+                                    // `/cancel` bypasses the session lock: cancel the session's token
+                                    // immediately and reply without waiting for the ongoing operation.
+                                    let is_cancel = matches!(&envelope.payload, Payload::Command(c) if c.name == "cancel");
+                                    if is_cancel {
+                                        {
+                                            let mut tokens = session_cancel_tokens.lock().unwrap();
+                                            if let Some(token) = tokens.get(&envelope.session_id) {
+                                                token.cancel();
+                                            } else {
+                                                // No active operation — nothing to cancel.
+                                            }
+                                            tokens.remove(&envelope.session_id);
+                                        }
+                                        let mut reply = Envelope::text(
+                                            &envelope.channel,
+                                            envelope.session_id,
+                                            "Cancellation requested. The current operation will stop at the next checkpoint.",
+                                        );
+                                        reply.metadata = envelope.metadata.clone();
+                                        if let Err(e) = bus.publish("outbound", &reply).await {
+                                            error!(worker = i, %e, "failed to publish cancel reply");
+                                        }
+                                        continue;
+                                    }
+
+                                    // Register a fresh cancellation token for this session before
+                                    // acquiring the lock, so `/cancel` can signal it at any time.
+                                    let op_token = {
+                                        let token = CancellationToken::new();
+                                        session_cancel_tokens
+                                            .lock()
+                                            .unwrap()
+                                            .insert(envelope.session_id, token.clone());
+                                        token
+                                    };
+                                    let _ = op_token; // token is accessed via the map by the handler
 
                                     // Acquire per-session lock to prevent concurrent history corruption
                                     if let Some(ref lock) = session_lock {
@@ -304,6 +358,12 @@ impl WorkerPool {
                                     if let Some(ref lock) = session_lock {
                                         lock.release_session_lock(&locked_session_id).await;
                                     }
+
+                                    // Clean up the cancellation token for this session.
+                                    session_cancel_tokens
+                                        .lock()
+                                        .unwrap()
+                                        .remove(&envelope.session_id);
                                 }
                                 Ok(None) => {
                                     // Timeout, continue loop

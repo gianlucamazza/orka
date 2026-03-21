@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::SecretManager;
-use orka_core::{Envelope, OutboundMessage, Result, Session, SkillContext, SkillInput};
+use orka_core::{
+    CommandArgs, Envelope, OutboundMessage, Result, Session, SkillContext, SkillInput,
+};
 use orka_skills::SkillRegistry;
 
 use super::ServerCommand;
@@ -46,19 +48,17 @@ impl ServerCommand for SkillCommand {
 
     async fn execute(
         &self,
-        args: &[String],
+        args: &CommandArgs,
         envelope: &Envelope,
         _session: &Session,
     ) -> Result<Vec<OutboundMessage>> {
-        if args.is_empty() {
+        let Some(skill_name) = args.positional(0) else {
             let available = self.skills.list().join(", ");
             return Ok(vec![self.make_reply(
                 envelope,
                 format!("Usage: {}\nAvailable skills: {available}", self.usage()),
             )]);
-        }
-
-        let skill_name = &args[0];
+        };
 
         if self.skills.get(skill_name).is_none() {
             let available = self.skills.list().join(", ");
@@ -68,10 +68,37 @@ impl ServerCommand for SkillCommand {
             )]);
         }
 
-        let mut skill_args = HashMap::new();
-        for arg in &args[1..] {
-            if let Some((k, v)) = arg.split_once('=') {
-                skill_args.insert(k.to_string(), serde_json::Value::String(v.to_string()));
+        // Named args (from text `key=val` parsing or structured adapter options).
+        let mut skill_args: HashMap<String, serde_json::Value> = HashMap::new();
+        for (k, v) in args.named_iter() {
+            skill_args.insert(k.to_string(), v.clone());
+        }
+
+        // If there are positional tokens after the skill name and no named args were provided,
+        // try to map them to a single required parameter in the skill's schema.
+        let extra_positional: Vec<&str> = args
+            .positional_args()
+            .iter()
+            .skip(1)
+            .map(String::as_str)
+            .collect();
+        if !extra_positional.is_empty()
+            && skill_args.is_empty()
+            && let Some(skill) = self.skills.get(skill_name)
+        {
+            let schema = skill.schema();
+            let required = schema
+                .parameters
+                .get("required")
+                .and_then(|r| r.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            if required.len() == 1 {
+                let param_name = required[0];
+                skill_args.insert(
+                    param_name.to_string(),
+                    serde_json::Value::String(extra_positional.join(" ")),
+                );
             }
         }
 

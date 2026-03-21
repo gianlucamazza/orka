@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::MemoryStore;
-use orka_core::{Envelope, MemoryEntry, OutboundMessage, Result, Session};
+use orka_core::{CommandArgs, Envelope, MemoryEntry, OutboundMessage, Result, Session};
 
 use super::ServerCommand;
 
@@ -32,13 +32,14 @@ impl ServerCommand for ResetCommand {
 
     async fn execute(
         &self,
-        _args: &[String],
+        _args: &CommandArgs,
         envelope: &Envelope,
         _session: &Session,
     ) -> Result<Vec<OutboundMessage>> {
         let history_key = format!("conversation:{}", envelope.session_id);
         let token_key = format!("tokens:{}", envelope.session_id);
         let summary_key = format!("conversation_summary:{}", envelope.session_id);
+        let override_key = format!("workspace_override:{}", envelope.session_id);
 
         self.memory
             .store(
@@ -67,10 +68,18 @@ impl ServerCommand for ResetCommand {
             )
             .await?;
 
+        self.memory
+            .store(
+                &override_key,
+                MemoryEntry::new(override_key.clone(), serde_json::json!({})),
+                None,
+            )
+            .await?;
+
         let mut msg = OutboundMessage::text(
             envelope.channel.clone(),
             envelope.session_id,
-            "Conversation history cleared.",
+            "Conversation history, token counters, and workspace override cleared.",
             Some(envelope.id),
         );
         msg.metadata = envelope.metadata.clone();

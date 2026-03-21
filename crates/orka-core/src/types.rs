@@ -580,6 +580,62 @@ pub struct CommandPayload {
     pub args: HashMap<String, serde_json::Value>,
 }
 
+/// Unified command arguments produced by any adapter.
+///
+/// Both structured adapters (Discord slash commands with typed options) and
+/// text-based adapters (Telegram `bot_command` entity) normalise their input
+/// into this type.  This eliminates the round-trip `CommandPayload → text →
+/// re-parse` that previously happened in the worker.
+///
+/// Constructed via [`From<CommandPayload>`] or [`From<crate::ParsedCommand>`].
+#[derive(Debug, Clone, Default)]
+pub struct CommandArgs {
+    /// Positional tokens: everything that is *not* a `key=value` pair.
+    positional: Vec<String>,
+    /// Named parameters parsed from `key=value` tokens.
+    named: HashMap<String, serde_json::Value>,
+    /// The raw text argument string, if available (used by [`Self::text`]).
+    raw: Option<String>,
+}
+
+impl CommandArgs {
+    /// All positional argument tokens.
+    pub fn positional_args(&self) -> &[String] {
+        &self.positional
+    }
+
+    /// The n-th positional argument, or `None` if out of range.
+    pub fn positional(&self, i: usize) -> Option<&str> {
+        self.positional.get(i).map(String::as_str)
+    }
+
+    /// The raw text following the command name, or `None` if there were no arguments.
+    ///
+    /// Equivalent to all positional tokens joined by a single space when no raw
+    /// string was preserved.
+    pub fn text(&self) -> Option<&str> {
+        if self.positional.is_empty() && self.named.is_empty() {
+            return None;
+        }
+        self.raw.as_deref()
+    }
+
+    /// A named argument value, or `None` if not present.
+    pub fn named(&self, key: &str) -> Option<&serde_json::Value> {
+        self.named.get(key)
+    }
+
+    /// Iterate over all named `(key, value)` pairs.
+    pub fn named_iter(&self) -> impl Iterator<Item = (&str, &serde_json::Value)> {
+        self.named.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// `true` if there are no positional or named arguments.
+    pub fn is_empty(&self) -> bool {
+        self.positional.is_empty() && self.named.is_empty()
+    }
+}
+
 /// System or lifecycle event.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[non_exhaustive]
@@ -956,6 +1012,72 @@ pub type MessageStream = tokio::sync::mpsc::Receiver<Envelope>;
 pub fn backoff_delay(attempt: u32, base_secs: u64, max_secs: u64) -> std::time::Duration {
     let secs = base_secs.saturating_mul(1u64.checked_shl(attempt).unwrap_or(u64::MAX));
     std::time::Duration::from_secs(secs.min(max_secs))
+}
+
+// --- CommandArgs conversions ---
+
+fn split_args(tokens: Vec<String>) -> (Vec<String>, HashMap<String, serde_json::Value>) {
+    let mut positional = Vec::new();
+    let mut named = HashMap::new();
+    for token in tokens {
+        if let Some((k, v)) = token.split_once('=') {
+            // Try to parse as JSON first (handles numbers, booleans, null); fall back to string.
+            let value = serde_json::from_str(v)
+                .unwrap_or_else(|_| serde_json::Value::String(v.to_string()));
+            named.insert(k.to_string(), value);
+        } else {
+            positional.push(token);
+        }
+    }
+    (positional, named)
+}
+
+impl From<CommandPayload> for CommandArgs {
+    fn from(cmd: CommandPayload) -> Self {
+        // Telegram (and similar text-based adapters) puts the raw trailing text in args["text"].
+        // Discord and structured adapters put typed values directly into the args map under
+        // their parameter names.
+        if let Some(raw_text) = cmd.args.get("text").and_then(|v| v.as_str()) {
+            let raw = raw_text.to_string();
+            let tokens = crate::slash_command::tokenize(raw_text);
+            let (positional, named) = split_args(tokens);
+            Self {
+                positional,
+                named,
+                raw: Some(raw),
+            }
+        } else {
+            // Structured adapter (Discord): all args are named.
+            Self {
+                positional: Vec::new(),
+                named: cmd.args,
+                raw: None,
+            }
+        }
+    }
+}
+
+impl From<crate::ParsedCommand> for CommandArgs {
+    fn from(cmd: crate::ParsedCommand) -> Self {
+        // raw is everything after the command name in the original input.
+        let raw_text: String = cmd
+            .raw
+            .trim_start_matches('/')
+            .split_once(char::is_whitespace)
+            .map(|(_, rest)| rest.trim().to_string())
+            .unwrap_or_default();
+        let raw = if raw_text.is_empty() {
+            None
+        } else {
+            Some(raw_text)
+        };
+        let (positional, named) = split_args(cmd.args);
+        Self {
+            positional,
+            named,
+            raw,
+        }
+    }
 }
 
 #[cfg(test)]

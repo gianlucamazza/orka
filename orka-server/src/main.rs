@@ -1360,29 +1360,6 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // 8. Build command registry (for adapter menu hints) and start graph worker pool
-    let mut commands = CommandRegistry::new();
-    orka_worker::commands::register_all(
-        &mut commands,
-        skills.clone(),
-        memory.clone(),
-        secrets.clone(),
-        workspace_registry.clone(),
-        &config.agent,
-    );
-    let commands = Arc::new(commands);
-
-    // Register commands with adapters (e.g. Telegram command menu)
-    {
-        let mut cmd_list = commands.list();
-        cmd_list.push(("help", "Show available commands"));
-        for adapter in &adapters {
-            if let Err(e) = adapter.register_commands(&cmd_list).await {
-                warn!(%e, channel = adapter.channel_id(), "failed to register commands with adapter");
-            }
-        }
-    }
-
     // Experience / self-learning service
     let experience_service = if config.experience.enabled {
         match create_experience_service(&config) {
@@ -1395,6 +1372,29 @@ async fn main() -> anyhow::Result<()> {
     } else {
         None
     };
+
+    // 8. Build command registry (for adapter menu hints) and start graph worker pool
+    let mut commands = CommandRegistry::new();
+    orka_worker::commands::register_all(
+        &mut commands,
+        skills.clone(),
+        memory.clone(),
+        secrets.clone(),
+        workspace_registry.clone(),
+        &config.agent,
+        experience_service.clone(),
+    );
+    let commands = Arc::new(commands);
+
+    // Register commands with adapters (e.g. Telegram command menu)
+    {
+        let cmd_list = commands.list();
+        for adapter in &adapters {
+            if let Err(e) = adapter.register_commands(&cmd_list).await {
+                warn!(%e, channel = adapter.channel_id(), "failed to register commands with adapter");
+            }
+        }
+    }
 
     // Build agent graph from config (falls back to single-agent graph for legacy configs)
     let graph = Arc::new(
