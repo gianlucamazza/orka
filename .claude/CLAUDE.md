@@ -6,7 +6,7 @@ Orka is an AI agent orchestration framework written in Rust. It manages LLM-powe
 
 ## Workspace Structure
 
-Cargo workspace with ~34 crates (~32 under `crates/`, plus `orka-server/` (main binary) and `sdk/orka-plugin-sdk/` (WASM plugin SDK)).
+Cargo workspace with 37 members: 33 under `crates/`, plus `orka-server/` (main binary) and 3 under `sdk/` (WASM plugin SDKs and example plugin).
 
 ## Common Commands
 

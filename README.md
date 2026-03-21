@@ -5,7 +5,9 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE-APACHE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 
-An agent orchestration platform built in Rust. Orka routes messages from external channels through a priority queue to AI-powered agent handlers, with support for skills, sandboxed code execution, and workspace-based configuration.
+A self-learning AI agent orchestration platform built in Rust.
+
+Orka routes messages from Telegram, Discord, Slack, WhatsApp, and HTTP through a priority queue to LLM-powered agents. Agents execute tools, build knowledge via RAG, learn from experience, and coordinate through multi-agent graphs — extensible with WASM plugins and MCP/A2A protocols.
 
 <p align="center">
   <img src="demo/orka-chat.gif" alt="Orka CLI — interactive chat" width="720">
@@ -418,7 +420,7 @@ orka/
 ├── orka-server/              # Binary composition root
 ├── crates/
 │   ├── orka-core/            # Shared types, traits, errors
-│   ├── orka-bus/             # Message bus (Redis Streams)
+│   ├── orka-bus/             # Message bus (Redis Streams + in-memory)
 │   ├── orka-auth/            # JWT and API key authentication
 │   ├── orka-session/         # Session store
 │   ├── orka-queue/           # Priority queue
@@ -430,7 +432,7 @@ orka/
 │   ├── orka-memory/          # Key-value memory store
 │   ├── orka-secrets/         # Secret management (AES-256-GCM)
 │   ├── orka-workspace/       # Workspace loader & watcher
-│   ├── orka-llm/             # LLM providers (Anthropic, OpenAI)
+│   ├── orka-llm/             # LLM providers (Anthropic, OpenAI, Ollama)
 │   ├── orka-mcp/             # Model Context Protocol server
 │   ├── orka-a2a/             # Agent-to-Agent protocol
 │   ├── orka-guardrails/      # Input/output guardrails
@@ -451,7 +453,10 @@ orka/
 │   ├── orka-plugin-sdk-component/ # WASM Component Model plugin SDK (WIT-based)
 │   └── hello-plugin/             # Example WASM plugin
 ├── evals/                    # Built-in evaluation scenarios (*.eval.toml)
-└── wit/                      # Shared WIT interface definitions
+├── wit/                      # Shared WIT interface definitions
+├── deploy/                   # systemd service unit, sysusers, tmpfiles, sudoers
+├── tools/claude-channel/     # MCP bridge for Claude Code ↔ Orka integration (TypeScript/Bun)
+└── scripts/                  # install.sh and setup-dev.sh
 ```
 
 ## Privacy
