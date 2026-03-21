@@ -63,6 +63,8 @@ version: "0.1"
 - **Scope narrowly**: one focused task per call. Split large changes into multiple sequential calls.
 - **Do not micromanage steps**: Claude Code will decide how to implement — trust it to read files,
   choose the right approach, and follow project conventions on its own.
+- **Override working directory**: use the `working_dir` parameter to run Claude Code in a specific
+  directory (useful for monorepos or multi-project setups where the default cwd is not the target).
 
 ## Scheduler (`schedule_create`, `schedule_list`, `schedule_delete`)
 

@@ -1,0 +1,244 @@
+# Deployment Guide
+
+## Prerequisites
+
+| Dependency | Version | Purpose                      |
+| ---------- | ------- | ---------------------------- |
+| Redis      | 7+      | Bus, queue, session, memory  |
+| Qdrant     | 1.14+   | RAG vector store (optional)  |
+| Docker     | 24+     | Container runtime (optional) |
+| Rust       | 1.85+   | Build from source            |
+
+Valkey (Redis-compatible) is also supported as a drop-in Redis replacement.
+
+---
+
+## Docker Compose (recommended)
+
+```bash
+cp .env.example .env
+# Fill in required values: ANTHROPIC_API_KEY, ORKA_SECRET_ENCRYPTION_KEY, etc.
+
+docker compose up -d
+```
+
+Services started:
+
+| Service     | Default port | Notes                   |
+| ----------- | ------------ | ----------------------- |
+| redis       | 6379         | Internal only           |
+| qdrant      | 6334         | Internal only (gRPC)    |
+| orka-server | 8080, 8081   | Health + custom adapter |
+
+The Compose file uses `cargo-chef` for layer caching; rebuild time after code
+changes is typically < 30 s.
+
+---
+
+## Manual / Bare-Metal
+
+```bash
+# 1. Start Redis
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+
+# 2. (Optional) Start Qdrant
+docker run -d --name qdrant -p 6334:6334 qdrant/qdrant:v1.14.0
+
+# 3. Build release binary
+cargo build --release
+
+# 4. Configure
+cp orka.toml.example orka.toml
+$EDITOR orka.toml
+
+# 5. Run
+ORKA_ENV=production \
+ORKA_SECRET_ENCRYPTION_KEY=$(openssl rand -hex 32) \
+./target/release/orka-server
+```
+
+---
+
+## Arch Linux (systemd)
+
+```bash
+# Install deps, build, and install the systemd service
+just install
+systemctl enable --now orka-server
+
+# Uninstall (preserves config and data)
+just uninstall
+```
+
+The `just install` target:
+
+1. Installs Redis and sets it up via systemd.
+2. Builds `orka-server` in release mode.
+3. Writes `/etc/orka/orka.toml` (template).
+4. Installs `orka-server.service` and `orka-server.socket`.
+5. Adds a `sudoers` entry for OS skills if `os.sudo.enabled = true`.
+
+---
+
+## Environment Variables
+
+| Variable                     | Required in prod | Description                                       |
+| ---------------------------- | ---------------- | ------------------------------------------------- |
+| `ORKA_ENV`                   | yes              | Set to `production` to enforce encryption key     |
+| `ORKA_SECRET_ENCRYPTION_KEY` | yes              | 32-byte hex key for AES-256-GCM secret encryption |
+| `ORKA_CONFIG`                | no               | Path to config file (default: `./orka.toml`)      |
+| `ANTHROPIC_API_KEY`          | if using Claude  | Anthropic provider fallback                       |
+| `OPENAI_API_KEY`             | if using OpenAI  | OpenAI provider fallback                          |
+| `ORKA_API_KEY`               | recommended      | API key for authenticated requests                |
+
+Generate a secure encryption key:
+
+```bash
+openssl rand -hex 32
+```
+
+---
+
+## Reverse Proxy (nginx)
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name orka.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/orka.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/orka.example.com/privkey.pem;
+
+    # Health / API
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Custom adapter + WebSocket
+    location /api/v1/ {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+---
+
+## Health Probes (Kubernetes)
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+```
+
+---
+
+## Observability
+
+### Prometheus
+
+Set `observe.backend = "otel"` to expose `/metrics` in Prometheus text format.
+
+```toml
+[observe]
+backend = "otel"
+```
+
+Scrape config:
+
+```yaml
+- job_name: orka
+  static_configs:
+    - targets: ["orka.example.com:8080"]
+  metrics_path: /metrics
+```
+
+Key metrics:
+
+| Metric                          | Type      | Description                   |
+| ------------------------------- | --------- | ----------------------------- |
+| `orka_messages_received_total`  | counter   | Inbound messages by channel   |
+| `orka_llm_completions_total`    | counter   | LLM API calls                 |
+| `orka_skill_invocations_total`  | counter   | Skill invocations by name     |
+| `orka_errors_total`             | counter   | Errors by source              |
+| `orka_llm_input_tokens_total`   | counter   | Total input tokens consumed   |
+| `orka_llm_output_tokens_total`  | counter   | Total output tokens generated |
+| `orka_llm_cost_dollars_total`   | counter   | Estimated LLM cost (USD)      |
+| `orka_handler_duration_seconds` | histogram | End-to-end handler latency    |
+| `orka_llm_duration_seconds`     | histogram | LLM call latency              |
+
+### OpenTelemetry
+
+```toml
+[observe]
+backend = "otel"
+otlp_endpoint = "http://otel-collector:4317"
+```
+
+### Audit Log
+
+```toml
+[audit]
+enabled = true
+output  = "file"            # or "redis"
+path    = "/var/log/orka/audit.jsonl"
+```
+
+Each line is a JSON record:
+
+```json
+{"timestamp_ms":1711000000000,"event":"skill_invoked","skill":"shell_exec","message_id":"...","caller_id":"user-42","args_hash":"len34:chk00a3b4c5d6e7f8a9"}
+{"timestamp_ms":1711000000250,"event":"skill_completed","skill":"shell_exec","message_id":"...","duration_ms":250,"success":true}
+```
+
+### TUI Dashboard
+
+```bash
+orka dashboard --interval 2   # refresh every 2 seconds
+```
+
+Displays: health, uptime, worker count, queue depth, dependency readiness,
+Prometheus metrics, active sessions, and DLQ depth. Press `r` to force-refresh,
+`q` / `Esc` to quit.
+
+---
+
+## Resource Sizing
+
+| Load profile | Redis RAM | Workers | Notes                        |
+| ------------ | --------- | ------- | ---------------------------- |
+| Dev / hobby  | 256 MB    | 2       | In-memory fallback works too |
+| Small team   | 512 MB    | 4       | Default config               |
+| Production   | 2 GB+     | 8–16    | Tune `worker.concurrency`    |
+
+LLM latency dominates: workers spend most of their time waiting on the LLM API.
+Increase `worker.concurrency` freely — each worker consumes < 10 MB of RAM.
+
+---
+
+## Upgrading
+
+```bash
+# Validate new config without applying
+orka config migrate --dry-run
+
+# Apply schema migration
+orka config migrate
+```
+
+Check the release notes for breaking config changes before upgrading.

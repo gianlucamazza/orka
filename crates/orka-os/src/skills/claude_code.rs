@@ -267,8 +267,9 @@ fn parse_claude_output(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use orka_core::config::ClaudeCodeConfig;
+
+    use super::*;
 
     fn make_skill() -> ClaudeCodeSkill {
         ClaudeCodeSkill::new(&ClaudeCodeConfig {
@@ -336,5 +337,17 @@ mod tests {
         let skill = make_skill();
         let input = SkillInput::new(HashMap::new());
         assert!(skill.execute(input).await.is_err());
+    }
+
+    #[test]
+    fn build_prompt_inject_context_no_cwd_omits_workspace() {
+        // inject_context=true but no SkillContext (SkillContext is #[non_exhaustive],
+        // so it can only be constructed inside orka-core; full cwd injection is covered
+        // by integration tests).
+        let input = SkillInput::new(std::collections::HashMap::new());
+        let prompt = build_prompt("Fix bug", None, None, &input, true);
+        assert!(prompt.contains("## Task"));
+        assert!(prompt.contains("## Requirements"));
+        assert!(!prompt.contains("## Workspace"));
     }
 }

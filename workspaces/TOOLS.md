@@ -13,6 +13,7 @@ version: "0.1"
 | Call an external API with headers, body, or auth | `http_request` |
 | Run isolated code safely                         | `sandbox`      |
 | Run system commands or scripts                   | `shell_exec`   |
+| Delegate a multi-step coding task autonomously   | `claude_code`  |
 | Store a finding for later retrieval              | `memory_store` |
 | Ingest a whole document into the knowledge base  | `doc_ingest`   |
 
