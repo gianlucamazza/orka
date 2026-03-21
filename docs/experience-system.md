@@ -3,20 +3,18 @@
 The experience system enables Orka agents to learn from their interactions over
 time. It has three phases:
 
-```
-Message handled
-      │
-      ▼
-1. Trajectory recording  ─────► Redis (raw trajectories)
-      │
-      ▼
-2. Post-task reflection  ─────► New principle candidates
-      │
-      ▼
-3. Offline distillation  ─────► Curated principles (Redis)
-      │
-      ▼
-Principles injected into system prompt on next turn
+```mermaid
+flowchart LR
+    Msg["Message handled"]
+    T["1. Trajectory recording"]
+    R["2. Post-task reflection"]
+    D["3. Offline distillation"]
+    Inject["Principles injected into\nsystem prompt on next turn"]
+
+    Msg --> T
+    T -->|"stored in Redis\n(raw trajectories)"| R
+    R -->|"new principle\ncandidates"| D
+    D -->|"curated principles\n(Redis)"| Inject
 ```
 
 ---

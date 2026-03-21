@@ -4,74 +4,28 @@ End-to-end description of how a message flows through the Orka platform.
 
 ## High-level diagram
 
-```
-User / External System
-        │
-        │  HTTP POST /message  (or webhook, Telegram update, Slack event, …)
-        ▼
-┌─────────────────────┐
-│   ChannelAdapter    │  orka-adapter-{telegram,discord,slack,whatsapp,custom}
-│                     │  Converts platform-specific format → Envelope
-└────────┬────────────┘
-         │  MessageBus.publish("inbound", envelope)
-         ▼
-┌─────────────────────┐
-│    Redis Streams    │  orka-bus
-│   ("inbound" stream)│
-└────────┬────────────┘
-         │  subscribe
-         ▼
-┌─────────────────────┐
-│      Gateway        │  orka-gateway
-│                     │  1. Deduplication (Redis SET NX EX)
-│                     │  2. Rate limiting (Redis INCR / in-memory fallback)
-│                     │  3. Session resolution (create or load)
-│                     │  4. Priority routing (DM → Urgent, group → Normal)
-│                     │  5. Trace context generation (W3C traceparent)
-└────────┬────────────┘
-         │  PriorityQueue.push(envelope)
-         ▼
-┌─────────────────────┐
-│   Redis Sorted Set  │  orka-queue
-│  (priority queue)   │  Score = priority * 10^12 - timestamp (highest first)
-└────────┬────────────┘
-         │  PriorityQueue.pop() — blocking, 5 s timeout
-         ▼
-┌─────────────────────┐
-│    WorkerPool       │  orka-worker
-│  (N concurrent)     │  Retries: base * 3^n backoff, DLQ after max_retries
-└────────┬────────────┘
-         │  AgentHandler.handle(envelope, session)
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   WorkspaceHandler                          │
-│                                                             │
-│  1. Load workspace config (system prompt, skills, model)    │
-│  2. Inject memory context (orka-memory)                     │
-│  3. Inject principles (orka-experience)                     │
-│  4. Apply guardrails (orka-guardrails)                      │
-│  5. Agentic loop:                                           │
-│       a. LLM call (orka-llm → Anthropic / OpenAI / Ollama) │
-│       b. Stream chunks to client (orka-agent)               │
-│       c. Execute tool calls (orka-skills)                   │
-│       d. Repeat until stop reason = end_turn                │
-│  6. Post-task reflection → trajectory recording             │
-│     (orka-experience)                                       │
-└────────┬────────────────────────────────────────────────────┘
-         │  Vec<OutboundMessage>
-         ▼
-┌─────────────────────┐
-│    Redis Streams    │  bus publish("outbound", envelope)
-│  ("outbound" stream)│
-└────────┬────────────┘
-         │  subscribe
-         ▼
-┌─────────────────────┐
-│   ChannelAdapter    │  Converts OutboundMessage → platform reply
-└─────────────────────┘
-         │
-         ▼
-    User sees reply
+```mermaid
+flowchart TD
+    User["User / External System"]
+    CA1["ChannelAdapter\norka-adapter-{telegram,discord,slack,whatsapp,custom}\nConverts platform-specific format → Envelope"]
+    RS1["Redis Streams — inbound\norka-bus"]
+    GW["Gateway — orka-gateway\n1. Deduplication (Redis SET NX EX)\n2. Rate limiting (Redis INCR / in-memory fallback)\n3. Session resolution (create or load)\n4. Priority routing (DM → Urgent, group → Normal)\n5. Trace context generation (W3C traceparent)"]
+    PQ["Redis Sorted Set — orka-queue\nScore = priority × 10¹² − timestamp (highest first)"]
+    WP["WorkerPool — orka-worker (N concurrent)\nRetries: base × 3ⁿ backoff · DLQ after max_retries"]
+    WH["WorkspaceHandler\n1. Load workspace config (system prompt, skills, model)\n2. Inject memory context (orka-memory)\n3. Inject principles (orka-experience)\n4. Apply guardrails (orka-guardrails)\n5. Agentic loop: LLM call → stream → tool calls → repeat\n6. Post-task reflection → trajectory recording (orka-experience)"]
+    RS2["Redis Streams — outbound\nbus.publish('outbound', envelope)"]
+    CA2["ChannelAdapter\nConverts OutboundMessage → platform reply"]
+    Reply["User sees reply"]
+
+    User -->|"HTTP POST /message\n(or webhook, Telegram update, Slack event…)"| CA1
+    CA1 -->|"MessageBus.publish('inbound', envelope)"| RS1
+    RS1 -->|"subscribe"| GW
+    GW -->|"PriorityQueue.push(envelope)"| PQ
+    PQ -->|"PriorityQueue.pop() — blocking, 5 s timeout"| WP
+    WP -->|"AgentHandler.handle(envelope, session)"| WH
+    WH -->|"Vec&lt;OutboundMessage&gt;"| RS2
+    RS2 -->|"subscribe"| CA2
+    CA2 --> Reply
 ```
 
 ## Subsystems
@@ -162,11 +116,10 @@ Agent-to-Agent communication protocol. Agents can delegate sub-tasks to other Or
 Full management CLI for server administration, agent operations, and observability:
 
 ```
-orka health                      # Server health check
 orka status                      # Server status (uptime, workers, adapters)
-orka ready                       # Readiness probe (exit 1 if not ready)
 orka send "Hello"                # Send a message (--session-id, --timeout)
 orka chat                        # Interactive session (--session-id)
+orka dashboard [--interval <s>]  # Real-time TUI dashboard
 orka dlq list|replay|purge       # Dead letter queue management
 orka secret set|get|list|delete  # Encrypted secret management
 orka config check                # Validate orka.toml
@@ -249,20 +202,15 @@ Supports streaming responses (Server-Sent Events forwarded to the adapter), per-
 Skills are invoked by the agentic loop when the LLM emits a tool call.
 The flow:
 
-```
-LLM tool_call { name: "web_search", args: { query: "…" } }
-    │
-    ▼
-SkillRegistry.find("web_search")
-    │
-    ▼
-Skill::execute(SkillInput { args, context })
-    │  (context carries SecretManager + EventSink)
-    ▼
-SkillOutput { data: json!({ "results": […] }) }
-    │
-    ▼
-Appended to messages as ToolResult, loop continues
+```mermaid
+flowchart LR
+    TC["LLM tool_call\nname: web_search\nargs: {query: …}"]
+    Find["SkillRegistry\n.find('web_search')"]
+    Exec["Skill::execute\nSkillInput {args, context}\ncontext: SecretManager + EventSink"]
+    Out["SkillOutput\n{data: {results: […]}}"]
+    Append["Appended as ToolResult\nloop continues"]
+
+    TC --> Find --> Exec --> Out --> Append
 ```
 
 Built-in skills live in `orka-skills`. External skills can be provided as

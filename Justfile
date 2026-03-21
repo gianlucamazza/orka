@@ -175,3 +175,17 @@ docs:
 # Regenerate CHANGELOG.md from git history
 changelog:
     git-cliff --output CHANGELOG.md
+
+# Record all demo GIFs (requires VHS + a running orka-server)
+demo:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for tape in demo/*.tape; do
+        echo "Recording ${tape}..."
+        vhs "$tape"
+    done
+    echo "All demos recorded."
+
+# Record a single demo GIF  (usage: just demo-one dashboard)
+demo-one tape:
+    vhs demo/{{tape}}.tape

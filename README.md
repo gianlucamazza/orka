@@ -8,80 +8,76 @@
 An agent orchestration platform built in Rust. Orka routes messages from external channels through a priority queue to AI-powered agent handlers, with support for skills, sandboxed code execution, and workspace-based configuration.
 
 <p align="center">
-  <img src="demo/orka-chat.gif" alt="Orka CLI demo" width="720">
+  <img src="demo/orka-chat.gif" alt="Orka CLI — interactive chat" width="720">
 </p>
+
+<details>
+<summary>More demos</summary>
+
+### Real-time dashboard
+
+<p align="center">
+  <img src="demo/orka-dashboard.gif" alt="Orka TUI dashboard" width="720">
+</p>
+
+### Server status &amp; skill listing
+
+<p align="center">
+  <img src="demo/orka-status.gif" alt="Orka status commands" width="720">
+</p>
+
+### One-shot message
+
+<p align="center">
+  <img src="demo/orka-send.gif" alt="Orka send" width="720">
+</p>
+
+</details>
 
 ## Architecture
 
-```
-                        ┌──────────────────────────────────────────────────┐
-                        │              External Clients                    │
-                        │   Telegram · Discord · Slack · WhatsApp · HTTP   │
-                        └────────────────────┬─────────────────────────────┘
-                                             │
-                        ┌────────────────────▼─────────────────────────────┐
-                        │               Adapters                           │
-                        │  Platform → Envelope conversion (feature-gated)  │
-                        └────────────────────┬─────────────────────────────┘
-                                             │ publish("inbound")
-                        ┌────────────────────▼─────────────────────────────┐
-                        │            Message Bus ◄──── Redis Streams       │
-                        └────────────────────┬─────────────────────────────┘
-                                             │ subscribe("inbound")
-                        ┌────────────────────▼─────────────────────────────┐
-                        │               Gateway                            │
-                        │  Dedup · Rate-limit · Session · Priority routing │
-                        └────────────────────┬─────────────────────────────┘
-                                             │ queue.push()
-                        ┌────────────────────▼─────────────────────────────┐
-                        │          Priority Queue ◄──── Redis Sorted Set   │
-                        │          Urgent > Normal > Background → DLQ      │
-                        └────────────────────┬─────────────────────────────┘
-                                             │ queue.pop()
-                        ┌────────────────────▼─────────────────────────────┐
-                        │            Worker Pool  (N concurrent)           │
-                        └────────────────────┬─────────────────────────────┘
-                                             │
-          ┌──────────────────────────────────▼──────────────────────────────────┐
-          │                        Agent  (GraphExecutor)                       │
-          │                                                                     │
-          │  ┌───────────┐  ┌────────────┐  ┌──────────┐  ┌────────────────┐   │
-          │  │ Workspace  │  │ Guardrails │  │  Memory  │  │   Experience   │   │
-          │  │ SOUL.md    │  │ Pre / Post │  │ Key-Val  │  │ Principles +   │   │
-          │  │ TOOLS.md   │  │ filtering  │  │ store    │  │ Reflection     │   │
-          │  └───────────┘  └────────────┘  └──────────┘  └────────────────┘   │
-          │                                                                     │
-          │  ┌─────────────────────────────────────────────────────────────┐    │
-          │  │                    Agentic Loop                             │    │
-          │  │  LLM call ──► stream response ──► tool calls ──► repeat    │    │
-          │  └─────────┬───────────────────────────┬──────────────────────┘    │
-          │            │                           │                            │
-          │     ┌──────▼──────┐          ┌─────────▼────────────────────┐      │
-          │     │  LLM Router │          │      Skill Registry          │      │
-          │     │  Anthropic  │          │  Builtins · Sandbox · WASM  │      │
-          │     │  OpenAI     │          │  Web · HTTP · OS · RAG      │      │
-          │     │  Ollama     │          │  Scheduler · MCP bridges    │      │
-          │     └─────────────┘          └──────────┬───────────────────┘      │
-          │                                         │                           │
-          └─────────────────────┬───────────────────┼───────────────────────────┘
-                                │                   │
-          ┌─────────────────────▼───────────┐       │  External integrations
-          │          Outbound Bridge         │       ├──► Qdrant (RAG · Experience)
-          │   bus.publish("outbound")        │       ├──► MCP servers (tools)
-          └─────────────────────┬───────────┘       └──► Web / HTTP APIs
-                                │
-                        ┌───────▼───────────────────────────────────────────┐
-                        │               Adapters (outbound)                 │
-                        │         Route reply by channel_id                 │
-                        └───────────────────────────────────────────────────┘
-                                             │
-                        ┌────────────────────▼─────────────────────────────┐
-                        │    ┌──────────┐  ┌────────────┐  ┌───────────┐  │
-                        │    │ Telegram │  │  Discord   │  │  Slack …  │  │
-                        │    └──────────┘  └────────────┘  └───────────┘  │
-                        └──────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Clients["External Clients\nTelegram · Discord · Slack · WhatsApp · HTTP"]
+    Adapters["Adapters\nPlatform → Envelope conversion"]
+    Bus["Message Bus\nRedis Streams"]
+    GW["Gateway\nDedup · Rate-limit · Session · Priority routing"]
+    PQ["Priority Queue\nRedis Sorted Set\nUrgent > Normal > Background → DLQ"]
+    Workers["Worker Pool (N concurrent)"]
 
-  Background:  Scheduler loop (Redis)  ·  Experience distillation  ·  Observe (OTel / Prometheus)
+    subgraph Agent["Agent — GraphExecutor"]
+        direction TB
+        subgraph Context["  "]
+            direction LR
+            WS["Workspace\nSOUL.md · TOOLS.md"]
+            GR["Guardrails\nPre / Post"]
+            Mem["Memory\nKey-Val store"]
+            Exp["Experience\nPrinciples + Reflection"]
+        end
+        Loop["Agentic Loop\nLLM call → stream → tool calls → repeat"]
+        LLM["LLM Router\nAnthropic · OpenAI · Ollama"]
+        Skills["Skill Registry\nBuiltins · Sandbox · WASM · Web\nHTTP · OS · RAG · Scheduler · MCP"]
+        Loop --> LLM
+        Loop --> Skills
+    end
+
+    Outbound["Outbound Bridge\nbus.publish('outbound')"]
+    AdaptersOut["Adapters outbound\nRoute reply by channel_id"]
+    Platforms["Telegram · Discord · Slack · WhatsApp · HTTP"]
+    Ext["External integrations\nQdrant · MCP servers · Web / HTTP APIs"]
+    BG["Background services\nScheduler · Experience distillation · Observe (OTel / Prometheus)"]
+
+    Clients --> Adapters
+    Adapters -->|"publish('inbound')"| Bus
+    Bus --> GW
+    GW -->|"queue.push()"| PQ
+    PQ -->|"queue.pop()"| Workers
+    Workers --> Agent
+    Skills --> Ext
+    Agent --> Outbound
+    Outbound --> AdaptersOut
+    AdaptersOut --> Platforms
+    Agent -.-> BG
 ```
 
 For a detailed description of each subsystem and their interactions, see [docs/architecture.md](docs/architecture.md).

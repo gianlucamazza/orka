@@ -5,13 +5,14 @@ Set Height 600
 Set FontSize 14
 Set TypingSpeed 50ms
 
+# Requires: orka-server running with os.enabled = true
 Type "orka chat --no-workspace"
 Enter
 Sleep 3s
 
-Type "What services are running on this machine and how much disk space is available?"
+Type "List the running systemd services and how much disk space is used on /"
 Enter
-Sleep 30s
+Sleep 25s
 
 Type "/quit"
 Enter
