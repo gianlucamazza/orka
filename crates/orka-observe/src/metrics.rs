@@ -172,6 +172,8 @@ mod tests {
             DomainEventKind::SkillInvoked {
                 skill_name: "weather".into(),
                 message_id: mid,
+                input_args: Default::default(),
+                caller_id: None,
             },
             DomainEventKind::SkillCompleted {
                 skill_name: "weather".into(),
@@ -179,6 +181,8 @@ mod tests {
                 duration_ms: 80,
                 success: true,
                 error_category: None,
+                output_preview: None,
+                error_message: None,
             },
             DomainEventKind::SkillCompleted {
                 skill_name: "weather".into(),
@@ -186,10 +190,13 @@ mod tests {
                 duration_ms: 30,
                 success: false,
                 error_category: None,
+                output_preview: None,
+                error_message: Some("timeout".into()),
             },
             DomainEventKind::LlmCompleted {
                 message_id: mid,
                 model: "gpt-4".into(),
+                provider: "openai".into(),
                 input_tokens: 500,
                 output_tokens: 200,
                 reasoning_tokens: 100,
@@ -278,10 +285,13 @@ mod tests {
                 duration_ms: 0,
                 success: true,
                 error_category: None,
+                output_preview: None,
+                error_message: None,
             },
             DomainEventKind::LlmCompleted {
                 message_id: mid,
                 model: "m".into(),
+                provider: "unknown".into(),
                 input_tokens: 0,
                 output_tokens: 0,
                 reasoning_tokens: 0,

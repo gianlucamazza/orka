@@ -308,6 +308,61 @@ uninstall() {
 	fi
 }
 
+# ── Set ACLs for MCP binaries under /home ────────────────────────────
+setup_mcp_acls() {
+	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
+	[[ -f "$cfg" ]] || return 0
+
+	# Extract command paths from [[mcp.servers]] that start with /home
+	local cmds
+	cmds=$(awk '
+		/^\[\[mcp\.servers\]\]/ { in_mcp=1; next }
+		/^\[/                   { in_mcp=0 }
+		in_mcp && /^command\s*=/ {
+			gsub(/.*=\s*"/, ""); gsub(/".*/, "");
+			if (/^\/home/) print
+		}
+	' "$cfg")
+
+	[[ -z "$cmds" ]] && return 0
+
+	command -v setfacl &>/dev/null || {
+		warn "setfacl not found — install acl package for MCP binary access"
+		return 0
+	}
+
+	while IFS= read -r cmd_path; do
+		# Resolve symlinks to get the real binary path
+		local real_path
+		real_path=$(readlink -f "$cmd_path" 2>/dev/null) || continue
+
+		info "Setting ACLs for MCP binary: ${cmd_path}"
+
+		# Set rx on the binary (Bun SEA needs to read itself)
+		setfacl -m u:orka:rx "$real_path" 2>/dev/null &&
+			ok "  u:orka:rx → ${real_path}"
+
+		# Set x (traverse) on each parent directory up to /home
+		local dir
+		dir=$(dirname "$real_path")
+		while [[ "$dir" != "/" && "$dir" == /home* ]]; do
+			setfacl -m u:orka:x "$dir" 2>/dev/null
+			dir=$(dirname "$dir")
+		done
+
+		# Also set x on symlink source path directories (if different)
+		if [[ "$cmd_path" != "$real_path" ]]; then
+			dir=$(dirname "$cmd_path")
+			while [[ "$dir" != "/" && "$dir" == /home* ]]; do
+				setfacl -m u:orka:x "$dir" 2>/dev/null
+				dir=$(dirname "$dir")
+			done
+		fi
+
+		ok "  Traversal ACLs set on path chain"
+	done <<<"$cmds"
+}
+
 # ── Install ───────────────────────────────────────────────────────────
 do_install() {
 	local WAS_RUNNING=false
@@ -528,6 +583,9 @@ do_install() {
 		fi
 	fi
 
+	# ── Set ACLs for MCP binaries under /home ────────────────────────
+	setup_mcp_acls "${CONFIG_DIR}/orka.toml"
+
 	# ── Install shell completions ─────────────────────────────────────
 	info "Generating shell completions..."
 
@@ -596,10 +654,23 @@ do_install() {
 	echo "  journalctl -u ${SERVICE_NAME} -f"
 
 	if check_home_access_needed "${CONFIG_DIR}/orka.toml"; then
-		echo ""
-		info "To grant orka access to a user's home directory:"
-		echo "  sudo usermod -aG \$(id -gn <username>) orka"
-		echo "  chmod g+rx /home/<username>"
+		if command -v setfacl &>/dev/null; then
+			if [[ -n "${SUDO_USER:-}" && -d "/home/${SUDO_USER}" ]]; then
+				echo ""
+				info "Granting orka read+traverse access to /home/${SUDO_USER} via ACL..."
+				setfacl -m u:orka:rx "/home/${SUDO_USER}"
+				ok "ACL set: u:orka:rx on /home/${SUDO_USER}"
+			else
+				echo ""
+				info "To grant orka access to a user's home directory:"
+				echo "  sudo setfacl -m u:orka:rx /home/<username>"
+			fi
+		else
+			echo ""
+			info "To grant orka access to a user's home directory:"
+			echo "  sudo setfacl -m u:orka:rx /home/<username>"
+			warn "  (install acl package first: setfacl not found)"
+		fi
 	fi
 }
 

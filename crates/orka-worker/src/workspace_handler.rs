@@ -253,6 +253,7 @@ impl WorkspaceHandler {
         available_workspaces: &[&str],
         principles_section: &str,
         conversation_summary: Option<&str>,
+        cwd: Option<&str>,
     ) -> String {
         let mut prompt = if soul_body.is_empty() {
             format!("You are {soul_name}.")
@@ -263,6 +264,12 @@ impl WorkspaceHandler {
         let now_str = format_current_datetime(timezone);
         prompt.push_str("\n\n");
         prompt.push_str(&now_str);
+
+        if let Some(dir) = cwd {
+            prompt.push_str(&format!(
+                "\n\nThe user's current working directory is: {dir}"
+            ));
+        }
 
         if !tools_body.is_empty() {
             prompt.push_str("\n\n");
@@ -460,6 +467,13 @@ impl WorkspaceHandler {
                 .emit(DomainEvent::new(DomainEventKind::SkillInvoked {
                     skill_name: call.name.clone(),
                     message_id: envelope.id,
+                    input_args: match &call.input {
+                        serde_json::Value::Object(map) => {
+                            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+                        }
+                        _ => HashMap::new(),
+                    },
+                    caller_id: None,
                 }))
                 .await;
 
@@ -487,6 +501,11 @@ impl WorkspaceHandler {
             let skill_timeout =
                 std::time::Duration::from_secs(self.agent_config.skill_timeout_secs);
             let max_result_chars = self.agent_config.max_tool_result_chars;
+            let user_cwd = envelope
+                .metadata
+                .get("workspace:cwd")
+                .and_then(|v| v.as_str())
+                .map(String::from);
 
             join_set.spawn(async move {
                 let args: HashMap<String, serde_json::Value> = match call_input {
@@ -495,10 +514,10 @@ impl WorkspaceHandler {
                 };
 
                 let start = std::time::Instant::now();
-                let skill_input = SkillInput::new(args).with_context(orka_core::SkillContext::new(
-                    secrets,
-                    Some(event_sink.clone()),
-                ));
+                let skill_input = SkillInput::new(args).with_context(
+                    orka_core::SkillContext::new(secrets, Some(event_sink.clone()))
+                        .with_user_cwd(user_cwd),
+                );
                 let result = match tokio::time::timeout(
                     skill_timeout,
                     skills.invoke(&call_name, skill_input),
@@ -525,6 +544,18 @@ impl WorkspaceHandler {
                     Err(e) => (format!("Error: {e}"), true),
                 };
 
+                let output_preview = match &result {
+                    Ok(output) => {
+                        let s = output.data.to_string();
+                        Some(s.chars().take(1024).collect::<String>())
+                    }
+                    Err(_) => None,
+                };
+                let error_message = match &result {
+                    Err(e) => Some(e.to_string()),
+                    Ok(_) => None,
+                };
+
                 event_sink
                     .emit(DomainEvent::new(DomainEventKind::SkillCompleted {
                         skill_name: call_name,
@@ -532,6 +563,8 @@ impl WorkspaceHandler {
                         duration_ms,
                         success: !is_error,
                         error_category,
+                        output_preview,
+                        error_message,
                     }))
                     .await;
 
@@ -950,12 +983,14 @@ impl AgentHandler for WorkspaceHandler {
 
         // Persist CLI metadata overrides into MemoryStore for session stickiness
         let has_ws_meta = envelope.metadata.contains_key("workspace:soul")
-            || envelope.metadata.contains_key("workspace:tools");
+            || envelope.metadata.contains_key("workspace:tools")
+            || envelope.metadata.contains_key("workspace:cwd");
 
         if has_ws_meta {
             let override_val = serde_json::json!({
                 "soul": envelope.metadata.get("workspace:soul").and_then(|v| v.as_str()),
                 "tools": envelope.metadata.get("workspace:tools").and_then(|v| v.as_str()),
+                "cwd": envelope.metadata.get("workspace:cwd").and_then(|v| v.as_str()),
             });
             if let Err(e) = self
                 .memory
@@ -1161,6 +1196,10 @@ impl AgentHandler for WorkspaceHandler {
                 }
             });
 
+            let user_cwd = envelope
+                .metadata
+                .get("workspace:cwd")
+                .and_then(|v| v.as_str());
             let system_prompt = Self::build_system_prompt(
                 &soul_name,
                 &soul_body,
@@ -1170,6 +1209,7 @@ impl AgentHandler for WorkspaceHandler {
                 &available_ws_refs,
                 &principles_section,
                 conversation_summary.as_deref(),
+                user_cwd,
             );
 
             let mut options = CompletionOptions::default();
@@ -1274,6 +1314,13 @@ impl AgentHandler for WorkspaceHandler {
                     .emit(DomainEvent::new(DomainEventKind::LlmCompleted {
                         message_id: envelope.id,
                         model: llm_model.clone(),
+                        provider: if llm_model.contains("claude") {
+                            "anthropic".into()
+                        } else if llm_model.contains("gpt") || llm_model.contains("o1") {
+                            "openai".into()
+                        } else {
+                            "unknown".into()
+                        },
                         input_tokens: completion.usage.input_tokens,
                         output_tokens: completion.usage.output_tokens,
                         reasoning_tokens: completion.usage.reasoning_tokens,
@@ -1839,6 +1886,7 @@ mod tests {
             &["main", "support"],
             "",
             None,
+            None,
         );
         assert!(prompt.contains("You are TestBot."));
         assert!(prompt.contains("workspace \"main\""));
@@ -1859,6 +1907,7 @@ mod tests {
             &["main"],
             principles,
             None,
+            None,
         );
         assert!(prompt.contains("Learned Principles"));
         assert!(prompt.contains("Use web_search"));
@@ -1874,6 +1923,7 @@ mod tests {
             "main",
             &["main"],
             "",
+            None,
             None,
         );
         assert!(!prompt.contains("Learned Principles"));
@@ -1891,6 +1941,7 @@ mod tests {
             &["main"],
             "",
             Some(summary),
+            None,
         );
         assert!(
             prompt.contains("## Prior Conversation Context"),
@@ -1912,6 +1963,7 @@ mod tests {
             "main",
             &["main"],
             "",
+            None,
             None,
         );
         assert!(!prompt.contains("## Prior Conversation Context"));

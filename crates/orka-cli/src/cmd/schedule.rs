@@ -1,4 +1,5 @@
 use crate::client::OrkaClient;
+use crate::table::make_table;
 use colored::Colorize;
 
 pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
@@ -7,41 +8,31 @@ pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
         println!("{}", "Scheduler is not enabled on this server.".yellow());
         return Ok(());
     }
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Server returned {status}: {body}").into());
-    }
+    let resp = OrkaClient::ensure_ok(resp).await?;
     let body: serde_json::Value = resp.json().await?;
     let schedules = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
     if schedules.is_empty() {
         println!("{}", "No schedules found.".green());
         return Ok(());
     }
-    println!("{}", format!("{} schedule(s):", schedules.len()).cyan());
+    let mut table = make_table(&["ID", "Name", "Cron", "Skill", "Next Run", "Status"]);
     for s in schedules {
-        let id = s["id"].as_str().unwrap_or("?");
-        let name = s["name"].as_str().unwrap_or("?");
-        let cron = s["cron"].as_str().unwrap_or("-");
-        let skill = s["skill"].as_str().unwrap_or("-");
-        let next_run = s["next_run"].as_i64().unwrap_or(0);
-        let completed = s["completed"].as_bool().unwrap_or(false);
-        let next_dt = next_run.to_string();
-        let status = if completed {
-            "completed".yellow().to_string()
+        let next_run = s["next_run"].as_i64().unwrap_or(0).to_string();
+        let status = if s["completed"].as_bool().unwrap_or(false) {
+            "completed"
         } else {
-            "active".green().to_string()
+            "active"
         };
-        println!(
-            "  {} {} cron={} skill={} next={} [{}]",
-            id.cyan(),
-            name.bold(),
-            cron,
-            skill,
-            next_dt,
-            status
-        );
+        table.add_row([
+            s["id"].as_str().unwrap_or("?"),
+            s["name"].as_str().unwrap_or("?"),
+            s["cron"].as_str().unwrap_or("-"),
+            s["skill"].as_str().unwrap_or("-"),
+            &next_run,
+            status,
+        ]);
     }
+    println!("{table}");
     Ok(())
 }
 
@@ -78,11 +69,7 @@ pub async fn create(
         println!("{}", "Scheduler is not enabled on this server.".yellow());
         return Ok(());
     }
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Server returned {status}: {body}").into());
-    }
+    let resp = OrkaClient::ensure_ok(resp).await?;
     let schedule: serde_json::Value = resp.json().await?;
     println!(
         "{} id={}",
@@ -92,17 +79,22 @@ pub async fn create(
     Ok(())
 }
 
-pub async fn delete(client: &OrkaClient, id: &str) -> crate::client::Result<()> {
+pub async fn delete(client: &OrkaClient, id: &str, yes: bool) -> crate::client::Result<()> {
+    if !yes
+        && !dialoguer::Confirm::new()
+            .with_prompt(format!("Delete schedule '{id}'?"))
+            .default(false)
+            .interact()?
+    {
+        println!("Aborted.");
+        return Ok(());
+    }
     let resp = client.delete(&format!("/api/v1/schedules/{id}")).await?;
     if resp.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
         println!("{}", "Scheduler is not enabled on this server.".yellow());
         return Ok(());
     }
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Server returned {status}: {body}").into());
-    }
+    let resp = OrkaClient::ensure_ok(resp).await?;
     let result: serde_json::Value = resp.json().await?;
     if result["deleted"].as_bool().unwrap_or(false) {
         println!("{}", format!("Schedule '{id}' deleted.").green());

@@ -10,22 +10,17 @@ use colored::Colorize;
 pub fn build_prompt(cwd: &Path, last_exit: Option<i32>) -> (String, String) {
     let dir = shorten_path(cwd);
     let branch = git_branch(cwd);
+    let indicator_plain = "❯";
+    let indicator_colored = match last_exit {
+        Some(0) | None => "❯".green().to_string(),
+        Some(_) => "❯".red().to_string(),
+    };
     let (plain, colored) = if branch.is_empty() {
-        let indicator_plain = "❯";
-        let indicator_colored = match last_exit {
-            Some(0) | None => "❯".green().to_string(),
-            Some(_) => "❯".red().to_string(),
-        };
         (
             format!("{dir} {indicator_plain} "),
             format!("{dir} {indicator_colored} "),
         )
     } else {
-        let indicator_plain = "❯";
-        let indicator_colored = match last_exit {
-            Some(0) | None => "❯".green().to_string(),
-            Some(_) => "❯".red().to_string(),
-        };
         let branch_colored = branch.dimmed().to_string();
         (
             format!("{dir} ({branch}) {indicator_plain} "),

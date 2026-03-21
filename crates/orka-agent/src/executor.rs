@@ -32,6 +32,8 @@ pub struct ExecutorDeps {
     pub stream_registry: orka_core::StreamRegistry,
     /// Optional experience service for post-run reflection.
     pub experience: Option<Arc<ExperienceService>>,
+    /// Optional registry of soft (instruction-based) skills.
+    pub soft_skills: Option<std::sync::Arc<orka_skills::SoftSkillRegistry>>,
 }
 
 /// Result of a complete graph execution.

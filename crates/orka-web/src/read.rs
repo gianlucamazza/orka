@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use tracing::debug;
 
 use crate::cache::WebCache;
@@ -44,6 +44,10 @@ impl Skill for WebReadSkill {
         "web_read"
     }
 
+    fn category(&self) -> &str {
+        "web"
+    }
+
     fn description(&self) -> &str {
         "Fetch and read a web page. Returns extracted readable text from the URL. Use start_index to paginate through long pages."
     }
@@ -72,7 +76,10 @@ impl Skill for WebReadSkill {
             .args
             .get("url")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'url' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'url' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         let start_index = input
             .args
@@ -82,16 +89,20 @@ impl Skill for WebReadSkill {
 
         // Validate URL
         if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(Error::Skill(
-                "url must start with http:// or https://".into(),
-            ));
+            return Err(Error::SkillCategorized {
+                message: "url must start with http:// or https://".into(),
+                category: ErrorCategory::Input,
+            });
         }
 
         // Check cache for full page content
         let (full_text, title) = if let Some(cached) = self.cache.get("read", url) {
             debug!(url, "web_read cache hit");
-            let cached_data: serde_json::Value = serde_json::from_str(&cached)
-                .map_err(|e| Error::Skill(format!("cache parse error: {e}")))?;
+            let cached_data: serde_json::Value =
+                serde_json::from_str(&cached).map_err(|e| Error::SkillCategorized {
+                    message: format!("cache parse error: {e}"),
+                    category: ErrorCategory::Unknown,
+                })?;
             (
                 cached_data["text"].as_str().unwrap_or("").to_string(),
                 cached_data["title"].as_str().map(String::from),
@@ -102,11 +113,17 @@ impl Skill for WebReadSkill {
                 .get(url)
                 .send()
                 .await
-                .map_err(|e| Error::Skill(format!("fetch failed: {e}")))?;
+                .map_err(|e| Error::SkillCategorized {
+                    message: format!("fetch failed: {e}"),
+                    category: ErrorCategory::Transient,
+                })?;
 
             if !resp.status().is_success() {
                 let status = resp.status();
-                return Err(Error::Skill(format!("HTTP {status} for {url}")));
+                return Err(Error::SkillCategorized {
+                    message: format!("HTTP {status} for {url}"),
+                    category: ErrorCategory::Transient,
+                });
             }
 
             let content_type = resp
@@ -120,15 +137,16 @@ impl Skill for WebReadSkill {
                 && !content_type.contains("text/plain")
                 && !content_type.contains("application/json")
             {
-                return Err(Error::Skill(format!(
-                    "unsupported content type: {content_type}"
-                )));
+                return Err(Error::SkillCategorized {
+                    message: format!("unsupported content type: {content_type}"),
+                    category: ErrorCategory::Input,
+                });
             }
 
-            let body = resp
-                .text()
-                .await
-                .map_err(|e| Error::Skill(format!("failed to read body: {e}")))?;
+            let body = resp.text().await.map_err(|e| Error::SkillCategorized {
+                message: format!("failed to read body: {e}"),
+                category: ErrorCategory::Transient,
+            })?;
 
             let (text, title) = if content_type.contains("text/html") {
                 (extract::extract_text(&body), extract::extract_title(&body))

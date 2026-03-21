@@ -1,55 +1,65 @@
-use orka_mcp::{McpClient, McpContent, McpServerConfig, McpToolInfo, McpToolResult};
 use std::collections::HashMap;
 
+use orka_mcp::{
+    McpClient, McpContent, McpOAuthConfig, McpServerConfig, McpToolInfo, McpToolResult,
+    McpTransportConfig,
+};
+
 #[test]
-fn config_fields() {
+fn config_stdio_fields() {
     let config = McpServerConfig {
         name: "test-server".into(),
-        command: "echo".into(),
-        args: vec!["hello".into(), "world".into()],
-        env: HashMap::from([("KEY".into(), "VALUE".into())]),
+        transport: McpTransportConfig::Stdio {
+            command: "echo".into(),
+            args: vec!["hello".into(), "world".into()],
+            env: HashMap::from([("KEY".into(), "VALUE".into())]),
+        },
     };
     assert_eq!(config.name, "test-server");
-    assert_eq!(config.command, "echo");
-    assert_eq!(config.args, vec!["hello", "world"]);
-    assert_eq!(config.env.get("KEY").unwrap(), "VALUE");
+    match &config.transport {
+        McpTransportConfig::Stdio { command, args, env } => {
+            assert_eq!(command, "echo");
+            assert_eq!(args, &vec!["hello", "world"]);
+            assert_eq!(env.get("KEY").unwrap(), "VALUE");
+        }
+        _ => panic!("expected Stdio transport"),
+    }
 }
 
 #[test]
-fn config_deserialize_full() {
-    let json = r#"{
-        "name": "my-mcp",
-        "command": "/usr/bin/tool",
-        "args": ["--port", "8080"],
-        "env": {"TOKEN": "abc123", "DEBUG": "1"}
-    }"#;
-    let config: McpServerConfig = serde_json::from_str(json).expect("deserialize config");
-    assert_eq!(config.name, "my-mcp");
-    assert_eq!(config.command, "/usr/bin/tool");
-    assert_eq!(config.args, vec!["--port", "8080"]);
-    assert_eq!(config.env.len(), 2);
-    assert_eq!(config.env["TOKEN"], "abc123");
-    assert_eq!(config.env["DEBUG"], "1");
-}
-
-#[test]
-fn config_deserialize_defaults() {
-    // args and env have #[serde(default)], so they can be omitted
-    let json = r#"{"name": "minimal", "command": "cat"}"#;
-    let config: McpServerConfig = serde_json::from_str(json).expect("deserialize minimal config");
-    assert_eq!(config.name, "minimal");
-    assert_eq!(config.command, "cat");
-    assert!(config.args.is_empty());
-    assert!(config.env.is_empty());
+fn config_http_fields() {
+    let config = McpServerConfig {
+        name: "remote-server".into(),
+        transport: McpTransportConfig::StreamableHttp {
+            url: "https://tools.example.com/mcp".into(),
+            auth: Some(McpOAuthConfig {
+                token_url: "https://auth.example.com/token".into(),
+                client_id: "orka-agent".into(),
+                client_secret_env: "MCP_CLIENT_SECRET".into(),
+                scopes: vec!["tools:read".into()],
+            }),
+        },
+    };
+    assert_eq!(config.name, "remote-server");
+    match &config.transport {
+        McpTransportConfig::StreamableHttp { url, auth } => {
+            assert_eq!(url, "https://tools.example.com/mcp");
+            let auth = auth.as_ref().expect("auth should be set");
+            assert_eq!(auth.client_id, "orka-agent");
+        }
+        _ => panic!("expected StreamableHttp transport"),
+    }
 }
 
 #[tokio::test]
 async fn connect_nonexistent_command_fails() {
     let config = McpServerConfig {
         name: "bad".into(),
-        command: "/nonexistent/binary/that/does/not/exist".into(),
-        args: vec![],
-        env: HashMap::new(),
+        transport: McpTransportConfig::Stdio {
+            command: "/nonexistent/binary/that/does/not/exist".into(),
+            args: vec![],
+            env: HashMap::new(),
+        },
     };
     let result = McpClient::connect(config).await;
     assert!(

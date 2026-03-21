@@ -5,6 +5,8 @@ mod markdown;
 mod prompt;
 mod protocol;
 mod shell;
+mod table;
+mod util;
 mod workspace;
 
 use clap::{CommandFactory, Parser};
@@ -41,12 +43,12 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
-    /// Check server health
-    Health,
-    /// Show server status
-    Status,
-    /// Check readiness (exit code 1 if not ready)
-    Ready,
+    /// Show server status and dependency health
+    Status {
+        /// Minimal output with exit code 1 if not healthy (for scripting/probes)
+        #[arg(long)]
+        short: bool,
+    },
     /// Send a single message
     Send {
         /// Message text
@@ -97,8 +99,9 @@ enum Commands {
     },
     /// Inspect the agent graph topology
     Graph {
-        #[command(subcommand)]
-        action: GraphAction,
+        /// Output as Graphviz DOT format
+        #[arg(long)]
+        dot: bool,
     },
     /// Experience / self-learning system
     Experience {
@@ -135,10 +138,11 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Sudo configuration checks
+    /// Check sudo NOPASSWD configuration
     Sudo {
-        #[command(subcommand)]
-        action: SudoAction,
+        /// Path to orka.toml config file
+        #[arg(long)]
+        config: Option<String>,
     },
     /// Generate shell completions
     Completions {
@@ -153,6 +157,12 @@ enum Commands {
     },
     /// Update orka to the latest release
     Update,
+    /// Real-time TUI dashboard
+    Dashboard {
+        /// Polling interval in seconds
+        #[arg(long, default_value = "2")]
+        interval: u64,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -174,15 +184,6 @@ enum ConfigAction {
     },
 }
 
-#[derive(clap::Subcommand)]
-enum SudoAction {
-    /// Check that sudo allowed commands have NOPASSWD in sudoers
-    Check {
-        /// Path to orka.toml
-        #[arg(long)]
-        config: Option<String>,
-    },
-}
 
 #[derive(clap::Subcommand)]
 enum SecretAction {
@@ -218,7 +219,11 @@ enum DlqAction {
         id: String,
     },
     /// Purge all messages from the DLQ
-    Purge,
+    Purge {
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -229,6 +234,18 @@ enum SkillAction {
     Describe {
         /// Skill name
         name: String,
+    },
+    /// Run skill evaluation scenarios from .eval.toml files
+    Eval {
+        /// Only evaluate a specific skill by name
+        #[arg(long)]
+        skill: Option<String>,
+        /// Directory containing .eval.toml files (default: evals/)
+        #[arg(long)]
+        dir: Option<String>,
+        /// Output results as JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -260,6 +277,9 @@ enum ScheduleAction {
     Delete {
         /// Schedule ID
         id: String,
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 }
 
@@ -274,15 +294,6 @@ enum WorkspaceAction {
     },
 }
 
-#[derive(clap::Subcommand)]
-enum GraphAction {
-    /// Show the agent graph structure
-    Show {
-        /// Output as Graphviz DOT format
-        #[arg(long)]
-        dot: bool,
-    },
-}
 
 #[derive(clap::Subcommand)]
 enum ExperienceAction {
@@ -325,6 +336,9 @@ enum SessionAction {
     Delete {
         /// Session ID
         id: String,
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 }
 
@@ -353,9 +367,7 @@ async fn main() {
     let adapter_client = client::OrkaClient::new(&cli.adapter, api_key);
 
     let result = match cli.command {
-        Commands::Health => cmd::health::run(&server_client).await,
-        Commands::Status => cmd::status::run(&server_client).await,
-        Commands::Ready => cmd::ready::run(&server_client).await,
+        Commands::Status { short } => cmd::status::run(&server_client, short).await,
         Commands::Send {
             text,
             session_id,
@@ -383,11 +395,14 @@ async fn main() {
         Commands::Dlq { action } => match action {
             DlqAction::List => cmd::dlq::list(&server_client).await,
             DlqAction::Replay { id } => cmd::dlq::replay(&server_client, &id).await,
-            DlqAction::Purge => cmd::dlq::purge(&server_client).await,
+            DlqAction::Purge { yes } => cmd::dlq::purge(&server_client, yes).await,
         },
         Commands::Skill { action } => match action {
             SkillAction::List => cmd::skill::list(&server_client).await,
             SkillAction::Describe { name } => cmd::skill::describe(&server_client, &name).await,
+            SkillAction::Eval { skill, dir, json } => {
+                cmd::skill::eval(&server_client, skill.as_deref(), dir.as_deref(), json).await
+            }
         },
         Commands::Schedule { action } => match action {
             ScheduleAction::List => cmd::schedule::list(&server_client).await,
@@ -410,15 +425,15 @@ async fn main() {
                 )
                 .await
             }
-            ScheduleAction::Delete { id } => cmd::schedule::delete(&server_client, &id).await,
+            ScheduleAction::Delete { id, yes } => {
+                cmd::schedule::delete(&server_client, &id, yes).await
+            }
         },
         Commands::Workspace { action } => match action {
             WorkspaceAction::List => cmd::workspace_cmd::list(&server_client).await,
             WorkspaceAction::Show { name } => cmd::workspace_cmd::show(&server_client, &name).await,
         },
-        Commands::Graph { action } => match action {
-            GraphAction::Show { dot } => cmd::graph::show(&server_client, dot).await,
-        },
+        Commands::Graph { dot } => cmd::graph::show(&server_client, dot).await,
         Commands::Experience { action } => match action {
             ExperienceAction::Status => cmd::experience::status(&server_client).await,
             ExperienceAction::Principles {
@@ -433,7 +448,9 @@ async fn main() {
         Commands::Session { action } => match action {
             SessionAction::List { limit } => cmd::session::list(&server_client, limit).await,
             SessionAction::Show { id } => cmd::session::show(&server_client, &id).await,
-            SessionAction::Delete { id } => cmd::session::delete(&server_client, &id).await,
+            SessionAction::Delete { id, yes } => {
+                cmd::session::delete(&server_client, &id, yes).await
+            }
         },
         Commands::Metrics { filter, json } => {
             cmd::metrics::show(&server_client, filter.as_deref(), json).await
@@ -455,9 +472,7 @@ async fn main() {
                 cmd::config::migrate_cmd(config.as_deref(), dry_run).await
             }
         },
-        Commands::Sudo { action } => match action {
-            SudoAction::Check { config } => cmd::sudo::check(config.as_deref()).await,
-        },
+        Commands::Sudo { config } => cmd::sudo::check(config.as_deref()).await,
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "orka", &mut std::io::stdout());
             Ok(())
@@ -471,6 +486,7 @@ async fn main() {
             }
         }
         Commands::Update => cmd::update::run_update().await,
+        Commands::Dashboard { interval } => cmd::dashboard::run(&server_client, interval).await,
     };
 
     if let Err(e) = result {

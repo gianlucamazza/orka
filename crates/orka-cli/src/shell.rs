@@ -72,9 +72,6 @@ pub fn classify_input(line: &str) -> InputAction {
                     v.trim().to_string(),
                 ));
             }
-            if kv.is_empty() {
-                return InputAction::Error("export: usage: !export KEY=VALUE".to_string());
-            }
             return InputAction::Error("export: usage: !export KEY=VALUE".to_string());
         }
         if let Some(key) = rest

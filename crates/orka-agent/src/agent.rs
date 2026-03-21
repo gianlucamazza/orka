@@ -143,6 +143,12 @@ pub struct Agent {
     pub max_iterations: usize,
     /// Per-skill execution timeout in seconds.
     pub skill_timeout_secs: u64,
+    /// Maximum output size in bytes per skill invocation (None = no limit).
+    pub skill_max_output_bytes: Option<usize>,
+    /// Maximum duration in milliseconds per skill invocation (None = no limit).
+    pub skill_max_duration_ms: Option<u64>,
+    /// Enable progressive tool disclosure (start with synthetic discovery tools only).
+    pub progressive_disclosure: bool,
 }
 
 impl Agent {
@@ -157,6 +163,9 @@ impl Agent {
             handoff_targets: Vec::new(),
             max_iterations: 15,
             skill_timeout_secs: 120,
+            skill_max_output_bytes: None,
+            skill_max_duration_ms: None,
+            progressive_disclosure: false,
         }
     }
 }

@@ -100,6 +100,7 @@ fn make_deps(llm: Arc<dyn LlmClient>) -> ExecutorDeps {
         event_sink: Arc::new(InMemoryEventSink::new()),
         stream_registry: StreamRegistry::new(),
         experience: None,
+        soft_skills: None,
     }
 }
 
@@ -112,6 +113,7 @@ fn make_deps_no_llm() -> ExecutorDeps {
         event_sink: Arc::new(InMemoryEventSink::new()),
         stream_registry: StreamRegistry::new(),
         experience: None,
+        soft_skills: None,
     }
 }
 

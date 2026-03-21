@@ -20,7 +20,20 @@ pub async fn run(
     }
     println!("{} {}", "Sending:".bold(), text);
 
-    let metadata = local_workspace.as_ref().map(|ws| ws.to_metadata());
+    let mut metadata = local_workspace
+        .as_ref()
+        .map(|ws| ws.to_metadata())
+        .unwrap_or_default();
+    metadata.insert(
+        "workspace:cwd".to_string(),
+        serde_json::Value::String(
+            std::env::current_dir()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+        ),
+    );
+    let metadata = Some(metadata);
 
     // Connect WebSocket BEFORE sending the HTTP message to avoid missing fast replies.
     // For quick responses the server may stream the reply before the HTTP call returns,

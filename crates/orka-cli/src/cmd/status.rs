@@ -2,20 +2,30 @@ use colored::Colorize;
 
 use crate::client::{OrkaClient, Result};
 
-fn format_uptime(secs: u64) -> String {
-    let hours = secs / 3600;
-    let minutes = (secs % 3600) / 60;
-    let seconds = secs % 60;
-    if hours > 0 {
-        format!("{hours}h {minutes:02}m {seconds:02}s")
-    } else if minutes > 0 {
-        format!("{minutes}m {seconds:02}s")
-    } else {
-        format!("{seconds}s")
+pub async fn run(client: &OrkaClient, short: bool) -> Result<()> {
+    if short {
+        // Minimal output + exit code 1 if not healthy/ready (for scripting/probes)
+        match client.get_json("/health").await {
+            Ok(body) => {
+                let status = body
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                if status == "ok" {
+                    println!("{}", "ok".green());
+                } else {
+                    eprintln!("{}", status.red());
+                    return Err(status.to_string().into());
+                }
+            }
+            Err(e) => {
+                eprintln!("{}: {e}", "unreachable".red());
+                return Err(e);
+            }
+        }
+        return Ok(());
     }
-}
 
-pub async fn run(client: &OrkaClient) -> Result<()> {
     println!("{} {}", "Server:".bold(), client.base_url());
 
     match client.get_json("/health").await {
@@ -32,7 +42,11 @@ pub async fn run(client: &OrkaClient) -> Result<()> {
             }
 
             if let Some(uptime) = body.get("uptime_secs").and_then(|v| v.as_u64()) {
-                println!("{} {}", "Uptime:".bold(), format_uptime(uptime));
+                println!(
+                    "{} {}",
+                    "Uptime:".bold(),
+                    crate::util::format_uptime(uptime)
+                );
             }
 
             if let Some(workers) = body.get("workers").and_then(|v| v.as_u64()) {
@@ -45,33 +59,38 @@ pub async fn run(client: &OrkaClient) -> Result<()> {
         }
         Err(e) => {
             println!("{} {} ({e})", "Health:".bold(), "unreachable".red());
+            return Ok(());
+        }
+    }
+
+    // Readiness checks
+    if let Ok(body) = client.get_json("/health/ready").await {
+        let ready = body.get("ready").and_then(|v| v.as_bool()).unwrap_or(false);
+        if ready {
+            println!("{} {}", "Ready:".bold(), "yes".green());
+        } else {
+            println!("{} {}", "Ready:".bold(), "no".red());
+        }
+
+        if let Some(checks) = body.get("checks").and_then(|v| v.as_object()) {
+            println!("{}:", "Checks".bold());
+            for (name, value) in checks {
+                let status = value
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let mut line = format!("  {name}: {status}");
+                if let Some(depth) = value.get("depth").and_then(|v| v.as_u64()) {
+                    line.push_str(&format!(" (depth: {depth})"));
+                }
+                if status == "ok" {
+                    println!("{}", line.green());
+                } else {
+                    println!("{}", line.red());
+                }
+            }
         }
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn format_uptime_seconds_only() {
-        assert_eq!(format_uptime(0), "0s");
-        assert_eq!(format_uptime(59), "59s");
-    }
-
-    #[test]
-    fn format_uptime_minutes_and_seconds() {
-        assert_eq!(format_uptime(60), "1m 00s");
-        assert_eq!(format_uptime(90), "1m 30s");
-        assert_eq!(format_uptime(3599), "59m 59s");
-    }
-
-    #[test]
-    fn format_uptime_hours() {
-        assert_eq!(format_uptime(3600), "1h 00m 00s");
-        assert_eq!(format_uptime(3661), "1h 01m 01s");
-        assert_eq!(format_uptime(7384), "2h 03m 04s");
-    }
 }

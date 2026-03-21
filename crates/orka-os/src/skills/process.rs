@@ -28,6 +28,10 @@ impl Skill for ProcessListSkill {
         "process_list"
     }
 
+    fn category(&self) -> &str {
+        "system"
+    }
+
     fn description(&self) -> &str {
         "List running processes with CPU and memory usage."
     }
@@ -144,6 +148,10 @@ impl Skill for ProcessInfoSkill {
         "process_info"
     }
 
+    fn category(&self) -> &str {
+        "system"
+    }
+
     fn description(&self) -> &str {
         "Get detailed information about a specific process by PID."
     }
@@ -163,7 +171,10 @@ impl Skill for ProcessInfoSkill {
             .args
             .get("pid")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| Error::Skill("missing 'pid' argument".into()))? as u32;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'pid' argument".into(),
+                category: ErrorCategory::Input,
+            })? as u32;
 
         let mut sys = System::new();
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
@@ -212,6 +223,10 @@ impl Skill for ProcessSignalSkill {
         "process_signal"
     }
 
+    fn category(&self) -> &str {
+        "system"
+    }
+
     fn description(&self) -> &str {
         "Send a signal to a process (SIGTERM, SIGKILL, SIGHUP, SIGUSR1, SIGUSR2)."
     }
@@ -238,7 +253,10 @@ impl Skill for ProcessSignalSkill {
             .args
             .get("pid")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| Error::Skill("missing 'pid' argument".into()))? as i32;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'pid' argument".into(),
+                category: ErrorCategory::Input,
+            })? as i32;
         let signal_name = input
             .args
             .get("signal")
@@ -251,7 +269,12 @@ impl Skill for ProcessSignalSkill {
             "SIGHUP" => nix::sys::signal::Signal::SIGHUP,
             "SIGUSR1" => nix::sys::signal::Signal::SIGUSR1,
             "SIGUSR2" => nix::sys::signal::Signal::SIGUSR2,
-            _ => return Err(Error::Skill(format!("unsupported signal: {}", signal_name))),
+            _ => {
+                return Err(Error::SkillCategorized {
+                    message: format!("unsupported signal: {}", signal_name),
+                    category: ErrorCategory::Input,
+                });
+            }
         };
 
         nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), signal).map_err(|e| {

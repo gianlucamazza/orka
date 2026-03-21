@@ -23,8 +23,12 @@ impl Skill for ScheduleListSkill {
         "schedule_list"
     }
 
+    fn category(&self) -> &str {
+        "schedule"
+    }
+
     fn description(&self) -> &str {
-        "List active scheduled tasks"
+        "List active scheduled tasks."
     }
 
     fn schema(&self) -> SkillSchema {

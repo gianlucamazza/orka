@@ -9,6 +9,7 @@ license.workspace = true
 orka-core.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 redis.workspace = true
 deadpool-redis.workspace = true

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 
 use crate::config::PermissionLevel;
 use crate::guard::PermissionGuard;
@@ -31,6 +31,10 @@ impl Skill for ClipboardReadSkill {
         "clipboard_read"
     }
 
+    fn category(&self) -> &str {
+        "desktop"
+    }
+
     fn description(&self) -> &str {
         "Read the current system clipboard contents."
     }
@@ -56,15 +60,21 @@ impl Skill for ClipboardReadSkill {
             .args(&args)
             .output()
             .await
-            .map_err(|e| Error::Skill(format!("clipboard read failed ({}): {}", cmd, e)))?;
+            .map_err(|e| Error::SkillCategorized {
+                message: format!("clipboard read failed ({}): {}", cmd, e),
+                category: ErrorCategory::Environmental,
+            })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(Error::Skill(format!(
-                "clipboard_read failed (exit {}): {}",
-                output.status.code().unwrap_or(-1),
-                stderr.trim()
-            )));
+            return Err(Error::SkillCategorized {
+                message: format!(
+                    "clipboard_read failed (exit {}): {}",
+                    output.status.code().unwrap_or(-1),
+                    stderr.trim()
+                ),
+                category: ErrorCategory::Environmental,
+            });
         }
 
         let content = String::from_utf8_lossy(&output.stdout).to_string();
@@ -96,6 +106,10 @@ impl Skill for ClipboardWriteSkill {
         "clipboard_write"
     }
 
+    fn category(&self) -> &str {
+        "desktop"
+    }
+
     fn description(&self) -> &str {
         "Write content to the system clipboard."
     }
@@ -117,7 +131,10 @@ impl Skill for ClipboardWriteSkill {
             .args
             .get("content")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'content' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'content' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         let (cmd, args) = if is_wayland() {
             ("wl-copy", vec![])
@@ -129,26 +146,35 @@ impl Skill for ClipboardWriteSkill {
             .args(&args)
             .stdin(std::process::Stdio::piped())
             .spawn()
-            .map_err(|e| Error::Skill(format!("clipboard write failed ({}): {}", cmd, e)))?;
+            .map_err(|e| Error::SkillCategorized {
+                message: format!("clipboard write failed ({}): {}", cmd, e),
+                category: ErrorCategory::Environmental,
+            })?;
 
         if let Some(mut stdin) = child.stdin.take() {
             use tokio::io::AsyncWriteExt;
             stdin
                 .write_all(content.as_bytes())
                 .await
-                .map_err(|e| Error::Skill(format!("failed to write to clipboard: {}", e)))?;
+                .map_err(|e| Error::SkillCategorized {
+                    message: format!("failed to write to clipboard: {}", e),
+                    category: ErrorCategory::Environmental,
+                })?;
         }
 
-        let status = child
-            .wait()
-            .await
-            .map_err(|e| Error::Skill(format!("clipboard command failed: {}", e)))?;
+        let status = child.wait().await.map_err(|e| Error::SkillCategorized {
+            message: format!("clipboard command failed: {}", e),
+            category: ErrorCategory::Environmental,
+        })?;
 
         if !status.success() {
-            return Err(Error::Skill(format!(
-                "clipboard_write failed (exit {})",
-                status.code().unwrap_or(-1)
-            )));
+            return Err(Error::SkillCategorized {
+                message: format!(
+                    "clipboard_write failed (exit {})",
+                    status.code().unwrap_or(-1)
+                ),
+                category: ErrorCategory::Environmental,
+            });
         }
 
         Ok(SkillOutput::new(serde_json::json!({

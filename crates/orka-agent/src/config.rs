@@ -116,6 +116,9 @@ pub async fn build_single_agent_graph(
     agent.system_prompt = system_prompt;
     agent.max_iterations = agent_cfg.max_iterations;
     agent.skill_timeout_secs = agent_cfg.skill_timeout_secs;
+    agent.skill_max_output_bytes = agent_cfg.skill_max_output_bytes;
+    agent.skill_max_duration_ms = agent_cfg.skill_max_duration_ms;
+    agent.progressive_disclosure = agent_cfg.progressive_disclosure;
     agent.llm_config = AgentLlmConfig {
         model: agent_cfg.model.clone(),
         max_tokens: agent_cfg.max_tokens,
@@ -292,12 +295,14 @@ mod tests {
             auth: Default::default(),
             sandbox: Default::default(),
             plugins: Default::default(),
+            soft_skills: Default::default(),
             session: Default::default(),
             queue: Default::default(),
             llm: Default::default(),
             agent: AgentConfig::default(),
             tools: Default::default(),
             observe: Default::default(),
+            audit: Default::default(),
             gateway: Default::default(),
             mcp: Default::default(),
             guardrails: Default::default(),

@@ -9,6 +9,8 @@
 pub mod approval;
 /// [`PermissionLevel`] enum for OS skill access control.
 pub mod config;
+/// Shared domain-event helpers for privileged OS skills.
+pub mod events;
 /// [`PermissionGuard`] — central safety enforcement for all OS skills.
 pub mod guard;
 /// Runtime capability probing for startup validation.

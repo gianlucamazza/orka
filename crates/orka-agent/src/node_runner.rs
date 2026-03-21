@@ -32,6 +32,19 @@ pub struct AgentNodeResult {
 }
 
 /// Truncate a tool result string if it exceeds the configured limit.
+/// Infer LLM provider name from model string for observability.
+fn infer_provider(model: &str) -> String {
+    if model.contains("claude") {
+        "anthropic".into()
+    } else if model.contains("gpt") || model.contains("o1") || model.contains("o3") {
+        "openai".into()
+    } else if model.contains("gemini") {
+        "google".into()
+    } else {
+        "unknown".into()
+    }
+}
+
 fn truncate_tool_result(content: &str, max_chars: usize) -> String {
     if content.len() <= max_chars {
         return content.to_string();
@@ -187,25 +200,69 @@ pub async fn run_agent_node(
         }
     };
 
-    // Build tool list filtered by ToolScope
-    let mut tools: Vec<ToolDefinition> = deps
-        .skills
-        .list_available()
-        .iter()
-        .filter(|name| agent.tools.allows(name))
-        .filter_map(|name| deps.skills.get(name))
-        .map(|skill| {
-            ToolDefinition::new(
-                skill.name(),
-                skill.description(),
-                skill.schema().parameters.clone(),
-            )
-        })
-        .collect();
+    // B1: Progressive disclosure state
+    let progressive = agent.progressive_disclosure;
+    let mut enabled_categories: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
 
-    // Inject handoff tools
+    // Synthetic tool definitions for progressive disclosure
+    let synthetic_tools = || -> Vec<ToolDefinition> {
+        vec![
+            ToolDefinition::new(
+                "list_tool_categories",
+                "List all available tool categories with their skills. \
+                 Call this first to discover what tools are available before using them.",
+                serde_json::json!({"type": "object", "properties": {}}),
+            ),
+            ToolDefinition::new(
+                "enable_tools",
+                "Enable all tools from a specific category. \
+                 Call list_tool_categories first, then call this to activate a category.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            "description": "The category name to enable (e.g. \"filesystem\", \"web\")"
+                        }
+                    },
+                    "required": ["category"]
+                }),
+            ),
+        ]
+    };
+
+    // Build the initial tool list
+    let build_skill_tools = |enabled: &std::collections::HashSet<String>| -> Vec<ToolDefinition> {
+        deps.skills
+            .list_available()
+            .iter()
+            .filter(|name| agent.tools.allows(name))
+            .filter_map(|name| deps.skills.get(name))
+            .filter(|skill| !progressive || enabled.contains(skill.category()))
+            .map(|skill| {
+                ToolDefinition::new(
+                    skill.name(),
+                    skill.description(),
+                    skill.schema().parameters.clone(),
+                )
+            })
+            .collect()
+    };
+
     let handoff_tools = build_handoff_tools(agent, graph);
-    tools.extend(handoff_tools);
+
+    let initial_skill_tools = build_skill_tools(&enabled_categories);
+    let mut tools: Vec<ToolDefinition> = if progressive {
+        let mut t = synthetic_tools();
+        t.extend(initial_skill_tools);
+        t.extend(handoff_tools.clone());
+        t
+    } else {
+        let mut t = initial_skill_tools;
+        t.extend(handoff_tools.clone());
+        t
+    };
 
     let envelope = &ctx.trigger;
     let message_id = envelope.id;
@@ -253,6 +310,18 @@ pub async fn run_agent_node(
             }
         }
 
+        // B2: Inject soft skill instructions
+        if let Some(ref soft_reg) = deps.soft_skills {
+            if !soft_reg.is_empty() {
+                let all_names: Vec<&str> = soft_reg.list();
+                let section = soft_reg.build_prompt_section(&all_names);
+                if !section.is_empty() {
+                    sp.push_str("\n\n");
+                    sp.push_str(&section);
+                }
+            }
+        }
+
         sp
     };
 
@@ -278,6 +347,14 @@ pub async fn run_agent_node(
     for iteration in 0..agent.max_iterations {
         iterations = iteration + 1;
         let iteration_start = std::time::Instant::now();
+
+        // B1: Rebuild tool list from enabled categories each iteration
+        if progressive {
+            tools.clear();
+            tools.extend(synthetic_tools());
+            tools.extend(build_skill_tools(&enabled_categories));
+            tools.extend(handoff_tools.clone());
+        }
 
         // Truncate history to fit context window
         let hint = TokenizerHint::from_model(agent.llm_config.model.as_deref());
@@ -369,6 +446,7 @@ pub async fn run_agent_node(
             .emit(DomainEvent::new(DomainEventKind::LlmCompleted {
                 message_id,
                 model: llm_model.clone(),
+                provider: infer_provider(&llm_model),
                 input_tokens: completion.usage.input_tokens,
                 output_tokens: completion.usage.output_tokens,
                 reasoning_tokens: completion.usage.reasoning_tokens,
@@ -534,22 +612,74 @@ pub async fn run_agent_node(
             ));
         }
 
-        let mut join_set = tokio::task::JoinSet::new();
+        // B1: Intercept synthetic progressive-disclosure tool calls before skill dispatch
+        let mut results_map: HashMap<String, (String, bool)> = HashMap::new();
+        let mut skill_calls: Vec<&ToolCall> = Vec::new();
 
         for call in &regular_calls {
+            if progressive && (call.name == "list_tool_categories" || call.name == "enable_tools") {
+                let result = match call.name.as_str() {
+                    "list_tool_categories" => {
+                        let categories = deps.skills.list_by_category();
+                        (
+                            serde_json::to_string_pretty(&categories).unwrap_or_default(),
+                            false,
+                        )
+                    }
+                    "enable_tools" => {
+                        let cat = call
+                            .input
+                            .get("category")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if cat.is_empty() {
+                            ("Error: 'category' parameter is required".to_string(), true)
+                        } else {
+                            enabled_categories.insert(cat.clone());
+                            (format!("Tools in category '{cat}' are now enabled."), false)
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+                results_map.insert(call.id.clone(), result);
+            } else {
+                skill_calls.push(call);
+            }
+        }
+
+        let mut join_set = tokio::task::JoinSet::new();
+
+        for call in &skill_calls {
             let call_id = call.id.clone();
             let call_name = call.name.clone();
             let call_input = call.input.clone();
             let skills = deps.skills.clone();
             let event_sink = deps.event_sink.clone();
             let secrets = deps.secrets.clone();
+            let skill_max_output_bytes = agent.skill_max_output_bytes;
+            let skill_max_duration_ms = agent.skill_max_duration_ms;
 
             deps.event_sink
                 .emit(DomainEvent::new(DomainEventKind::SkillInvoked {
                     skill_name: call.name.clone(),
                     message_id,
+                    input_args: match &call.input {
+                        serde_json::Value::Object(map) => {
+                            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+                        }
+                        _ => HashMap::new(),
+                    },
+                    caller_id: None,
                 }))
                 .await;
+
+            let user_cwd = ctx
+                .trigger
+                .metadata
+                .get("workspace:cwd")
+                .and_then(|v| v.as_str())
+                .map(String::from);
 
             join_set.spawn(async move {
                 let args: HashMap<String, serde_json::Value> = match call_input {
@@ -558,10 +688,15 @@ pub async fn run_agent_node(
                 };
 
                 let start = std::time::Instant::now();
-                let skill_input = SkillInput::new(args).with_context(orka_core::SkillContext::new(
-                    secrets,
-                    Some(event_sink.clone()),
-                ));
+                let mut skill_ctx = orka_core::SkillContext::new(secrets, Some(event_sink.clone()))
+                    .with_user_cwd(user_cwd);
+                if skill_max_output_bytes.is_some() || skill_max_duration_ms.is_some() {
+                    skill_ctx = skill_ctx.with_budget(orka_core::SkillBudget {
+                        max_duration_ms: skill_max_duration_ms,
+                        max_output_bytes: skill_max_output_bytes,
+                    });
+                }
+                let skill_input = SkillInput::new(args).with_context(skill_ctx);
 
                 let result = match tokio::time::timeout(
                     skill_timeout,
@@ -590,6 +725,18 @@ pub async fn run_agent_node(
                     Err(e) => (format!("Error: {e}"), true),
                 };
 
+                let output_preview = match &result {
+                    Ok(output) => {
+                        let s = output.data.to_string();
+                        Some(s.chars().take(1024).collect::<String>())
+                    }
+                    Err(_) => None,
+                };
+                let error_message = match &result {
+                    Err(e) => Some(e.to_string()),
+                    Ok(_) => None,
+                };
+
                 event_sink
                     .emit(DomainEvent::new(DomainEventKind::SkillCompleted {
                         skill_name: call_name,
@@ -597,6 +744,8 @@ pub async fn run_agent_node(
                         duration_ms,
                         success: !is_error,
                         error_category,
+                        output_preview,
+                        error_message,
                     }))
                     .await;
 
@@ -604,7 +753,6 @@ pub async fn run_agent_node(
             });
         }
 
-        let mut results_map: HashMap<String, (String, bool)> = HashMap::new();
         while let Some(res) = join_set.join_next().await {
             if let Ok((call_id, content, is_error)) = res {
                 results_map.insert(call_id, (content, is_error));

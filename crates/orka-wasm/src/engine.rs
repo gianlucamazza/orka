@@ -1,27 +1,33 @@
 use orka_core::{Error, Result};
 use wasmtime::{Engine, Module};
 
-/// Shared wasmtime engine with fuel enabled.
+/// Shared wasmtime engine with fuel and Component Model enabled.
 ///
 /// Clone is cheap — the inner `Engine` is already `Arc`-wrapped by wasmtime.
 #[derive(Clone)]
 pub struct WasmEngine(pub(crate) Engine);
 
 impl WasmEngine {
-    /// Create a new engine with fuel consumption enabled.
+    /// Create a new engine with fuel consumption and Component Model enabled.
     pub fn new() -> Result<Self> {
         let mut cfg = wasmtime::Config::new();
         cfg.consume_fuel(true);
+        cfg.wasm_component_model(true);
         let engine = Engine::new(&cfg)
             .map_err(|e| Error::sandbox_msg(format!("failed to create wasmtime engine: {e}")))?;
         Ok(Self(engine))
     }
 
-    /// Pre-compile a WASM module (bytes or WAT text).
+    /// Pre-compile a core WASM module (bytes or WAT text).
     pub fn compile(&self, bytes: &[u8]) -> Result<WasmModule> {
         let module = Module::new(&self.0, bytes)
             .map_err(|e| Error::sandbox_msg(format!("failed to compile WASM module: {e}")))?;
         Ok(WasmModule { module })
+    }
+
+    /// Pre-compile a WASM Component (Component Model binary).
+    pub fn compile_component(&self, bytes: &[u8]) -> Result<crate::component::WasmComponent> {
+        crate::component::WasmComponent::compile(self, bytes)
     }
 }
 

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 
 use crate::guard::PermissionGuard;
 
@@ -26,6 +26,10 @@ impl Skill for EnvGetSkill {
         "env_get"
     }
 
+    fn category(&self) -> &str {
+        "system"
+    }
+
     fn description(&self) -> &str {
         "Get the value of an environment variable."
     }
@@ -45,7 +49,10 @@ impl Skill for EnvGetSkill {
             .args
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'name' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'name' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         self.guard.check_env_var(name)?;
 
@@ -77,6 +84,10 @@ impl EnvListSkill {
 impl Skill for EnvListSkill {
     fn name(&self) -> &str {
         "env_list"
+    }
+
+    fn category(&self) -> &str {
+        "system"
     }
 
     fn description(&self) -> &str {

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use orka_core::traits::Skill;
-use orka_core::{Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
@@ -42,8 +42,12 @@ impl Skill for HttpRequestSkill {
         "http_request"
     }
 
+    fn category(&self) -> &str {
+        "http"
+    }
+
     fn description(&self) -> &str {
-        "Make HTTP requests to external APIs and services"
+        "Make HTTP requests to external APIs and services."
     }
 
     fn schema(&self) -> SkillSchema {
@@ -66,7 +70,11 @@ impl Skill for HttpRequestSkill {
                     "description": "Request headers"
                 },
                 "body": {
-                    "description": "Request body (string or JSON object)"
+                    "description": "Request body (string or JSON object)",
+                    "oneOf": [
+                        { "type": "string" },
+                        { "type": "object" }
+                    ]
                 },
                 "timeout_secs": {
                     "type": "integer",
@@ -86,10 +94,18 @@ impl Skill for HttpRequestSkill {
             .args
             .get("url")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| orka_core::Error::Skill("url is required".into()))?;
+            .ok_or_else(|| orka_core::Error::SkillCategorized {
+                message: "url is required".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         // SSRF check
-        self.guard.check(url).map_err(orka_core::Error::Skill)?;
+        self.guard
+            .check(url)
+            .map_err(|msg| orka_core::Error::SkillCategorized {
+                message: msg,
+                category: ErrorCategory::Input,
+            })?;
 
         let method = input
             .args
@@ -113,9 +129,10 @@ impl Skill for HttpRequestSkill {
             "DELETE" => self.client.delete(url),
             "HEAD" => self.client.head(url),
             other => {
-                return Err(orka_core::Error::Skill(format!(
-                    "unsupported method: {other}"
-                )));
+                return Err(orka_core::Error::SkillCategorized {
+                    message: format!("unsupported method: {other}"),
+                    category: ErrorCategory::Input,
+                });
             }
         };
 
@@ -145,9 +162,10 @@ impl Skill for HttpRequestSkill {
                     }
                 }
                 Err(e) => {
-                    return Err(orka_core::Error::Skill(format!(
-                        "failed to read bearer secret '{secret_name}': {e}"
-                    )));
+                    return Err(orka_core::Error::SkillCategorized {
+                        message: format!("failed to read bearer secret '{secret_name}': {e}"),
+                        category: ErrorCategory::Input,
+                    });
                 }
             }
         }

@@ -5,6 +5,22 @@ use std::process::Stdio;
 const DROPIN_PATH: &str = "/etc/systemd/system/orka-server.service.d/sudo.conf";
 const SUDOERS_PATH: &str = "/etc/sudoers.d/orka";
 
+/// Check if a path exists, falling back to `sudo -n test -f` when the current
+/// user lacks permission to stat the parent directory (e.g. `/etc/sudoers.d/`).
+async fn path_exists_elevated(sudo_path: &str, path: &str) -> bool {
+    if Path::new(path).exists() {
+        return true;
+    }
+    tokio::process::Command::new(sudo_path)
+        .args(["-n", "test", "-f", path])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let path = config_path.map(Path::new);
     let config = OrkaConfig::load(path)?;
@@ -24,6 +40,8 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
         config.os.sudo.confirmation_timeout_secs
     );
     println!();
+
+    let sudo_path = &config.os.sudo.sudo_path;
 
     // --- Environment checks ---
     let mut env_ok = true;
@@ -54,7 +72,7 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
 
     // Check drop-in exists
     print!("  systemd drop-in ... ");
-    if Path::new(DROPIN_PATH).exists() {
+    if path_exists_elevated(sudo_path, DROPIN_PATH).await {
         println!("OK ({})", DROPIN_PATH);
     } else {
         println!("MISSING ({})", DROPIN_PATH);
@@ -64,7 +82,7 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
 
     // Check sudoers file exists
     print!("  sudoers file    ... ");
-    if Path::new(SUDOERS_PATH).exists() {
+    if path_exists_elevated(sudo_path, SUDOERS_PATH).await {
         println!("OK ({})", SUDOERS_PATH);
     } else {
         println!("MISSING ({})", SUDOERS_PATH);
@@ -89,7 +107,6 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
         config.os.sudo.allowed_commands.len()
     );
 
-    let sudo_path = &config.os.sudo.sudo_path;
     let mut all_ok = true;
 
     for cmd in &config.os.sudo.allowed_commands {

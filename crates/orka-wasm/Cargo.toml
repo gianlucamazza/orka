@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+cap-std.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
 tracing.workspace = true

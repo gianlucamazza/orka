@@ -1,0 +1,13 @@
+skill = "echo"
+
+[[scenarios]]
+name = "echo_basic"
+description = "Echo returns input args"
+
+[scenarios.input]
+msg = "hello"
+
+[scenarios.expected]
+is_ok = true
+contains = ["hello"]
+max_duration_ms = 1000

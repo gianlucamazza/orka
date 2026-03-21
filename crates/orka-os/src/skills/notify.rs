@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 
 use crate::config::PermissionLevel;
 use crate::guard::PermissionGuard;
@@ -23,6 +23,10 @@ impl NotifySendSkill {
 impl Skill for NotifySendSkill {
     fn name(&self) -> &str {
         "notify_send"
+    }
+
+    fn category(&self) -> &str {
+        "desktop"
     }
 
     fn description(&self) -> &str {
@@ -54,7 +58,10 @@ impl Skill for NotifySendSkill {
             .args
             .get("title")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'title' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'title' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
         let body = input.args.get("body").and_then(|v| v.as_str());
         let urgency = input
             .args
@@ -81,18 +88,21 @@ impl Skill for NotifySendSkill {
             cmd.arg(body);
         }
 
-        let output = cmd
-            .output()
-            .await
-            .map_err(|e| Error::Skill(format!("notify-send failed: {}", e)))?;
+        let output = cmd.output().await.map_err(|e| Error::SkillCategorized {
+            message: format!("notify-send failed: {}", e),
+            category: ErrorCategory::Environmental,
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(Error::Skill(format!(
-                "notify-send failed (exit {}): {}",
-                output.status.code().unwrap_or(-1),
-                stderr.trim()
-            )));
+            return Err(Error::SkillCategorized {
+                message: format!(
+                    "notify-send failed (exit {}): {}",
+                    output.status.code().unwrap_or(-1),
+                    stderr.trim()
+                ),
+                category: ErrorCategory::Environmental,
+            });
         }
 
         Ok(SkillOutput::new(serde_json::json!({

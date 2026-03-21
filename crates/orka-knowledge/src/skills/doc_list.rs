@@ -27,8 +27,12 @@ impl Skill for DocListSkill {
         "doc_list"
     }
 
+    fn category(&self) -> &str {
+        "knowledge"
+    }
+
     fn description(&self) -> &str {
-        "List documents that have been ingested into the knowledge base"
+        "List documents that have been ingested into the knowledge base."
     }
 
     fn schema(&self) -> SkillSchema {

@@ -4,14 +4,12 @@ use async_trait::async_trait;
 use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use orka_core::{
-    DomainEvent, DomainEventKind, Error, ErrorCategory, Result, SkillInput, SkillOutput,
-    SkillSchema,
-};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use uuid::Uuid;
 
 use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
 use crate::config::PermissionLevel;
+use crate::events::{emit_denied, emit_executed};
 use crate::guard::PermissionGuard;
 
 fn categorize_daemon_spawn_error(daemon: &str, e: std::io::Error) -> Error {
@@ -47,6 +45,10 @@ impl Skill for ServiceStatusSkill {
         "service_status"
     }
 
+    fn category(&self) -> &str {
+        "systemd"
+    }
+
     fn description(&self) -> &str {
         "Get the status of a systemd service."
     }
@@ -68,7 +70,10 @@ impl Skill for ServiceStatusSkill {
             .args
             .get("unit")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'unit' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'unit' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         let output = tokio::process::Command::new("systemctl")
             .args(["status", unit, "--no-pager"])
@@ -104,6 +109,10 @@ impl ServiceListSkill {
 impl Skill for ServiceListSkill {
     fn name(&self) -> &str {
         "service_list"
+    }
+
+    fn category(&self) -> &str {
+        "systemd"
     }
 
     fn description(&self) -> &str {
@@ -166,6 +175,10 @@ impl JournalReadSkill {
 impl Skill for JournalReadSkill {
     fn name(&self) -> &str {
         "journal_read"
+    }
+
+    fn category(&self) -> &str {
+        "systemd"
     }
 
     fn description(&self) -> &str {
@@ -260,6 +273,10 @@ impl Skill for ServiceControlSkill {
         "service_control"
     }
 
+    fn category(&self) -> &str {
+        "systemd"
+    }
+
     fn description(&self) -> &str {
         "Start, stop, or restart a systemd service (requires sudo)."
     }
@@ -286,18 +303,27 @@ impl Skill for ServiceControlSkill {
             .args
             .get("unit")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'unit' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'unit' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
         let action = input
             .args
             .get("action")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'action' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'action' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         if !matches!(action, "start" | "stop" | "restart") {
-            return Err(Error::Skill(format!(
-                "invalid action '{}': must be start, stop, or restart",
-                action
-            )));
+            return Err(Error::SkillCategorized {
+                message: format!(
+                    "invalid action '{}': must be start, stop, or restart",
+                    action
+                ),
+                category: ErrorCategory::Input,
+            });
         }
 
         // Check sudo allowlist
@@ -328,7 +354,10 @@ impl Skill for ServiceControlSkill {
                         &format!("service control denied: {reason}"),
                     )
                     .await;
-                    return Err(Error::Skill(format!("service control denied: {}", reason)));
+                    return Err(Error::SkillCategorized {
+                        message: format!("service control denied: {}", reason),
+                        category: ErrorCategory::Input,
+                    });
                 }
                 ApprovalDecision::Expired => {
                     let args = &[action, unit];
@@ -339,7 +368,10 @@ impl Skill for ServiceControlSkill {
                         "service control approval expired",
                     )
                     .await;
-                    return Err(Error::Skill("service control approval expired".into()));
+                    return Err(Error::SkillCategorized {
+                        message: "service control approval expired".into(),
+                        category: ErrorCategory::Timeout,
+                    });
                 }
             }
         }
@@ -349,7 +381,10 @@ impl Skill for ServiceControlSkill {
             .args(["-n", "systemctl", action, unit])
             .output()
             .await
-            .map_err(|e| Error::Skill(format!("systemctl failed: {}", e)))?;
+            .map_err(|e| Error::SkillCategorized {
+                message: format!("systemctl failed: {}", e),
+                category: ErrorCategory::Environmental,
+            })?;
         let duration_ms = start.elapsed().as_millis() as u64;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -366,13 +401,16 @@ impl Skill for ServiceControlSkill {
         .await;
 
         if !output.status.success() {
-            return Err(Error::Skill(format!(
-                "systemctl {} {} failed (exit {}): {}",
-                action,
-                unit,
-                output.status.code().unwrap_or(-1),
-                stderr.trim()
-            )));
+            return Err(Error::SkillCategorized {
+                message: format!(
+                    "systemctl {} {} failed (exit {}): {}",
+                    action,
+                    unit,
+                    output.status.code().unwrap_or(-1),
+                    stderr.trim()
+                ),
+                category: ErrorCategory::Environmental,
+            });
         }
 
         Ok(SkillOutput::new(serde_json::json!({
@@ -381,45 +419,6 @@ impl Skill for ServiceControlSkill {
             "stdout": stdout,
             "stderr": stderr,
         })))
-    }
-}
-
-async fn emit_executed(
-    input: &SkillInput,
-    command: &str,
-    args: &[&str],
-    exit_code: Option<i32>,
-    success: bool,
-    duration_ms: u64,
-) {
-    if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent::new(
-            DomainEventKind::PrivilegedCommandExecuted {
-                message_id: orka_core::types::MessageId::new(),
-                session_id: orka_core::types::SessionId::new(),
-                command: command.to_string(),
-                args: args.iter().map(|s| s.to_string()).collect(),
-                approval_id: None,
-                approved_by: None,
-                exit_code,
-                success,
-                duration_ms,
-            },
-        ))
-        .await;
-    }
-}
-
-async fn emit_denied(input: &SkillInput, command: &str, args: &[&str], reason: &str) {
-    if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent::new(DomainEventKind::PrivilegedCommandDenied {
-            message_id: orka_core::types::MessageId::new(),
-            session_id: orka_core::types::SessionId::new(),
-            command: command.to_string(),
-            args: args.iter().map(|s| s.to_string()).collect(),
-            reason: reason.to_string(),
-        }))
-        .await;
     }
 }
 

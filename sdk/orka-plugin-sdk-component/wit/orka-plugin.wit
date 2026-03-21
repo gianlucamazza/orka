@@ -1,0 +1,38 @@
+package orka:plugin@2.0.0;
+
+/// World exported by every Orka WASM plugin.
+world plugin {
+    /// Static metadata about this plugin.
+    record plugin-info {
+        /// Unique skill name (snake_case).
+        name: string,
+        /// Human-readable description shown to the LLM.
+        description: string,
+        /// JSON Schema (as a string) describing the `execute` input parameters.
+        parameters-schema: string,
+    }
+
+    /// Input passed to `execute`.
+    record plugin-input {
+        /// Key/value pairs where each value is a JSON-encoded string.
+        args: list<tuple<string, string>>,
+    }
+
+    /// Successful output from `execute`.
+    record plugin-output {
+        /// Result data (free-form string, typically JSON or plain text).
+        data: string,
+    }
+
+    /// Return static plugin metadata.
+    export info: func() -> plugin-info;
+
+    /// One-time initialisation (called once after loading).
+    export init: func() -> result<_, string>;
+
+    /// Execute the skill with the given arguments.
+    export execute: func(input: plugin-input) -> result<plugin-output, string>;
+
+    /// Release any resources held by the plugin.
+    export cleanup: func() -> result<_, string>;
+}

@@ -36,8 +36,12 @@ impl Skill for MemoryStoreSkill {
         "memory_store"
     }
 
+    fn category(&self) -> &str {
+        "knowledge"
+    }
+
     fn description(&self) -> &str {
-        "Store content with semantic embedding in the vector store for later retrieval"
+        "Store content with semantic embedding in the vector store for later retrieval."
     }
 
     fn schema(&self) -> SkillSchema {
@@ -67,7 +71,10 @@ impl Skill for MemoryStoreSkill {
             .args
             .get("content")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| orka_core::Error::Skill("content is required".into()))?;
+            .ok_or_else(|| orka_core::Error::SkillCategorized {
+                message: "content is required".into(),
+                category: orka_core::ErrorCategory::Input,
+            })?;
 
         let collection = input
             .args

@@ -294,6 +294,7 @@ mod tests {
     async fn circuit_breaker_trips_after_failures() {
         let config = CircuitBreakerConfig {
             failure_threshold: 3,
+            quality_failure_threshold: 5,
             success_threshold: 1,
             open_duration: Duration::from_secs(60),
         };
@@ -320,6 +321,7 @@ mod tests {
     async fn circuit_breaker_recovers() {
         let config = CircuitBreakerConfig {
             failure_threshold: 2,
+            quality_failure_threshold: 5,
             success_threshold: 1,
             open_duration: Duration::from_millis(50),
         };

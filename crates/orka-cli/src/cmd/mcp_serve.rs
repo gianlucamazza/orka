@@ -19,7 +19,8 @@ pub async fn run(config_path: Option<&str>) -> Result<()> {
     if let Some(ref config) = config
         && let Some(ref plugin_dir) = config.plugins.dir
         && let Some(ref engine) = wasm_engine
-        && let Ok(plugins) = orka_skills::load_plugins(std::path::Path::new(plugin_dir), engine)
+        && let Ok(plugins) =
+            orka_skills::load_plugins(std::path::Path::new(plugin_dir), engine, &config.plugins)
     {
         for plugin in plugins {
             skills.register(plugin);

@@ -1,13 +1,12 @@
 pub mod a2a;
 pub mod chat;
 pub mod config;
+pub mod dashboard;
 pub mod dlq;
 pub mod experience;
 pub mod graph;
-pub mod health;
 pub mod mcp_serve;
 pub mod metrics;
-pub mod ready;
 pub mod schedule;
 pub mod secret;
 pub mod send;

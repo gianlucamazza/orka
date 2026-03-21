@@ -25,6 +25,10 @@ impl Skill for SystemInfoSkill {
         "system_info"
     }
 
+    fn category(&self) -> &str {
+        "system"
+    }
+
     fn description(&self) -> &str {
         "Get system information: CPU, memory, disk, network interfaces, OS details, and uptime."
     }

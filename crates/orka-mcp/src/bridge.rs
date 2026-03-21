@@ -12,7 +12,7 @@ pub struct McpToolBridge {
     tool_name: String,
     tool_description: String,
     tool_schema: serde_json::Value,
-    /// Qualified name: "server_name/tool_name"
+    /// Qualified name: "server_name__tool_name" (double underscore, safe for LLM tool name patterns)
     qualified_name: String,
 }
 
@@ -24,7 +24,7 @@ impl McpToolBridge {
         tool_description: String,
         tool_schema: serde_json::Value,
     ) -> Self {
-        let qualified_name = format!("{}/{}", client.server_name(), tool_name);
+        let qualified_name = format!("{}__{}", client.server_name(), tool_name);
         Self {
             client,
             tool_name,
@@ -39,6 +39,10 @@ impl McpToolBridge {
 impl Skill for McpToolBridge {
     fn name(&self) -> &str {
         &self.qualified_name
+    }
+
+    fn category(&self) -> &str {
+        "mcp"
     }
 
     fn description(&self) -> &str {

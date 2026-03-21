@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use orka_core::traits::Skill;
-use orka_core::{Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -27,8 +27,12 @@ impl Skill for ScheduleCreateSkill {
         "schedule_create"
     }
 
+    fn category(&self) -> &str {
+        "schedule"
+    }
+
     fn description(&self) -> &str {
-        "Create a scheduled task (cron or one-shot) to run a skill at a specific time"
+        "Create a scheduled task (cron or one-shot) to run a skill at a specific time."
     }
 
     fn schema(&self) -> SkillSchema {
@@ -73,33 +77,48 @@ impl Skill for ScheduleCreateSkill {
             .args
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| orka_core::Error::Skill("name is required".into()))?;
+            .ok_or_else(|| orka_core::Error::SkillCategorized {
+                message: "name is required".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         let cron_expr = input.args.get("cron").and_then(|v| v.as_str());
         let run_at = input.args.get("run_at").and_then(|v| v.as_str());
 
         if cron_expr.is_none() && run_at.is_none() {
-            return Err(orka_core::Error::Skill(
-                "either 'cron' or 'run_at' is required".into(),
-            ));
+            return Err(orka_core::Error::SkillCategorized {
+                message: "either 'cron' or 'run_at' is required".into(),
+                category: ErrorCategory::Input,
+            });
         }
 
         let next_run = if let Some(cron_str) = cron_expr {
-            let schedule = cron::Schedule::from_str(cron_str)
-                .map_err(|e| orka_core::Error::Skill(format!("invalid cron expression: {e}")))?;
+            let schedule = cron::Schedule::from_str(cron_str).map_err(|e| {
+                orka_core::Error::SkillCategorized {
+                    message: format!("invalid cron expression: {e}"),
+                    category: ErrorCategory::Input,
+                }
+            })?;
             schedule
                 .upcoming(Utc)
                 .next()
                 .map(|t| t.timestamp())
-                .ok_or_else(|| orka_core::Error::Skill("no upcoming run for cron".into()))?
+                .ok_or_else(|| orka_core::Error::SkillCategorized {
+                    message: "no upcoming run for cron".into(),
+                    category: ErrorCategory::Input,
+                })?
         } else if let Some(run_at_str) = run_at {
             chrono::DateTime::parse_from_rfc3339(run_at_str)
                 .map(|dt| dt.timestamp())
-                .map_err(|e| orka_core::Error::Skill(format!("invalid run_at datetime: {e}")))?
+                .map_err(|e| orka_core::Error::SkillCategorized {
+                    message: format!("invalid run_at datetime: {e}"),
+                    category: ErrorCategory::Input,
+                })?
         } else {
-            return Err(orka_core::Error::Skill(
-                "either 'cron' or 'run_at' must be provided".into(),
-            ));
+            return Err(orka_core::Error::SkillCategorized {
+                message: "either 'cron' or 'run_at' must be provided".into(),
+                category: ErrorCategory::Input,
+            });
         };
 
         let skill = input

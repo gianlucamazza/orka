@@ -50,8 +50,14 @@ pub enum CircuitBreakerError<E> {
 /// Configuration for a [`CircuitBreaker`].
 #[derive(Debug, Clone)]
 pub struct CircuitBreakerConfig {
-    /// Number of consecutive failures before opening the circuit.
+    /// Number of consecutive environmental failures before opening the circuit.
     pub failure_threshold: u32,
+    /// Number of consecutive semantic (quality) failures before opening the circuit.
+    ///
+    /// Semantic failures come from `validate_output()` returning an error.
+    /// Tracked independently of environmental failures so that both thresholds
+    /// can be tuned separately. Set to `0` to disable quality-based tripping.
+    pub quality_failure_threshold: u32,
     /// Number of consecutive successes in half-open state before closing.
     pub success_threshold: u32,
     /// How long the circuit stays open before transitioning to half-open.
@@ -62,6 +68,7 @@ impl Default for CircuitBreakerConfig {
     fn default() -> Self {
         Self {
             failure_threshold: 5,
+            quality_failure_threshold: 5,
             success_threshold: 2,
             open_duration: Duration::from_secs(30),
         }
@@ -71,12 +78,17 @@ impl Default for CircuitBreakerConfig {
 /// A generic circuit breaker that wraps fallible async operations.
 ///
 /// The breaker is `Send + Sync + 'static` and can be shared across tasks
-/// via `Arc`.
+/// via `Arc`. It tracks two independent failure counters:
+/// - `failure_count`: environmental / transient failures
+/// - `quality_failures`: semantic (output validation) failures
+///
+/// The circuit opens when *either* counter reaches its configured threshold.
 pub struct CircuitBreaker {
     config: CircuitBreakerConfig,
     /// 0 = Closed, 1 = Open, 2 = HalfOpen
     state: AtomicU8,
     failure_count: AtomicU32,
+    quality_failures: AtomicU32,
     success_count: AtomicU32,
     half_open_probes: AtomicU32,
     /// The instant when the circuit transitioned to Open.
@@ -90,6 +102,7 @@ impl CircuitBreaker {
             config,
             state: AtomicU8::new(CircuitState::Closed as u8),
             failure_count: AtomicU32::new(0),
+            quality_failures: AtomicU32::new(0),
             success_count: AtomicU32::new(0),
             half_open_probes: AtomicU32::new(0),
             open_since: Mutex::new(None),
@@ -180,11 +193,35 @@ impl CircuitBreaker {
         }
     }
 
+    /// Record a semantic (quality) failure — output validation rejected the result.
+    ///
+    /// Tracked in a separate counter from environmental failures. Trips the circuit
+    /// when `quality_failures >= config.quality_failure_threshold` (unless threshold is 0).
+    pub fn record_quality_failure(&self) {
+        if self.config.quality_failure_threshold == 0 {
+            return;
+        }
+        let state = CircuitState::from_u8(self.state.load(Ordering::SeqCst));
+        if state == CircuitState::Open {
+            return;
+        }
+        let failures = self.quality_failures.fetch_add(1, Ordering::SeqCst) + 1;
+        if failures >= self.config.quality_failure_threshold {
+            tracing::warn!(
+                failures,
+                threshold = self.config.quality_failure_threshold,
+                "circuit breaker tripped to Open via quality failures"
+            );
+            self.transition_to_open();
+        }
+    }
+
     /// Manually reset the circuit breaker to the Closed state.
     pub fn reset(&self) {
         self.state
             .store(CircuitState::Closed as u8, Ordering::SeqCst);
         self.failure_count.store(0, Ordering::SeqCst);
+        self.quality_failures.store(0, Ordering::SeqCst);
         self.success_count.store(0, Ordering::SeqCst);
         self.half_open_probes.store(0, Ordering::SeqCst);
         *self.open_since.lock().expect("mutex poisoned") = None;
@@ -304,6 +341,7 @@ mod tests {
     fn test_config() -> CircuitBreakerConfig {
         CircuitBreakerConfig {
             failure_threshold: 3,
+            quality_failure_threshold: 5,
             success_threshold: 2,
             open_duration: Duration::from_millis(100),
         }

@@ -16,6 +16,7 @@ impl std::fmt::Display for TestError {
 fn test_config() -> CircuitBreakerConfig {
     CircuitBreakerConfig {
         failure_threshold: 3,
+        quality_failure_threshold: 5,
         success_threshold: 2,
         open_duration: Duration::from_secs(5),
     }
@@ -82,6 +83,7 @@ async fn transitions_to_half_open_after_duration() {
 async fn half_open_success_closes_circuit() {
     let cfg = CircuitBreakerConfig {
         failure_threshold: 3,
+        quality_failure_threshold: 5,
         success_threshold: 2,
         open_duration: Duration::from_secs(5),
     };

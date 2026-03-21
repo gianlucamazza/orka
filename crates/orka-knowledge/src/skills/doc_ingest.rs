@@ -44,8 +44,12 @@ impl Skill for DocIngestSkill {
         "doc_ingest"
     }
 
+    fn category(&self) -> &str {
+        "knowledge"
+    }
+
     fn description(&self) -> &str {
-        "Ingest a document (PDF/HTML/MD/TXT) by parsing, chunking, embedding, and storing it"
+        "Ingest a document (PDF/HTML/MD/TXT) by parsing, chunking, embedding, and storing it."
     }
 
     fn schema(&self) -> SkillSchema {
@@ -112,9 +116,10 @@ impl Skill for DocIngestSkill {
                 .to_vec();
             (data, url.to_string())
         } else {
-            return Err(orka_core::Error::Skill(
-                "either 'path' or 'url' is required".into(),
-            ));
+            return Err(orka_core::Error::SkillCategorized {
+                message: "either 'path' or 'url' is required".into(),
+                category: orka_core::ErrorCategory::Input,
+            });
         };
 
         // Parse document

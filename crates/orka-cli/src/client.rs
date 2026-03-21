@@ -58,6 +58,16 @@ impl OrkaClient {
         req
     }
 
+    /// Return `resp` unchanged if successful, or a formatted error otherwise.
+    pub async fn ensure_ok(resp: reqwest::Response) -> Result<reqwest::Response> {
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Server returned {status}: {body}").into());
+        }
+        Ok(resp)
+    }
+
     pub async fn send_message(
         &self,
         text: &str,
@@ -78,24 +88,33 @@ impl OrkaClient {
             .json(&payload)
             .send()
             .await?;
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(format!("Server returned {status}: {body}").into());
-        }
-        let body = resp.json::<serde_json::Value>().await?;
+        let body = Self::ensure_ok(resp)
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
         Ok(body)
     }
 
     pub async fn get_json(&self, path: &str) -> Result<serde_json::Value> {
         let resp = self.get(path).await?;
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(format!("Server returned {status}: {body}").into());
-        }
-        let body = resp.json::<serde_json::Value>().await?;
+        let body = Self::ensure_ok(resp)
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
         Ok(body)
+    }
+
+    pub async fn post_json(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let resp = self.post(path, Some(body.clone())).await?;
+        let result = Self::ensure_ok(resp)
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(result)
     }
 
     pub async fn get(&self, path: &str) -> std::result::Result<reqwest::Response, reqwest::Error> {

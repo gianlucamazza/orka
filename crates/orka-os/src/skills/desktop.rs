@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 
 use crate::config::PermissionLevel;
 use crate::guard::PermissionGuard;
@@ -31,6 +31,10 @@ impl Skill for DesktopOpenSkill {
         "desktop_open"
     }
 
+    fn category(&self) -> &str {
+        "desktop"
+    }
+
     fn description(&self) -> &str {
         "Open a file or URL with the default application using xdg-open."
     }
@@ -52,7 +56,10 @@ impl Skill for DesktopOpenSkill {
             .args
             .get("target")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'target' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'target' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         // Validate: must be a URL or file path
         let is_url = target.starts_with("http://")
@@ -61,23 +68,30 @@ impl Skill for DesktopOpenSkill {
             || target.starts_with("mailto:");
 
         if !is_url {
-            // Validate as file path
-            self.guard.check_path(std::path::Path::new(target))?;
+            // Validate as file path, resolving relative paths against user_cwd
+            let path = input.resolve_path(target);
+            self.guard.check_path(&path)?;
         }
 
         let output = tokio::process::Command::new("xdg-open")
             .arg(target)
             .output()
             .await
-            .map_err(|e| Error::Skill(format!("xdg-open failed: {}", e)))?;
+            .map_err(|e| Error::SkillCategorized {
+                message: format!("xdg-open failed: {}", e),
+                category: ErrorCategory::Environmental,
+            })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(Error::Skill(format!(
-                "xdg-open failed (exit {}): {}",
-                output.status.code().unwrap_or(-1),
-                stderr.trim()
-            )));
+            return Err(Error::SkillCategorized {
+                message: format!(
+                    "xdg-open failed (exit {}): {}",
+                    output.status.code().unwrap_or(-1),
+                    stderr.trim()
+                ),
+                category: ErrorCategory::Environmental,
+            });
         }
 
         Ok(SkillOutput::new(serde_json::json!({
@@ -105,6 +119,10 @@ impl DesktopScreenshotSkill {
 impl Skill for DesktopScreenshotSkill {
     fn name(&self) -> &str {
         "desktop_screenshot"
+    }
+
+    fn category(&self) -> &str {
+        "desktop"
     }
 
     fn description(&self) -> &str {
@@ -147,8 +165,22 @@ impl Skill for DesktopScreenshotSkill {
         let output = if is_wayland() {
             let mut cmd = tokio::process::Command::new("grim");
             if region == "selection" {
-                // grim with slurp for selection
-                cmd.arg("-g").arg("$(slurp)");
+                // Run slurp separately to get the selection geometry, then pass it to grim.
+                let slurp = tokio::process::Command::new("slurp")
+                    .output()
+                    .await
+                    .map_err(|e| Error::SkillCategorized {
+                        message: format!("slurp failed: {}", e),
+                        category: ErrorCategory::Environmental,
+                    })?;
+                if !slurp.status.success() {
+                    return Err(Error::SkillCategorized {
+                        message: "slurp selection cancelled".into(),
+                        category: ErrorCategory::Input,
+                    });
+                }
+                let geometry = String::from_utf8_lossy(&slurp.stdout).trim().to_string();
+                cmd.arg("-g").arg(geometry);
             }
             cmd.arg(output_path);
             cmd.output().await
@@ -167,15 +199,21 @@ impl Skill for DesktopScreenshotSkill {
             cmd.output().await
         };
 
-        let output = output.map_err(|e| Error::Skill(format!("screenshot failed: {}", e)))?;
+        let output = output.map_err(|e| Error::SkillCategorized {
+            message: format!("screenshot failed: {}", e),
+            category: ErrorCategory::Environmental,
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(Error::Skill(format!(
-                "screenshot command failed (exit {}): {}",
-                output.status.code().unwrap_or(-1),
-                stderr.trim()
-            )));
+            return Err(Error::SkillCategorized {
+                message: format!(
+                    "screenshot command failed (exit {}): {}",
+                    output.status.code().unwrap_or(-1),
+                    stderr.trim()
+                ),
+                category: ErrorCategory::Environmental,
+            });
         }
 
         Ok(SkillOutput::new(serde_json::json!({

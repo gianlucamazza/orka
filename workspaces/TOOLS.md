@@ -1,31 +1,31 @@
-## Web Search
+---
+version: "0.1"
+---
 
-Use `web_search` to find current information. Results already include full page content inline.
+# Tool guidelines
 
-**Rules:**
+## Choosing between overlapping tools
 
-- Do NOT call `web_read` after a search — the content is already in the results.
-- Make ONE search call (or two parallel calls if the question covers distinct sub-topics),
-  then answer directly from the results.
-- Do NOT do follow-up searches unless the results contain zero relevant information.
+| Goal                                             | Use            |
+| ------------------------------------------------ | -------------- |
+| Find information on the internet                 | `web_search`   |
+| Read a known URL                                 | `web_read`     |
+| Call an external API with headers, body, or auth | `http_request` |
+| Run isolated code safely                         | `sandbox`      |
+| Run system commands or scripts                   | `shell_exec`   |
+| Store a finding for later retrieval              | `memory_store` |
+| Ingest a whole document into the knowledge base  | `doc_ingest`   |
 
-## Sandbox
+## Web (`web_search`, `web_read`)
 
-Use `sandbox` to execute code snippets safely in a sandboxed environment.
+- Search results already include full page content inline — do NOT call `web_read` after `web_search`.
+- Make ONE search call, then answer directly.
 
-## HTTP Client
+## Filesystem
 
-Use `http_request` for calling external APIs and services. Supports GET, POST, PUT, PATCH, DELETE, HEAD methods with custom headers, body, and bearer auth.
+- List → `fs_list`. Read → `fs_read`. Find by name or pattern → `fs_search`.
 
-## Knowledge & RAG
+## Knowledge (`memory_store`, `memory_search`, `doc_ingest`, `doc_list`)
 
-- `memory_store`: Save content with semantic embedding for later retrieval.
-- `memory_search`: Search for semantically similar content.
-- `doc_ingest`: Ingest documents (PDF, HTML, MD, TXT) by parsing, chunking, and embedding.
-- `doc_list`: List ingested documents in a collection.
-
-## Scheduler
-
-- `schedule_create`: Create cron or one-shot scheduled tasks.
-- `schedule_list`: List active scheduled tasks.
-- `schedule_delete`: Remove a scheduled task by ID or name.
+- `memory_store` / `memory_search`: semantic store for facts and findings.
+- `doc_ingest` / `doc_list`: full document ingestion pipeline (chunks + embeddings).

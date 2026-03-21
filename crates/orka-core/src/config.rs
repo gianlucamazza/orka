@@ -62,6 +62,9 @@ pub struct OrkaConfig {
     /// WASM plugin configuration.
     #[serde(default)]
     pub plugins: PluginConfig,
+    /// Soft skills (SKILL.md-based instruction skills) configuration.
+    #[serde(default)]
+    pub soft_skills: SoftSkillConfig,
     /// Session store configuration.
     #[serde(default)]
     pub session: SessionConfig,
@@ -80,6 +83,9 @@ pub struct OrkaConfig {
     /// Observability (metrics/tracing) configuration.
     #[serde(default)]
     pub observe: ObserveConfig,
+    /// Skill invocation audit log configuration.
+    #[serde(default)]
+    pub audit: AuditConfig,
     /// API gateway rate limiting and deduplication configuration.
     #[serde(default)]
     pub gateway: GatewayConfig,
@@ -594,11 +600,36 @@ fn default_max_output_bytes() -> usize {
     1024 * 1024 // 1 MB
 }
 
+/// Sandbox capabilities granted to a specific WASM plugin (deny-by-default).
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PluginCapabilities {
+    /// Allowed network hosts in `host:port` format.
+    #[serde(default)]
+    pub network: Vec<String>,
+    /// Allowed filesystem paths (pre-opened directories).
+    #[serde(default)]
+    pub fs: Vec<String>,
+    /// Allowed environment variable names.
+    #[serde(default)]
+    pub env: Vec<String>,
+}
+
 /// WASM plugin configuration.
 #[non_exhaustive]
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PluginConfig {
     /// Directory to scan for `.wasm` plugin files.
+    pub dir: Option<String>,
+    /// Per-plugin capability overrides keyed by plugin name.
+    #[serde(default)]
+    pub capabilities: std::collections::HashMap<String, PluginCapabilities>,
+}
+
+/// Soft skill (SKILL.md) configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SoftSkillConfig {
+    /// Directory to scan for soft skill subdirectories containing SKILL.md files.
     pub dir: Option<String>,
 }
 
@@ -648,6 +679,38 @@ impl Default for QueueConfig {
 
 fn default_max_retries() -> u32 {
     3
+}
+
+/// Skill invocation audit log configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AuditConfig {
+    /// Enable audit logging of skill invocations (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Output backend: `"file"` (JSONL) or `"redis"` (stream). Default: `"file"`.
+    #[serde(default = "default_audit_output")]
+    pub output: String,
+    /// Path for file-based audit log (default: `"orka-audit.jsonl"`).
+    #[serde(default = "default_audit_path")]
+    pub path: Option<String>,
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            output: default_audit_output(),
+            path: default_audit_path(),
+        }
+    }
+}
+
+fn default_audit_output() -> String {
+    "file".into()
+}
+
+fn default_audit_path() -> Option<String> {
+    Some("orka-audit.jsonl".into())
 }
 
 /// Observability (metrics/tracing) configuration.
@@ -906,6 +969,23 @@ pub struct AgentConfig {
     /// Mutually exclusive with `thinking_budget_tokens`.
     #[serde(default)]
     pub reasoning_effort: Option<String>,
+    /// Maximum output size in bytes for a single skill invocation (default: no limit).
+    ///
+    /// Prevents oversized skill outputs from flooding the LLM context window.
+    #[serde(default)]
+    pub skill_max_output_bytes: Option<usize>,
+    /// Maximum execution time per skill invocation in milliseconds (default: no limit).
+    ///
+    /// Post-hoc budget check on top of the hard `skill_timeout_secs` cancellation.
+    #[serde(default)]
+    pub skill_max_duration_ms: Option<u64>,
+    /// Enable progressive tool disclosure.
+    ///
+    /// When `true`, the agent starts with only two synthetic tools (`list_tool_categories`
+    /// and `enable_tools`) and must explicitly enable skill categories before using them.
+    /// This reduces initial context window usage.
+    #[serde(default)]
+    pub progressive_disclosure: bool,
 }
 
 impl Default for AgentConfig {
@@ -929,6 +1009,9 @@ impl Default for AgentConfig {
             temperature: None,
             thinking_budget_tokens: None,
             reasoning_effort: None,
+            skill_max_output_bytes: None,
+            skill_max_duration_ms: None,
+            progressive_disclosure: false,
         }
     }
 }
@@ -1271,20 +1354,44 @@ impl Default for McpServeConfig {
     }
 }
 
-/// A single MCP server process to launch.
+/// OAuth 2.1 Client Credentials config for an MCP HTTP server.
+#[non_exhaustive]
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpAuthEntry {
+    /// Token endpoint URL.
+    pub token_url: String,
+    /// OAuth client ID.
+    pub client_id: String,
+    /// Name of the environment variable holding the client secret.
+    pub client_secret_env: String,
+    /// Scopes to request.
+    #[serde(default)]
+    pub scopes: Vec<String>,
+}
+
+/// A single MCP server to connect to.
+///
+/// Exactly one of `command` (stdio) or `url` (streamable HTTP) must be set.
 #[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct McpServerEntry {
     /// Unique name for this MCP server (used to prefix tool names).
     pub name: String,
-    /// Executable path or command to launch.
-    pub command: String,
-    /// Arguments to pass to the command.
+    /// Stdio transport: executable path or command to launch.
+    #[serde(default)]
+    pub command: Option<String>,
+    /// Arguments to pass to the command (stdio transport only).
     #[serde(default)]
     pub args: Vec<String>,
-    /// Environment variables to inject into the server process.
+    /// Environment variables to inject into the process (stdio transport only).
     #[serde(default)]
     pub env: std::collections::HashMap<String, String>,
+    /// Streamable HTTP transport: base URL of the MCP endpoint.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// OAuth 2.1 credentials for the HTTP transport.
+    #[serde(default)]
+    pub auth: Option<McpAuthEntry>,
 }
 
 /// Content guardrails configuration.
@@ -1408,6 +1515,18 @@ pub struct ClaudeCodeConfig {
     /// Working directory for the `claude` subprocess. Defaults to the process cwd.
     #[serde(default)]
     pub working_dir: Option<String>,
+    /// Additional system-level instructions appended via `--append-system-prompt`.
+    /// Use for project-specific conventions that Claude Code should always follow.
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    /// Tool allowlist passed via `--allowedTools` (e.g. `["Read", "Edit", "Bash(cargo *)"]`).
+    /// An empty list means no restriction — Claude Code uses its default tool set.
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    /// When `true` (default), inject workspace info (cwd, agent name) into the task prompt
+    /// so Claude Code has project context without requiring the caller to supply it.
+    #[serde(default = "default_true")]
+    pub inject_context: bool,
 }
 
 impl Default for ClaudeCodeConfig {
@@ -1418,6 +1537,9 @@ impl Default for ClaudeCodeConfig {
             max_turns: None,
             timeout_secs: default_claude_code_timeout_secs(),
             working_dir: None,
+            system_prompt: None,
+            allowed_tools: Vec::new(),
+            inject_context: true,
         }
     }
 }
@@ -1428,6 +1550,10 @@ fn default_claude_code_enabled() -> String {
 
 fn default_claude_code_timeout_secs() -> u64 {
     300
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Privileged command execution via sudo.
@@ -2348,12 +2474,14 @@ mod tests {
             auth: AuthConfig::default(),
             sandbox: SandboxConfig::default(),
             plugins: PluginConfig::default(),
+            soft_skills: SoftSkillConfig::default(),
             session: SessionConfig::default(),
             queue: QueueConfig::default(),
             llm: LlmConfig::default(),
             agent: AgentConfig::default(),
             tools: ToolsConfig::default(),
             observe: ObserveConfig::default(),
+            audit: AuditConfig::default(),
             gateway: GatewayConfig::default(),
             mcp: McpConfig::default(),
             guardrails: GuardrailsConfig::default(),
@@ -2390,12 +2518,14 @@ mod tests {
             auth: AuthConfig::default(),
             sandbox: SandboxConfig::default(),
             plugins: PluginConfig::default(),
+            soft_skills: SoftSkillConfig::default(),
             session: SessionConfig::default(),
             queue: QueueConfig::default(),
             llm: LlmConfig::default(),
             agent: AgentConfig::default(),
             tools: ToolsConfig::default(),
             observe: ObserveConfig::default(),
+            audit: AuditConfig::default(),
             gateway: GatewayConfig::default(),
             mcp: McpConfig::default(),
             guardrails: GuardrailsConfig::default(),

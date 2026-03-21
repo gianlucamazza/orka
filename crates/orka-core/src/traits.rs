@@ -148,6 +148,25 @@ pub trait Skill: Send + Sync + 'static {
     async fn cleanup(&self) -> Result<()> {
         Ok(())
     }
+
+    /// Skill category for progressive disclosure grouping.
+    ///
+    /// Used to group skills by domain when building the LLM tool list.
+    /// Override this method to assign a non-default category.
+    fn category(&self) -> &str {
+        "general"
+    }
+
+    /// Validate the output produced by [`execute`].
+    ///
+    /// Called automatically by [`SkillRegistry::invoke`] after a successful execution.
+    /// Return `Err` if the output is semantically invalid (hallucinated, wrong schema, etc.).
+    /// A Semantic failure increments the quality circuit-breaker counter.
+    ///
+    /// Default implementation accepts all outputs.
+    fn validate_output(&self, _output: &crate::SkillOutput) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Secure secret retrieval and storage.

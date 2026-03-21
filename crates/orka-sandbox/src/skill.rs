@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 
 use crate::executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest};
 
@@ -24,8 +24,12 @@ impl Skill for SandboxSkill {
         "sandbox"
     }
 
+    fn category(&self) -> &str {
+        "code"
+    }
+
     fn description(&self) -> &str {
-        "Execute code in a sandboxed environment"
+        "Execute code in a sandboxed environment."
     }
 
     fn schema(&self) -> SkillSchema {
@@ -55,20 +59,29 @@ impl Skill for SandboxSkill {
             .args
             .get("code")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'code' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'code' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         let language_str = input
             .args
             .get("language")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'language' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'language' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         let language = match language_str {
             "python" => SandboxLang::Python,
             "bash" => SandboxLang::Bash,
             "wasm" => SandboxLang::Wasm,
             other => {
-                return Err(Error::Skill(format!("unsupported language: {other}")));
+                return Err(Error::SkillCategorized {
+                    message: format!("unsupported language: {other}"),
+                    category: ErrorCategory::Input,
+                });
             }
         };
 
@@ -78,8 +91,10 @@ impl Skill for SandboxSkill {
         }
 
         let code_bytes = match language_str {
-            "wasm" => base64_decode(code)
-                .map_err(|e| Error::Skill(format!("invalid base64 wasm code: {e}")))?,
+            "wasm" => base64_decode(code).map_err(|e| Error::SkillCategorized {
+                message: format!("invalid base64 wasm code: {e}"),
+                category: ErrorCategory::Input,
+            })?,
             _ => code.as_bytes().to_vec(),
         };
 

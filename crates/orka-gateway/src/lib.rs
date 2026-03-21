@@ -246,7 +246,7 @@ impl Gateway {
         let session = match self.sessions.get(&envelope.session_id).await? {
             Some(s) => s,
             None => {
-                let mut s = Session::new(envelope.channel.clone(), "anonymous");
+                let mut s = Session::new(envelope.channel.clone(), resolve_user_id(&envelope));
                 s.id = envelope.session_id;
                 s.created_at = envelope.timestamp;
                 s.updated_at = envelope.timestamp;
@@ -277,6 +277,35 @@ impl Gateway {
         self.bus.ack(&envelope.id).await?;
         Ok(())
     }
+}
+
+/// Extract a user identifier from the envelope metadata.
+///
+/// Tries well-known keys in priority order (human-readable names first),
+/// handles both string and numeric values, falls back to "anonymous".
+fn resolve_user_id(envelope: &Envelope) -> String {
+    const KEYS: &[&str] = &[
+        "telegram_username",
+        "telegram_user_name",
+        "telegram_user_id",
+        "discord_username",
+        "discord_user_id",
+        "slack_user_id",
+        "whatsapp_user_id",
+        "user_id",
+    ];
+    for key in KEYS {
+        if let Some(val) = envelope.metadata.get(*key) {
+            if let Some(s) = val.as_str() {
+                if !s.is_empty() {
+                    return s.to_string();
+                }
+            } else if let Some(n) = val.as_i64() {
+                return n.to_string();
+            }
+        }
+    }
+    "anonymous".to_string()
 }
 
 #[cfg(test)]

@@ -54,6 +54,10 @@ impl Skill for FsReadSkill {
         "fs_read"
     }
 
+    fn category(&self) -> &str {
+        "filesystem"
+    }
+
     fn description(&self) -> &str {
         "Read a file's contents. Supports text (UTF-8) and binary (base64) encoding."
     }
@@ -93,8 +97,8 @@ impl Skill for FsReadSkill {
             .and_then(|v| v.as_u64())
             .map(|n| n as usize);
 
-        let path = Path::new(path_str);
-        let canonical = self.guard.check_path(path)?;
+        let path = input.resolve_path(path_str);
+        let canonical = self.guard.check_path(&path)?;
 
         let metadata = tokio::fs::metadata(&canonical)
             .await
@@ -116,7 +120,7 @@ impl Skill for FsReadSkill {
             match std::str::from_utf8(slice) {
                 Ok(s) => {
                     let truncated = if s.len() > self.max_output_bytes {
-                        &s[..self.max_output_bytes]
+                        &s[..s.floor_char_boundary(self.max_output_bytes)]
                     } else {
                         s
                     };
@@ -183,6 +187,10 @@ impl Skill for FsListSkill {
         "fs_list"
     }
 
+    fn category(&self) -> &str {
+        "filesystem"
+    }
+
     fn description(&self) -> &str {
         "List files and directories at a given path."
     }
@@ -218,8 +226,8 @@ impl Skill for FsListSkill {
             .unwrap_or(false);
         let pattern = input.args.get("pattern").and_then(|v| v.as_str());
 
-        let path = Path::new(path_str);
-        let canonical = self.guard.check_path(path)?;
+        let path = input.resolve_path(path_str);
+        let canonical = self.guard.check_path(&path)?;
 
         let mut entries = Vec::new();
         list_dir(
@@ -255,7 +263,10 @@ async fn list_dir(
     while let Some(entry) = read_dir
         .next_entry()
         .await
-        .map_err(|e| Error::Skill(format!("error reading directory entry: {}", e)))?
+        .map_err(|e| Error::SkillCategorized {
+            message: format!("error reading directory entry: {}", e),
+            category: ErrorCategory::Unknown,
+        })?
     {
         if entries.len() >= max {
             break;
@@ -324,6 +335,10 @@ impl Skill for FsInfoSkill {
         "fs_info"
     }
 
+    fn category(&self) -> &str {
+        "filesystem"
+    }
+
     fn description(&self) -> &str {
         "Get detailed metadata for a file or directory (size, type, permissions, timestamps)."
     }
@@ -345,12 +360,12 @@ impl Skill for FsInfoSkill {
             .and_then(|v| v.as_str())
             .ok_or_else(|| missing_arg("path"))?;
 
-        let path = Path::new(path_str);
-        let canonical = self.guard.check_path(path)?;
+        let path = input.resolve_path(path_str);
+        let canonical = self.guard.check_path(&path)?;
 
         let metadata = tokio::fs::metadata(&canonical)
             .await
-            .map_err(|e| Error::Skill(format!("cannot stat '{}': {}", canonical.display(), e)))?;
+            .map_err(|e| fs_io_error(&format!("cannot stat '{}'", canonical.display()), e))?;
         let symlink_meta = tokio::fs::symlink_metadata(&canonical).await.ok();
 
         let file_type = if metadata.is_dir() {
@@ -411,6 +426,10 @@ impl Skill for FsSearchSkill {
         "fs_search"
     }
 
+    fn category(&self) -> &str {
+        "filesystem"
+    }
+
     fn description(&self) -> &str {
         "Search for files by name (glob), or search file contents for a pattern."
     }
@@ -455,8 +474,8 @@ impl Skill for FsSearchSkill {
             .and_then(|v| v.as_u64())
             .unwrap_or(50) as usize;
 
-        let path = Path::new(path_str);
-        let canonical = self.guard.check_path(path)?;
+        let path = input.resolve_path(path_str);
+        let canonical = self.guard.check_path(&path)?;
 
         let max = max_results.min(self.max_list_entries);
 
@@ -464,9 +483,10 @@ impl Skill for FsSearchSkill {
             "glob" => {
                 let glob_pattern = format!("{}/{}", canonical.display(), pattern);
                 let mut results = Vec::new();
-                for entry in glob::glob(&glob_pattern)
-                    .map_err(|e| Error::Skill(format!("invalid glob pattern: {}", e)))?
-                {
+                for entry in glob::glob(&glob_pattern).map_err(|e| Error::SkillCategorized {
+                    message: format!("invalid glob pattern: {}", e),
+                    category: ErrorCategory::Input,
+                })? {
                     if results.len() >= max {
                         break;
                     }
@@ -498,7 +518,10 @@ impl Skill for FsSearchSkill {
                     "search_type": "content",
                 })))
             }
-            _ => Err(Error::Skill(format!("unknown search mode: {}", by))),
+            _ => Err(Error::SkillCategorized {
+                message: format!("unknown search mode: {}", by),
+                category: ErrorCategory::Input,
+            }),
         }
     }
 }
@@ -511,13 +534,16 @@ async fn search_by_name(
 ) -> Result<()> {
     let mut read_dir = tokio::fs::read_dir(dir)
         .await
-        .map_err(|e| Error::Skill(format!("cannot read '{}': {}", dir.display(), e)))?;
+        .map_err(|e| fs_io_error(&format!("cannot read '{}'", dir.display()), e))?;
 
     let pat_lower = pattern.to_lowercase();
     while let Some(entry) = read_dir
         .next_entry()
         .await
-        .map_err(|e| Error::Skill(format!("error reading entry: {}", e)))?
+        .map_err(|e| Error::SkillCategorized {
+            message: format!("error reading entry: {}", e),
+            category: ErrorCategory::Unknown,
+        })?
     {
         if results.len() >= max {
             break;
@@ -541,12 +567,15 @@ async fn search_by_content(
 ) -> Result<()> {
     let mut read_dir = tokio::fs::read_dir(dir)
         .await
-        .map_err(|e| Error::Skill(format!("cannot read '{}': {}", dir.display(), e)))?;
+        .map_err(|e| fs_io_error(&format!("cannot read '{}'", dir.display()), e))?;
 
     while let Some(entry) = read_dir
         .next_entry()
         .await
-        .map_err(|e| Error::Skill(format!("error reading entry: {}", e)))?
+        .map_err(|e| Error::SkillCategorized {
+            message: format!("error reading entry: {}", e),
+            category: ErrorCategory::Unknown,
+        })?
     {
         if results.len() >= max {
             break;
@@ -604,6 +633,10 @@ impl Skill for FsWriteSkill {
         "fs_write"
     }
 
+    fn category(&self) -> &str {
+        "filesystem"
+    }
+
     fn description(&self) -> &str {
         "Write content to a file. Supports write (overwrite) and append modes."
     }
@@ -648,13 +681,13 @@ impl Skill for FsWriteSkill {
 
         self.guard.check_file_size(content.len() as u64)?;
 
-        let path = Path::new(path_str);
-        let canonical = self.guard.check_write_path(path)?;
+        let path = input.resolve_path(path_str);
+        let canonical = self.guard.check_write_path(&path)?;
 
         if create_dirs && let Some(parent) = canonical.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
-                .map_err(|e| Error::Skill(format!("cannot create directories: {}", e)))?;
+                .map_err(|e| fs_io_error("cannot create directories", e))?;
         }
 
         let bytes_written = content.len();
@@ -667,16 +700,16 @@ impl Skill for FsWriteSkill {
                     .open(&canonical)
                     .await
                     .map_err(|e| {
-                        Error::Skill(format!("cannot open '{}': {}", canonical.display(), e))
+                        fs_io_error(&format!("cannot open '{}'", canonical.display()), e)
                     })?;
                 file.write_all(content.as_bytes())
                     .await
-                    .map_err(|e| Error::Skill(format!("write failed: {}", e)))?;
+                    .map_err(|e| fs_io_error("write failed", e))?;
             }
             _ => {
                 tokio::fs::write(&canonical, content.as_bytes())
                     .await
-                    .map_err(|e| Error::Skill(format!("write failed: {}", e)))?;
+                    .map_err(|e| fs_io_error("write failed", e))?;
             }
         }
 
@@ -707,6 +740,10 @@ impl FsWatchSkill {
 impl Skill for FsWatchSkill {
     fn name(&self) -> &str {
         "fs_watch"
+    }
+
+    fn category(&self) -> &str {
+        "filesystem"
     }
 
     fn description(&self) -> &str {
@@ -745,8 +782,8 @@ impl Skill for FsWatchSkill {
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
-        let path = Path::new(path_str);
-        let canonical = self.guard.check_path(path)?;
+        let path = input.resolve_path(path_str);
+        let canonical = self.guard.check_path(&path)?;
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(256);
 
@@ -758,7 +795,10 @@ impl Skill for FsWatchSkill {
                 }
             },
         )
-        .map_err(|e| Error::Skill(format!("cannot create watcher: {}", e)))?;
+        .map_err(|e| Error::SkillCategorized {
+            message: format!("cannot create watcher: {}", e),
+            category: ErrorCategory::Environmental,
+        })?;
 
         use notify::Watcher;
         let mode = if recursive {
@@ -768,7 +808,10 @@ impl Skill for FsWatchSkill {
         };
         watcher
             .watch(&canonical, mode)
-            .map_err(|e| Error::Skill(format!("cannot watch '{}': {}", canonical.display(), e)))?;
+            .map_err(|e| Error::SkillCategorized {
+                message: format!("cannot watch '{}': {}", canonical.display(), e),
+                category: ErrorCategory::Environmental,
+            })?;
 
         let mut events = Vec::new();
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(duration_secs);

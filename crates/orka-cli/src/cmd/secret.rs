@@ -14,19 +14,21 @@ fn create_manager() -> Result<Arc<dyn SecretManager>> {
     Ok(mgr)
 }
 
-/// Read the secret value from stdin.
-/// - Interactive TTY: prompts the user and reads one line (value is not echoed
-///   in terminals that support it via the OS, though no explicit no-echo is
-///   enforced here — use a shell `read -s` wrapper for that).
+/// Read the secret value.
+/// - Interactive TTY: uses a masked password prompt via dialoguer.
 /// - Pipe: reads the first line from stdin (e.g. `echo -n "$SECRET" | orka secret set path`).
-fn read_value_from_stdin() -> Result<String> {
+fn read_value() -> Result<String> {
     if std::io::stdin().is_terminal() {
-        eprint!("Value: ");
-        std::io::Write::flush(&mut std::io::stderr()).ok();
+        let value = dialoguer::Password::new()
+            .with_prompt("Secret value")
+            .interact()?;
+        if value.is_empty() {
+            return Err("secret value must not be empty".into());
+        }
+        return Ok(value);
     }
     let mut line = String::new();
     std::io::stdin().lock().read_line(&mut line)?;
-    // Trim trailing newline(s) only
     while line.ends_with('\n') || line.ends_with('\r') {
         line.pop();
     }
@@ -37,7 +39,7 @@ fn read_value_from_stdin() -> Result<String> {
 }
 
 pub async fn set(path: &str) -> Result<()> {
-    let value = read_value_from_stdin()?;
+    let value = read_value()?;
     let mgr = create_manager()?;
     let secret = SecretValue::new(value.as_bytes().to_vec());
     mgr.set_secret(path, &secret).await?;

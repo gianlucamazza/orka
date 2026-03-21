@@ -10,6 +10,8 @@ pub struct InboundRequest {
     pub text: String,
     /// Optional key-value metadata attached to the message.
     pub metadata: Option<HashMap<String, serde_json::Value>>,
+    /// Optional user identifier (shown in dashboard as "User").
+    pub user_id: Option<String>,
 }
 
 /// Response returned after accepting an inbound message.

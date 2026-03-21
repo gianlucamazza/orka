@@ -14,35 +14,74 @@ An agent orchestration platform built in Rust. Orka routes messages from externa
 ## Architecture
 
 ```
-External Clients
-       │
- ┌─────▼─────┐
- │  Adapters  │  HTTP/WS, Telegram, Discord, ...
- └─────┬─────┘
-       │
- ┌─────▼─────┐
- │  Message   │  Redis Streams (pub/sub with consumer groups)
- │    Bus     │
- └─────┬─────┘
-       │
- ┌─────▼─────┐
- │  Gateway   │  Session resolution, message routing
- └─────┬─────┘
-       │
- ┌─────▼─────┐
- │  Priority  │  Redis Sorted Sets (Urgent > Normal > Background)
- │   Queue    │
- └─────┬─────┘
-       │
- ┌─────▼─────┐
- │  Worker    │  Concurrent handlers with skill registry
- │   Pool     │
- └─────┬─────┘
-       │
- ┌─────▼─────┐
- │  Outbound  │  Route replies back through adapters
- │  Bridge    │
- └─────┘
+                        ┌──────────────────────────────────────────────────┐
+                        │              External Clients                    │
+                        │   Telegram · Discord · Slack · WhatsApp · HTTP   │
+                        └────────────────────┬─────────────────────────────┘
+                                             │
+                        ┌────────────────────▼─────────────────────────────┐
+                        │               Adapters                           │
+                        │  Platform → Envelope conversion (feature-gated)  │
+                        └────────────────────┬─────────────────────────────┘
+                                             │ publish("inbound")
+                        ┌────────────────────▼─────────────────────────────┐
+                        │            Message Bus ◄──── Redis Streams       │
+                        └────────────────────┬─────────────────────────────┘
+                                             │ subscribe("inbound")
+                        ┌────────────────────▼─────────────────────────────┐
+                        │               Gateway                            │
+                        │  Dedup · Rate-limit · Session · Priority routing │
+                        └────────────────────┬─────────────────────────────┘
+                                             │ queue.push()
+                        ┌────────────────────▼─────────────────────────────┐
+                        │          Priority Queue ◄──── Redis Sorted Set   │
+                        │          Urgent > Normal > Background → DLQ      │
+                        └────────────────────┬─────────────────────────────┘
+                                             │ queue.pop()
+                        ┌────────────────────▼─────────────────────────────┐
+                        │            Worker Pool  (N concurrent)           │
+                        └────────────────────┬─────────────────────────────┘
+                                             │
+          ┌──────────────────────────────────▼──────────────────────────────────┐
+          │                        Agent  (GraphExecutor)                       │
+          │                                                                     │
+          │  ┌───────────┐  ┌────────────┐  ┌──────────┐  ┌────────────────┐   │
+          │  │ Workspace  │  │ Guardrails │  │  Memory  │  │   Experience   │   │
+          │  │ SOUL.md    │  │ Pre / Post │  │ Key-Val  │  │ Principles +   │   │
+          │  │ TOOLS.md   │  │ filtering  │  │ store    │  │ Reflection     │   │
+          │  └───────────┘  └────────────┘  └──────────┘  └────────────────┘   │
+          │                                                                     │
+          │  ┌─────────────────────────────────────────────────────────────┐    │
+          │  │                    Agentic Loop                             │    │
+          │  │  LLM call ──► stream response ──► tool calls ──► repeat    │    │
+          │  └─────────┬───────────────────────────┬──────────────────────┘    │
+          │            │                           │                            │
+          │     ┌──────▼──────┐          ┌─────────▼────────────────────┐      │
+          │     │  LLM Router │          │      Skill Registry          │      │
+          │     │  Anthropic  │          │  Builtins · Sandbox · WASM  │      │
+          │     │  OpenAI     │          │  Web · HTTP · OS · RAG      │      │
+          │     │  Ollama     │          │  Scheduler · MCP bridges    │      │
+          │     └─────────────┘          └──────────┬───────────────────┘      │
+          │                                         │                           │
+          └─────────────────────┬───────────────────┼───────────────────────────┘
+                                │                   │
+          ┌─────────────────────▼───────────┐       │  External integrations
+          │          Outbound Bridge         │       ├──► Qdrant (RAG · Experience)
+          │   bus.publish("outbound")        │       ├──► MCP servers (tools)
+          └─────────────────────┬───────────┘       └──► Web / HTTP APIs
+                                │
+                        ┌───────▼───────────────────────────────────────────┐
+                        │               Adapters (outbound)                 │
+                        │         Route reply by channel_id                 │
+                        └───────────────────────────────────────────────────┘
+                                             │
+                        ┌────────────────────▼─────────────────────────────┐
+                        │    ┌──────────┐  ┌────────────┐  ┌───────────┐  │
+                        │    │ Telegram │  │  Discord   │  │  Slack …  │  │
+                        │    └──────────┘  └────────────┘  └───────────┘  │
+                        └──────────────────────────────────────────────────┘
+
+  Background:  Scheduler loop (Redis)  ·  Experience distillation  ·  Observe (OTel / Prometheus)
 ```
 
 For a detailed description of each subsystem and their interactions, see [docs/architecture.md](docs/architecture.md).
@@ -61,11 +100,15 @@ For a detailed description of each subsystem and their interactions, see [docs/a
 - **Sandboxed execution** — Process isolation and WASM sandboxing
 - **Guardrails** — Input/output validation and content filtering
 - **Circuit breaker** — Resilience pattern for external services
-- **Observability** — OpenTelemetry tracing, Prometheus metrics, Swagger UI
+- **Observability** — OpenTelemetry tracing, Prometheus metrics, Swagger UI, append-only JSONL audit log
 - **Security** — JWT/API key auth, AES-256-GCM secret encryption, SSRF protection
 - **Scheduler** — Cron-based recurring tasks
 - **Self-learning** — Trajectory recording, principle reflection, and offline distillation
-- **CLI** — Workspace management tool
+- **Soft skills** — Instruction-based SKILL.md skills injected into the agent system prompt
+- **MCP HTTP transport** — Streamable HTTP (MCP spec 2025-03-26) with OAuth 2.1 Client Credentials
+- **Skill evaluation** — TOML-based scenario runner for offline skill testing (`orka-eval`)
+- **WASM Component Model** — Plugin SDK based on the WIT interface definition language
+- **CLI** — Full-featured management tool with real-time TUI dashboard
 
 ## Quick Start
 
@@ -125,105 +168,115 @@ curl -X POST http://localhost:8081/api/v1/message \
 
 Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 
-| Section                  | Key                       | Default                  | Description                                                     |
-| ------------------------ | ------------------------- | ------------------------ | --------------------------------------------------------------- |
-| `server`                 | `host`                    | `127.0.0.1`              | Health endpoint bind address                                    |
-| `server`                 | `port`                    | `8080`                   | Health endpoint port                                            |
-| `redis`                  | `url`                     | `redis://127.0.0.1:6379` | Redis connection URL                                            |
-| `worker`                 | `concurrency`             | `4`                      | Number of concurrent workers                                    |
-| `session`                | `ttl_secs`                | `86400`                  | Session TTL in seconds (24h)                                    |
-| `queue`                  | `max_retries`             | `3`                      | Max retries before dead-letter                                  |
-| `adapters.custom`        | `host`                    | `127.0.0.1`              | Custom adapter bind address                                     |
-| `adapters.custom`        | `port`                    | `8081`                   | Custom adapter port                                             |
-| `adapters.telegram`      | `bot_token_secret`        | —                        | Secret path for bot token                                       |
-| `adapters.telegram`      | `mode`                    | `polling`                | `polling` or `webhook`                                          |
-| `adapters.telegram`      | `parse_mode`              | `HTML`                   | Outbound text format                                            |
-| `adapters.telegram`      | `webhook_url`             | —                        | Public URL for webhook mode                                     |
-| `adapters.telegram`      | `webhook_port`            | `8443`                   | Local port for webhook listener                                 |
-| `auth`                   | `enabled`                 | `false`                  | Enable API key authentication                                   |
-| `sandbox`                | `backend`                 | `process`                | Sandbox backend (`process` or `wasm`)                           |
-| `logging`                | `level`                   | `info`                   | Log level                                                       |
-| `logging`                | `json`                    | `false`                  | JSON log format                                                 |
-| `agent`                  | `id`                      | `orka-default`           | Agent identifier                                                |
-| `agent`                  | `max_iterations`          | `10`                     | Max agentic loop iterations per turn                            |
-| `agent`                  | `heartbeat_interval_secs` | —                        | Streaming heartbeat interval (optional)                         |
-| `llm`                    | `timeout_secs`            | `30`                     | LLM request timeout                                             |
-| `llm`                    | `max_tokens`              | `8192`                   | Default max output tokens                                       |
-| `llm.providers`          | `name`                    | —                        | Provider name (array of provider configs)                       |
-| `knowledge`              | `enabled`                 | `false`                  | Enable RAG/knowledge base                                       |
-| `knowledge.vector_store` | `provider`                | `qdrant`                 | Vector store backend                                            |
-| `knowledge.vector_store` | `url`                     | `http://localhost:6334`  | Qdrant endpoint                                                 |
-| `scheduler`              | `enabled`                 | `false`                  | Enable cron scheduler                                           |
-| `scheduler`              | `poll_interval_secs`      | `5`                      | Scheduler polling interval                                      |
-| `web`                    | `search_provider`         | `none`                   | Web search backend (`tavily`, `brave`, `searxng`, or `none`)    |
-| `os`                     | `enabled`                 | `false`                  | Enable OS integration skills                                    |
-| `os`                     | `permission_level`        | `read-only`              | OS skill permission level                                       |
-| `http`                   | `enabled`                 | `false`                  | Enable HTTP request skill                                       |
-| `plugins`                | `dir`                     | —                        | Directory for WASM plugin files (optional)                      |
-| `guardrails`             | `blocked_keywords`        | `[]`                     | Keywords that trigger message blocking                          |
-| `guardrails`             | `pii_filter`              | `false`                  | Enable PII redaction                                            |
-| `mcp.servers`            | `name`                    | —                        | MCP server name (array of server configs)                       |
-| `mcp.servers`            | `command`                 | —                        | Command to launch MCP server                                    |
-| `mcp.serve`              | `enabled`                 | `false`                  | Expose Orka as an MCP server                                    |
-| `mcp.serve`              | `transport`               | `stdio`                  | `stdio` or `sse`                                                |
-| `bus`                    | `backend`                 | `redis`                  | Message bus backend (`redis`, `nats`, or `memory`)              |
-| `bus`                    | `block_ms`                | `5000`                   | XREADGROUP BLOCK timeout (ms)                                   |
-| `bus`                    | `batch_size`              | `10`                     | Messages per read batch                                         |
-| `memory`                 | `backend`                 | `auto`                   | `redis`, `memory`, or `auto`                                    |
-| `session`                | `backend`                 | `auto`                   | `redis`, `memory`, or `auto`                                    |
-| `queue`                  | `backend`                 | `auto`                   | `redis`, `memory`, or `auto`                                    |
-| `observe`                | `backend`                 | `log`                    | `log`, `redis`, or `otel`                                       |
-| `agent`                  | `max_history_entries`     | `50`                     | Max conversation turns kept in context                          |
-| `agent`                  | `skill_timeout_secs`      | `120`                    | Per-skill execution timeout                                     |
-| `agent`                  | `temperature`             | —                        | LLM sampling temperature (0.0–2.0)                              |
-| `agent`                  | `thinking_budget_tokens`  | —                        | Anthropic extended thinking budget                              |
-| `agent`                  | `reasoning_effort`        | —                        | OpenAI o-series: `low`, `medium`, `high`                        |
-| `experience`             | `enabled`                 | `false`                  | Enable self-learning experience loop                            |
-| `experience`             | `reflect_on`              | `failures`               | `failures`, `all`, or `sampled`                                 |
-| `experience`             | `max_principles`          | `5`                      | Max principles injected into system prompt                      |
-| `a2a`                    | `enabled`                 | `false`                  | Enable Agent-to-Agent protocol                                  |
-| `os`                     | `sensitive_env_patterns`  | glob list                | Env var patterns redacted from tool output                      |
-| `os`                     | `allowed_commands`        | `[]`                     | Explicit command allow-list for OS skills                       |
-| `os`                     | `allowed_paths`           | `["/home", "/tmp"]`      | Filesystem access allow-list                                    |
-| `os`                     | `blocked_paths`           | (see orka.toml)          | Filesystem access deny-list                                     |
-| `os`                     | `blocked_commands`        | (see orka.toml)          | Dangerous command deny-list                                     |
-| `os`                     | `max_file_size_bytes`     | `10485760`               | Max file size for reads (10 MB)                                 |
-| `os`                     | `shell_timeout_secs`      | `30`                     | Shell command timeout                                           |
-| `os.sudo`                | `enabled`                 | `false`                  | Enable sudo operations                                          |
-| `os.sudo`                | `require_confirmation`    | `true`                   | Require user confirmation for sudo                              |
-| `os.claude_code`         | `enabled`                 | `"auto"`                 | Auto-detect claude CLI on PATH (`"true"`/`"false"` to override) |
-| `os.claude_code`         | `model`                   | —                        | Claude model override (e.g. `claude-sonnet-4-6`)                |
-| `os.claude_code`         | `max_turns`               | —                        | Max agentic turns per task                                      |
-| `os.claude_code`         | `timeout_secs`            | `300`                    | Subprocess timeout in seconds                                   |
-| `os.claude_code`         | `working_dir`             | —                        | Working directory for the subprocess                            |
-| `gateway`                | `rate_limit`              | `60`                     | Max messages per 60s window per session                         |
-| `gateway`                | `dedup_ttl_secs`          | `3600`                   | Duplicate message detection window                              |
-| `sandbox.limits`         | `timeout_secs`            | `30`                     | Execution timeout                                               |
-| `sandbox.limits`         | `max_memory_bytes`        | `67108864`               | Memory limit (64 MB)                                            |
-| `sandbox.limits`         | `max_output_bytes`        | `1048576`                | Output limit (1 MB)                                             |
-| `tools`                  | `disabled`                | `[]`                     | Skill names to disable                                          |
-| `secrets`                | `encryption_key_env`      | —                        | Env var name for encryption key                                 |
-| `auth`                   | `api_key_header`          | `X-Api-Key`              | Header name for API key auth                                    |
-| `worker`                 | `retry_base_delay_ms`     | `5000`                   | Base delay for exponential backoff                              |
-| `memory`                 | `max_entries`             | `10000`                  | Max key-value memory entries                                    |
-| `observe`                | `batch_size`              | `50`                     | Event batch size before flush                                   |
-| `observe`                | `flush_interval_ms`       | `100`                    | Flush interval (ms)                                             |
-| `knowledge.embeddings`   | `provider`                | `local`                  | Embedding provider                                              |
-| `knowledge.embeddings`   | `model`                   | `BAAI/bge-small-en-v1.5` | Embedding model                                                 |
-| `knowledge.chunking`     | `chunk_size`              | `1000`                   | Characters per chunk                                            |
-| `knowledge.chunking`     | `chunk_overlap`           | `200`                    | Overlap between chunks                                          |
-| `scheduler`              | `max_concurrent`          | `4`                      | Max concurrent scheduled tasks                                  |
-| `llm`                    | `model`                   | `claude-sonnet-4-6`      | Global default model                                            |
-| `llm`                    | `max_retries`             | `2`                      | LLM request retries                                             |
-| `llm`                    | `context_window_tokens`   | `1000000`                | Context window size                                             |
-| `web`                    | `max_read_chars`          | `20000`                  | Max chars per page read                                         |
-| `web`                    | `max_content_chars`       | `8000`                   | Truncated content limit per page                                |
-| `web`                    | `cache_ttl_secs`          | `3600`                   | Search cache TTL                                                |
-| `http`                   | `max_response_bytes`      | `1048576`                | Max HTTP response size (1 MB)                                   |
-| `http`                   | `default_timeout_secs`    | `30`                     | HTTP request timeout                                            |
-| `http`                   | `blocked_domains`         | `["169.254.169.254"]`    | SSRF protection deny-list                                       |
-| `agent`                  | `max_tool_result_chars`   | `50000`                  | Truncation limit for tool output                                |
-| `agent`                  | `max_tool_retries`        | `2`                      | Retries before self-correction hint                             |
+| Section                   | Key                       | Default                  | Description                                                     |
+| ------------------------- | ------------------------- | ------------------------ | --------------------------------------------------------------- |
+| `server`                  | `host`                    | `127.0.0.1`              | Health endpoint bind address                                    |
+| `server`                  | `port`                    | `8080`                   | Health endpoint port                                            |
+| `redis`                   | `url`                     | `redis://127.0.0.1:6379` | Redis connection URL                                            |
+| `worker`                  | `concurrency`             | `4`                      | Number of concurrent workers                                    |
+| `session`                 | `ttl_secs`                | `86400`                  | Session TTL in seconds (24h)                                    |
+| `queue`                   | `max_retries`             | `3`                      | Max retries before dead-letter                                  |
+| `adapters.custom`         | `host`                    | `127.0.0.1`              | Custom adapter bind address                                     |
+| `adapters.custom`         | `port`                    | `8081`                   | Custom adapter port                                             |
+| `adapters.telegram`       | `bot_token_secret`        | —                        | Secret path for bot token                                       |
+| `adapters.telegram`       | `mode`                    | `polling`                | `polling` or `webhook`                                          |
+| `adapters.telegram`       | `parse_mode`              | `HTML`                   | Outbound text format                                            |
+| `adapters.telegram`       | `webhook_url`             | —                        | Public URL for webhook mode                                     |
+| `adapters.telegram`       | `webhook_port`            | `8443`                   | Local port for webhook listener                                 |
+| `auth`                    | `enabled`                 | `false`                  | Enable API key authentication                                   |
+| `sandbox`                 | `backend`                 | `process`                | Sandbox backend (`process` or `wasm`)                           |
+| `logging`                 | `level`                   | `info`                   | Log level                                                       |
+| `logging`                 | `json`                    | `false`                  | JSON log format                                                 |
+| `agent`                   | `id`                      | `orka-default`           | Agent identifier                                                |
+| `agent`                   | `max_iterations`          | `10`                     | Max agentic loop iterations per turn                            |
+| `agent`                   | `heartbeat_interval_secs` | —                        | Streaming heartbeat interval (optional)                         |
+| `llm`                     | `timeout_secs`            | `30`                     | LLM request timeout                                             |
+| `llm`                     | `max_tokens`              | `8192`                   | Default max output tokens                                       |
+| `llm.providers`           | `name`                    | —                        | Provider name (array of provider configs)                       |
+| `knowledge`               | `enabled`                 | `false`                  | Enable RAG/knowledge base                                       |
+| `knowledge.vector_store`  | `provider`                | `qdrant`                 | Vector store backend                                            |
+| `knowledge.vector_store`  | `url`                     | `http://localhost:6334`  | Qdrant endpoint                                                 |
+| `scheduler`               | `enabled`                 | `false`                  | Enable cron scheduler                                           |
+| `scheduler`               | `poll_interval_secs`      | `5`                      | Scheduler polling interval                                      |
+| `web`                     | `search_provider`         | `none`                   | Web search backend (`tavily`, `brave`, `searxng`, or `none`)    |
+| `os`                      | `enabled`                 | `false`                  | Enable OS integration skills                                    |
+| `os`                      | `permission_level`        | `read-only`              | OS skill permission level                                       |
+| `http`                    | `enabled`                 | `false`                  | Enable HTTP request skill                                       |
+| `plugins`                 | `dir`                     | —                        | Directory for WASM plugin files (optional)                      |
+| `guardrails`              | `blocked_keywords`        | `[]`                     | Keywords that trigger message blocking                          |
+| `guardrails`              | `pii_filter`              | `false`                  | Enable PII redaction                                            |
+| `mcp.servers`             | `name`                    | —                        | MCP server name (array of server configs)                       |
+| `mcp.servers`             | `command`                 | —                        | Command to launch MCP server                                    |
+| `mcp.serve`               | `enabled`                 | `false`                  | Expose Orka as an MCP server                                    |
+| `mcp.serve`               | `transport`               | `stdio`                  | `stdio` or `sse`                                                |
+| `mcp.servers[].transport` | `type`                    | `stdio`                  | `stdio` or `streamable_http` (MCP spec 2025-03-26)              |
+| `mcp.servers[].transport` | `url`                     | —                        | HTTP endpoint for `streamable_http` transport                   |
+| `mcp.servers[].transport` | `auth.token_url`          | —                        | OAuth 2.1 token endpoint (optional)                             |
+| `mcp.servers[].transport` | `auth.client_id`          | —                        | OAuth 2.1 client ID                                             |
+| `mcp.servers[].transport` | `auth.client_secret_env`  | —                        | Env var holding the OAuth client secret                         |
+| `mcp.servers[].transport` | `auth.scopes`             | `[]`                     | OAuth scopes to request                                         |
+| `bus`                     | `backend`                 | `redis`                  | Message bus backend (`redis`, `nats`, or `memory`)              |
+| `bus`                     | `block_ms`                | `5000`                   | XREADGROUP BLOCK timeout (ms)                                   |
+| `bus`                     | `batch_size`              | `10`                     | Messages per read batch                                         |
+| `memory`                  | `backend`                 | `auto`                   | `redis`, `memory`, or `auto`                                    |
+| `session`                 | `backend`                 | `auto`                   | `redis`, `memory`, or `auto`                                    |
+| `queue`                   | `backend`                 | `auto`                   | `redis`, `memory`, or `auto`                                    |
+| `observe`                 | `backend`                 | `log`                    | `log`, `redis`, or `otel`                                       |
+| `agent`                   | `max_history_entries`     | `50`                     | Max conversation turns kept in context                          |
+| `agent`                   | `skill_timeout_secs`      | `120`                    | Per-skill execution timeout                                     |
+| `agent`                   | `temperature`             | —                        | LLM sampling temperature (0.0–2.0)                              |
+| `agent`                   | `thinking_budget_tokens`  | —                        | Anthropic extended thinking budget                              |
+| `agent`                   | `reasoning_effort`        | —                        | OpenAI o-series: `low`, `medium`, `high`                        |
+| `experience`              | `enabled`                 | `false`                  | Enable self-learning experience loop                            |
+| `experience`              | `reflect_on`              | `failures`               | `failures`, `all`, or `sampled`                                 |
+| `experience`              | `max_principles`          | `5`                      | Max principles injected into system prompt                      |
+| `a2a`                     | `enabled`                 | `false`                  | Enable Agent-to-Agent protocol                                  |
+| `os`                      | `sensitive_env_patterns`  | glob list                | Env var patterns redacted from tool output                      |
+| `os`                      | `allowed_commands`        | `[]`                     | Explicit command allow-list for OS skills                       |
+| `os`                      | `allowed_paths`           | `["/home", "/tmp"]`      | Filesystem access allow-list                                    |
+| `os`                      | `blocked_paths`           | (see orka.toml)          | Filesystem access deny-list                                     |
+| `os`                      | `blocked_commands`        | (see orka.toml)          | Dangerous command deny-list                                     |
+| `os`                      | `max_file_size_bytes`     | `10485760`               | Max file size for reads (10 MB)                                 |
+| `os`                      | `shell_timeout_secs`      | `30`                     | Shell command timeout                                           |
+| `os.sudo`                 | `enabled`                 | `false`                  | Enable sudo operations                                          |
+| `os.sudo`                 | `require_confirmation`    | `true`                   | Require user confirmation for sudo                              |
+| `os.claude_code`          | `enabled`                 | `"auto"`                 | Auto-detect claude CLI on PATH (`"true"`/`"false"` to override) |
+| `os.claude_code`          | `model`                   | —                        | Claude model override (e.g. `claude-sonnet-4-6`)                |
+| `os.claude_code`          | `max_turns`               | —                        | Max agentic turns per task                                      |
+| `os.claude_code`          | `timeout_secs`            | `300`                    | Subprocess timeout in seconds                                   |
+| `os.claude_code`          | `working_dir`             | —                        | Working directory for the subprocess                            |
+| `gateway`                 | `rate_limit`              | `60`                     | Max messages per 60s window per session                         |
+| `gateway`                 | `dedup_ttl_secs`          | `3600`                   | Duplicate message detection window                              |
+| `sandbox.limits`          | `timeout_secs`            | `30`                     | Execution timeout                                               |
+| `sandbox.limits`          | `max_memory_bytes`        | `67108864`               | Memory limit (64 MB)                                            |
+| `sandbox.limits`          | `max_output_bytes`        | `1048576`                | Output limit (1 MB)                                             |
+| `soft_skills`             | `dir`                     | —                        | Directory of SKILL.md soft-skill subdirectories                 |
+| `audit`                   | `enabled`                 | `false`                  | Enable skill invocation audit log                               |
+| `audit`                   | `output`                  | `file`                   | Audit backend: `file` (JSONL) or `redis`                        |
+| `audit`                   | `path`                    | `orka-audit.jsonl`       | Output path for file-based audit log                            |
+| `tools`                   | `disabled`                | `[]`                     | Skill names to disable                                          |
+| `secrets`                 | `encryption_key_env`      | —                        | Env var name for encryption key                                 |
+| `auth`                    | `api_key_header`          | `X-Api-Key`              | Header name for API key auth                                    |
+| `worker`                  | `retry_base_delay_ms`     | `5000`                   | Base delay for exponential backoff                              |
+| `memory`                  | `max_entries`             | `10000`                  | Max key-value memory entries                                    |
+| `observe`                 | `batch_size`              | `50`                     | Event batch size before flush                                   |
+| `observe`                 | `flush_interval_ms`       | `100`                    | Flush interval (ms)                                             |
+| `knowledge.embeddings`    | `provider`                | `local`                  | Embedding provider                                              |
+| `knowledge.embeddings`    | `model`                   | `BAAI/bge-small-en-v1.5` | Embedding model                                                 |
+| `knowledge.chunking`      | `chunk_size`              | `1000`                   | Characters per chunk                                            |
+| `knowledge.chunking`      | `chunk_overlap`           | `200`                    | Overlap between chunks                                          |
+| `scheduler`               | `max_concurrent`          | `4`                      | Max concurrent scheduled tasks                                  |
+| `llm`                     | `model`                   | `claude-sonnet-4-6`      | Global default model                                            |
+| `llm`                     | `max_retries`             | `2`                      | LLM request retries                                             |
+| `llm`                     | `context_window_tokens`   | `1000000`                | Context window size                                             |
+| `web`                     | `max_read_chars`          | `20000`                  | Max chars per page read                                         |
+| `web`                     | `max_content_chars`       | `8000`                   | Truncated content limit per page                                |
+| `web`                     | `cache_ttl_secs`          | `3600`                   | Search cache TTL                                                |
+| `http`                    | `max_response_bytes`      | `1048576`                | Max HTTP response size (1 MB)                                   |
+| `http`                    | `default_timeout_secs`    | `30`                     | HTTP request timeout                                            |
+| `http`                    | `blocked_domains`         | `["169.254.169.254"]`    | SSRF protection deny-list                                       |
+| `agent`                   | `max_tool_result_chars`   | `50000`                  | Truncation limit for tool output                                |
+| `agent`                   | `max_tool_retries`        | `2`                      | Retries before self-correction hint                             |
 
 For a complete reference, see [`orka.toml`](orka.toml).
 
@@ -337,6 +390,7 @@ orka graph show [--dot]          # Agent graph (text or Graphviz DOT)
 orka experience status|principles|distill  # Self-learning system
 orka session list|show|delete    # Active sessions
 orka metrics [--filter] [--json] # Prometheus metrics
+orka dashboard [--interval <s>]  # Real-time TUI dashboard (health, metrics, sessions)
 orka a2a card|send               # A2A agent card / send task
 orka mcp-serve                   # Run as MCP server (stdio)
 orka completions <shell>         # Generate completions (bash/zsh/fish)
@@ -377,13 +431,16 @@ orka/
 │   ├── orka-scheduler/       # Cron-based task scheduler
 │   ├── orka-experience/      # Self-learning experience system
 │   ├── orka-agent/           # Agent orchestration and routing
-│   ├── orka-wasm/            # WASM runtime utilities
+│   ├── orka-wasm/            # WASM runtime utilities (module + Component Model)
+│   ├── orka-eval/            # Skill evaluation framework (TOML scenarios)
 │   ├── orka-cli/             # CLI tool
 │   └── orka-adapter-*/       # Channel adapters
 ├── sdk/
-│   └── orka-plugin-sdk/      # WASM plugin SDK
-└── examples/
-    └── hello-plugin/         # Example WASM plugin
+│   ├── orka-plugin-sdk/          # WASM module plugin SDK
+│   ├── orka-plugin-sdk-component/ # WASM Component Model plugin SDK (WIT-based)
+│   └── hello-plugin/             # Example WASM plugin
+├── evals/                    # Built-in evaluation scenarios (*.eval.toml)
+└── wit/                      # Shared WIT interface definitions
 ```
 
 ## Privacy

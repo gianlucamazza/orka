@@ -35,15 +35,6 @@ fn category_icon(category: Option<&str>) -> &'static str {
     }
 }
 
-/// Format a duration smartly: `< 1s` → `142ms`, `≥ 1s` → `1.2s`.
-fn format_duration(ms: u64) -> String {
-    if ms < 1000 {
-        format!("{ms}ms")
-    } else {
-        format!("{:.1}s", ms as f64 / 1000.0)
-    }
-}
-
 /// Print the box-drawn welcome banner.
 fn print_banner() {
     let version = env!("CARGO_PKG_VERSION");
@@ -89,6 +80,8 @@ fn print_help() {
     );
     row("/history", "Show conversation history");
     row("/save <file>", "Save last response to file");
+    row("/copy", "Copy last response to clipboard");
+    row("/open <url>", "Open a URL in the browser");
     row("/help", "Show this help");
     row("/clear", "Clear screen");
     row("/quit", "Exit");
@@ -128,7 +121,7 @@ fn history_path() -> PathBuf {
 /// UI-4: adapts to the actual terminal width instead of a hardcoded 40-char bar.
 fn print_agent_header(name: &str, multi: &MultiProgress) {
     let label = if name.is_empty() { "Agent" } else { name };
-    let term_width = termimad::crossterm::terminal::size()
+    let term_width = crossterm::terminal::size()
         .map(|(w, _)| w as usize)
         .unwrap_or(80);
     // 4 leading dashes + 2 spaces around the label
@@ -301,8 +294,16 @@ pub async fn run(
     let (response_tx, mut response_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
     // Shared last usage (overwritten by each Usage chunk; read after Done)
-    // (input_tokens, output_tokens, reasoning_tokens, model)
-    type UsageInfo = Option<(u32, u32, Option<u32>, String)>;
+    // (input, output, reasoning, model, cache_read, cache_creation, cost_usd)
+    type UsageInfo = Option<(
+        u32,
+        u32,
+        Option<u32>,
+        String,
+        Option<u32>,
+        Option<u32>,
+        Option<f64>,
+    )>;
     let last_usage: Arc<Mutex<UsageInfo>> = Arc::new(Mutex::new(None));
     let last_usage_ws = last_usage.clone();
 
@@ -392,8 +393,10 @@ pub async fn run(
                                 input_tokens,
                                 output_tokens,
                                 reasoning_tokens,
+                                cache_read_tokens,
+                                cache_creation_tokens,
+                                cost_usd,
                                 model,
-                                ..
                             }) => {
                                 if let Ok(mut guard) = last_usage_ws.lock() {
                                     *guard = Some((
@@ -401,6 +404,9 @@ pub async fn run(
                                         output_tokens,
                                         reasoning_tokens,
                                         model,
+                                        cache_read_tokens,
+                                        cache_creation_tokens,
+                                        cost_usd,
                                     ));
                                 }
                             }
@@ -466,7 +472,7 @@ pub async fn run(
                                 error,
                                 result_summary,
                             }) => {
-                                let dur = format_duration(duration_ms);
+                                let dur = crate::util::format_duration_ms(duration_ms);
                                 if let Some((name, category, _, pb)) = active_tools.remove(&id) {
                                     let icon = category_icon(category.as_deref());
                                     if success {
@@ -866,6 +872,36 @@ pub async fn run(
                                 }
                             }
                         }
+                        "copy" => {
+                            if last_response.is_empty() {
+                                println!("{}", "  No response to copy yet.".dimmed());
+                            } else {
+                                match arboard::Clipboard::new()
+                                    .and_then(|mut cb| cb.set_text(&last_response))
+                                {
+                                    Ok(()) => {
+                                        println!("{}", "  \u{2714} Copied to clipboard.".dimmed())
+                                    }
+                                    Err(e) => eprintln!("Clipboard error: {e}"),
+                                }
+                            }
+                        }
+                        "open" => {
+                            let url = text
+                                .trim_start_matches('/')
+                                .trim_start_matches("open")
+                                .trim();
+                            if url.is_empty() {
+                                println!("{}", "  Usage: /open <url>".dimmed());
+                            } else {
+                                match open::that(url) {
+                                    Ok(()) => {
+                                        println!("{}", format!("  \u{2714} Opening {url}").dimmed())
+                                    }
+                                    Err(e) => eprintln!("Failed to open: {e}"),
+                                }
+                            }
+                        }
                         unknown => {
                             println!(
                                 "Unknown command: /{unknown}. Type /help for available commands."
@@ -923,11 +959,19 @@ pub async fn run(
                     workspace_sent = false;
                 }
 
-                let metadata = if !workspace_sent {
-                    workspace_sent = true;
-                    local_workspace.as_ref().map(|ws| ws.to_metadata())
-                } else {
-                    None
+                let metadata = {
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert(
+                        "workspace:cwd".to_string(),
+                        serde_json::Value::String(cwd.to_string_lossy().into_owned()),
+                    );
+                    if !workspace_sent {
+                        workspace_sent = true;
+                        if let Some(ref ws) = local_workspace {
+                            meta.extend(ws.to_metadata());
+                        }
+                    }
+                    Some(meta)
                 };
 
                 let start = Instant::now();
@@ -966,9 +1010,22 @@ pub async fn run(
                                         last_response = response.clone();
                                         turn_history.push((user_input, response));
 
+                                        // Desktop notification for long responses
+                                        if elapsed >= 5000
+                                            && std::env::var_os("ORKA_NO_NOTIFY").is_none()
+                                        {
+                                            let elapsed_s = elapsed as f64 / 1000.0;
+                                            let _ = notify_rust::Notification::new()
+                                                .summary("Orka")
+                                                .body(&format!(
+                                                    "Response complete ({elapsed_s:.1}s)"
+                                                ))
+                                                .show();
+                                        }
+
                                         // Show elapsed + usage if available
                                         let usage_part = if let Ok(mut guard) = last_usage.lock()
-                                            && let Some((inp, out, reason, model)) = guard.take()
+                                            && let Some((inp, out, reason, model, cache_read, cache_creation, cost_usd)) = guard.take()
                                         {
                                             // Strip trailing date-like suffixes (e.g. "-20241022"),
                                             // keep up to 3 dash-segments (e.g. "claude-sonnet-4-6").
@@ -992,8 +1049,23 @@ pub async fn run(
                                             let reason_part = reason
                                                 .map(|r| format!(" {}\u{26a1}", fmt_tokens(r)))
                                                 .unwrap_or_default();
+                                            let cache_total =
+                                                match (cache_read, cache_creation) {
+                                                    (Some(r), Some(c)) => Some(r + c),
+                                                    (Some(r), None) => Some(r),
+                                                    (None, Some(c)) => Some(c),
+                                                    (None, None) => None,
+                                                };
+                                            let cache_part = cache_total
+                                                .map(|c| {
+                                                    format!(" \u{2502} cache: {}", fmt_tokens(c))
+                                                })
+                                                .unwrap_or_default();
+                                            let cost_part = cost_usd
+                                                .map(|c| format!(" \u{2502} ${c:.4}"))
+                                                .unwrap_or_default();
                                             format!(
-                                                " \u{2502} {model_short} \u{2502} {}\u{2193} {}\u{2191}{reason_part}",
+                                                " \u{2502} {model_short} \u{2502} {}\u{2193} {}\u{2191}{reason_part}{cache_part}{cost_part}",
                                                 fmt_tokens(inp),
                                                 fmt_tokens(out),
                                             )
@@ -1004,7 +1076,7 @@ pub async fn run(
                                             "{}",
                                             format!(
                                                 "  \u{23f1} {}{}",
-                                                format_duration(elapsed),
+                                                crate::util::format_duration_ms(elapsed),
                                                 usage_part
                                             )
                                             .dimmed()
@@ -1049,20 +1121,6 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn format_duration_sub_second() {
-        assert_eq!(format_duration(0), "0ms");
-        assert_eq!(format_duration(142), "142ms");
-        assert_eq!(format_duration(999), "999ms");
-    }
-
-    #[test]
-    fn format_duration_seconds() {
-        assert_eq!(format_duration(1000), "1.0s");
-        assert_eq!(format_duration(1200), "1.2s");
-        assert_eq!(format_duration(10000), "10.0s");
-    }
 
     #[test]
     fn truncate_sid_short_unchanged() {

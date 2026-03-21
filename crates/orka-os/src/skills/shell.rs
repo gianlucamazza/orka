@@ -5,15 +5,13 @@ use async_trait::async_trait;
 use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use orka_core::{
-    DomainEvent, DomainEventKind, Error, ErrorCategory, Result, SkillInput, SkillOutput,
-    SkillSchema,
-};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use tracing::debug;
 use uuid::Uuid;
 
 use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
 use crate::config::PermissionLevel;
+use crate::events::{emit_denied, emit_executed};
 use crate::guard::PermissionGuard;
 
 /// Skill that executes shell commands with permission and approval enforcement.
@@ -48,6 +46,10 @@ impl ShellExecSkill {
 impl Skill for ShellExecSkill {
     fn name(&self) -> &str {
         "shell_exec"
+    }
+
+    fn category(&self) -> &str {
+        "shell"
     }
 
     fn description(&self) -> &str {
@@ -107,7 +109,11 @@ impl Skill for ShellExecSkill {
             .and_then(|v| v.as_array())
             .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
-        let cwd = input.args.get("cwd").and_then(|v| v.as_str());
+        let cwd = input
+            .args
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .or_else(|| input.context.as_ref().and_then(|c| c.user_cwd.as_deref()));
         let env_vars = input.args.get("env").and_then(|v| v.as_object());
         let timeout = input
             .args
@@ -261,7 +267,10 @@ impl Skill for ShellExecSkill {
                     "duration_ms": duration_ms,
                 })))
             }
-            Ok(Err(e)) => Err(Error::Skill(format!("command execution failed: {}", e))),
+            Ok(Err(e)) => Err(Error::SkillCategorized {
+                message: format!("command execution failed: {}", e),
+                category: ErrorCategory::Unknown,
+            }),
             Err(_) => {
                 // Process timed out — try to kill by PID
                 if let Some(pid) = child_id {
@@ -276,45 +285,6 @@ impl Skill for ShellExecSkill {
                 })
             }
         }
-    }
-}
-
-async fn emit_executed(
-    input: &SkillInput,
-    command: &str,
-    args: &[&str],
-    exit_code: Option<i32>,
-    success: bool,
-    duration_ms: u64,
-) {
-    if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent::new(
-            DomainEventKind::PrivilegedCommandExecuted {
-                message_id: orka_core::types::MessageId::new(),
-                session_id: orka_core::types::SessionId::new(),
-                command: command.to_string(),
-                args: args.iter().map(|s| s.to_string()).collect(),
-                approval_id: None,
-                approved_by: None,
-                exit_code,
-                success,
-                duration_ms,
-            },
-        ))
-        .await;
-    }
-}
-
-async fn emit_denied(input: &SkillInput, command: &str, args: &[&str], reason: &str) {
-    if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent::new(DomainEventKind::PrivilegedCommandDenied {
-            message_id: orka_core::types::MessageId::new(),
-            session_id: orka_core::types::SessionId::new(),
-            command: command.to_string(),
-            args: args.iter().map(|s| s.to_string()).collect(),
-            reason: reason.to_string(),
-        }))
-        .await;
     }
 }
 

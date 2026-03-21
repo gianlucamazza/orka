@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use orka_core::traits::Skill;
-use orka_core::{Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use std::sync::Arc;
 
 use crate::store::ScheduleStore;
@@ -23,8 +23,12 @@ impl Skill for ScheduleDeleteSkill {
         "schedule_delete"
     }
 
+    fn category(&self) -> &str {
+        "schedule"
+    }
+
     fn description(&self) -> &str {
-        "Delete a scheduled task by ID or name"
+        "Delete a scheduled task by ID or name."
     }
 
     fn schema(&self) -> SkillSchema {
@@ -58,9 +62,10 @@ impl Skill for ScheduleDeleteSkill {
                 }
             }
         } else {
-            return Err(orka_core::Error::Skill(
-                "either 'id' or 'name' is required".into(),
-            ));
+            return Err(orka_core::Error::SkillCategorized {
+                message: "either 'id' or 'name' is required".into(),
+                category: ErrorCategory::Input,
+            });
         };
 
         let deleted = self.store.remove(&id).await?;

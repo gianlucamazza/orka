@@ -26,6 +26,8 @@ const SLASH_COMMANDS: &[&str] = &[
     "/feedback",
     "/history",
     "/save",
+    "/copy",
+    "/open",
 ];
 
 /// Lazily populated list of executables from $PATH (populated on first tab-completion).

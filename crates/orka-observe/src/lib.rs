@@ -3,6 +3,7 @@
 //! - [`create_event_sink`] — factory that selects the appropriate [`EventSink`] backend
 //! - [`metrics`] — Prometheus-compatible metrics collection
 //! - [`otel_sink`] — OpenTelemetry trace/span export
+//! - [`audit_sink`] — Append-only skill invocation audit log
 
 #![warn(missing_docs)]
 
@@ -14,6 +15,8 @@ use orka_core::traits::EventSink;
 use orka_core::{DomainEvent, DomainEventKind};
 use tracing::{debug, info, warn};
 
+/// Append-only JSONL audit log for skill invocations.
+pub mod audit_sink;
 /// Prometheus-compatible counter and histogram metrics.
 pub mod metrics;
 /// OpenTelemetry OTLP span exporter event sink.
@@ -58,21 +61,37 @@ impl EventSink for LogEventSink {
             DomainEventKind::SkillInvoked {
                 skill_name,
                 message_id,
+                caller_id,
+                ..
             } => {
-                info!(skill_name, %message_id, "skill invoked");
+                info!(skill_name, %message_id, caller_id = caller_id.as_deref().unwrap_or("-"), "skill invoked");
             }
             DomainEventKind::SkillCompleted {
                 skill_name,
                 message_id,
                 duration_ms,
                 success,
+                error_message,
                 ..
             } => {
-                info!(skill_name, %message_id, duration_ms, success, "skill completed");
+                if let Some(err) = error_message {
+                    info!(skill_name, %message_id, duration_ms, success, error = err, "skill completed");
+                } else {
+                    info!(skill_name, %message_id, duration_ms, success, "skill completed");
+                }
+            }
+            DomainEventKind::LlmRequest {
+                message_id,
+                model,
+                provider,
+                iteration,
+            } => {
+                debug!(%message_id, model, provider, iteration, "llm request");
             }
             DomainEventKind::LlmCompleted {
                 message_id,
                 model,
+                provider,
                 input_tokens,
                 output_tokens,
                 reasoning_tokens,
@@ -80,9 +99,9 @@ impl EventSink for LogEventSink {
                 estimated_cost_usd,
             } => {
                 if let Some(cost) = estimated_cost_usd {
-                    info!(%message_id, model, input_tokens, output_tokens, reasoning_tokens, duration_ms, cost, "llm completed");
+                    info!(%message_id, model, provider, input_tokens, output_tokens, reasoning_tokens, duration_ms, cost, "llm completed");
                 } else {
-                    info!(%message_id, model, input_tokens, output_tokens, reasoning_tokens, duration_ms, "llm completed");
+                    info!(%message_id, model, provider, input_tokens, output_tokens, reasoning_tokens, duration_ms, "llm completed");
                 }
             }
             DomainEventKind::ErrorOccurred { source, message } => {
@@ -172,8 +191,11 @@ impl EventSink for LogEventSink {
 }
 
 /// Create an [`EventSink`] from the given configuration.
+///
+/// If `config.audit.enabled` is true, the primary sink is wrapped in a
+/// [`FanoutSink`] that also writes to the [`audit_sink::AuditSink`].
 pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
-    match config.observe.backend.as_str() {
+    let primary: Arc<dyn EventSink> = match config.observe.backend.as_str() {
         "redis" => match redis_sink::RedisEventSink::new(
             &config.redis.url,
             config.observe.batch_size,
@@ -202,6 +224,34 @@ pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
             info!("event sink: log");
             Arc::new(LogEventSink)
         }
+    };
+
+    if config.audit.enabled {
+        let path = config.audit.path.as_deref().unwrap_or("orka-audit.jsonl");
+        match audit_sink::AuditSink::new(path) {
+            Ok(audit) => {
+                info!(%path, "audit log enabled");
+                Arc::new(FanoutSink(vec![primary, Arc::new(audit)]))
+            }
+            Err(e) => {
+                warn!(%e, "failed to open audit log, audit disabled");
+                primary
+            }
+        }
+    } else {
+        primary
+    }
+}
+
+/// Broadcasts events to multiple sinks in sequence.
+struct FanoutSink(Vec<Arc<dyn EventSink>>);
+
+#[async_trait]
+impl EventSink for FanoutSink {
+    async fn emit(&self, event: DomainEvent) {
+        for sink in &self.0 {
+            sink.emit(event.clone()).await;
+        }
     }
 }
 
@@ -228,12 +278,14 @@ mod tests {
             auth: AuthConfig::default(),
             sandbox: SandboxConfig::default(),
             plugins: PluginConfig::default(),
+            soft_skills: SoftSkillConfig::default(),
             session: SessionConfig::default(),
             queue: QueueConfig::default(),
             llm: LlmConfig::default(),
             agent: AgentConfig::default(),
             tools: ToolsConfig::default(),
             observe: ObserveConfig::default(),
+            audit: AuditConfig::default(),
             gateway: GatewayConfig::default(),
             mcp: McpConfig::default(),
             guardrails: GuardrailsConfig::default(),
@@ -279,6 +331,8 @@ mod tests {
             DomainEventKind::SkillInvoked {
                 skill_name: "echo".into(),
                 message_id: mid,
+                input_args: Default::default(),
+                caller_id: None,
             },
             DomainEventKind::SkillCompleted {
                 skill_name: "echo".into(),
@@ -286,10 +340,19 @@ mod tests {
                 duration_ms: 10,
                 success: true,
                 error_category: None,
+                output_preview: None,
+                error_message: None,
+            },
+            DomainEventKind::LlmRequest {
+                message_id: mid,
+                model: "claude-sonnet-4-6".into(),
+                provider: "anthropic".into(),
+                iteration: 1,
             },
             DomainEventKind::LlmCompleted {
                 message_id: mid,
                 model: "gpt-test".into(),
+                provider: "openai".into(),
                 input_tokens: 100,
                 output_tokens: 50,
                 reasoning_tokens: 0,

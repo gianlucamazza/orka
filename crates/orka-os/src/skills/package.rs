@@ -4,14 +4,12 @@ use async_trait::async_trait;
 use chrono::Utc;
 use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
-use orka_core::{
-    DomainEvent, DomainEventKind, Error, ErrorCategory, Result, SkillInput, SkillOutput,
-    SkillSchema,
-};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use uuid::Uuid;
 
 use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
 use crate::config::PermissionLevel;
+use crate::events::{emit_denied, emit_executed};
 use crate::guard::PermissionGuard;
 use crate::probe::PackageUpdateMethod;
 
@@ -74,6 +72,10 @@ impl Skill for PackageSearchSkill {
         "package_search"
     }
 
+    fn category(&self) -> &str {
+        "package"
+    }
+
     fn description(&self) -> &str {
         "Search for packages in the system package manager."
     }
@@ -95,7 +97,10 @@ impl Skill for PackageSearchSkill {
             .args
             .get("query")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'query' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'query' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         let pm = detect_package_manager().ok_or_else(no_package_manager_error)?;
 
@@ -151,6 +156,10 @@ impl Skill for PackageInfoSkill {
         "package_info"
     }
 
+    fn category(&self) -> &str {
+        "package"
+    }
+
     fn description(&self) -> &str {
         "Get detailed information about an installed or available package."
     }
@@ -172,7 +181,10 @@ impl Skill for PackageInfoSkill {
             .args
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'name' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'name' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         let pm = detect_package_manager().ok_or_else(no_package_manager_error)?;
 
@@ -226,6 +238,10 @@ impl PackageListSkill {
 impl Skill for PackageListSkill {
     fn name(&self) -> &str {
         "package_list"
+    }
+
+    fn category(&self) -> &str {
+        "package"
     }
 
     fn description(&self) -> &str {
@@ -329,6 +345,10 @@ impl PackageUpdatesSkill {
 impl Skill for PackageUpdatesSkill {
     fn name(&self) -> &str {
         "package_updates"
+    }
+
+    fn category(&self) -> &str {
+        "package"
     }
 
     fn description(&self) -> &str {
@@ -487,6 +507,10 @@ impl Skill for PackageInstallSkill {
         "package_install"
     }
 
+    fn category(&self) -> &str {
+        "package"
+    }
+
     fn description(&self) -> &str {
         "Install a package using the system package manager (requires sudo)."
     }
@@ -508,7 +532,10 @@ impl Skill for PackageInstallSkill {
             .args
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'name' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'name' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         let pm = detect_package_manager().ok_or_else(no_package_manager_error)?;
 
@@ -544,7 +571,10 @@ impl Skill for PackageInstallSkill {
                         &format!("package install denied: {reason}"),
                     )
                     .await;
-                    return Err(Error::Skill(format!("package install denied: {}", reason)));
+                    return Err(Error::SkillCategorized {
+                        message: format!("package install denied: {}", reason),
+                        category: ErrorCategory::Input,
+                    });
                 }
                 ApprovalDecision::Expired => {
                     emit_denied(
@@ -554,7 +584,10 @@ impl Skill for PackageInstallSkill {
                         "package install approval expired",
                     )
                     .await;
-                    return Err(Error::Skill("package install approval expired".into()));
+                    return Err(Error::SkillCategorized {
+                        message: "package install approval expired".into(),
+                        category: ErrorCategory::Timeout,
+                    });
                 }
             }
         }
@@ -583,11 +616,14 @@ impl Skill for PackageInstallSkill {
         .await;
 
         if !output.status.success() {
-            return Err(Error::Skill(format!(
-                "package install failed (exit {}): {}",
-                output.status.code().unwrap_or(-1),
-                stderr.trim()
-            )));
+            return Err(Error::SkillCategorized {
+                message: format!(
+                    "package install failed (exit {}): {}",
+                    output.status.code().unwrap_or(-1),
+                    stderr.trim()
+                ),
+                category: ErrorCategory::Environmental,
+            });
         }
 
         Ok(SkillOutput::new(serde_json::json!({
@@ -595,45 +631,6 @@ impl Skill for PackageInstallSkill {
             "stderr": stderr,
             "package_manager": format!("{:?}", pm).to_lowercase(),
         })))
-    }
-}
-
-async fn emit_executed(
-    input: &SkillInput,
-    command: &str,
-    args: &[&str],
-    exit_code: Option<i32>,
-    success: bool,
-    duration_ms: u64,
-) {
-    if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent::new(
-            DomainEventKind::PrivilegedCommandExecuted {
-                message_id: orka_core::types::MessageId::new(),
-                session_id: orka_core::types::SessionId::new(),
-                command: command.to_string(),
-                args: args.iter().map(|s| s.to_string()).collect(),
-                approval_id: None,
-                approved_by: None,
-                exit_code,
-                success,
-                duration_ms,
-            },
-        ))
-        .await;
-    }
-}
-
-async fn emit_denied(input: &SkillInput, command: &str, args: &[&str], reason: &str) {
-    if let Some(sink) = input.context.as_ref().and_then(|c| c.event_sink.as_ref()) {
-        sink.emit(DomainEvent::new(DomainEventKind::PrivilegedCommandDenied {
-            message_id: orka_core::types::MessageId::new(),
-            session_id: orka_core::types::SessionId::new(),
-            command: command.to_string(),
-            args: args.iter().map(|s| s.to_string()).collect(),
-            reason: reason.to_string(),
-        }))
-        .await;
     }
 }
 

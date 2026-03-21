@@ -32,9 +32,12 @@ members = [
   "crates/orka-scheduler",
   "crates/orka-experience",
   "crates/orka-agent",
+  "crates/orka-eval",
   "crates/orka-cli",
   "orka-server",
   "sdk/orka-plugin-sdk",
+  "sdk/orka-plugin-sdk-component",
+  "sdk/hello-plugin",
 ]
 
 [workspace.package]
@@ -128,11 +131,19 @@ clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 rustyline = "15"
 colored = "3"
+comfy-table = "7"
+dialoguer = "0.11"
+ratatui = { version = "0.30", features = ["crossterm"] }
+crossterm = { version = "0.29", features = ["event-stream"] }
+arboard = "3"
+notify-rust = "4"
+open = "5"
 
 # WASM
+cap-std = "3"
 wasmtime = { version = "42", features = ["component-model"] }
 wasmtime-wasi = "42"
-wit-bindgen = "0.41"
+wit-bindgen = "0.51"
 
 # JWT
 jsonwebtoken = "9"
@@ -200,6 +211,7 @@ orka-http = { path = "crates/orka-http" }
 orka-knowledge = { path = "crates/orka-knowledge" }
 orka-scheduler = { path = "crates/orka-scheduler" }
 orka-experience = { path = "crates/orka-experience" }
+orka-eval = { path = "crates/orka-eval" }
 orka-agent = { path = "crates/orka-agent" }
 orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
 

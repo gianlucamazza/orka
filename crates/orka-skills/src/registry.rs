@@ -21,10 +21,12 @@ pub struct SkillRegistry {
     skills: HashMap<String, SkillEntry>,
 }
 
-/// Circuit breaker configuration for environmental errors:
-/// opens after 3 consecutive failures, stays open for 5 minutes.
+/// Circuit breaker configuration:
+/// - Environmental: opens after 3 consecutive failures, stays open for 5 minutes.
+/// - Semantic: opens after 5 consecutive quality failures (validate_output errors).
 const ENV_CIRCUIT_CONFIG: CircuitBreakerConfig = CircuitBreakerConfig {
     failure_threshold: 3,
+    quality_failure_threshold: 5,
     success_threshold: 1,
     open_duration: Duration::from_secs(300),
 };
@@ -82,6 +84,40 @@ impl SkillRegistry {
     /// Return the names of all registered skills (including those with open circuits).
     pub fn list(&self) -> Vec<&str> {
         self.skills.keys().map(|s| s.as_str()).collect()
+    }
+
+    /// Return full metadata for all registered skills, sorted by category then name.
+    ///
+    /// Includes skills with open circuit breakers so callers can show their status.
+    pub fn list_info(&self) -> Vec<(&str, &Arc<dyn Skill>, CircuitState)> {
+        let mut entries: Vec<_> = self
+            .skills
+            .iter()
+            .map(|(name, entry)| (name.as_str(), &entry.skill, entry.circuit.state()))
+            .collect();
+        entries.sort_by(|a, b| {
+            let cat_a = a.1.category();
+            let cat_b = b.1.category();
+            cat_a.cmp(cat_b).then_with(|| a.0.cmp(b.0))
+        });
+        entries
+    }
+
+    /// Return a mapping from category name to available (name, description) skill pairs.
+    ///
+    /// Only includes skills whose circuit breaker is Closed or HalfOpen.
+    /// Used for progressive disclosure: the LLM sees categories before individual tools.
+    pub fn list_by_category(&self) -> HashMap<String, Vec<(String, String)>> {
+        let mut map: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        for (name, entry) in &self.skills {
+            if entry.circuit.state() != CircuitState::Open {
+                let cat = entry.skill.category().to_string();
+                map.entry(cat)
+                    .or_default()
+                    .push((name.clone(), entry.skill.description().to_string()));
+            }
+        }
+        map
     }
 
     /// Return the names of skills whose circuit breaker is Closed or HalfOpen.
@@ -163,7 +199,27 @@ impl SkillRegistry {
             )));
         }
 
+        // Extract budget from input context before consuming input
+        let budget = input.context.as_ref().and_then(|ctx| ctx.budget.clone());
+
+        let exec_start = std::time::Instant::now();
         let result = entry.skill.execute(input).await;
+        let elapsed_ms = exec_start.elapsed().as_millis() as u64;
+
+        // Budget enforcement: duration check (post-hoc, not a hard cancel)
+        if budget
+            .as_ref()
+            .and_then(|b| b.max_duration_ms)
+            .is_some_and(|max_ms| elapsed_ms > max_ms)
+        {
+            let max_ms = budget.as_ref().and_then(|b| b.max_duration_ms).unwrap();
+            return Err(Error::SkillCategorized {
+                message: format!(
+                    "skill '{name}' exceeded duration budget: {elapsed_ms}ms > {max_ms}ms"
+                ),
+                category: ErrorCategory::Budget,
+            });
+        }
 
         // Update circuit breaker based on result
         match &result {
@@ -176,7 +232,38 @@ impl SkillRegistry {
                     );
                 }
             }
-            Ok(_) => {
+            Ok(output) => {
+                // Budget enforcement: output size check
+                if let Some(max_bytes) = budget.as_ref().and_then(|b| b.max_output_bytes) {
+                    let size = output.data.to_string().len();
+                    if size > max_bytes {
+                        return Err(Error::SkillCategorized {
+                            message: format!(
+                                "skill '{name}' output exceeded size budget: {size} bytes > {max_bytes} bytes"
+                            ),
+                            category: ErrorCategory::Budget,
+                        });
+                    }
+                }
+
+                // Validate output quality before recording success
+                let skill_ref: &dyn orka_core::traits::Skill = entry.skill.as_ref();
+                if let Err(validation_err) = skill_ref.validate_output(output) {
+                    entry.circuit.record_quality_failure();
+                    if entry.circuit.state() == CircuitState::Open {
+                        tracing::warn!(
+                            skill = name,
+                            %validation_err,
+                            "circuit breaker opened after semantic quality failures"
+                        );
+                    }
+                    return Err(Error::SkillCategorized {
+                        message: format!(
+                            "skill '{name}' output validation failed: {validation_err}"
+                        ),
+                        category: ErrorCategory::Semantic,
+                    });
+                }
                 entry.circuit.record_success();
             }
             Err(_) => {

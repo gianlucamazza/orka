@@ -1,0 +1,12 @@
+[package]
+name = "orka-plugin-sdk-component"
+description = "Guest-side SDK for Orka WASM Component Model plugins (WASI P2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# rlib for the SDK itself; plugin crates use crate-type = ["cdylib"]
+crate-type = ["rlib"]
+
+[dependencies]

@@ -474,7 +474,11 @@ async fn main() -> anyhow::Result<()> {
 
     // 4c. Load WASM plugins
     if let Some(ref plugin_dir) = config.plugins.dir {
-        match orka_skills::load_plugins(std::path::Path::new(plugin_dir), &wasm_engine) {
+        match orka_skills::load_plugins(
+            std::path::Path::new(plugin_dir),
+            &wasm_engine,
+            &config.plugins,
+        ) {
             Ok(plugins) => {
                 for plugin in plugins {
                     skills.register(plugin);
@@ -490,11 +494,35 @@ async fn main() -> anyhow::Result<()> {
     {
         let mut mcp_set = tokio::task::JoinSet::new();
         for server_config in &config.mcp.servers {
+            let transport = match (&server_config.command, &server_config.url) {
+                (Some(cmd), _) => orka_mcp::McpTransportConfig::Stdio {
+                    command: cmd.clone(),
+                    args: server_config.args.clone(),
+                    env: server_config.env.clone(),
+                },
+                (None, Some(url)) => orka_mcp::McpTransportConfig::StreamableHttp {
+                    url: url.clone(),
+                    auth: server_config
+                        .auth
+                        .as_ref()
+                        .map(|a| orka_mcp::McpOAuthConfig {
+                            token_url: a.token_url.clone(),
+                            client_id: a.client_id.clone(),
+                            client_secret_env: a.client_secret_env.clone(),
+                            scopes: a.scopes.clone(),
+                        }),
+                },
+                (None, None) => {
+                    tracing::error!(
+                        name = %server_config.name,
+                        "MCP server entry has neither 'command' nor 'url' — skipping"
+                    );
+                    continue;
+                }
+            };
             let mcp_config = orka_mcp::McpServerConfig {
                 name: server_config.name.clone(),
-                command: server_config.command.clone(),
-                args: server_config.args.clone(),
-                env: server_config.env.clone(),
+                transport,
             };
             let server_name = server_config.name.clone();
             mcp_set.spawn(async move {
@@ -617,6 +645,21 @@ async fn main() -> anyhow::Result<()> {
 
     let skills = Arc::new(skills);
     info!("skill registry ready ({} skills)", skills.list().len());
+
+    // 4e. Soft skills (SKILL.md-based instruction skills)
+    let soft_skills: Option<Arc<orka_skills::SoftSkillRegistry>> =
+        if let Some(ref dir) = config.soft_skills.dir {
+            let skills_list = orka_skills::scan_soft_skills(std::path::Path::new(dir));
+            let mut reg = orka_skills::SoftSkillRegistry::new();
+            let count = skills_list.len();
+            for skill in skills_list {
+                reg.register(skill);
+            }
+            info!(count, "soft skill registry ready");
+            Some(Arc::new(reg))
+        } else {
+            None
+        };
 
     // LLM client (optional) — after validate(), config.llm.providers is canonical
     // Track swappable clients for hot-reload
@@ -1155,23 +1198,35 @@ async fn main() -> anyhow::Result<()> {
                         }
 
                         // Qdrant check (only when knowledge is enabled)
+                        // Uses gRPC (same protocol as the data path) to avoid
+                        // confusing the gRPC port (6334) with the HTTP port (6333).
                         if let Some(ref url) = qdrant_url {
-                            let health_url = format!("{}/healthz", url.trim_end_matches('/'));
-                            match reqwest::Client::new()
-                                .get(&health_url)
-                                .timeout(std::time::Duration::from_secs(2))
-                                .send()
-                                .await
-                            {
-                                Ok(resp) if resp.status().is_success() => {
-                                    checks.insert("qdrant".into(), serde_json::json!("ok"));
-                                }
-                                Ok(resp) => {
-                                    checks.insert(
-                                        "qdrant".into(),
-                                        serde_json::json!(format!("error: HTTP {}", resp.status())),
-                                    );
-                                    all_ok = false;
+                            match qdrant_client::Qdrant::from_url(url).build() {
+                                Ok(client) => {
+                                    match tokio::time::timeout(
+                                        std::time::Duration::from_secs(2),
+                                        client.health_check(),
+                                    )
+                                    .await
+                                    {
+                                        Ok(Ok(_)) => {
+                                            checks.insert("qdrant".into(), serde_json::json!("ok"));
+                                        }
+                                        Ok(Err(e)) => {
+                                            checks.insert(
+                                                "qdrant".into(),
+                                                serde_json::json!(format!("error: {e}")),
+                                            );
+                                            all_ok = false;
+                                        }
+                                        Err(_) => {
+                                            checks.insert(
+                                                "qdrant".into(),
+                                                serde_json::json!("error: health check timed out"),
+                                            );
+                                            all_ok = false;
+                                        }
+                                    }
                                 }
                                 Err(e) => {
                                     checks.insert(
@@ -1362,6 +1417,8 @@ async fn main() -> anyhow::Result<()> {
 
         let s1 = skills.clone();
         let s2 = skills.clone();
+        let s3 = skills.clone();
+        let soft1 = soft_skills.clone();
         let sc1 = scheduler_for_api.clone();
         let sc2 = scheduler_for_api.clone();
         let sc3 = scheduler_for_api.clone();
@@ -1379,14 +1436,38 @@ async fn main() -> anyhow::Result<()> {
             .route("/api/v1/skills", axum::routing::get(move || {
                 let skills = s1.clone();
                 async move {
-                    let list: Vec<serde_json::Value> = skills.list().iter().map(|name| {
-                        let skill = skills.get(name).unwrap();
+                    let list: Vec<serde_json::Value> = skills.list_info().iter().map(|(name, skill, state)| {
+                        let status = match state {
+                            orka_circuit_breaker::CircuitState::Closed => "ok",
+                            orka_circuit_breaker::CircuitState::HalfOpen => "degraded",
+                            orka_circuit_breaker::CircuitState::Open => "disabled",
+                            _ => "ok",
+                        };
                         serde_json::json!({
-                            "name": skill.name(),
+                            "name": name,
+                            "category": skill.category(),
                             "description": skill.description(),
+                            "status": status,
                             "schema": skill.schema(),
                         })
                     }).collect();
+                    axum::Json(list)
+                }
+            }))
+            .route("/api/v1/soft-skills", axum::routing::get(move || {
+                let reg = soft1.clone();
+                async move {
+                    let list: Vec<serde_json::Value> = reg
+                        .as_deref()
+                        .map(|r| r.summaries())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|s| serde_json::json!({
+                            "name": s.name,
+                            "description": s.description,
+                            "tags": s.tags,
+                        }))
+                        .collect();
                     axum::Json(list)
                 }
             }))
@@ -1400,6 +1481,22 @@ async fn main() -> anyhow::Result<()> {
                             "schema": skill.schema(),
                         })).into_response(),
                         None => (StatusCode::NOT_FOUND, format!("skill '{name}' not found")).into_response(),
+                    }
+                }
+            }))
+            .route("/api/v1/eval", axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let skills = s3.clone();
+                async move {
+                    let skill_filter = body["skill"].as_str().map(String::from);
+                    let dir = body["dir"].as_str().unwrap_or("evals").to_string();
+                    let runner = orka_eval::EvalRunner::new(skills);
+                    match runner.run_dir(std::path::Path::new(&dir), skill_filter.as_deref()).await {
+                        Ok(report) => {
+                            let json_str = report.to_json();
+                            let val: serde_json::Value = serde_json::from_str(&json_str).unwrap_or_default();
+                            axum::Json(val).into_response()
+                        }
+                        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("eval failed: {e}")).into_response(),
                     }
                 }
             }))
@@ -1738,6 +1835,7 @@ async fn main() -> anyhow::Result<()> {
         event_sink: event_sink.clone(),
         stream_registry: stream_registry.clone(),
         experience: experience_service.clone(),
+        soft_skills: soft_skills.clone(),
     }));
 
     let worker_pool = WorkerPoolGraph::new(

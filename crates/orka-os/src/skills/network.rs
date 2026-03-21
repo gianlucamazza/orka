@@ -27,6 +27,10 @@ impl Skill for NetworkInfoSkill {
         "network_info"
     }
 
+    fn category(&self) -> &str {
+        "system"
+    }
+
     fn description(&self) -> &str {
         "List network interfaces with their traffic statistics."
     }
@@ -79,6 +83,10 @@ impl NetworkCheckSkill {
 impl Skill for NetworkCheckSkill {
     fn name(&self) -> &str {
         "network_check"
+    }
+
+    fn category(&self) -> &str {
+        "system"
     }
 
     fn description(&self) -> &str {

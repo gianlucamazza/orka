@@ -126,6 +126,11 @@ pub async fn handle_message(
     if let Some(metadata) = req.metadata {
         envelope.metadata = metadata;
     }
+    if let Some(uid) = req.user_id {
+        envelope
+            .metadata
+            .insert("user_id".into(), serde_json::json!(uid));
+    }
 
     let message_id = envelope.id.to_string();
     let session_id_str = session_id.to_string();

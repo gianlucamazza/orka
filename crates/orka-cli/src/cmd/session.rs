@@ -1,4 +1,5 @@
 use crate::client::OrkaClient;
+use crate::table::make_table;
 use colored::Colorize;
 
 pub async fn list(client: &OrkaClient, limit: usize) -> crate::client::Result<()> {
@@ -10,20 +11,16 @@ pub async fn list(client: &OrkaClient, limit: usize) -> crate::client::Result<()
         println!("{}", "No active sessions.".green());
         return Ok(());
     }
-    println!("{}", format!("{} session(s):", sessions.len()).cyan());
+    let mut table = make_table(&["ID", "Channel", "User", "Updated"]);
     for s in sessions {
-        let id = s["id"].as_str().unwrap_or("?");
-        let channel = s["channel"].as_str().unwrap_or("?");
-        let user_id = s["user_id"].as_str().unwrap_or("?");
-        let updated_at = s["updated_at"].as_str().unwrap_or("?");
-        println!(
-            "  {} channel={} user={} updated={}",
-            id.cyan(),
-            channel,
-            user_id,
-            updated_at
-        );
+        table.add_row([
+            s["id"].as_str().unwrap_or("?"),
+            s["channel"].as_str().unwrap_or("?"),
+            s["user_id"].as_str().unwrap_or("?"),
+            s["updated_at"].as_str().unwrap_or("?"),
+        ]);
     }
+    println!("{table}");
     Ok(())
 }
 
@@ -32,11 +29,7 @@ pub async fn show(client: &OrkaClient, id: &str) -> crate::client::Result<()> {
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Err(format!("session '{id}' not found").into());
     }
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Server returned {status}: {body}").into());
-    }
+    let resp = OrkaClient::ensure_ok(resp).await?;
     let session: serde_json::Value = resp.json().await?;
     println!(
         "{} {}",
@@ -59,17 +52,22 @@ pub async fn show(client: &OrkaClient, id: &str) -> crate::client::Result<()> {
     Ok(())
 }
 
-pub async fn delete(client: &OrkaClient, id: &str) -> crate::client::Result<()> {
+pub async fn delete(client: &OrkaClient, id: &str, yes: bool) -> crate::client::Result<()> {
+    if !yes
+        && !dialoguer::Confirm::new()
+            .with_prompt(format!("Delete session '{id}'?"))
+            .default(false)
+            .interact()?
+    {
+        println!("Aborted.");
+        return Ok(());
+    }
     let resp = client.delete(&format!("/api/v1/sessions/{id}")).await?;
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         println!("{}", format!("Session '{id}' not found.").yellow());
         return Ok(());
     }
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Server returned {status}: {body}").into());
-    }
+    OrkaClient::ensure_ok(resp).await?;
     println!("{}", format!("Session '{id}' deleted.").green());
     Ok(())
 }

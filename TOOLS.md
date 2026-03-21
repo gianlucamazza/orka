@@ -4,29 +4,66 @@ version: "0.1"
 
 # Tool guidelines
 
-All registered skills are available to you. Use them whenever a question can be answered with real data.
+## Choosing between overlapping tools
+
+| Goal                                             | Use            |
+| ------------------------------------------------ | -------------- |
+| Find information on the internet                 | `web_search`   |
+| Read a known URL                                 | `web_read`     |
+| Call an external API with headers, body, or auth | `http_request` |
+| Run isolated code safely                         | `sandbox`      |
+| Run system commands or scripts                   | `shell_exec`   |
+| Delegate a multi-step coding task autonomously   | `claude_code`  |
+| Store a finding for later retrieval              | `memory_store` |
+| Ingest a whole document into the knowledge base  | `doc_ingest`   |
 
 ## Filesystem (`fs_read`, `fs_list`, `fs_info`, `fs_search`, `fs_write`, `fs_watch`)
 
-- To answer "what files are here?" → call `fs_list` on the directory.
-- To answer "what does this file contain?" → call `fs_read` with the path.
-- To find files by name or pattern → call `fs_search`.
-- Never guess paths or contents. Call the tool.
+- List → `fs_list`. Read → `fs_read`. Find by name or pattern → `fs_search`.
+- Prefer these over `shell_exec "ls"` or `shell_exec "cat"`.
 
 ## Shell (`shell_exec`)
 
-- Run commands when you need output the other tools don't cover.
-- Prefer specific tools (e.g. `fs_list`) over `shell_exec "ls"` when possible.
+- Use for anything not covered by a dedicated tool.
+- Does not interpret shell syntax — pass commands as argument arrays when possible.
 
-## System (`system_info`, `env_get`, `env_list`, `process_list`)
+## System (`system_info`, `env_get`, `env_list`, `process_list`, `process_info`, `process_signal`)
 
-- To answer "what OS is this?" or "are we in Docker?" → call `system_info`.
-- To check environment variables → call `env_get` or `env_list`.
-- Never assume the runtime environment. Always check.
+- OS and environment questions → `system_info` or `env_get` / `env_list`. Never assume.
 
 ## Web (`web_search`, `web_read`)
 
-- To answer questions about the internet → call `web_search`.
-- To read a webpage → call `web_read` with the URL.
+- Search results already include full page content inline — do NOT call `web_read` after `web_search`.
+- Make ONE search call, then answer directly. Search again only if results contain zero relevant information.
 
-Call the tool. Real results are always better than guesses.
+## HTTP (`http_request`)
+
+- For APIs that need custom headers, POST bodies, or bearer auth. Not for general browsing.
+
+## Code (`sandbox`)
+
+- Supported: python, bash, wasm. Use for isolated or untrusted code execution.
+
+## Knowledge (`memory_store`, `memory_search`, `doc_ingest`, `doc_list`)
+
+- `memory_store` / `memory_search`: semantic store for facts and findings.
+- `doc_ingest` / `doc_list`: full document ingestion pipeline (chunks + embeddings).
+
+## Claude Code (`claude_code`)
+
+- Use for complex, multi-step coding tasks: implementing features, fixing bugs, refactoring, or any
+  task that requires reading files, making edits, and running commands autonomously.
+- **Be imperative and specific**: describe _what to do_, not what to think about.
+  Good: `"Add exponential backoff (max 3 retries) to fetch_data() in src/client.rs"`.
+  Bad: `"Consider improving error handling"`.
+- **Always include context**: mention relevant file paths, the language/framework, recent changes,
+  or any architectural constraints. Use the `context` parameter for this.
+- **Include verification**: pass a `verification` command (e.g. `cargo test -p crate-name`,
+  `npm test`, `python -m pytest`) so Claude Code can confirm success before reporting done.
+- **Scope narrowly**: one focused task per call. Split large changes into multiple sequential calls.
+- **Do not micromanage steps**: Claude Code will decide how to implement — trust it to read files,
+  choose the right approach, and follow project conventions on its own.
+
+## Scheduler (`schedule_create`, `schedule_list`, `schedule_delete`)
+
+- Create cron or one-shot tasks that invoke skills on a schedule.

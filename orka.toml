@@ -79,10 +79,10 @@ backend = "log" # "log" | "redis" | "otel"
 # Expose Claude Code tools (Read, Edit, Bash, etc.) as Orka skills via MCP.
 # Requires `claude` CLI installed and authenticated.
 # Tools appear as: claude-code/read, claude-code/edit, claude-code/bash, etc.
-# [[mcp.servers]]
-# name = "claude-code"
-# command = "claude"
-# args = ["mcp"]
+[[mcp.servers]]
+name = "claude-code"
+command = "/home/gianluca/.local/bin/claude"
+args = ["mcp", "serve"]
 
 # [mcp.serve]
 # enabled = false
@@ -233,6 +233,9 @@ permission_level = "admin"
 # max_turns = 10                # optional — limit agentic turns
 # timeout_secs = 300            # default: 300s
 # working_dir = "."             # optional — defaults to process cwd
+# inject_context = true         # inject workspace info (cwd) into the task prompt; default true
+# system_prompt = "Follow CLAUDE.md conventions. Run tests before reporting success."
+# allowed_tools = ["Read", "Edit", "Bash(cargo *)", "Bash(git *)"]  # restrict tool access
 
 [os.sudo]
 enabled = true

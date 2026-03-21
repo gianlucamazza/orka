@@ -14,6 +14,9 @@ pub struct ClaudeCodeSkill {
     model: Option<String>,
     max_turns: Option<u32>,
     timeout_secs: u64,
+    system_prompt: Option<String>,
+    allowed_tools: Vec<String>,
+    inject_context: bool,
 }
 
 impl ClaudeCodeSkill {
@@ -24,6 +27,9 @@ impl ClaudeCodeSkill {
             model: config.model.clone(),
             max_turns: config.max_turns,
             timeout_secs: config.timeout_secs,
+            system_prompt: config.system_prompt.clone(),
+            allowed_tools: config.allowed_tools.clone(),
+            inject_context: config.inject_context,
         }
     }
 }
@@ -32,6 +38,10 @@ impl ClaudeCodeSkill {
 impl Skill for ClaudeCodeSkill {
     fn name(&self) -> &str {
         "claude_code"
+    }
+
+    fn category(&self) -> &str {
+        "shell"
     }
 
     fn description(&self) -> &str {
@@ -46,11 +56,19 @@ impl Skill for ClaudeCodeSkill {
             "properties": {
                 "task": {
                     "type": "string",
-                    "description": "Description of the coding task to perform"
+                    "description": "Imperative description of the coding task. Be specific: mention file paths, \
+                                    the language/framework, constraints, and expected outcome."
                 },
                 "context": {
                     "type": "string",
-                    "description": "Additional context: relevant files, constraints, or background"
+                    "description": "Additional context: relevant files, recent changes, architectural constraints, \
+                                    or background that Claude Code needs to understand the task."
+                },
+                "verification": {
+                    "type": "string",
+                    "description": "Command to run after completing the task to verify correctness \
+                                    (e.g. 'cargo test -p my-crate', 'npm test', 'python -m pytest'). \
+                                    Claude Code will run this and report the outcome."
                 },
                 "working_dir": {
                     "type": "string",
@@ -72,19 +90,23 @@ impl Skill for ClaudeCodeSkill {
             })?;
 
         let context = input.args.get("context").and_then(|v| v.as_str());
+        let verification = input.args.get("verification").and_then(|v| v.as_str());
 
-        let prompt = if let Some(ctx) = context {
-            format!("{task}\n\nContext:\n{ctx}")
-        } else {
-            task.to_string()
-        };
+        let prompt = build_prompt(task, context, verification, &input, self.inject_context);
 
         let working_dir = input
             .args
             .get("working_dir")
             .and_then(|v| v.as_str())
             .map(PathBuf::from)
-            .or_else(|| self.working_dir.clone());
+            .or_else(|| self.working_dir.clone())
+            .or_else(|| {
+                input
+                    .context
+                    .as_ref()
+                    .and_then(|c| c.user_cwd.as_deref())
+                    .map(PathBuf::from)
+            });
 
         let mut cmd = tokio::process::Command::new("claude");
         cmd.arg("--print");
@@ -96,6 +118,12 @@ impl Skill for ClaudeCodeSkill {
         }
         if let Some(max_turns) = self.max_turns {
             cmd.arg("--max-turns").arg(max_turns.to_string());
+        }
+        if let Some(sp) = &self.system_prompt {
+            cmd.arg("--append-system-prompt").arg(sp);
+        }
+        if !self.allowed_tools.is_empty() {
+            cmd.arg("--allowedTools").arg(self.allowed_tools.join(","));
         }
         if let Some(dir) = &working_dir {
             cmd.current_dir(dir);
@@ -158,13 +186,61 @@ impl Skill for ClaudeCodeSkill {
                     "duration_ms": duration_ms,
                 })))
             }
-            Ok(Err(e)) => Err(Error::Skill(format!("claude execution failed: {e}"))),
+            Ok(Err(e)) => Err(Error::SkillCategorized {
+                message: format!("claude execution failed: {e}"),
+                category: ErrorCategory::Unknown,
+            }),
             Err(_) => Err(Error::SkillCategorized {
                 message: format!("claude timed out after {} seconds", self.timeout_secs),
                 category: ErrorCategory::Timeout,
             }),
         }
     }
+}
+
+/// Build the structured prompt for Claude Code following delegation best practices:
+/// clear sections, explicit requirements, and optional verification criteria.
+fn build_prompt(
+    task: &str,
+    context: Option<&str>,
+    verification: Option<&str>,
+    input: &SkillInput,
+    inject_context: bool,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    parts.push(format!("## Task\n{task}"));
+
+    if let Some(ctx) = context {
+        parts.push(format!("## Context\n{ctx}"));
+    }
+
+    if inject_context && let Some(workspace) = workspace_info(input) {
+        parts.push(format!("## Workspace\n{workspace}"));
+    }
+
+    parts.push(
+        "## Requirements\n\
+         - Act autonomously: read the relevant files, make the changes, and verify the result.\n\
+         - Follow existing code conventions (style, error handling, test patterns) found in the project.\n\
+         - After completing the task, report concisely: what changed, why, and the outcome of any checks."
+            .to_string(),
+    );
+
+    if let Some(v) = verification {
+        parts.push(format!(
+            "## Verification\nRun the following command to confirm the task is complete:\n```\n{v}\n```\nReport whether it passed or failed."
+        ));
+    }
+
+    parts.join("\n\n")
+}
+
+/// Extract workspace metadata from the skill input context.
+fn workspace_info(input: &SkillInput) -> Option<String> {
+    let ctx = input.context.as_ref()?;
+    let cwd = ctx.user_cwd.as_deref()?;
+    Some(format!("Working directory: {cwd}"))
 }
 
 /// Extract the result text from `claude --output-format json` output.
@@ -210,6 +286,13 @@ mod tests {
     }
 
     #[test]
+    fn schema_has_verification_field() {
+        let skill = make_skill();
+        let schema = skill.schema();
+        assert!(schema.parameters["properties"]["verification"].is_object());
+    }
+
+    #[test]
     fn parse_claude_output_json() {
         let raw =
             r#"{"type":"result","subtype":"success","is_error":false,"result":"hello world"}"#;
@@ -220,6 +303,31 @@ mod tests {
     fn parse_claude_output_fallback() {
         let raw = "not json output";
         assert_eq!(parse_claude_output(raw), "not json output");
+    }
+
+    #[test]
+    fn build_prompt_task_only() {
+        let input = SkillInput::new(std::collections::HashMap::new());
+        let prompt = build_prompt("Fix the bug", None, None, &input, false);
+        assert!(prompt.contains("## Task\nFix the bug"));
+        assert!(prompt.contains("## Requirements"));
+        assert!(!prompt.contains("## Context"));
+        assert!(!prompt.contains("## Verification"));
+    }
+
+    #[test]
+    fn build_prompt_with_context_and_verification() {
+        let input = SkillInput::new(std::collections::HashMap::new());
+        let prompt = build_prompt(
+            "Add retry logic",
+            Some("See src/client.rs"),
+            Some("cargo test -p orka-http"),
+            &input,
+            false,
+        );
+        assert!(prompt.contains("## Context\nSee src/client.rs"));
+        assert!(prompt.contains("## Verification"));
+        assert!(prompt.contains("cargo test -p orka-http"));
     }
 
     #[tokio::test]

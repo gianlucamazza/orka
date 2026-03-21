@@ -1,4 +1,5 @@
 use crate::client::OrkaClient;
+use crate::table::make_table;
 use colored::Colorize;
 
 pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
@@ -8,20 +9,20 @@ pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
         println!("{}", "No workspaces found.".yellow());
         return Ok(());
     }
-    println!("{}", format!("{} workspace(s):", workspaces.len()).cyan());
+    let mut table = make_table(&["Name", "Agent", "Tools", "Description"]);
     for ws in workspaces {
-        let name = ws["name"].as_str().unwrap_or("?");
-        let agent_name = ws["agent_name"].as_str().unwrap_or("-");
-        let desc = ws["description"].as_str().unwrap_or("");
-        let has_tools = ws["has_tools"].as_bool().unwrap_or(false);
-        println!(
-            "  {} (agent: {}){}  {}",
-            name.green().bold(),
-            agent_name.cyan(),
-            if has_tools { " [tools]" } else { "" },
-            desc
-        );
+        table.add_row([
+            ws["name"].as_str().unwrap_or("?"),
+            ws["agent_name"].as_str().unwrap_or("-"),
+            if ws["has_tools"].as_bool().unwrap_or(false) {
+                "yes"
+            } else {
+                "no"
+            },
+            ws["description"].as_str().unwrap_or(""),
+        ]);
     }
+    println!("{table}");
     Ok(())
 }
 
@@ -30,11 +31,7 @@ pub async fn show(client: &OrkaClient, name: &str) -> crate::client::Result<()> 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Err(format!("workspace '{name}' not found").into());
     }
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Server returned {status}: {body}").into());
-    }
+    let resp = OrkaClient::ensure_ok(resp).await?;
     let ws: serde_json::Value = resp.json().await?;
     println!("{}", ws["name"].as_str().unwrap_or("?").green().bold());
     if let Some(agent) = ws["agent_name"].as_str() {

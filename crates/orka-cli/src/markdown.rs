@@ -1,10 +1,11 @@
 use std::io::Write;
 
+use comfy_table::{ContentArrangement, Table, presets};
+use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 use syntect::util::as_24_bit_terminal_escaped;
-use termimad::MadSkin;
 
 /// Renders markdown to the terminal with syntax highlighting for code blocks.
 ///
@@ -12,7 +13,6 @@ use termimad::MadSkin;
 /// - **Streaming** (`push_delta` + `flush`): block-buffered rendering for progressive output.
 /// - **Full** (`render_full`): renders a complete markdown string at once.
 pub struct MarkdownRenderer {
-    skin: MadSkin,
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
     theme_name: String,
@@ -23,22 +23,7 @@ pub struct MarkdownRenderer {
 
 impl MarkdownRenderer {
     pub fn new() -> Self {
-        let mut skin = MadSkin::default();
-        // Headers: green bold
-        skin.headers[0].set_fg(termimad::crossterm::style::Color::Green);
-        skin.headers[1].set_fg(termimad::crossterm::style::Color::Green);
-        skin.headers[2].set_fg(termimad::crossterm::style::Color::Green);
-        // Bold: white bold (default is already bold, just ensure fg)
-        skin.bold.set_fg(termimad::crossterm::style::Color::White);
-        // Inline code: cyan
-        skin.inline_code
-            .set_fg(termimad::crossterm::style::Color::Cyan);
-        // Blockquotes: grey/dimmed
-        skin.quote_mark
-            .set_fg(termimad::crossterm::style::Color::DarkGrey);
-
         Self {
-            skin,
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme_set: ThemeSet::load_defaults(),
             theme_name: "base16-eighties.dark".to_string(),
@@ -82,8 +67,7 @@ impl MarkdownRenderer {
             {
                 self.render_code_block_inline(block);
             } else {
-                let normalized = normalize_gfm_tables(block);
-                self.skin.print_text(&normalized);
+                self.render_prose_pulldown(block);
             }
         }
     }
@@ -153,14 +137,328 @@ impl MarkdownRenderer {
         if trimmed.starts_with("```") && find_closing_fence_full(trimmed).is_some() {
             self.render_code_block_inline(trimmed);
         } else if trimmed.starts_with("```") {
-            // UI-12: unclosed code fence at flush — print raw to avoid termimad mangling
-            // (termimad would interpret the opening ``` as an unterminated code block)
+            // Unclosed code fence at flush — print raw to avoid markdown mangling
             for line in trimmed.lines() {
                 println!("{line}");
             }
         } else {
-            let normalized = normalize_gfm_tables(block);
-            self.skin.print_text(&normalized);
+            self.render_prose_pulldown(block);
+        }
+    }
+
+    /// Render a prose markdown block using pulldown-cmark with ANSI terminal output.
+    ///
+    /// Supports: headings (h1–h6), bold, italic, strikethrough, task lists,
+    /// blockquotes, ordered/unordered lists, GFM tables (via comfy-table),
+    /// inline code, links with OSC 8 hyperlinks, and horizontal rules.
+    fn render_prose_pulldown(&self, text: &str) {
+        let no_color = self.no_color;
+        let opts = Options::ENABLE_STRIKETHROUGH
+            | Options::ENABLE_TASKLISTS
+            | Options::ENABLE_TABLES
+            | Options::ENABLE_GFM;
+        let parser = Parser::new_ext(text, opts);
+
+        // Inline formatting flags
+        let mut in_strong = false;
+        let mut in_em = false;
+        let mut in_strike = false;
+
+        // Current inline text accumulator
+        let mut buf = String::new();
+
+        // Blockquote nesting depth
+        let mut blockquote_depth: u32 = 0;
+
+        // List state — stack tracks whether each level is ordered and the next ordinal
+        struct ListEntry {
+            ordered: bool,
+            ordinal: u64,
+        }
+        let mut list_stack: Vec<ListEntry> = Vec::new();
+        let mut indent_depth: usize = 0;
+
+        // Link state
+        let mut link_url: Option<String> = None;
+        let mut link_text = String::new();
+        let mut in_link = false;
+
+        // Table state
+        let mut in_table = false;
+        let mut table_headers: Vec<String> = Vec::new();
+        let mut table_rows: Vec<Vec<String>> = Vec::new();
+        let mut current_row: Vec<String> = Vec::new();
+        let mut cell_buf = String::new();
+        let mut in_thead = false;
+
+        let mut out = std::io::stdout().lock();
+
+        fn apply_fmt(s: &str, strong: bool, em: bool, strike: bool, no_color: bool) -> String {
+            if no_color || s.is_empty() {
+                return s.to_string();
+            }
+            let mut r = s.to_string();
+            if strong {
+                r = format!("\x1b[1m{r}\x1b[22m");
+            }
+            if em {
+                r = format!("\x1b[3m{r}\x1b[23m");
+            }
+            if strike {
+                r = format!("\x1b[9m{r}\x1b[29m");
+            }
+            r
+        }
+
+        fn fmt_inline_code(s: &str, no_color: bool) -> String {
+            if no_color {
+                format!("`{s}`")
+            } else {
+                format!("\x1b[36m{s}\x1b[0m")
+            }
+        }
+
+        fn osc8_link(url: &str, text: &str, no_color: bool) -> String {
+            if no_color || url.is_empty() {
+                return text.to_string();
+            }
+            format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
+        }
+
+        fn bq_prefix(depth: u32, no_color: bool) -> String {
+            if depth == 0 {
+                return String::new();
+            }
+            if no_color {
+                "| ".repeat(depth as usize)
+            } else {
+                format!("{} ", "\x1b[90m│\x1b[0m").repeat(depth as usize)
+            }
+        }
+
+        for event in parser {
+            match event {
+                // ── Paragraphs ──────────────────────────────────────────────────
+                Event::Start(Tag::Paragraph) => {
+                    buf.clear();
+                }
+                Event::End(TagEnd::Paragraph) => {
+                    let prefix = bq_prefix(blockquote_depth, no_color);
+                    if !buf.trim().is_empty() {
+                        let _ = writeln!(out, "{prefix}{}", buf.trim_start());
+                    }
+                    let _ = writeln!(out);
+                    buf.clear();
+                }
+
+                // ── Headings ─────────────────────────────────────────────────────
+                Event::Start(Tag::Heading { .. }) => {
+                    in_strong = true;
+                    buf.clear();
+                }
+                Event::End(TagEnd::Heading(level)) => {
+                    let text = if no_color {
+                        buf.clone()
+                    } else {
+                        let color = match level {
+                            HeadingLevel::H1 => "\x1b[32m",
+                            HeadingLevel::H2 => "\x1b[36m",
+                            _ => "\x1b[33m",
+                        };
+                        format!("{color}\x1b[1m{}\x1b[0m", buf)
+                    };
+                    let _ = writeln!(out, "\n{text}");
+                    buf.clear();
+                    in_strong = false;
+                }
+
+                // ── Inline formatting ───────────────────────────────────────────
+                Event::Start(Tag::Strong) => in_strong = true,
+                Event::End(TagEnd::Strong) => in_strong = false,
+                Event::Start(Tag::Emphasis) => in_em = true,
+                Event::End(TagEnd::Emphasis) => in_em = false,
+                Event::Start(Tag::Strikethrough) => in_strike = true,
+                Event::End(TagEnd::Strikethrough) => in_strike = false,
+
+                // ── Blockquote ───────────────────────────────────────────────────
+                Event::Start(Tag::BlockQuote(_)) => blockquote_depth += 1,
+                Event::End(TagEnd::BlockQuote(_)) => {
+                    blockquote_depth = blockquote_depth.saturating_sub(1);
+                }
+
+                // ── Lists ─────────────────────────────────────────────────────────
+                Event::Start(Tag::List(start)) => {
+                    list_stack.push(ListEntry {
+                        ordered: start.is_some(),
+                        ordinal: start.unwrap_or(1),
+                    });
+                    indent_depth += 1;
+                }
+                Event::End(TagEnd::List(_)) => {
+                    list_stack.pop();
+                    indent_depth = indent_depth.saturating_sub(1);
+                    if list_stack.is_empty() {
+                        let _ = writeln!(out);
+                    }
+                }
+                Event::Start(Tag::Item) => {
+                    buf.clear();
+                }
+                Event::End(TagEnd::Item) => {
+                    let item_indent = "  ".repeat(indent_depth.saturating_sub(1));
+                    let bullet = if let Some(entry) = list_stack.last_mut() {
+                        if entry.ordered {
+                            let n = entry.ordinal;
+                            entry.ordinal += 1;
+                            format!("{n}. ")
+                        } else {
+                            "- ".to_string()
+                        }
+                    } else {
+                        "- ".to_string()
+                    };
+                    if !buf.trim().is_empty() {
+                        let _ = writeln!(out, "{item_indent}{bullet}{}", buf.trim_start());
+                    }
+                    buf.clear();
+                }
+                Event::TaskListMarker(checked) => {
+                    let marker = if checked { "☑ " } else { "☐ " };
+                    buf.push_str(marker);
+                }
+
+                // ── Links ─────────────────────────────────────────────────────────
+                Event::Start(Tag::Link { dest_url, .. }) => {
+                    in_link = true;
+                    link_url = Some(dest_url.to_string());
+                    link_text.clear();
+                }
+                Event::End(TagEnd::Link) => {
+                    let url = link_url.take().unwrap_or_default();
+                    let display = if link_text.is_empty() {
+                        url.clone()
+                    } else {
+                        link_text.clone()
+                    };
+                    let formatted = osc8_link(&url, &display, no_color);
+                    if in_table {
+                        cell_buf.push_str(&formatted);
+                    } else {
+                        buf.push_str(&formatted);
+                    }
+                    in_link = false;
+                    link_text.clear();
+                }
+
+                // ── Tables (rendered via comfy-table) ─────────────────────────────
+                Event::Start(Tag::Table(_)) => {
+                    in_table = true;
+                    table_headers.clear();
+                    table_rows.clear();
+                    current_row.clear();
+                }
+                Event::End(TagEnd::Table) => {
+                    let preset = if no_color {
+                        presets::ASCII_FULL_CONDENSED
+                    } else {
+                        presets::UTF8_FULL_CONDENSED
+                    };
+                    let mut table = Table::new();
+                    table
+                        .load_preset(preset)
+                        .set_content_arrangement(ContentArrangement::Dynamic)
+                        .set_header(table_headers.clone());
+                    for row in &table_rows {
+                        table.add_row(row);
+                    }
+                    let _ = writeln!(out, "{table}");
+                    let _ = writeln!(out);
+                    in_table = false;
+                    table_headers.clear();
+                    table_rows.clear();
+                    current_row.clear();
+                }
+                Event::Start(Tag::TableHead) => {
+                    in_thead = true;
+                }
+                Event::End(TagEnd::TableHead) => {
+                    in_thead = false;
+                    table_headers = std::mem::take(&mut current_row);
+                }
+                Event::Start(Tag::TableRow) => {
+                    current_row.clear();
+                }
+                Event::End(TagEnd::TableRow) => {
+                    if !in_thead && !current_row.is_empty() {
+                        table_rows.push(std::mem::take(&mut current_row));
+                    }
+                }
+                Event::Start(Tag::TableCell) => {
+                    cell_buf.clear();
+                }
+                Event::End(TagEnd::TableCell) => {
+                    current_row.push(std::mem::take(&mut cell_buf));
+                }
+
+                // ── Horizontal rule ────────────────────────────────────────────────
+                Event::Rule => {
+                    let width = crossterm::terminal::size()
+                        .map(|(w, _)| w as usize)
+                        .unwrap_or(80);
+                    let rule = if no_color {
+                        "-".repeat(width)
+                    } else {
+                        format!("\x1b[90m{}\x1b[0m", "\u{2500}".repeat(width))
+                    };
+                    let _ = writeln!(out, "{rule}");
+                }
+
+                // ── Text and inline events ────────────────────────────────────────
+                Event::Text(s) => {
+                    let formatted = apply_fmt(&s, in_strong, in_em, in_strike, no_color);
+                    if in_link {
+                        link_text.push_str(&s);
+                    } else if in_table {
+                        cell_buf.push_str(&formatted);
+                    } else {
+                        buf.push_str(&formatted);
+                    }
+                }
+                Event::Code(s) => {
+                    let formatted = fmt_inline_code(&s, no_color);
+                    if in_table {
+                        cell_buf.push_str(&formatted);
+                    } else {
+                        buf.push_str(&formatted);
+                    }
+                }
+                Event::SoftBreak => {
+                    if in_table {
+                        cell_buf.push(' ');
+                    } else {
+                        buf.push(' ');
+                    }
+                }
+                Event::HardBreak => {
+                    if !buf.trim().is_empty() {
+                        let prefix = bq_prefix(blockquote_depth, no_color);
+                        let _ = writeln!(out, "{prefix}{}", buf);
+                        buf.clear();
+                    }
+                }
+
+                // Code blocks within prose are handled by split_blocks /
+                // render_code_block_inline; ignore any that slip through here.
+                Event::Start(Tag::CodeBlock(_)) | Event::End(TagEnd::CodeBlock) => {}
+
+                _ => {}
+            }
+        }
+
+        // Flush any remaining inline content not followed by a paragraph end
+        if !buf.trim().is_empty() {
+            let prefix = bq_prefix(blockquote_depth, no_color);
+            let _ = writeln!(out, "{prefix}{}", buf.trim_start());
         }
     }
 
@@ -234,86 +532,6 @@ impl Default for MarkdownRenderer {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Normalize GFM tables so termimad/minimad can parse them correctly.
-///
-/// GFM separator rows often have spaces around dashes (e.g. `| --- | --- |`)
-/// which minimad doesn't trim. This function strips those spaces and normalizes
-/// data row cells too for cleaner rendering.
-fn normalize_gfm_tables(text: &str) -> String {
-    // Quick check: skip work if no pipe characters at all
-    if !text.contains('|') {
-        return text.to_string();
-    }
-
-    let mut out = String::with_capacity(text.len());
-    let mut in_table = false;
-
-    for line in text.lines() {
-        let trimmed = line.trim();
-
-        if trimmed.starts_with('|') && trimmed.ends_with('|') {
-            in_table = true;
-
-            // Split into cells (skip first/last empty segments from leading/trailing |)
-            let cells: Vec<&str> = trimmed
-                .strip_prefix('|')
-                .unwrap()
-                .strip_suffix('|')
-                .unwrap()
-                .split('|')
-                .collect();
-
-            // Check if this is a separator row: all cells match :?-+:? after trimming
-            let is_separator = cells.iter().all(|cell| {
-                let c = cell.trim();
-                if c.is_empty() {
-                    return false;
-                }
-                let c = c.strip_prefix(':').unwrap_or(c);
-                let c = c.strip_suffix(':').unwrap_or(c);
-                !c.is_empty() && c.chars().all(|ch| ch == '-')
-            });
-
-            if is_separator {
-                // Normalize separator: trim whitespace but keep : alignment markers
-                let normalized: Vec<String> =
-                    cells.iter().map(|cell| cell.trim().to_string()).collect();
-                out.push('|');
-                out.push_str(&normalized.join("|"));
-                out.push('|');
-            } else {
-                // Data row: trim cell contents
-                let normalized: Vec<String> = cells
-                    .iter()
-                    .map(|cell| {
-                        let t = cell.trim();
-                        format!(" {t} ")
-                    })
-                    .collect();
-                out.push('|');
-                out.push_str(&normalized.join("|"));
-                out.push('|');
-            }
-        } else {
-            if in_table {
-                // UI-15: add a blank line at the table→prose transition so
-                // content doesn't get glued directly to the table's last row.
-                in_table = false;
-                out.push('\n');
-            }
-            out.push_str(line);
-        }
-        out.push('\n');
-    }
-
-    // Remove trailing newline if the original didn't have one
-    if !text.ends_with('\n') {
-        out.pop();
-    }
-
-    out
 }
 
 /// Find the byte position past a complete fenced code block (opening + closing).
@@ -398,10 +616,10 @@ fn split_blocks(text: &str) -> Vec<&str> {
             let open_len = trimmed.chars().take_while(|&c| c == '`').count();
             fence_len = Some(open_len);
         } else if trimmed.is_empty() && i < text.len() {
-            // UI-21: if the current block contains list items, check whether the
-            // content after this blank line continues the same list.  If so, keep
-            // accumulating to avoid handing termimad a split numbered list (which
-            // would reset item numbering on each fragment).
+            // If the current block contains list items, check whether the
+            // content after this blank line continues the same list.  If so,
+            // keep accumulating to avoid splitting a numbered list across blocks
+            // (which would reset item numbering on each fragment).
             let current_block = &text[start..line_start];
             let block_has_list = current_block
                 .lines()
@@ -502,37 +720,6 @@ mod tests {
     }
 
     #[test]
-    fn normalize_gfm_separator_row() {
-        let input = "| Name | Age |\n| --- | --- |\n| Alice | 30 |";
-        let out = normalize_gfm_tables(input);
-        assert_eq!(out, "| Name | Age |\n|---|---|\n| Alice | 30 |");
-    }
-
-    #[test]
-    fn normalize_gfm_alignment_markers() {
-        let input = "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |";
-        let out = normalize_gfm_tables(input);
-        assert_eq!(
-            out,
-            "| Left | Center | Right |\n|:---|:---:|---:|\n| a | b | c |"
-        );
-    }
-
-    #[test]
-    fn normalize_gfm_no_table_passthrough() {
-        let input = "Just some **bold** text\nand another line";
-        let out = normalize_gfm_tables(input);
-        assert_eq!(out, input);
-    }
-
-    #[test]
-    fn normalize_gfm_trims_data_cells() {
-        let input = "|  Name  |  Age  |\n|---|---|\n|  Alice  |  30  |";
-        let out = normalize_gfm_tables(input);
-        assert_eq!(out, "| Name | Age |\n|---|---|\n| Alice | 30 |");
-    }
-
-    #[test]
     fn reset_clears_state() {
         let mut r = MarkdownRenderer::new();
         r.buffer = "leftover".to_string();
@@ -589,15 +776,6 @@ mod tests {
         assert!(!has_list_start(""));
         assert!(!has_list_start("-no space"));
         assert!(!has_list_start("a. not a number"));
-    }
-
-    #[test]
-    fn normalize_gfm_table_to_prose_transition() {
-        // UI-15: blank line should be inserted between table and prose
-        let input = "| A | B |\n|---|---|\n| 1 | 2 |\nSome text after";
-        let out = normalize_gfm_tables(input);
-        // The prose should be preceded by an extra blank line
-        assert!(out.contains("\n\nSome text after"));
     }
 
     #[test]

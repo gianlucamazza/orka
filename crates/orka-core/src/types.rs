@@ -18,6 +18,10 @@ pub enum ErrorCategory {
     Timeout,
     /// Transient error: network, service temporarily unavailable.
     Transient,
+    /// Skill output failed semantic validation (hallucinated or schema-invalid result).
+    Semantic,
+    /// Skill invocation was blocked by a budget constraint (cost or duration ceiling).
+    Budget,
     /// Category cannot be determined.
     Unknown,
 }
@@ -187,6 +191,12 @@ pub enum DomainEventKind {
         skill_name: String,
         /// ID of the message that triggered the invocation.
         message_id: MessageId,
+        /// Serialized input arguments (for audit trail).
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        input_args: HashMap<String, serde_json::Value>,
+        /// Optional caller identity (agent ID, session, etc.).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caller_id: Option<String>,
     },
     /// Emitted when a skill returns, with timing and success flag.
     SkillCompleted {
@@ -201,6 +211,12 @@ pub enum DomainEventKind {
         /// Error category, if the skill failed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error_category: Option<ErrorCategory>,
+        /// Truncated preview of the output (max 1024 chars), for audit trail.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        output_preview: Option<String>,
+        /// Error message if the skill failed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_message: Option<String>,
     },
     /// Emitted when a skill is structurally disabled (circuit open or experience feedback).
     SkillDisabled {
@@ -211,12 +227,26 @@ pub enum DomainEventKind {
         /// Source of the disable action: "circuit_breaker" or "experience_feedback".
         source: String,
     },
+    /// Emitted before each LLM call with request parameters.
+    LlmRequest {
+        /// ID of the message that triggered the LLM call.
+        message_id: MessageId,
+        /// Model identifier to be used.
+        model: String,
+        /// LLM provider system (e.g. `"anthropic"`, `"openai"`).
+        provider: String,
+        /// Agent loop iteration number.
+        iteration: usize,
+    },
     /// Emitted after each LLM call with token usage and latency.
     LlmCompleted {
         /// ID of the message that triggered the LLM call.
         message_id: MessageId,
         /// Model identifier used for the completion.
         model: String,
+        /// LLM provider system (e.g. `"anthropic"`, `"openai"`).
+        #[serde(default)]
+        provider: String,
         /// Number of tokens in the prompt.
         input_tokens: u32,
         /// Number of tokens in the response.
@@ -371,6 +401,25 @@ pub enum DomainEventKind {
 }
 
 /// Context available to skills during execution.
+/// Per-invocation budget constraints for a skill execution.
+///
+/// Fields are all optional — `None` means "no limit". Enforced by the
+/// registry before and after `execute()`.
+#[derive(Debug, Clone, Default)]
+pub struct SkillBudget {
+    /// Maximum wall-clock execution time in milliseconds.
+    ///
+    /// If the skill's measured duration exceeds this value the registry returns
+    /// a [`ErrorCategory::Budget`] error after execution (not a hard timeout —
+    /// use `AgentConfig::skill_timeout_secs` for hard cancellation).
+    pub max_duration_ms: Option<u64>,
+    /// Maximum allowed output size in bytes (serialized JSON).
+    ///
+    /// Prevents oversized skill outputs from flooding the LLM context window.
+    pub max_output_bytes: Option<usize>,
+}
+
+/// Runtime context provided to a skill during execution.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct SkillContext {
@@ -378,6 +427,13 @@ pub struct SkillContext {
     pub secrets: Arc<dyn SecretManager>,
     /// Optional sink for emitting domain events from within a skill.
     pub event_sink: Option<Arc<dyn EventSink>>,
+    /// Optional per-invocation budget constraints.
+    pub budget: Option<SkillBudget>,
+    /// The user's working directory on the client machine, sent via `workspace:cwd` metadata.
+    /// OS skills (e.g. `shell_exec`) should use this as their default CWD when the LLM does
+    /// not explicitly supply one, so that commands run in the user's directory rather than the
+    /// server process's working directory.
+    pub user_cwd: Option<String>,
 }
 
 impl std::fmt::Debug for SkillContext {
@@ -426,6 +482,20 @@ impl SkillInput {
             .get(key)
             .and_then(|v| v.as_bool())
             .ok_or_else(|| crate::Error::Skill(format!("{key} is required")))
+    }
+
+    /// Resolve a path string against the user's CWD from context.
+    ///
+    /// If the path is relative and `user_cwd` is set in the skill context, the
+    /// path is joined onto that directory. Absolute paths are returned as-is.
+    pub fn resolve_path(&self, path: &str) -> std::path::PathBuf {
+        let p = std::path::Path::new(path);
+        if p.is_relative()
+            && let Some(cwd) = self.context.as_ref().and_then(|c| c.user_cwd.as_deref())
+        {
+            return std::path::PathBuf::from(cwd).join(p);
+        }
+        p.to_path_buf()
     }
 }
 
@@ -567,12 +637,26 @@ impl DomainEvent {
 }
 
 impl SkillContext {
-    /// Create a new skill context.
+    /// Create a new skill context without a budget constraint.
     pub fn new(secrets: Arc<dyn SecretManager>, event_sink: Option<Arc<dyn EventSink>>) -> Self {
         Self {
             secrets,
             event_sink,
+            budget: None,
+            user_cwd: None,
         }
+    }
+
+    /// Attach a [`SkillBudget`] to this context.
+    pub fn with_budget(mut self, budget: SkillBudget) -> Self {
+        self.budget = Some(budget);
+        self
+    }
+
+    /// Set the user's working directory (from `workspace:cwd` envelope metadata).
+    pub fn with_user_cwd(mut self, cwd: Option<String>) -> Self {
+        self.user_cwd = cwd;
+        self
     }
 }
 

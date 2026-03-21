@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use tracing::debug;
 
 use crate::cache::WebCache;
@@ -36,6 +36,10 @@ impl WebSearchSkill {
 impl Skill for WebSearchSkill {
     fn name(&self) -> &str {
         "web_search"
+    }
+
+    fn category(&self) -> &str {
+        "web"
     }
 
     fn description(&self) -> &str {
@@ -74,7 +78,10 @@ impl Skill for WebSearchSkill {
             .args
             .get("query")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Skill("missing 'query' argument".into()))?;
+            .ok_or_else(|| Error::SkillCategorized {
+                message: "missing 'query' argument".into(),
+                category: ErrorCategory::Input,
+            })?;
 
         let max_results = input
             .args
@@ -93,8 +100,11 @@ impl Skill for WebSearchSkill {
         let cache_key = format!("{query}:{max_results}:{include_content}");
         if let Some(cached) = self.cache.get("search", &cache_key) {
             debug!(query, "web_search cache hit");
-            let data: serde_json::Value = serde_json::from_str(&cached)
-                .map_err(|e| Error::Skill(format!("cache deserialization error: {e}")))?;
+            let data: serde_json::Value =
+                serde_json::from_str(&cached).map_err(|e| Error::SkillCategorized {
+                    message: format!("cache deserialization error: {e}"),
+                    category: ErrorCategory::Unknown,
+                })?;
             return Ok(SkillOutput::new(data));
         }
 
@@ -121,8 +131,10 @@ impl Skill for WebSearchSkill {
             }
         }
 
-        let data = serde_json::to_value(&results)
-            .map_err(|e| Error::Skill(format!("serialization error: {e}")))?;
+        let data = serde_json::to_value(&results).map_err(|e| Error::SkillCategorized {
+            message: format!("serialization error: {e}"),
+            category: ErrorCategory::Unknown,
+        })?;
 
         // Store in cache
         if let Ok(json) = serde_json::to_string(&data) {

@@ -1,4 +1,5 @@
 use crate::client::OrkaClient;
+use crate::table::make_table;
 use colored::Colorize;
 
 pub async fn status(client: &OrkaClient) -> crate::client::Result<()> {
@@ -28,37 +29,27 @@ pub async fn principles(
         );
         return Ok(());
     }
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Server returned {status}: {body}").into());
-    }
+    let resp = OrkaClient::ensure_ok(resp).await?;
     let body: serde_json::Value = resp.json().await?;
     let principles = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
     if principles.is_empty() {
         println!("{}", "No principles found.".yellow());
         return Ok(());
     }
-    println!("{}", format!("{} principle(s):", principles.len()).cyan());
+    let mut table = make_table(&["#", "Kind", "Text", "Scope", "Reinforced"]);
     for (i, p) in principles.iter().enumerate() {
         let kind = p["kind"].as_str().unwrap_or("do");
-        let text = p["text"].as_str().unwrap_or("?");
-        let scope = p["scope"].as_str().unwrap_or("?");
-        let reinforcements = p["reinforcement_count"].as_u64().unwrap_or(0);
-        let prefix = if kind == "avoid" {
-            "AVOID".red().to_string()
-        } else {
-            "DO".green().to_string()
-        };
-        println!(
-            "  {}. [{}] {} (scope={}, reinforced={})",
-            i + 1,
-            prefix,
-            text,
-            scope.cyan(),
-            reinforcements
-        );
+        let reinforcements = p["reinforcement_count"].as_u64().unwrap_or(0).to_string();
+        let idx = (i + 1).to_string();
+        table.add_row([
+            idx.as_str(),
+            kind,
+            p["text"].as_str().unwrap_or("?"),
+            p["scope"].as_str().unwrap_or("?"),
+            &reinforcements,
+        ]);
     }
+    println!("{table}");
     Ok(())
 }
 
@@ -74,11 +65,7 @@ pub async fn distill(client: &OrkaClient, workspace: &str) -> crate::client::Res
         );
         return Ok(());
     }
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Server returned {status}: {body}").into());
-    }
+    let resp = OrkaClient::ensure_ok(resp).await?;
     let result: serde_json::Value = resp.json().await?;
     let created = result["created"].as_u64().unwrap_or(0);
     println!(

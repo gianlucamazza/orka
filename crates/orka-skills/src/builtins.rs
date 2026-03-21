@@ -11,6 +11,10 @@ impl Skill for EchoSkill {
         "echo"
     }
 
+    fn category(&self) -> &str {
+        "general"
+    }
+
     fn description(&self) -> &str {
         "Echoes back the input arguments"
     }

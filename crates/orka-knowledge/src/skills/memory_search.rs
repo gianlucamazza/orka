@@ -35,8 +35,12 @@ impl Skill for MemorySearchSkill {
         "memory_search"
     }
 
+    fn category(&self) -> &str {
+        "knowledge"
+    }
+
     fn description(&self) -> &str {
-        "Search for semantically similar content in the vector store"
+        "Search for semantically similar content in the vector store."
     }
 
     fn schema(&self) -> SkillSchema {
@@ -75,7 +79,10 @@ impl Skill for MemorySearchSkill {
             .args
             .get("query")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| orka_core::Error::Skill("query is required".into()))?;
+            .ok_or_else(|| orka_core::Error::SkillCategorized {
+                message: "query is required".into(),
+                category: orka_core::ErrorCategory::Input,
+            })?;
 
         let collection = input
             .args

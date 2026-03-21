@@ -54,6 +54,6 @@ pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 pub use types::{
     CommandPayload, DomainEvent, DomainEventKind, Envelope, ErrorCategory, EventId, EventPayload,
     MediaPayload, MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage, Payload,
-    Priority, RunId, SecretValue, Session, SessionId, SkillContext, SkillInput, SkillOutput,
-    SkillSchema, TraceContext, backoff_delay,
+    Priority, RunId, SecretValue, Session, SessionId, SkillBudget, SkillContext, SkillInput,
+    SkillOutput, SkillSchema, TraceContext, backoff_delay,
 };

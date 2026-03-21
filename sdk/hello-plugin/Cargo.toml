@@ -1,0 +1,15 @@
+[package]
+name = "hello-plugin"
+description = "Example Orka WASM plugin using the Component Model SDK"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# Exclude from `cargo test --workspace` — only useful when cross-compiled for wasm32-wasip2.
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+orka-plugin-sdk-component = { path = "../orka-plugin-sdk-component" }
+wit-bindgen.workspace = true
