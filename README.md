@@ -41,11 +41,14 @@ Orka routes messages from Telegram, Discord, Slack, WhatsApp, and HTTP through a
 ```mermaid
 flowchart TD
     Clients["External Clients\nTelegram · Discord · Slack · WhatsApp · HTTP"]
+    Auth["Auth Middleware\norka-auth · API Key · JWT"]
     Adapters["Adapters\nPlatform → Envelope conversion"]
     Bus["Message Bus\nRedis Streams"]
     GW["Gateway\nDedup · Rate-limit · Session · Priority routing"]
     PQ["Priority Queue\nRedis Sorted Set\nUrgent > Normal > Background → DLQ"]
     Workers["Worker Pool (N concurrent)"]
+    A2A["A2A Protocol\norka-a2a · Agent card · JSON-RPC"]
+    Eval["Eval Service\norka-eval · Skill scenario testing"]
 
     subgraph Agent["Agent — GraphExecutor"]
         direction TB
@@ -57,8 +60,8 @@ flowchart TD
             Exp["Experience\nPrinciples + Reflection"]
         end
         Loop["Agentic Loop\nLLM call → stream → tool calls → repeat"]
-        LLM["LLM Router\nAnthropic · OpenAI · Ollama"]
-        Skills["Skill Registry\nBuiltins · Sandbox · WASM · Web\nHTTP · OS · RAG · Scheduler · MCP"]
+        LLM["LLM Router\nAnthropic · OpenAI · Ollama\nCircuit Breaker per provider"]
+        Skills["Skill Registry\nShell · Code · Web · HTTP · Knowledge\nSchedule · MCP · Filesystem · System · WASM"]
         Loop --> LLM
         Loop --> Skills
     end
@@ -69,7 +72,10 @@ flowchart TD
     Ext["External integrations\nQdrant · MCP servers · Web / HTTP APIs"]
     BG["Background services\nScheduler · Experience distillation · Observe (OTel / Prometheus)"]
 
-    Clients --> Adapters
+    Clients --> Auth
+    Auth --> Adapters
+    Clients -.-> A2A
+    Auth -.-> Eval
     Adapters -->|"publish('inbound')"| Bus
     Bus --> GW
     GW -->|"queue.push()"| PQ
