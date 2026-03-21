@@ -7,19 +7,19 @@ End-to-end description of how a message flows through the Orka platform.
 ```mermaid
 flowchart TD
     User["User / External System"]
-    Auth["Auth Middleware — orka-auth\nAPI Key (SHA-256) · JWT (HMAC / RSA)"]
-    CA1["ChannelAdapter\norka-adapter-{telegram,discord,slack,whatsapp,custom}\nConverts platform-specific format → Envelope"]
-    RS1["Redis Streams — inbound\norka-bus"]
-    GW["Gateway — orka-gateway\n1. Deduplication (Redis SET NX EX)\n2. Rate limiting (Redis INCR / in-memory fallback)\n3. Session resolution (create or load)\n4. Priority routing (DM → Urgent, group → Normal)\n5. Trace context generation (W3C traceparent)"]
-    PQ["Redis Sorted Set — orka-queue\nScore = bucket × 10¹⁵ + timestamp_µs (lowest first)"]
-    WP["WorkerPool — orka-worker (N concurrent)\nRetries: base × 3ⁿ backoff · DLQ after max_retries"]
-    WH["WorkspaceHandler\n1. Load workspace config (system prompt, skills, model)\n2. Inject memory context (orka-memory)\n3. Inject principles (orka-experience)\n4. Apply guardrails (orka-guardrails)\n5. Agentic loop: LLM call → stream → tool calls → repeat\n6. Post-task reflection → trajectory recording (orka-experience)"]
-    RS2["Redis Streams — outbound\nbus.publish('outbound', envelope)"]
-    CA2["ChannelAdapter\nConverts OutboundMessage → platform reply"]
+    Auth["Auth Middleware — orka-auth<br/>API Key (SHA-256) · JWT (HMAC / RSA)"]
+    CA1["ChannelAdapter<br/>orka-adapter-{telegram,discord,slack,whatsapp,custom}<br/>Converts platform-specific format → Envelope"]
+    RS1["Redis Streams — inbound<br/>orka-bus"]
+    GW["Gateway — orka-gateway<br/>1. Deduplication (Redis SET NX EX)<br/>2. Rate limiting (Redis INCR / in-memory fallback)<br/>3. Session resolution (create or load)<br/>4. Priority routing (DM → Urgent, group → Normal)<br/>5. Trace context generation (W3C traceparent)"]
+    PQ["Redis Sorted Set — orka-queue<br/>Score = bucket × 10¹⁵ + timestamp_µs (lowest first)"]
+    WP["WorkerPool — orka-worker (N concurrent)<br/>Retries: base × 3ⁿ backoff · DLQ after max_retries"]
+    WH["WorkspaceHandler<br/>1. Load workspace config (system prompt, skills, model)<br/>2. Inject memory context (orka-memory)<br/>3. Inject principles (orka-experience)<br/>4. Apply guardrails (orka-guardrails)<br/>5. Agentic loop: LLM call → stream → tool calls → repeat<br/>6. Post-task reflection → trajectory recording (orka-experience)"]
+    RS2["Redis Streams — outbound<br/>bus.publish('outbound', envelope)"]
+    CA2["ChannelAdapter<br/>Converts OutboundMessage → platform reply"]
     Reply["User sees reply"]
-    A2A["A2A Protocol — orka-a2a\nPublic · /.well-known/agent.json · JSON-RPC"]
+    A2A["A2A Protocol — orka-a2a<br/>Public · /.well-known/agent.json · JSON-RPC"]
 
-    User -->|"HTTP POST /message\n(or webhook, Telegram update, Slack event…)"| Auth
+    User -->|"HTTP POST /message (or webhook, Telegram update, Slack event…)"| Auth
     User -.->|"public"| A2A
     Auth -->|"authenticated"| CA1
     CA1 -->|"MessageBus.publish('inbound', envelope)"| RS1

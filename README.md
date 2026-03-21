@@ -40,37 +40,37 @@ Orka routes messages from Telegram, Discord, Slack, WhatsApp, and HTTP through a
 
 ```mermaid
 flowchart TD
-    Clients["External Clients\nTelegram · Discord · Slack · WhatsApp · HTTP"]
-    Auth["Auth Middleware\norka-auth · API Key · JWT"]
-    Adapters["Adapters\nPlatform → Envelope conversion"]
-    Bus["Message Bus\nRedis Streams"]
-    GW["Gateway\nDedup · Rate-limit · Session · Priority routing"]
-    PQ["Priority Queue\nRedis Sorted Set\nUrgent > Normal > Background → DLQ"]
+    Clients["External Clients<br/>Telegram · Discord · Slack · WhatsApp · HTTP"]
+    Auth["Auth Middleware<br/>orka-auth · API Key · JWT"]
+    Adapters["Adapters<br/>Platform → Envelope conversion"]
+    Bus["Message Bus<br/>Redis Streams"]
+    GW["Gateway<br/>Dedup · Rate-limit · Session · Priority routing"]
+    PQ["Priority Queue<br/>Redis Sorted Set<br/>Urgent > Normal > Background → DLQ"]
     Workers["Worker Pool (N concurrent)"]
-    A2A["A2A Protocol\norka-a2a · Agent card · JSON-RPC"]
-    Eval["Eval Service\norka-eval · Skill scenario testing"]
+    A2A["A2A Protocol<br/>orka-a2a · Agent card · JSON-RPC"]
+    Eval["Eval Service<br/>orka-eval · Skill scenario testing"]
 
     subgraph Agent["Agent — GraphExecutor"]
         direction TB
         subgraph Context["  "]
             direction LR
-            WS["Workspace\nSOUL.md · TOOLS.md"]
-            GR["Guardrails\nPre / Post"]
-            Mem["Memory\nKey-Val store"]
-            Exp["Experience\nPrinciples + Reflection"]
+            WS["Workspace<br/>SOUL.md · TOOLS.md"]
+            GR["Guardrails<br/>Pre / Post"]
+            Mem["Memory<br/>Key-Val store"]
+            Exp["Experience<br/>Principles + Reflection"]
         end
-        Loop["Agentic Loop\nLLM call → stream → tool calls → repeat"]
-        LLM["LLM Router\nAnthropic · OpenAI · Ollama\nCircuit Breaker per provider"]
-        Skills["Skill Registry\nShell · Code · Web · HTTP · Knowledge\nSchedule · MCP · Filesystem · System · WASM"]
+        Loop["Agentic Loop<br/>LLM call → stream → tool calls → repeat"]
+        LLM["LLM Router<br/>Anthropic · OpenAI · Ollama<br/>Circuit Breaker per provider"]
+        Skills["Skill Registry<br/>Shell · Code · Web · HTTP · Knowledge<br/>Schedule · MCP · Filesystem · System · WASM"]
         Loop --> LLM
         Loop --> Skills
     end
 
-    Outbound["Outbound Bridge\nbus.publish('outbound')"]
-    AdaptersOut["Adapters outbound\nRoute reply by channel_id"]
+    Outbound["Outbound Bridge<br/>bus.publish('outbound')"]
+    AdaptersOut["Adapters outbound<br/>Route reply by channel_id"]
     Platforms["Telegram · Discord · Slack · WhatsApp · HTTP"]
-    Ext["External integrations\nQdrant · MCP servers · Web / HTTP APIs"]
-    BG["Background services\nScheduler · Experience distillation · Observe (OTel / Prometheus)"]
+    Ext["External integrations<br/>Qdrant · MCP servers · Web / HTTP APIs"]
+    BG["Background services<br/>Scheduler · Experience distillation · Observe (OTel / Prometheus)"]
 
     Clients --> Auth
     Auth --> Adapters

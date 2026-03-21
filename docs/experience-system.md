@@ -9,12 +9,12 @@ flowchart LR
     T["1. Trajectory recording"]
     R["2. Post-task reflection"]
     D["3. Offline distillation"]
-    Inject["Principles injected into\nsystem prompt on next turn"]
+    Inject["Principles injected into<br/>system prompt on next turn"]
 
     Msg --> T
-    T -->|"stored in Redis\n(raw trajectories)"| R
-    R -->|"new principle\ncandidates"| D
-    D -->|"curated principles\n(Redis)"| Inject
+    T -->|"stored in Redis (raw trajectories)"| R
+    R -->|"new principle candidates"| D
+    D -->|"curated principles (Redis)"| Inject
 ```
 
 ---
