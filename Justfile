@@ -62,6 +62,10 @@ clean:
 test-crate crate:
     cargo test -p {{crate}}
 
+# Run server HTTP e2e tests (no external services required)
+test-e2e:
+    cargo test -p orka-server --test api_health --test api_management --test api_auth --test api_roundtrip
+
 # Watch and recompile on changes (requires cargo-watch)
 watch:
     cargo watch -x 'check --workspace'
