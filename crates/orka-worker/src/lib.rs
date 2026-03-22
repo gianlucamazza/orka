@@ -31,7 +31,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use orka_agent::{AgentGraph, ExecutionContext, GraphExecutor};
 use orka_core::traits::{EventSink, MemoryStore, MessageBus, PriorityQueue, SessionStore};
 use orka_core::types::SessionId;
-use orka_core::{DomainEvent, DomainEventKind, Envelope, Payload, Priority, Session};
+use orka_core::{CommandArgs, DomainEvent, DomainEventKind, Envelope, OutboundMessage, Payload, Priority, Session};
 use orka_llm::client::ChatMessage;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -397,6 +397,7 @@ pub struct WorkerPoolGraph {
     graph: Arc<AgentGraph>,
     event_sink: Arc<dyn EventSink>,
     memory: Option<Arc<dyn MemoryStore>>,
+    commands: Option<Arc<commands::CommandRegistry>>,
     concurrency: usize,
     max_retries: u32,
     retry_base_delay_ms: u64,
@@ -423,6 +424,7 @@ impl WorkerPoolGraph {
             graph,
             event_sink,
             memory: None,
+            commands: None,
             concurrency,
             max_retries,
             retry_base_delay_ms: 5000,
@@ -432,6 +434,13 @@ impl WorkerPoolGraph {
     /// Set the base delay for retry backoff (default: 5000ms).
     pub fn with_retry_delay(mut self, base_delay_ms: u64) -> Self {
         self.retry_base_delay_ms = base_delay_ms;
+        self
+    }
+
+    /// Attach a command registry so that slash commands are dispatched directly
+    /// without going through the LLM graph.
+    pub fn with_commands(mut self, commands: Arc<commands::CommandRegistry>) -> Self {
+        self.commands = Some(commands);
         self
     }
 
@@ -457,6 +466,7 @@ impl WorkerPoolGraph {
             let graph = self.graph.clone();
             let event_sink = self.event_sink.clone();
             let memory = self.memory.clone();
+            let commands = self.commands.clone();
             let cancel = shutdown.clone();
             let max_retries = self.max_retries;
             let retry_base_delay_ms = self.retry_base_delay_ms;
@@ -512,6 +522,57 @@ impl WorkerPoolGraph {
                                         },
                                     )).await;
 
+                                    // Dispatch structured commands directly if a registry is available,
+                                    // bypassing the LLM graph entirely (same as WorkspaceHandler).
+                                    if let Payload::Command(cmd) = &envelope.payload
+                                        && let Some(ref registry) = commands
+                                        && let Some(handler) = registry.get(&cmd.name)
+                                    {
+                                        let session = match sessions.get(&envelope.session_id).await {
+                                            Ok(Some(s)) => s,
+                                            _ => Session::new(&envelope.channel, "anonymous"),
+                                        };
+                                        let args = CommandArgs::from(cmd.clone());
+                                        let start = std::time::Instant::now();
+                                        let outbound_msgs: Vec<OutboundMessage> = match handler.execute(&args, &envelope, &session).await {
+                                            Ok(msgs) => msgs,
+                                            Err(e) => {
+                                                error!(worker = i, %e, message_id = %envelope.id, "command handler error");
+                                                vec![]
+                                            }
+                                        };
+                                        let duration_ms = start.elapsed().as_millis() as u64;
+                                        let reply_count = outbound_msgs.len();
+                                        for msg in &outbound_msgs {
+                                            let mut out_env = Envelope::text(
+                                                &msg.channel,
+                                                msg.session_id,
+                                                match &msg.payload {
+                                                    Payload::Text(t) => t.clone(),
+                                                    _ => "[non-text]".into(),
+                                                },
+                                            );
+                                            out_env.metadata = msg.metadata.clone();
+                                            out_env.trace_context = envelope.trace_context.clone();
+                                            if let Err(e) = bus.publish("outbound", &out_env).await {
+                                                error!(worker = i, %e, "failed to publish command outbound");
+                                            }
+                                        }
+                                        event_sink.emit(DomainEvent::new(
+                                            DomainEventKind::HandlerCompleted {
+                                                message_id: envelope.id,
+                                                session_id: envelope.session_id,
+                                                duration_ms,
+                                                reply_count,
+                                            },
+                                        )).await;
+                                        if let Some(ref mem) = memory {
+                                            mem.release_session_lock(&envelope.session_id.to_string()).await;
+                                        }
+                                        info!(worker = i, message_id = %envelope.id, command = %cmd.name, "processed command directly");
+                                        continue;
+                                    }
+
                                     let start = std::time::Instant::now();
                                     let locked_session_id_graph = envelope.session_id.to_string();
                                     let ctx = ExecutionContext::new(envelope.clone());
@@ -540,7 +601,16 @@ impl WorkerPoolGraph {
                                     let user_text = match &envelope.payload {
                                         Payload::Text(t) => Some(t.clone()),
                                         Payload::Media(m) => m.caption.clone().or_else(|| Some(format!("[media: {}]", m.mime_type))),
-                                        Payload::Command(c) => Some(format!("/{}", c.name)),
+                                        Payload::Command(c) => {
+                                            let mut text = format!("/{}", c.name);
+                                            if let Some(rest) = c.args.get("text").and_then(|v| v.as_str())
+                                                && !rest.is_empty()
+                                            {
+                                                text.push(' ');
+                                                text.push_str(rest);
+                                            }
+                                            Some(text)
+                                        }
                                         Payload::Event(_) => None,
                                         _ => None,
                                     };

@@ -1164,7 +1164,8 @@ async fn main() -> anyhow::Result<()> {
         config.queue.max_retries,
     )
     .with_retry_delay(config.worker.retry_base_delay_ms)
-    .with_memory(memory_for_worker);
+    .with_memory(memory_for_worker)
+    .with_commands(commands.clone());
     let worker_cancel = shutdown.clone();
     let worker_handle = tokio::spawn(async move {
         if let Err(e) = worker_pool.run(worker_cancel).await {
