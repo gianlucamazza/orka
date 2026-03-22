@@ -65,7 +65,12 @@ pub async fn run(client: &OrkaClient, short: bool) -> Result<()> {
 
     // Readiness checks
     if let Ok(body) = client.get_json("/health/ready").await {
-        let ready = body.get("ready").and_then(|v| v.as_bool()).unwrap_or(false);
+        // The response uses `"status": "ready"` (not a bool `"ready"` field)
+        let status_str = body
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let ready = status_str == "ready";
         if ready {
             println!("{} {}", "Ready:".bold(), "yes".green());
         } else {
@@ -75,9 +80,10 @@ pub async fn run(client: &OrkaClient, short: bool) -> Result<()> {
         if let Some(checks) = body.get("checks").and_then(|v| v.as_object()) {
             println!("{}:", "Checks".bold());
             for (name, value) in checks {
+                // Values can be a plain string ("ok") or an object {"status":"ok","depth":0}
                 let status = value
-                    .get("status")
-                    .and_then(|v| v.as_str())
+                    .as_str()
+                    .or_else(|| value.get("status").and_then(|v| v.as_str()))
                     .unwrap_or("unknown");
                 let mut line = format!("  {name}: {status}");
                 if let Some(depth) = value.get("depth").and_then(|v| v.as_u64()) {

@@ -15,11 +15,11 @@ pub async fn run(
 ) -> Result<()> {
     let sid = OrkaClient::resolve_session_id(session_id);
 
-    println!("{} {}", "Session:".bold(), sid.dimmed());
+    eprintln!("{} {}", "Session:".bold(), sid.dimmed());
     if let Some(ref ws) = local_workspace {
-        println!("Workspace: {}", ws.root.display().to_string().dimmed());
+        eprintln!("Workspace: {}", ws.root.display().to_string().dimmed());
     }
-    println!("{} {}", "Sending:".bold(), text);
+    eprintln!("{} {}", "Sending:".bold(), text);
 
     let mut metadata = local_workspace
         .as_ref()
