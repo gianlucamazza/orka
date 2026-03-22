@@ -99,14 +99,11 @@ async fn run_pool_with_envelope(
     let deadline = tokio::time::sleep(Duration::from_secs(2));
     tokio::pin!(deadline);
 
-    loop {
-        tokio::select! {
-            _ = &mut deadline => break,
-            msg = rx.recv() => {
-                match msg {
-                    Some(env) => { results.push(env); break; }
-                    None => break,
-                }
+    tokio::select! {
+        _ = &mut deadline => {},
+        msg = rx.recv() => {
+            if let Some(env) = msg {
+                results.push(env);
             }
         }
     }
