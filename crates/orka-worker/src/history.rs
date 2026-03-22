@@ -20,8 +20,11 @@ pub fn compact_tool_results(messages: Vec<ChatMessage>, max_chars: usize) -> Vec
                         && content.len() > max_chars
                     {
                         let half = max_chars / 2;
-                        let head = content[..half].to_string();
-                        let tail = content[content.len() - half..].to_string();
+                        let head_end = content.floor_char_boundary(half);
+                        let tail_start =
+                            content.ceil_char_boundary(content.len().saturating_sub(half));
+                        let head = &content[..head_end];
+                        let tail = &content[tail_start..];
                         let original_len = content.len();
                         *content = format!(
                             "{}\n... [truncated, original {original_len} chars] ...\n{}",

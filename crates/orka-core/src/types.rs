@@ -503,7 +503,9 @@ impl SkillInput {
         }
 
         let p = std::path::Path::new(path);
-        if p.is_relative() && let Some(dir) = cwd {
+        if p.is_relative()
+            && let Some(dir) = cwd
+        {
             return std::path::PathBuf::from(dir).join(p);
         }
         p.to_path_buf()

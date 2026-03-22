@@ -31,7 +31,10 @@ use chrono::{Duration as ChronoDuration, Utc};
 use orka_agent::{AgentGraph, ExecutionContext, GraphExecutor};
 use orka_core::traits::{EventSink, MemoryStore, MessageBus, PriorityQueue, SessionStore};
 use orka_core::types::SessionId;
-use orka_core::{CommandArgs, DomainEvent, DomainEventKind, Envelope, OutboundMessage, Payload, Priority, Session};
+use orka_core::{
+    CommandArgs, DomainEvent, DomainEventKind, Envelope, OutboundMessage, Payload, Priority,
+    Session,
+};
 use orka_llm::client::ChatMessage;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -151,7 +154,12 @@ impl WorkerPool {
                                         Ok(Some(s)) => s,
                                         Ok(None) => {
                                             warn!(worker = i, session_id = %envelope.session_id, "session not found, creating default");
-                                            Session::new(&envelope.channel, "anonymous")
+                                            let mut s = Session::new(&envelope.channel, "anonymous");
+                                            s.id = envelope.session_id;
+                                            if let Err(e) = sessions.put(&s).await {
+                                                warn!(worker = i, %e, "failed to persist fallback session");
+                                            }
+                                            s
                                         }
                                         Err(e) => {
                                             error!(worker = i, %e, "failed to load session");

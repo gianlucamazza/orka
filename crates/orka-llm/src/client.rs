@@ -315,7 +315,7 @@ pub enum ContentBlockInput {
         /// Output content from the tool.
         content: String,
         /// Whether the tool produced an error result.
-        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         is_error: bool,
     },
     /// A thinking/reasoning block returned by reasoning-capable models.
@@ -651,5 +651,50 @@ mod tests {
             let back: StopReason = serde_json::from_str(&json).unwrap();
             assert_eq!(back, reason);
         }
+    }
+
+    #[test]
+    fn tool_result_serde_round_trip_success() {
+        // is_error=false is skip_serializing, so the field is absent in JSON.
+        // Without #[serde(default)] this would fail to deserialize — regression guard.
+        let msg = ChatMessage::new(
+            Role::User,
+            ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
+                tool_use_id: "t1".into(),
+                content: "output".into(),
+                is_error: false,
+            }]),
+        );
+        let json = serde_json::to_value(&msg).unwrap();
+        // Confirm is_error is absent
+        let blocks = json["content"].as_array().unwrap();
+        assert!(blocks[0].get("is_error").is_none());
+        // Must round-trip without error
+        let back: ChatMessage = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            back.content,
+            ChatContent::Blocks(ref b) if matches!(b[0], ContentBlockInput::ToolResult { is_error: false, .. })
+        ));
+    }
+
+    #[test]
+    fn tool_result_serde_round_trip_error() {
+        let msg = ChatMessage::new(
+            Role::User,
+            ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
+                tool_use_id: "t2".into(),
+                content: "err".into(),
+                is_error: true,
+            }]),
+        );
+        let json = serde_json::to_value(&msg).unwrap();
+        // is_error=true must be present in JSON
+        assert_eq!(json["content"][0]["is_error"], true);
+        // Must round-trip without error
+        let back: ChatMessage = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            back.content,
+            ChatContent::Blocks(ref b) if matches!(b[0], ContentBlockInput::ToolResult { is_error: true, .. })
+        ));
     }
 }
