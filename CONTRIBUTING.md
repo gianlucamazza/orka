@@ -13,7 +13,7 @@ Thank you for your interest in contributing to Orka!
 ### Setup
 
 ```bash
-git clone https://github.com/homen3/orka.git
+git clone https://github.com/gianlucamazza/orka.git
 cd orka
 cargo build --workspace
 ```
