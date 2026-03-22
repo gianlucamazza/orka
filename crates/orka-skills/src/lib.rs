@@ -26,7 +26,7 @@ pub use builtins::EchoSkill;
 pub use loader::load_plugins;
 pub use registry::SkillRegistry;
 pub use soft_loader::scan_soft_skills;
-pub use soft_registry::SoftSkillRegistry;
+pub use soft_registry::{SoftSkillRegistry, SoftSkillSelectionMode};
 pub use soft_skill::{SoftSkill, SoftSkillMeta, SoftSkillSummary};
 pub use wasm_plugin::WasmPluginSkill;
 

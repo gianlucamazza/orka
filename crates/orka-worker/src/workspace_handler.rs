@@ -513,6 +513,30 @@ impl WorkspaceHandler {
                 continue;
             }
 
+            // Tool input guardrail: check serialized args before executing the skill.
+            // Blocked calls are returned to the LLM as an error result (no execution).
+            // Modified args replace the original input for the spawned task.
+            let mut call_input_override: Option<serde_json::Value> = None;
+            if let Some(ref guardrail) = self.guardrail {
+                let input_json = call.input.to_string();
+                match guardrail.check_input(&input_json, session).await {
+                    Ok(orka_core::traits::GuardrailDecision::Block(reason)) => {
+                        warn!(skill = %call.name, %reason, "tool input blocked by guardrail");
+                        builtin_results.insert(
+                            idx,
+                            (format!("Tool input blocked by guardrail: {reason}"), true),
+                        );
+                        continue;
+                    }
+                    Ok(orka_core::traits::GuardrailDecision::Modify(modified)) => {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&modified) {
+                            call_input_override = Some(v);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             info!(skill = %call.name, id = %call.id, "invoking skill via tool call");
 
             self.event_sink
@@ -545,7 +569,7 @@ impl WorkspaceHandler {
             let call_id = call.id.clone();
             let call_name = call.name.clone();
             let call_name_for_summary = call.name.clone();
-            let call_input = call.input.clone();
+            let call_input = call_input_override.unwrap_or_else(|| call.input.clone());
             let skills = self.skills.clone();
             let event_sink = self.event_sink.clone();
             let message_id = envelope.id;

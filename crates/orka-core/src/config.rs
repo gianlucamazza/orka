@@ -630,11 +630,32 @@ pub struct PluginConfig {
     pub capabilities: std::collections::HashMap<String, PluginCapabilities>,
 }
 
+/// Soft skill selection mode.
+///
+/// - `"all"` (default): inject every registered soft skill into every request.
+/// - `"keyword"`: inject only soft skills whose name or tags match words in the
+///   user's message. Reduces prompt bloat when many soft skills are registered.
+fn default_soft_skill_selection_mode() -> String {
+    "all".to_string()
+}
+
 /// Soft skill (SKILL.md) configuration.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct SoftSkillConfig {
     /// Directory to scan for soft skill subdirectories containing SKILL.md files.
     pub dir: Option<String>,
+    /// How to select which soft skills to inject: `"all"` or `"keyword"`.
+    #[serde(default = "default_soft_skill_selection_mode")]
+    pub selection_mode: String,
+}
+
+impl Default for SoftSkillConfig {
+    fn default() -> Self {
+        Self {
+            dir: None,
+            selection_mode: default_soft_skill_selection_mode(),
+        }
+    }
 }
 
 /// Session store configuration.

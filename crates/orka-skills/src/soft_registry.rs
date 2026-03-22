@@ -2,20 +2,49 @@ use std::collections::HashMap;
 
 use crate::soft_skill::{SoftSkill, SoftSkillSummary};
 
+/// Controls which soft skills are injected into the agent system prompt.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SoftSkillSelectionMode {
+    /// Inject all registered soft skills (default, backward-compatible).
+    #[default]
+    All,
+    /// Inject only soft skills whose name or tags match words in the user's message.
+    /// Reduces prompt bloat when many skills are registered.
+    Keyword,
+}
+
+impl From<&str> for SoftSkillSelectionMode {
+    fn from(s: &str) -> Self {
+        match s {
+            "keyword" => Self::Keyword,
+            _ => Self::All,
+        }
+    }
+}
+
 /// Registry for instruction-based soft skills.
 ///
 /// Soft skills are NOT LLM tools. They inject procedural instructions into
 /// the agent system prompt when activated for a given request.
 pub struct SoftSkillRegistry {
     skills: HashMap<String, SoftSkill>,
+    /// Controls which skills are injected per request.
+    pub selection_mode: SoftSkillSelectionMode,
 }
 
 impl SoftSkillRegistry {
-    /// Create an empty registry.
+    /// Create an empty registry with `All` selection mode.
     pub fn new() -> Self {
         Self {
             skills: HashMap::new(),
+            selection_mode: SoftSkillSelectionMode::All,
         }
+    }
+
+    /// Set the selection mode (builder pattern).
+    pub fn with_selection_mode(mut self, mode: SoftSkillSelectionMode) -> Self {
+        self.selection_mode = mode;
+        self
     }
 
     /// Register a soft skill, replacing any existing skill with the same name.
@@ -82,6 +111,36 @@ impl SoftSkillRegistry {
             out.push('\n');
         }
         out
+    }
+
+    /// Return names of skills whose name or tags appear in `message` (case-insensitive).
+    ///
+    /// Used by [`SoftSkillSelectionMode::Keyword`] to reduce prompt bloat by injecting
+    /// only contextually relevant skills instead of the full registry.
+    /// Falls back to all skills when no keyword matches are found.
+    pub fn filter_by_message<'a>(&'a self, message: &str) -> Vec<&'a str> {
+        let msg_lower = message.to_lowercase();
+        let matched: Vec<&'a str> = self
+            .skills
+            .values()
+            .filter(|skill| {
+                msg_lower.contains(&skill.meta.name.to_lowercase())
+                    || skill
+                        .meta
+                        .tags
+                        .iter()
+                        .any(|t| msg_lower.contains(&t.to_lowercase()))
+            })
+            .map(|skill| skill.meta.name.as_str())
+            .collect();
+
+        // If nothing matched, fall back to injecting all skills so the agent
+        // always has at least its full instruction set available.
+        if matched.is_empty() {
+            self.list()
+        } else {
+            matched
+        }
     }
 }
 

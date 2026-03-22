@@ -30,7 +30,7 @@ impl McpServer {
         match method {
             "initialize" => {
                 let result = json!({
-                    "protocolVersion": "2024-11-05",
+                    "protocolVersion": "2025-03-26",
                     "capabilities": {
                         "tools": { "listChanged": true }
                     },

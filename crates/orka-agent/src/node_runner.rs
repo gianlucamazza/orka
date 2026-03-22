@@ -271,12 +271,14 @@ pub async fn run_agent_node(
     let system_prompt = {
         let mut sp = agent.system_prompt.build(&agent.display_name);
 
+        // Extract trigger text once — used for principle retrieval and soft skill selection.
+        let trigger_text = match &ctx.trigger.payload {
+            orka_core::Payload::Text(t) => t.clone(),
+            _ => String::new(),
+        };
+
         // Inject learned principles if experience is available
         if let Some(ref exp) = deps.experience {
-            let trigger_text = match &ctx.trigger.payload {
-                orka_core::Payload::Text(t) => t.clone(),
-                _ => String::new(),
-            };
             match exp
                 .retrieve_principles(&trigger_text, agent.id.0.as_ref())
                 .await
@@ -313,8 +315,13 @@ pub async fn run_agent_node(
         // B2: Inject soft skill instructions
         if let Some(ref soft_reg) = deps.soft_skills {
             if !soft_reg.is_empty() {
-                let all_names: Vec<&str> = soft_reg.list();
-                let section = soft_reg.build_prompt_section(&all_names);
+                let selected_names: Vec<&str> =
+                    if soft_reg.selection_mode == orka_skills::SoftSkillSelectionMode::Keyword {
+                        soft_reg.filter_by_message(&trigger_text)
+                    } else {
+                        soft_reg.list()
+                    };
+                let section = soft_reg.build_prompt_section(&selected_names);
                 if !section.is_empty() {
                     sp.push_str("\n\n");
                     sp.push_str(&section);

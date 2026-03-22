@@ -582,19 +582,22 @@ async fn main() -> anyhow::Result<()> {
     info!("skill registry ready ({} skills)", skills.list().len());
 
     // 4e. Soft skills (SKILL.md-based instruction skills)
-    let soft_skills: Option<Arc<orka_skills::SoftSkillRegistry>> =
-        if let Some(ref dir) = config.soft_skills.dir {
-            let skills_list = orka_skills::scan_soft_skills(std::path::Path::new(dir));
-            let mut reg = orka_skills::SoftSkillRegistry::new();
-            let count = skills_list.len();
-            for skill in skills_list {
-                reg.register(skill);
-            }
-            info!(count, "soft skill registry ready");
-            Some(Arc::new(reg))
-        } else {
-            None
-        };
+    let soft_skills: Option<Arc<orka_skills::SoftSkillRegistry>> = if let Some(ref dir) =
+        config.soft_skills.dir
+    {
+        let skills_list = orka_skills::scan_soft_skills(std::path::Path::new(dir));
+        let selection_mode =
+            orka_skills::SoftSkillSelectionMode::from(config.soft_skills.selection_mode.as_str());
+        let mut reg = orka_skills::SoftSkillRegistry::new().with_selection_mode(selection_mode);
+        let count = skills_list.len();
+        for skill in skills_list {
+            reg.register(skill);
+        }
+        info!(count, selection_mode = %config.soft_skills.selection_mode, "soft skill registry ready");
+        Some(Arc::new(reg))
+    } else {
+        None
+    };
 
     // LLM client (optional) — after validate(), config.llm.providers is canonical
     // Track swappable clients for hot-reload
