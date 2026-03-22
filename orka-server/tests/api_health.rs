@@ -11,11 +11,16 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn health_returns_ok() {
     let app = common::test_router();
-    let req = Request::builder().uri("/health").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/health")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "ok");
     assert!(json["uptime_secs"].is_number());
@@ -26,11 +31,16 @@ async fn health_returns_ok() {
 #[tokio::test]
 async fn health_live_returns_ok() {
     let app = common::test_router();
-    let req = Request::builder().uri("/health/live").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/health/live")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["status"], "ok");
 }
@@ -38,11 +48,16 @@ async fn health_live_returns_ok() {
 #[tokio::test]
 async fn version_returns_build_info() {
     let app = common::test_router();
-    let req = Request::builder().uri("/api/v1/version").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/api/v1/version")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json["version"].is_string(), "missing version field");
     assert!(json["git_sha"].is_string(), "missing git_sha field");
@@ -52,25 +67,38 @@ async fn version_returns_build_info() {
 #[tokio::test]
 async fn openapi_spec_accessible() {
     let app = common::test_router();
-    let req = Request::builder().uri("/api-doc/openapi.json").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/api-doc/openapi.json")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json.is_object(), "OpenAPI spec should be a JSON object");
-    assert!(json["info"].is_object(), "OpenAPI spec should have an info field");
+    assert!(
+        json["info"].is_object(),
+        "OpenAPI spec should have an info field"
+    );
 }
 
 #[tokio::test]
 async fn security_headers_present() {
     let app = common::test_router();
-    let req = Request::builder().uri("/health/live").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/health/live")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
 
     let headers = resp.headers();
     assert_eq!(
-        headers.get("x-content-type-options").and_then(|v| v.to_str().ok()),
+        headers
+            .get("x-content-type-options")
+            .and_then(|v| v.to_str().ok()),
         Some("nosniff")
     );
     assert_eq!(

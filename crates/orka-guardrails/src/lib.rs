@@ -7,10 +7,10 @@
 
 #![warn(missing_docs)]
 
-/// Code execution safety guardrail.
-pub mod code_filter;
 /// Composable guardrail chain that runs checks in order.
 pub mod chain;
+/// Code execution safety guardrail.
+pub mod code_filter;
 /// Simple keyword blocklist guardrail.
 pub mod keyword;
 /// Regex-based block and redact guardrail.

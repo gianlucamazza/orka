@@ -19,8 +19,8 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use orka_adapter_custom::{routes::app_router, ws::WsRegistry};
-use orka_core::{Payload, SessionId, StreamRegistry, traits::MessageBus};
 use orka_core::testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore};
+use orka_core::{Payload, SessionId, StreamRegistry, traits::MessageBus};
 use orka_gateway::Gateway;
 use orka_worker::{EchoHandler, WorkerPool};
 use orka_workspace::WorkspaceLoader;
@@ -57,7 +57,9 @@ async fn start_pipeline() -> (
     );
     tokio::spawn({
         let cancel = shutdown.clone();
-        async move { gateway.run(cancel).await.ok(); }
+        async move {
+            gateway.run(cancel).await.ok();
+        }
     });
 
     // 2. Start worker pool with EchoHandler
@@ -73,7 +75,9 @@ async fn start_pipeline() -> (
     );
     tokio::spawn({
         let cancel = shutdown.clone();
-        async move { worker_pool.run(cancel).await.ok(); }
+        async move {
+            worker_pool.run(cancel).await.ok();
+        }
     });
 
     // 3. Start custom adapter (app_router bound to port 0)
@@ -85,7 +89,9 @@ async fn start_pipeline() -> (
     let addr = listener.local_addr().unwrap();
 
     let router = app_router(sink_tx, ws_registry.clone(), StreamRegistry::new(), None);
-    tokio::spawn(async move { axum::serve(listener, router).await.ok(); });
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.ok();
+    });
 
     // 4. Bridge adapter sink → bus "inbound"
     let bus_for_inbound = bus.clone();
@@ -110,7 +116,9 @@ async fn start_pipeline() -> (
                 None,
             );
             let json = serde_json::to_string(&outbound).unwrap();
-            ws_reg_for_bridge.send_to_session(&envelope.session_id, &json).await;
+            ws_reg_for_bridge
+                .send_to_session(&envelope.session_id, &json)
+                .await;
         }
     });
 

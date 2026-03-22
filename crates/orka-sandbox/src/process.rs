@@ -36,7 +36,17 @@ impl SandboxExecutor for ProcessSandbox {
             SandboxLang::JavaScript => {
                 // Prefer Deno for built-in permission sandboxing; fall back to Node.
                 if which_js_runtime() == JsRuntime::Deno {
-                    ("deno", ".js", vec!["run", "--deny-net", "--deny-env", "--deny-write", "--deny-run"])
+                    (
+                        "deno",
+                        ".js",
+                        vec![
+                            "run",
+                            "--deny-net",
+                            "--deny-env",
+                            "--deny-write",
+                            "--deny-run",
+                        ],
+                    )
                 } else {
                     ("node", ".js", vec![])
                 }

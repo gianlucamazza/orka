@@ -11,11 +11,16 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn list_skills_contains_echo() {
     let app = common::test_router();
-    let req = Request::builder().uri("/api/v1/skills").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/api/v1/skills")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let arr = json.as_array().expect("expected array");
     assert!(
@@ -27,11 +32,16 @@ async fn list_skills_contains_echo() {
 #[tokio::test]
 async fn get_skill_by_name() {
     let app = common::test_router();
-    let req = Request::builder().uri("/api/v1/skills/echo").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/api/v1/skills/echo")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["name"], "echo");
     assert!(json["description"].is_string());
@@ -51,11 +61,16 @@ async fn get_skill_not_found() {
 #[tokio::test]
 async fn list_sessions_empty() {
     let app = common::test_router();
-    let req = Request::builder().uri("/api/v1/sessions").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/api/v1/sessions")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json.as_array().expect("expected array").is_empty());
 }
@@ -75,11 +90,16 @@ async fn get_session_not_found() {
 #[tokio::test]
 async fn dlq_list_empty() {
     let app = common::test_router();
-    let req = Request::builder().uri("/api/v1/dlq").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/api/v1/dlq")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json.as_array().expect("expected array").is_empty());
 }
@@ -95,7 +115,9 @@ async fn dlq_purge_empty() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["purged"], 0);
 }
@@ -116,11 +138,16 @@ async fn dlq_replay_not_found() {
 #[tokio::test]
 async fn list_workspaces() {
     let app = common::test_router();
-    let req = Request::builder().uri("/api/v1/workspaces").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/api/v1/workspaces")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json.is_array());
 }
@@ -128,11 +155,16 @@ async fn list_workspaces() {
 #[tokio::test]
 async fn get_graph() {
     let app = common::test_router();
-    let req = Request::builder().uri("/api/v1/graph").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/api/v1/graph")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(json["id"].is_string());
     assert!(json["entry"].is_string());
@@ -150,7 +182,9 @@ async fn experience_status_disabled() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["enabled"], false);
 }
@@ -158,7 +192,10 @@ async fn experience_status_disabled() {
 #[tokio::test]
 async fn schedules_not_enabled() {
     let app = common::test_router();
-    let req = Request::builder().uri("/api/v1/schedules").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/api/v1/schedules")
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     // scheduler_store is None → 503 Service Unavailable
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);

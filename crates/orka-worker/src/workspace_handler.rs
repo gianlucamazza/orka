@@ -228,10 +228,7 @@ impl WorkspaceHandler {
     }
 
     /// Wire in the shared session cancellation token map from the worker pool.
-    pub fn with_session_cancel_tokens(
-        mut self,
-        tokens: crate::SessionCancelTokens,
-    ) -> Self {
+    pub fn with_session_cancel_tokens(mut self, tokens: crate::SessionCancelTokens) -> Self {
         self.session_cancel_tokens = Some(tokens);
         self
     }
@@ -1054,11 +1051,13 @@ impl AgentHandler for WorkspaceHandler {
                 .command_rate_limiter
                 .check_and_record(envelope.session_id, &parsed.name)
             {
-                return Ok(vec![self.make_reply(
-                    envelope,
-                    "Rate limit exceeded. Please wait a moment before sending another command."
-                        .into(),
-                )]);
+                return Ok(vec![
+                    self.make_reply(
+                        envelope,
+                        "Rate limit exceeded. Please wait a moment before sending another command."
+                            .into(),
+                    ),
+                ]);
             }
             let args = CommandArgs::from(parsed.clone());
             if let Some(handler) = self.commands.get(&parsed.name) {

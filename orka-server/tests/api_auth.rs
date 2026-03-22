@@ -17,7 +17,10 @@ const TEST_KEY: &str = "test-secret-key-abc123";
 #[tokio::test]
 async fn protected_route_without_key_returns_401() {
     let app = common::test_router_with_auth(TEST_KEY);
-    let req = Request::builder().uri(PROTECTED).body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri(PROTECTED)
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }

@@ -28,11 +28,23 @@ impl CodeGuardrail {
             // Credential / secret exfiltration
             (r"cat\s+/etc/shadow", "reading shadow password file"),
             (r"cat\s+/etc/passwd\s*\|.*curl", "exfiltrating /etc/passwd"),
-            (r"curl[^|]*\$\w*(TOKEN|SECRET|KEY|PASS)", "potential credential exfiltration via curl"),
-            (r"wget[^|]*\$\w*(TOKEN|SECRET|KEY|PASS)", "potential credential exfiltration via wget"),
+            (
+                r"curl[^|]*\$\w*(TOKEN|SECRET|KEY|PASS)",
+                "potential credential exfiltration via curl",
+            ),
+            (
+                r"wget[^|]*\$\w*(TOKEN|SECRET|KEY|PASS)",
+                "potential credential exfiltration via wget",
+            ),
             // Piping remote code into shell
-            (r"curl[^|]*\|\s*(ba)?sh", "remote code execution (curl | sh)"),
-            (r"wget[^|]*-O\s*-[^|]*\|\s*(ba)?sh", "remote code execution (wget | sh)"),
+            (
+                r"curl[^|]*\|\s*(ba)?sh",
+                "remote code execution (curl | sh)",
+            ),
+            (
+                r"wget[^|]*-O\s*-[^|]*\|\s*(ba)?sh",
+                "remote code execution (wget | sh)",
+            ),
             // Destructive filesystem operations
             (r"rm\s+-rf\s+/$", "recursive delete from filesystem root"),
             (r"rm\s+-rf\s+/\s", "recursive delete from filesystem root"),

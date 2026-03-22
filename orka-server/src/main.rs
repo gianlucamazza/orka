@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
-use orka_server::router::{RouterParams, build_router, BUILD_DATE, GIT_SHA, VERSION};
+use orka_server::router::{BUILD_DATE, GIT_SHA, RouterParams, VERSION, build_router};
 
 const GITHUB_LATEST_URL: &str = "https://api.github.com/repos/gianlucamazza/orka/releases/latest";
 
@@ -1087,10 +1087,13 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let a2a_state = if config.a2a.enabled {
-        let base_url = config.a2a.url.clone().unwrap_or_else(|| {
-            format!("http://{}:{}", config.server.host, config.server.port)
-        });
-        let agent_card = orka_a2a::build_agent_card("orka", "Orka AI Agent Platform", &base_url, &skills);
+        let base_url = config
+            .a2a
+            .url
+            .clone()
+            .unwrap_or_else(|| format!("http://{}:{}", config.server.host, config.server.port));
+        let agent_card =
+            orka_a2a::build_agent_card("orka", "Orka AI Agent Platform", &base_url, &skills);
         Some(orka_a2a::A2aState {
             agent_card,
             skills: skills.clone(),

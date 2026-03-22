@@ -10,9 +10,9 @@ use std::sync::Arc;
 use axum::extract::{Json, Path, Query};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use orka_a2a::A2aState;
 use orka_agent::AgentGraph;
 use orka_auth::AuthLayer;
-use orka_a2a::A2aState;
 use orka_core::traits::{PriorityQueue, SessionStore};
 use orka_experience::ExperienceService;
 use orka_observe::metrics::PrometheusHandle;
@@ -423,83 +423,117 @@ pub fn build_router(p: RouterParams) -> axum::Router {
     let ss3 = sessions.clone();
 
     let mgmt_routes = axum::Router::new()
-        .route("/api/v1/skills", axum::routing::get(move || {
-            let skills = s1.clone();
-            async move {
-                let list: Vec<serde_json::Value> = skills.list_info().iter().map(|(name, skill, state)| {
-                    let status = match state {
-                        orka_circuit_breaker::CircuitState::Closed => "ok",
-                        orka_circuit_breaker::CircuitState::HalfOpen => "degraded",
-                        orka_circuit_breaker::CircuitState::Open => "disabled",
-                        _ => "ok",
-                    };
-                    serde_json::json!({
-                        "name": name,
-                        "category": skill.category(),
-                        "description": skill.description(),
-                        "status": status,
-                        "schema": skill.schema(),
-                    })
-                }).collect();
-                axum::Json(list)
-            }
-        }))
-        .route("/api/v1/soft-skills", axum::routing::get(move || {
-            let reg = soft1.clone();
-            async move {
-                let list: Vec<serde_json::Value> = reg
-                    .as_deref()
-                    .map(|r| r.summaries())
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|s| serde_json::json!({
-                        "name": s.name,
-                        "description": s.description,
-                        "tags": s.tags,
-                    }))
-                    .collect();
-                axum::Json(list)
-            }
-        }))
-        .route("/api/v1/skills/{name}", axum::routing::get(move |Path(name): Path<String>| {
-            let skills = s2.clone();
-            async move {
-                match skills.get(&name) {
-                    Some(skill) => axum::Json(serde_json::json!({
-                        "name": skill.name(),
-                        "description": skill.description(),
-                        "schema": skill.schema(),
-                    })).into_response(),
-                    None => (StatusCode::NOT_FOUND, format!("skill '{name}' not found")).into_response(),
+        .route(
+            "/api/v1/skills",
+            axum::routing::get(move || {
+                let skills = s1.clone();
+                async move {
+                    let list: Vec<serde_json::Value> = skills
+                        .list_info()
+                        .iter()
+                        .map(|(name, skill, state)| {
+                            let status = match state {
+                                orka_circuit_breaker::CircuitState::Closed => "ok",
+                                orka_circuit_breaker::CircuitState::HalfOpen => "degraded",
+                                orka_circuit_breaker::CircuitState::Open => "disabled",
+                                _ => "ok",
+                            };
+                            serde_json::json!({
+                                "name": name,
+                                "category": skill.category(),
+                                "description": skill.description(),
+                                "status": status,
+                                "schema": skill.schema(),
+                            })
+                        })
+                        .collect();
+                    axum::Json(list)
                 }
-            }
-        }))
-        .route("/api/v1/eval", axum::routing::post(move |Json(body): Json<serde_json::Value>| {
-            let skills = s3.clone();
-            async move {
-                let skill_filter = body["skill"].as_str().map(String::from);
-                let dir = body["dir"].as_str().unwrap_or("evals").to_string();
-                let runner = orka_eval::EvalRunner::new(skills);
-                match runner.run_dir(std::path::Path::new(&dir), skill_filter.as_deref()).await {
-                    Ok(report) => {
-                        let json_str = report.to_json();
-                        let val: serde_json::Value = serde_json::from_str(&json_str).unwrap_or_default();
-                        axum::Json(val).into_response()
+            }),
+        )
+        .route(
+            "/api/v1/soft-skills",
+            axum::routing::get(move || {
+                let reg = soft1.clone();
+                async move {
+                    let list: Vec<serde_json::Value> = reg
+                        .as_deref()
+                        .map(|r| r.summaries())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|s| {
+                            serde_json::json!({
+                                "name": s.name,
+                                "description": s.description,
+                                "tags": s.tags,
+                            })
+                        })
+                        .collect();
+                    axum::Json(list)
+                }
+            }),
+        )
+        .route(
+            "/api/v1/skills/{name}",
+            axum::routing::get(move |Path(name): Path<String>| {
+                let skills = s2.clone();
+                async move {
+                    match skills.get(&name) {
+                        Some(skill) => axum::Json(serde_json::json!({
+                            "name": skill.name(),
+                            "description": skill.description(),
+                            "schema": skill.schema(),
+                        }))
+                        .into_response(),
+                        None => (StatusCode::NOT_FOUND, format!("skill '{name}' not found"))
+                            .into_response(),
                     }
-                    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("eval failed: {e}")).into_response(),
                 }
-            }
-        }))
-        .route("/api/v1/schedules",
+            }),
+        )
+        .route(
+            "/api/v1/eval",
+            axum::routing::post(move |Json(body): Json<serde_json::Value>| {
+                let skills = s3.clone();
+                async move {
+                    let skill_filter = body["skill"].as_str().map(String::from);
+                    let dir = body["dir"].as_str().unwrap_or("evals").to_string();
+                    let runner = orka_eval::EvalRunner::new(skills);
+                    match runner
+                        .run_dir(std::path::Path::new(&dir), skill_filter.as_deref())
+                        .await
+                    {
+                        Ok(report) => {
+                            let json_str = report.to_json();
+                            let val: serde_json::Value =
+                                serde_json::from_str(&json_str).unwrap_or_default();
+                            axum::Json(val).into_response()
+                        }
+                        Err(e) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("eval failed: {e}"),
+                        )
+                            .into_response(),
+                    }
+                }
+            }),
+        )
+        .route(
+            "/api/v1/schedules",
             axum::routing::get(move || {
                 let store = sc1.clone();
                 async move {
                     let Some(store) = store else {
-                        return (StatusCode::SERVICE_UNAVAILABLE, "scheduler not enabled").into_response();
+                        return (StatusCode::SERVICE_UNAVAILABLE, "scheduler not enabled")
+                            .into_response();
                     };
                     match store.list(false).await {
                         Ok(s) => axum::Json(s).into_response(),
-                        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("list failed: {e}")).into_response(),
+                        Err(e) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("list failed: {e}"),
+                        )
+                            .into_response(),
                     }
                 }
             })
@@ -507,32 +541,54 @@ pub fn build_router(p: RouterParams) -> axum::Router {
                 let store = sc2.clone();
                 async move {
                     let Some(store) = store else {
-                        return (StatusCode::SERVICE_UNAVAILABLE, "scheduler not enabled").into_response();
+                        return (StatusCode::SERVICE_UNAVAILABLE, "scheduler not enabled")
+                            .into_response();
                     };
                     let name = match body["name"].as_str() {
                         Some(n) => n.to_string(),
-                        None => return (StatusCode::BAD_REQUEST, "'name' is required").into_response(),
+                        None => {
+                            return (StatusCode::BAD_REQUEST, "'name' is required").into_response();
+                        }
                     };
                     let cron_expr = body["cron"].as_str().map(String::from);
                     let run_at_str = body["run_at"].as_str().map(String::from);
                     if cron_expr.is_none() && run_at_str.is_none() {
-                        return (StatusCode::BAD_REQUEST, "either 'cron' or 'run_at' is required").into_response();
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            "either 'cron' or 'run_at' is required",
+                        )
+                            .into_response();
                     }
                     let next_run = if let Some(ref cron_str) = cron_expr {
                         use std::str::FromStr as _;
                         match cron::Schedule::from_str(cron_str) {
-                            Ok(sched) => match sched.upcoming(chrono::Utc).next().map(|t| t.timestamp()) {
+                            Ok(sched) => match sched
+                                .upcoming(chrono::Utc)
+                                .next()
+                                .map(|t| t.timestamp())
+                            {
                                 Some(ts) => ts,
-                                None => return (StatusCode::BAD_REQUEST, "no upcoming run for cron").into_response(),
+                                None => {
+                                    return (StatusCode::BAD_REQUEST, "no upcoming run for cron")
+                                        .into_response();
+                                }
                             },
-                            Err(e) => return (StatusCode::BAD_REQUEST, format!("invalid cron: {e}")).into_response(),
+                            Err(e) => {
+                                return (StatusCode::BAD_REQUEST, format!("invalid cron: {e}"))
+                                    .into_response();
+                            }
                         }
                     } else if let Some(ref run_at) = run_at_str {
                         match chrono::DateTime::parse_from_rfc3339(run_at) {
                             Ok(dt) => dt.timestamp(),
-                            Err(e) => return (StatusCode::BAD_REQUEST, format!("invalid run_at: {e}")).into_response(),
+                            Err(e) => {
+                                return (StatusCode::BAD_REQUEST, format!("invalid run_at: {e}"))
+                                    .into_response();
+                            }
                         }
-                    } else { 0 };
+                    } else {
+                        0
+                    };
                     let args: Option<HashMap<String, serde_json::Value>> = body["args"]
                         .as_object()
                         .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
@@ -551,85 +607,124 @@ pub fn build_router(p: RouterParams) -> axum::Router {
                     };
                     match store.add(&schedule).await {
                         Ok(()) => (StatusCode::CREATED, axum::Json(schedule)).into_response(),
-                        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("create failed: {e}")).into_response(),
+                        Err(e) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("create failed: {e}"),
+                        )
+                            .into_response(),
                     }
                 }
-            })
+            }),
         )
-        .route("/api/v1/schedules/{id}", axum::routing::delete(move |Path(id): Path<String>| {
-            let store = sc3.clone();
-            async move {
-                let Some(store) = store else {
-                    return (StatusCode::SERVICE_UNAVAILABLE, "scheduler not enabled").into_response();
-                };
-                match store.remove(&id).await {
-                    Ok(found) => axum::Json(serde_json::json!({ "deleted": found })).into_response(),
-                    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("delete failed: {e}")).into_response(),
-                }
-            }
-        }))
-        .route("/api/v1/workspaces", axum::routing::get(move || {
-            let registry = w1.clone();
-            async move {
-                let mut list = Vec::new();
-                for name in registry.list_names() {
-                    if let Some(loader) = registry.get(name) {
-                        let state = loader.state();
-                        let state = state.read().await;
-                        let (agent_name, description) = state.soul.as_ref()
-                            .map(|d| (d.frontmatter.name.clone(), d.frontmatter.description.clone()))
-                            .unwrap_or((None, None));
-                        list.push(serde_json::json!({
-                            "name": name,
-                            "agent_name": agent_name,
-                            "description": description,
-                            "has_tools": state.tools_body.is_some(),
-                        }));
-                    }
-                }
-                axum::Json(list)
-            }
-        }))
-        .route("/api/v1/workspaces/{name}", axum::routing::get(move |Path(ws_name): Path<String>| {
-            let registry = w2.clone();
-            async move {
-                match registry.get(&ws_name) {
-                    None => (StatusCode::NOT_FOUND, format!("workspace '{ws_name}' not found")).into_response(),
-                    Some(loader) => {
-                        let state = loader.state();
-                        let state = state.read().await;
-                        let fm = state.soul.as_ref().map(|d| &d.frontmatter);
-                        axum::Json(serde_json::json!({
-                            "name": ws_name,
-                            "agent_name": fm.and_then(|f| f.name.as_deref()),
-                            "description": fm.and_then(|f| f.description.as_deref()),
-                            "version": fm.and_then(|f| f.version.as_deref()),
-                            "soul_body": state.soul.as_ref().map(|d| d.body.as_str()),
-                            "tools_body": state.tools_body.as_deref(),
-                        })).into_response()
-                    }
-                }
-            }
-        }))
-        .route("/api/v1/graph", axum::routing::get(move || {
-            let g = g1.clone();
-            async move {
-                let nodes: Vec<serde_json::Value> = g.nodes_iter().map(|(id, node)| {
-                    serde_json::json!({
-                        "id": id.to_string(),
-                        "kind": format!("{:?}", node.kind),
-                        "agent": {
-                            "id": node.agent.id.to_string(),
-                            "name": node.agent.display_name,
-                            "max_iterations": node.agent.max_iterations,
-                            "handoff_targets": node.agent.handoff_targets.iter()
-                                .map(|t| t.to_string()).collect::<Vec<_>>(),
+        .route(
+            "/api/v1/schedules/{id}",
+            axum::routing::delete(move |Path(id): Path<String>| {
+                let store = sc3.clone();
+                async move {
+                    let Some(store) = store else {
+                        return (StatusCode::SERVICE_UNAVAILABLE, "scheduler not enabled")
+                            .into_response();
+                    };
+                    match store.remove(&id).await {
+                        Ok(found) => {
+                            axum::Json(serde_json::json!({ "deleted": found })).into_response()
                         }
-                    })
-                }).collect();
-                let edges: Vec<serde_json::Value> = g.edges_iter().flat_map(|(from, edges)| {
-                    let from = from.to_string();
-                    edges.iter().map(move |e| {
+                        Err(e) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("delete failed: {e}"),
+                        )
+                            .into_response(),
+                    }
+                }
+            }),
+        )
+        .route(
+            "/api/v1/workspaces",
+            axum::routing::get(move || {
+                let registry = w1.clone();
+                async move {
+                    let mut list = Vec::new();
+                    for name in registry.list_names() {
+                        if let Some(loader) = registry.get(name) {
+                            let state = loader.state();
+                            let state = state.read().await;
+                            let (agent_name, description) = state
+                                .soul
+                                .as_ref()
+                                .map(|d| {
+                                    (
+                                        d.frontmatter.name.clone(),
+                                        d.frontmatter.description.clone(),
+                                    )
+                                })
+                                .unwrap_or((None, None));
+                            list.push(serde_json::json!({
+                                "name": name,
+                                "agent_name": agent_name,
+                                "description": description,
+                                "has_tools": state.tools_body.is_some(),
+                            }));
+                        }
+                    }
+                    axum::Json(list)
+                }
+            }),
+        )
+        .route(
+            "/api/v1/workspaces/{name}",
+            axum::routing::get(move |Path(ws_name): Path<String>| {
+                let registry = w2.clone();
+                async move {
+                    match registry.get(&ws_name) {
+                        None => (
+                            StatusCode::NOT_FOUND,
+                            format!("workspace '{ws_name}' not found"),
+                        )
+                            .into_response(),
+                        Some(loader) => {
+                            let state = loader.state();
+                            let state = state.read().await;
+                            let fm = state.soul.as_ref().map(|d| &d.frontmatter);
+                            axum::Json(serde_json::json!({
+                                "name": ws_name,
+                                "agent_name": fm.and_then(|f| f.name.as_deref()),
+                                "description": fm.and_then(|f| f.description.as_deref()),
+                                "version": fm.and_then(|f| f.version.as_deref()),
+                                "soul_body": state.soul.as_ref().map(|d| d.body.as_str()),
+                                "tools_body": state.tools_body.as_deref(),
+                            }))
+                            .into_response()
+                        }
+                    }
+                }
+            }),
+        )
+        .route(
+            "/api/v1/graph",
+            axum::routing::get(move || {
+                let g = g1.clone();
+                async move {
+                    let nodes: Vec<serde_json::Value> = g
+                        .nodes_iter()
+                        .map(|(id, node)| {
+                            serde_json::json!({
+                                "id": id.to_string(),
+                                "kind": format!("{:?}", node.kind),
+                                "agent": {
+                                    "id": node.agent.id.to_string(),
+                                    "name": node.agent.display_name,
+                                    "max_iterations": node.agent.max_iterations,
+                                    "handoff_targets": node.agent.handoff_targets.iter()
+                                        .map(|t| t.to_string()).collect::<Vec<_>>(),
+                                }
+                            })
+                        })
+                        .collect();
+                    let edges: Vec<serde_json::Value> = g
+                        .edges_iter()
+                        .flat_map(|(from, edges)| {
+                            let from = from.to_string();
+                            edges.iter().map(move |e| {
                         let condition = match &e.condition {
                             None => serde_json::json!("always"),
                             Some(orka_agent::EdgeCondition::Always) => serde_json::json!("always"),
@@ -652,78 +747,112 @@ pub fn build_router(p: RouterParams) -> axum::Router {
                             "condition": condition,
                         })
                     }).collect::<Vec<_>>()
-                }).collect();
-                axum::Json(serde_json::json!({
-                    "id": g.id,
-                    "entry": g.entry.to_string(),
-                    "nodes": nodes,
-                    "edges": edges,
-                    "termination": {
-                        "max_total_iterations": g.termination.max_total_iterations,
-                        "max_total_tokens": g.termination.max_total_tokens,
-                        "max_duration_secs": g.termination.max_duration.as_secs(),
-                        "terminal_agents": g.termination.terminal_agents.iter()
-                            .map(|a| a.to_string()).collect::<Vec<_>>(),
-                    }
-                }))
-            }
-        }))
-        .route("/api/v1/experience/status", axum::routing::get(move || {
-            let exp = e1.clone();
-            async move {
-                axum::Json(serde_json::json!({
-                    "enabled": exp.as_ref().map(|e| e.is_enabled()).unwrap_or(false),
-                }))
-            }
-        }))
-        .route("/api/v1/experience/principles", axum::routing::get(
-            move |Query(params): Query<HashMap<String, String>>| {
+                        })
+                        .collect();
+                    axum::Json(serde_json::json!({
+                        "id": g.id,
+                        "entry": g.entry.to_string(),
+                        "nodes": nodes,
+                        "edges": edges,
+                        "termination": {
+                            "max_total_iterations": g.termination.max_total_iterations,
+                            "max_total_tokens": g.termination.max_total_tokens,
+                            "max_duration_secs": g.termination.max_duration.as_secs(),
+                            "terminal_agents": g.termination.terminal_agents.iter()
+                                .map(|a| a.to_string()).collect::<Vec<_>>(),
+                        }
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/api/v1/experience/status",
+            axum::routing::get(move || {
+                let exp = e1.clone();
+                async move {
+                    axum::Json(serde_json::json!({
+                        "enabled": exp.as_ref().map(|e| e.is_enabled()).unwrap_or(false),
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/api/v1/experience/principles",
+            axum::routing::get(move |Query(params): Query<HashMap<String, String>>| {
                 let exp = e2.clone();
                 async move {
                     let Some(exp) = exp else {
-                        return (StatusCode::SERVICE_UNAVAILABLE, "experience not enabled").into_response();
+                        return (StatusCode::SERVICE_UNAVAILABLE, "experience not enabled")
+                            .into_response();
                     };
-                    let workspace = params.get("workspace").map(String::as_str).unwrap_or("default");
+                    let workspace = params
+                        .get("workspace")
+                        .map(String::as_str)
+                        .unwrap_or("default");
                     let query = params.get("query").map(String::as_str).unwrap_or("");
-                    let limit: usize = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(10);
+                    let limit: usize = params
+                        .get("limit")
+                        .and_then(|l| l.parse().ok())
+                        .unwrap_or(10);
                     match exp.retrieve_principles(query, workspace).await {
                         Ok(mut principles) => {
                             principles.truncate(limit);
                             axum::Json(principles).into_response()
                         }
-                        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("retrieve failed: {e}")).into_response(),
+                        Err(e) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("retrieve failed: {e}"),
+                        )
+                            .into_response(),
                     }
                 }
-            }
-        ))
-        .route("/api/v1/experience/distill", axum::routing::post(
-            move |Json(body): Json<serde_json::Value>| {
+            }),
+        )
+        .route(
+            "/api/v1/experience/distill",
+            axum::routing::post(move |Json(body): Json<serde_json::Value>| {
                 let exp = e3.clone();
                 async move {
                     let Some(exp) = exp else {
-                        return (StatusCode::SERVICE_UNAVAILABLE, "experience not enabled").into_response();
+                        return (StatusCode::SERVICE_UNAVAILABLE, "experience not enabled")
+                            .into_response();
                     };
                     let workspace = body["workspace"].as_str().unwrap_or("default");
                     match exp.distill(workspace).await {
-                        Ok(created) => axum::Json(serde_json::json!({ "created": created })).into_response(),
-                        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("distill failed: {e}")).into_response(),
+                        Ok(created) => {
+                            axum::Json(serde_json::json!({ "created": created })).into_response()
+                        }
+                        Err(e) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("distill failed: {e}"),
+                        )
+                            .into_response(),
                     }
                 }
-            }
-        ))
-        .route("/api/v1/sessions",
+            }),
+        )
+        .route(
+            "/api/v1/sessions",
             axum::routing::get(move |Query(params): Query<HashMap<String, String>>| {
                 let sessions = ss1.clone();
                 async move {
-                    let limit: usize = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(20);
+                    let limit: usize = params
+                        .get("limit")
+                        .and_then(|l| l.parse().ok())
+                        .unwrap_or(20);
                     match sessions.list(limit).await {
                         Ok(list) => axum::Json(list).into_response(),
-                        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("list failed: {e}")).into_response(),
+                        Err(e) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("list failed: {e}"),
+                        )
+                            .into_response(),
                     }
                 }
-            })
+            }),
         )
-        .route("/api/v1/sessions/{id}",
+        .route(
+            "/api/v1/sessions/{id}",
             axum::routing::get(move |Path(id): Path<String>| {
                 let sessions = ss2.clone();
                 async move {
@@ -733,8 +862,14 @@ pub fn build_router(p: RouterParams) -> axum::Router {
                             let sid = orka_core::SessionId(uuid);
                             match sessions.get(&sid).await {
                                 Ok(Some(s)) => axum::Json(s).into_response(),
-                                Ok(None) => (StatusCode::NOT_FOUND, "session not found").into_response(),
-                                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("get failed: {e}")).into_response(),
+                                Ok(None) => {
+                                    (StatusCode::NOT_FOUND, "session not found").into_response()
+                                }
+                                Err(e) => (
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    format!("get failed: {e}"),
+                                )
+                                    .into_response(),
                             }
                         }
                     }
@@ -748,13 +883,18 @@ pub fn build_router(p: RouterParams) -> axum::Router {
                         Ok(uuid) => {
                             let sid = orka_core::SessionId(uuid);
                             match sessions.delete(&sid).await {
-                                Ok(()) => axum::Json(serde_json::json!({ "deleted": true })).into_response(),
-                                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("delete failed: {e}")).into_response(),
+                                Ok(()) => axum::Json(serde_json::json!({ "deleted": true }))
+                                    .into_response(),
+                                Err(e) => (
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    format!("delete failed: {e}"),
+                                )
+                                    .into_response(),
                             }
                         }
                     }
                 }
-            })
+            }),
         );
 
     let api_routes = api_routes.merge(mgmt_routes);

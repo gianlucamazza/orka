@@ -497,7 +497,12 @@ mod tests {
         args.insert("command".into(), serde_json::json!("echo hello world"));
         let output = skill.execute(SkillInput::new(args)).await.unwrap();
         assert_eq!(output.data["exit_code"], 0);
-        assert!(output.data["stdout"].as_str().unwrap().contains("hello world"));
+        assert!(
+            output.data["stdout"]
+                .as_str()
+                .unwrap()
+                .contains("hello world")
+        );
     }
 
     #[tokio::test]
@@ -507,7 +512,12 @@ mod tests {
         args.insert("command".into(), serde_json::json!("echo 'hello world'"));
         let output = skill.execute(SkillInput::new(args)).await.unwrap();
         assert_eq!(output.data["exit_code"], 0);
-        assert!(output.data["stdout"].as_str().unwrap().contains("hello world"));
+        assert!(
+            output.data["stdout"]
+                .as_str()
+                .unwrap()
+                .contains("hello world")
+        );
     }
 
     #[tokio::test]

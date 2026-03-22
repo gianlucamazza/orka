@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use orka_agent::{Agent, AgentGraph, AgentId, GraphNode, NodeKind, TerminationPolicy};
 use orka_core::testing::{InMemoryQueue, InMemorySessionStore};
-use orka_server::router::{build_router, RouterParams};
+use orka_server::router::{RouterParams, build_router};
 use orka_skills::{EchoSkill, SkillRegistry};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 

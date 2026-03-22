@@ -3,21 +3,24 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use orka_core::config::AgentConfig;
 use orka_core::testing::{
     InMemoryBus, InMemoryEventSink, InMemoryMemoryStore, InMemoryQueue, InMemorySecretManager,
     InMemorySessionStore,
 };
 use orka_core::traits::{MessageBus, PriorityQueue, SessionStore};
 use orka_core::types::{CommandPayload, Envelope, Payload, Session};
-use orka_core::config::AgentConfig;
 use orka_skills::SkillRegistry;
-use orka_worker::commands::{register_all, CommandRegistry};
+use orka_worker::commands::{CommandRegistry, register_all};
 use orka_worker::{EchoHandler, WorkerPool};
 use tokio_util::sync::CancellationToken;
 
 fn make_command_envelope(session: &Session, cmd_name: &str) -> Envelope {
     let mut env = Envelope::text(&session.channel, session.id, "");
-    env.payload = Payload::Command(CommandPayload::new(cmd_name.to_string(), Default::default()));
+    env.payload = Payload::Command(CommandPayload::new(
+        cmd_name.to_string(),
+        Default::default(),
+    ));
     env
 }
 
@@ -56,7 +59,10 @@ fn command_registry_help_lists_all_commands() {
     assert!(help_text.contains("/workspace"), "missing /workspace");
     assert!(help_text.contains("/start"), "missing /start");
     // experience is not registered when disabled
-    assert!(!help_text.contains("/experience"), "experience should not be registered");
+    assert!(
+        !help_text.contains("/experience"),
+        "experience should not be registered"
+    );
 }
 
 #[test]
@@ -67,10 +73,7 @@ fn command_registry_unknown_command_returns_none() {
 
 // ── Worker-pipeline tests via EchoHandler ────────────────────────────────────
 
-async fn run_pool_with_envelope(
-    envelope: Envelope,
-    session: Session,
-) -> Vec<Envelope> {
+async fn run_pool_with_envelope(envelope: Envelope, session: Session) -> Vec<Envelope> {
     let queue = Arc::new(InMemoryQueue::new());
     let sessions = Arc::new(InMemorySessionStore::new());
     let bus = Arc::new(InMemoryBus::new());
@@ -214,7 +217,10 @@ async fn unknown_command_payload_does_not_panic() {
     // which validates the pipeline doesn't panic on unexpected command payloads.
     let session = Session::new("test", "user1");
     let mut env = Envelope::text(&session.channel, session.id, "");
-    env.payload = Payload::Command(CommandPayload::new("unknown_cmd".to_string(), Default::default()));
+    env.payload = Payload::Command(CommandPayload::new(
+        "unknown_cmd".to_string(),
+        Default::default(),
+    ));
     let results = run_pool_with_envelope(env, session).await;
     // EchoHandler processes any payload; just verifying no panic
     assert!(results.len() <= 1);

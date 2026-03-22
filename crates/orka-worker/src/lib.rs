@@ -23,7 +23,6 @@ pub use handler::{AgentHandler, EchoHandler};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 pub use workspace_handler::{WorkspaceHandler, WorkspaceHandlerConfig};
 
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
