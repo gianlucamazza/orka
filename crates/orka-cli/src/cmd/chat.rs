@@ -312,7 +312,7 @@ pub async fn run(
     let think_enabled_ws = think_enabled.clone();
 
     let disconnect_notify_ws = disconnect_notify.clone();
-    let ws_task = tokio::spawn(async move {
+    let mut ws_task = tokio::spawn(async move {
         let multi = multi_clone;
         let spinner_style = ProgressStyle::with_template("{spinner:.cyan} {msg}")
             .unwrap()
@@ -1106,13 +1106,16 @@ pub async fn run(
     }
 
     drop(prompt_tx); // signal the editor thread to exit and save history
-    // Send a clean WS Close frame before aborting the tasks
+    // Stop pings first — no data frames allowed after Close per WebSocket RFC
+    ping_task.abort();
+    // Send a clean WS Close frame and wait for the server's Close response
     {
         let mut guard = ws_write.lock().await;
         let _ = guard.send(Message::Close(None)).await;
     }
+    // Give the reader up to 2s to complete the close handshake before aborting
+    let _ = tokio::time::timeout(Duration::from_secs(2), &mut ws_task).await;
     ws_task.abort();
-    ping_task.abort();
     println!("\n{}", "Goodbye!".cyan());
 
     Ok(())
