@@ -486,14 +486,25 @@ impl SkillInput {
 
     /// Resolve a path string against the user's CWD from context.
     ///
-    /// If the path is relative and `user_cwd` is set in the skill context, the
-    /// path is joined onto that directory. Absolute paths are returned as-is.
+    /// - Relative paths are joined onto `user_cwd` when set.
+    /// - Paths starting with `~/` or equal to `~` are treated as relative to
+    ///   `user_cwd` (not the server process home), so LLM-generated tilde paths
+    ///   land in the user's working directory rather than the server's `$HOME`.
+    /// - Absolute paths without a tilde are returned as-is.
     pub fn resolve_path(&self, path: &str) -> std::path::PathBuf {
+        let cwd = self.context.as_ref().and_then(|c| c.user_cwd.as_deref());
+
+        // Expand leading `~` relative to user_cwd when available.
+        let tilde_rest = path
+            .strip_prefix("~/")
+            .or_else(|| if path == "~" { Some("") } else { None });
+        if let (Some(rest), Some(dir)) = (tilde_rest, cwd) {
+            return std::path::PathBuf::from(dir).join(rest);
+        }
+
         let p = std::path::Path::new(path);
-        if p.is_relative()
-            && let Some(cwd) = self.context.as_ref().and_then(|c| c.user_cwd.as_deref())
-        {
-            return std::path::PathBuf::from(cwd).join(p);
+        if p.is_relative() && let Some(dir) = cwd {
+            return std::path::PathBuf::from(dir).join(p);
         }
         p.to_path_buf()
     }
@@ -1253,5 +1264,75 @@ mod tests {
     fn backoff_delay_capped_at_max() {
         // 1 * 2^10 = 1024, capped at 30
         assert_eq!(backoff_delay(10, 1, 30), Duration::from_secs(30));
+    }
+
+    // --- resolve_path ---
+
+    fn input_with_cwd(cwd: &str) -> SkillInput {
+        use crate::traits::SecretManager;
+        use crate::types::SecretValue;
+        struct NoopSecrets;
+        #[async_trait::async_trait]
+        impl SecretManager for NoopSecrets {
+            async fn get_secret(&self, _: &str) -> crate::Result<SecretValue> {
+                Err(crate::Error::secret("noop"))
+            }
+            async fn set_secret(&self, _: &str, _: &SecretValue) -> crate::Result<()> {
+                Err(crate::Error::secret("noop"))
+            }
+        }
+        let ctx = SkillContext {
+            secrets: std::sync::Arc::new(NoopSecrets),
+            event_sink: None,
+            budget: None,
+            user_cwd: Some(cwd.to_string()),
+        };
+        SkillInput::new(std::collections::HashMap::new()).with_context(ctx)
+    }
+
+    #[test]
+    fn resolve_path_relative_joins_cwd() {
+        let input = input_with_cwd("/tmp");
+        assert_eq!(
+            input.resolve_path("foo.txt"),
+            std::path::PathBuf::from("/tmp/foo.txt")
+        );
+    }
+
+    #[test]
+    fn resolve_path_absolute_unchanged() {
+        let input = input_with_cwd("/tmp");
+        assert_eq!(
+            input.resolve_path("/var/lib/orka/file.txt"),
+            std::path::PathBuf::from("/var/lib/orka/file.txt")
+        );
+    }
+
+    #[test]
+    fn resolve_path_tilde_slash_maps_to_cwd() {
+        let input = input_with_cwd("/tmp");
+        assert_eq!(
+            input.resolve_path("~/foo.txt"),
+            std::path::PathBuf::from("/tmp/foo.txt")
+        );
+    }
+
+    #[test]
+    fn resolve_path_tilde_alone_maps_to_cwd() {
+        let input = input_with_cwd("/tmp");
+        assert_eq!(input.resolve_path("~"), std::path::PathBuf::from("/tmp"));
+    }
+
+    #[test]
+    fn resolve_path_no_cwd_returns_as_is() {
+        let input = SkillInput::new(std::collections::HashMap::new());
+        assert_eq!(
+            input.resolve_path("foo.txt"),
+            std::path::PathBuf::from("foo.txt")
+        );
+        assert_eq!(
+            input.resolve_path("~/foo.txt"),
+            std::path::PathBuf::from("~/foo.txt")
+        );
     }
 }

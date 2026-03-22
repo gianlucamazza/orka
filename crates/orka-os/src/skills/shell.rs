@@ -64,7 +64,7 @@ impl Skill for ShellExecSkill {
                 "items": { "type": "string" },
                 "description": "Command arguments"
             },
-            "cwd": { "type": "string", "description": "Working directory" },
+            "cwd": { "type": "string", "description": "Working directory (defaults to the user's current working directory when omitted)" },
             "env": {
                 "type": "object",
                 "additionalProperties": { "type": "string" },

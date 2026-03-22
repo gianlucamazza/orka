@@ -319,7 +319,10 @@ impl WorkspaceHandler {
 
         if let Some(dir) = cwd {
             prompt.push_str(&format!(
-                "\n\nThe user's current working directory is: {dir}"
+                "\n\nThe user's current working directory is: {dir}\n\
+                When the user asks to create, read, or modify files without specifying an absolute \
+                path, resolve them relative to this directory. Use this directory as the default \
+                working directory for shell commands."
             ));
         }
 
