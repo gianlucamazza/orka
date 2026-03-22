@@ -1413,6 +1413,10 @@ pub struct GuardrailsConfig {
     /// Enable built-in PII filter (emails, phones, SSNs).
     #[serde(default)]
     pub pii_filter: bool,
+    /// Enable code execution guardrail (blocks dangerous patterns like reverse shells, fork bombs).
+    /// Defaults to true.
+    #[serde(default = "default_true")]
+    pub code_filter: bool,
 }
 
 /// A regex redaction rule.

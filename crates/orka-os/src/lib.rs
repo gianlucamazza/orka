@@ -143,6 +143,7 @@ pub fn create_os_skills_with_approval(
     // Write skills
     if level >= PermissionLevel::Write {
         result.push(Arc::new(skills::fs::FsWriteSkill::new(guard.clone())));
+        result.push(Arc::new(skills::fs::FsEditSkill::new(guard.clone())));
     }
 
     // Execute skills

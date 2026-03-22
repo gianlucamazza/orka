@@ -30,9 +30,17 @@ impl ProcessSandbox {
 #[async_trait]
 impl SandboxExecutor for ProcessSandbox {
     async fn execute(&self, req: SandboxRequest) -> Result<SandboxResult> {
-        let (cmd_name, ext) = match req.language {
-            SandboxLang::Python => ("python3", ".py"),
-            SandboxLang::Bash => ("bash", ".sh"),
+        let (cmd_name, ext, extra_args) = match req.language {
+            SandboxLang::Python => ("python3", ".py", vec![]),
+            SandboxLang::Bash => ("bash", ".sh", vec![]),
+            SandboxLang::JavaScript => {
+                // Prefer Deno for built-in permission sandboxing; fall back to Node.
+                if which_js_runtime() == JsRuntime::Deno {
+                    ("deno", ".js", vec!["run", "--deny-net", "--deny-env", "--deny-write", "--deny-run"])
+                } else {
+                    ("node", ".js", vec![])
+                }
+            }
             SandboxLang::Wasm => {
                 return Err(Error::sandbox_msg("process sandbox does not support WASM"));
             }
@@ -48,6 +56,7 @@ impl SandboxExecutor for ProcessSandbox {
             .map_err(|e| Error::sandbox(e, "failed to write temp file"))?;
 
         let mut command = tokio::process::Command::new(cmd_name);
+        command.args(&extra_args);
         command.arg(tmp.path());
         command.stdout(std::process::Stdio::piped());
         command.stderr(std::process::Stdio::piped());
@@ -100,6 +109,28 @@ impl SandboxExecutor for ProcessSandbox {
             stderr,
             duration,
         })
+    }
+}
+
+#[derive(PartialEq)]
+enum JsRuntime {
+    Deno,
+    Node,
+}
+
+/// Detect which JavaScript runtime is available. Prefers Deno for its built-in sandboxing.
+fn which_js_runtime() -> JsRuntime {
+    if std::process::Command::new("deno")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        JsRuntime::Deno
+    } else {
+        JsRuntime::Node
     }
 }
 

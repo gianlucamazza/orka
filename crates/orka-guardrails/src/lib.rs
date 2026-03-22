@@ -3,9 +3,12 @@
 //! - [`GuardrailChain`] — composable chain of [`Guardrail`] checks
 //! - [`KeywordGuardrail`] — blocklist-based keyword filter
 //! - [`RegexGuardrail`] — regex-based block/redact filter with PII support
+//! - [`CodeGuardrail`] — blocks dangerous code patterns before sandbox execution
 
 #![warn(missing_docs)]
 
+/// Code execution safety guardrail.
+pub mod code_filter;
 /// Composable guardrail chain that runs checks in order.
 pub mod chain;
 /// Simple keyword blocklist guardrail.
@@ -14,6 +17,7 @@ pub mod keyword;
 pub mod regex_filter;
 
 pub use chain::GuardrailChain;
+pub use code_filter::CodeGuardrail;
 pub use keyword::KeywordGuardrail;
 pub use regex_filter::RegexGuardrail;
 
@@ -25,6 +29,12 @@ use std::sync::Arc;
 pub fn create_guardrail(config: &GuardrailsConfig) -> Option<Arc<dyn Guardrail>> {
     let mut chain = GuardrailChain::new();
     let mut has_rules = false;
+
+    // Code execution safety filter (default: on)
+    if config.code_filter {
+        chain = chain.add(Arc::new(CodeGuardrail::new()));
+        has_rules = true;
+    }
 
     // PII filter
     if config.pii_filter {

@@ -722,6 +722,134 @@ impl Skill for FsWriteSkill {
     }
 }
 
+// ── fs_edit ──
+
+/// Skill that applies targeted search-and-replace edits to a file.
+pub struct FsEditSkill {
+    guard: Arc<PermissionGuard>,
+}
+
+impl FsEditSkill {
+    /// Create a new `fs_edit` skill with the given permission guard.
+    pub fn new(guard: Arc<PermissionGuard>) -> Self {
+        Self { guard }
+    }
+}
+
+#[async_trait]
+impl Skill for FsEditSkill {
+    fn name(&self) -> &str {
+        "fs_edit"
+    }
+
+    fn category(&self) -> &str {
+        "filesystem"
+    }
+
+    fn description(&self) -> &str {
+        "Apply targeted search-and-replace edits to a file. Each edit must match exactly once."
+    }
+
+    fn schema(&self) -> SkillSchema {
+        SkillSchema::new(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "File path to edit" },
+                "edits": {
+                    "type": "array",
+                    "description": "List of search-and-replace edits to apply in order",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old_text": { "type": "string", "description": "Exact text to find (must appear exactly once)" },
+                            "new_text": { "type": "string", "description": "Text to replace it with" }
+                        },
+                        "required": ["old_text", "new_text"]
+                    },
+                    "minItems": 1
+                }
+            },
+            "required": ["path", "edits"]
+        }))
+    }
+
+    async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
+        self.guard.check_permission(PermissionLevel::Write)?;
+
+        let path_str = input
+            .args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| missing_arg("path"))?;
+
+        let edits = input
+            .args
+            .get("edits")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| missing_arg("edits"))?;
+
+        let path = input.resolve_path(path_str);
+        let canonical = self.guard.check_write_path(&path)?;
+
+        let original = tokio::fs::read_to_string(&canonical)
+            .await
+            .map_err(|e| fs_io_error(&format!("cannot read '{}'", canonical.display()), e))?;
+
+        let mut content = original.clone();
+        let mut edits_applied = 0usize;
+
+        for (i, edit) in edits.iter().enumerate() {
+            let old_text = edit
+                .get("old_text")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| Error::SkillCategorized {
+                    message: format!("edit[{i}] missing 'old_text'"),
+                    category: ErrorCategory::Input,
+                })?;
+            let new_text = edit
+                .get("new_text")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| Error::SkillCategorized {
+                    message: format!("edit[{i}] missing 'new_text'"),
+                    category: ErrorCategory::Input,
+                })?;
+
+            let count = content.matches(old_text).count();
+            if count == 0 {
+                return Err(Error::SkillCategorized {
+                    message: format!(
+                        "edit[{i}]: 'old_text' not found in file. File starts with:\n{}",
+                        content.lines().take(5).collect::<Vec<_>>().join("\n")
+                    ),
+                    category: ErrorCategory::Input,
+                });
+            }
+            if count > 1 {
+                return Err(Error::SkillCategorized {
+                    message: format!(
+                        "edit[{i}]: 'old_text' found {count} times — must be unique. Provide more context to make it unambiguous."
+                    ),
+                    category: ErrorCategory::Input,
+                });
+            }
+
+            content = content.replacen(old_text, new_text, 1);
+            edits_applied += 1;
+        }
+
+        tokio::fs::write(&canonical, content.as_bytes())
+            .await
+            .map_err(|e| fs_io_error("write failed", e))?;
+
+        debug!(path = %canonical.display(), edits = edits_applied, "fs_edit complete");
+
+        Ok(SkillOutput::new(serde_json::json!({
+            "edits_applied": edits_applied,
+            "path": canonical.to_string_lossy(),
+        })))
+    }
+}
+
 // ── fs_watch ──
 
 /// Skill that watches a path for filesystem changes (create, modify, delete).

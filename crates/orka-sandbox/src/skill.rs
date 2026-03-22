@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -42,12 +43,21 @@ impl Skill for SandboxSkill {
                 },
                 "language": {
                     "type": "string",
-                    "enum": ["python", "bash", "wasm"],
+                    "enum": ["python", "bash", "javascript", "wasm"],
                     "description": "The programming language"
                 },
                 "timeout_secs": {
                     "type": "number",
                     "description": "Optional execution timeout in seconds"
+                },
+                "stdin": {
+                    "type": "string",
+                    "description": "Data to pipe to the process via stdin"
+                },
+                "env": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "Environment variables to set for the process"
                 }
             },
             "required": ["code", "language"]
@@ -76,6 +86,7 @@ impl Skill for SandboxSkill {
         let language = match language_str {
             "python" => SandboxLang::Python,
             "bash" => SandboxLang::Bash,
+            "javascript" | "js" => SandboxLang::JavaScript,
             "wasm" => SandboxLang::Wasm,
             other => {
                 return Err(Error::SkillCategorized {
@@ -98,11 +109,28 @@ impl Skill for SandboxSkill {
             _ => code.as_bytes().to_vec(),
         };
 
+        let stdin = input
+            .args
+            .get("stdin")
+            .and_then(|v| v.as_str())
+            .map(|s| s.as_bytes().to_vec());
+
+        let env: HashMap<String, String> = input
+            .args
+            .get("env")
+            .and_then(|v| v.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+
         let req = SandboxRequest {
             code: code_bytes,
             language,
-            stdin: None,
-            env: std::collections::HashMap::new(),
+            stdin,
+            env,
             limits,
         };
 

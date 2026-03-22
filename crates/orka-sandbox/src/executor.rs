@@ -13,6 +13,8 @@ pub enum SandboxLang {
     Python,
     /// Bash shell script.
     Bash,
+    /// JavaScript (Node.js or Deno).
+    JavaScript,
 }
 
 /// Resource limits for sandbox execution.

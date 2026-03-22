@@ -18,6 +18,7 @@ async fn create_guardrail_returns_none_when_empty() {
         block_patterns: vec![],
         redact_patterns: vec![],
         pii_filter: false,
+        code_filter: false,
     };
     assert!(create_guardrail(&config).is_none());
 }
@@ -29,6 +30,7 @@ async fn create_guardrail_returns_none_for_empty_keyword_list() {
         block_patterns: vec![],
         redact_patterns: vec![],
         pii_filter: false,
+        code_filter: false,
     };
     assert!(create_guardrail(&config).is_none());
 }
@@ -40,6 +42,7 @@ async fn create_guardrail_with_keywords_only() {
         block_patterns: vec![],
         redact_patterns: vec![],
         pii_filter: false,
+        code_filter: false,
     };
     let guard = create_guardrail(&config).expect("should return Some");
     let decision = guard.check_input("this is spam", &session()).await.unwrap();
@@ -56,6 +59,7 @@ async fn create_guardrail_with_pii_filter() {
         block_patterns: vec![],
         redact_patterns: vec![],
         pii_filter: true,
+        code_filter: false,
     };
     let guard = create_guardrail(&config).expect("should return Some");
     let decision = guard
@@ -81,6 +85,7 @@ async fn create_guardrail_with_block_and_redact_patterns() {
             replacement: "[CARD]".into(),
         }],
         pii_filter: false,
+        code_filter: false,
     };
     let guard = create_guardrail(&config).expect("should return Some");
 
