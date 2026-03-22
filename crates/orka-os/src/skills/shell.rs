@@ -95,7 +95,7 @@ impl Skill for ShellExecSkill {
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
         self.guard.check_permission(PermissionLevel::Execute)?;
 
-        let command = input
+        let raw_command = input
             .args
             .get("command")
             .and_then(|v| v.as_str())
@@ -103,12 +103,39 @@ impl Skill for ShellExecSkill {
                 message: "missing 'command' argument".into(),
                 category: ErrorCategory::Input,
             })?;
-        let args: Vec<&str> = input
+        let explicit_args: Vec<&str> = input
             .args
             .get("args")
             .and_then(|v| v.as_array())
             .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
+
+        // When the LLM packs command+args into a single string (e.g. "df -h /"),
+        // split it with POSIX shell quoting rules so Command::new gets the right binary.
+        let (command_owned, args_owned) = if explicit_args.is_empty() && raw_command.contains(' ') {
+            let mut parts =
+                shell_words::split(raw_command).map_err(|e| Error::SkillCategorized {
+                    message: format!("failed to parse command string: {e}"),
+                    category: ErrorCategory::Input,
+                })?;
+            if parts.is_empty() {
+                return Err(Error::SkillCategorized {
+                    message: "empty command after parsing".into(),
+                    category: ErrorCategory::Input,
+                });
+            }
+            let cmd = parts.remove(0);
+            debug!(raw_command, cmd, "split compound command string");
+            (Some(cmd), parts)
+        } else {
+            (None, Vec::new())
+        };
+        let command: &str = command_owned.as_deref().unwrap_or(raw_command);
+        let args: Vec<&str> = if !args_owned.is_empty() {
+            args_owned.iter().map(|s| s.as_str()).collect()
+        } else {
+            explicit_args
+        };
         let cwd = input
             .args
             .get("cwd")
@@ -461,6 +488,56 @@ mod tests {
         );
         let schema = skill.schema();
         assert!(schema.parameters["properties"]["sudo"].is_object());
+    }
+
+    #[tokio::test]
+    async fn exec_split_compound_command() {
+        let skill = make_skill();
+        let mut args = HashMap::new();
+        args.insert("command".into(), serde_json::json!("echo hello world"));
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
+        assert_eq!(output.data["exit_code"], 0);
+        assert!(output.data["stdout"].as_str().unwrap().contains("hello world"));
+    }
+
+    #[tokio::test]
+    async fn exec_split_preserves_quotes() {
+        let skill = make_skill();
+        let mut args = HashMap::new();
+        args.insert("command".into(), serde_json::json!("echo 'hello world'"));
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
+        assert_eq!(output.data["exit_code"], 0);
+        assert!(output.data["stdout"].as_str().unwrap().contains("hello world"));
+    }
+
+    #[tokio::test]
+    async fn exec_no_split_when_args_present() {
+        let skill = make_skill();
+        let mut args = HashMap::new();
+        args.insert("command".into(), serde_json::json!("echo"));
+        args.insert("args".into(), serde_json::json!(["hello"]));
+        let output = skill.execute(SkillInput::new(args)).await.unwrap();
+        assert_eq!(output.data["exit_code"], 0);
+        assert!(output.data["stdout"].as_str().unwrap().contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn exec_split_blocked_command() {
+        use crate::approval::AutoApproveChannel;
+        use orka_core::config::OsConfig;
+        let config = OsConfig {
+            permission_level: "execute".into(),
+            blocked_commands: vec!["rm".into()],
+            ..OsConfig::default()
+        };
+        let skill = ShellExecSkill::new(
+            Arc::new(PermissionGuard::new(&config)),
+            &config,
+            Arc::new(AutoApproveChannel),
+        );
+        let mut args = HashMap::new();
+        args.insert("command".into(), serde_json::json!("rm -rf /"));
+        assert!(skill.execute(SkillInput::new(args)).await.is_err());
     }
 
     #[test]

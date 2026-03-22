@@ -24,6 +24,7 @@ sysinfo.workspace = true
 glob.workspace = true
 nix.workspace = true
 libc.workspace = true
+shell-words.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 

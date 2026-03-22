@@ -92,6 +92,7 @@ notify = { version = "7", default-features = false, features = [
   "macos_kqueue",
 ] }
 tempfile = "3"
+shell-words = "1"
 
 # Redis
 redis = { version = "0.27", features = ["tokio-comp", "streams"] }
