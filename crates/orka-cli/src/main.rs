@@ -57,7 +57,7 @@ enum Commands {
         #[arg(long)]
         session_id: Option<String>,
         /// Timeout in seconds to wait for a reply
-        #[arg(long, default_value = "10")]
+        #[arg(long, default_value = "120")]
         timeout: u64,
         /// Skip local workspace discovery (SOUL.md/TOOLS.md)
         #[arg(long)]

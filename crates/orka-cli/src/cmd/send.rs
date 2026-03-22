@@ -3,6 +3,7 @@ use futures_util::StreamExt;
 use orka_core::stream::StreamChunkKind;
 
 use crate::client::{OrkaClient, Result};
+use crate::markdown::MarkdownRenderer;
 use crate::protocol::{WsMessage, classify_ws_message};
 
 pub async fn run(
@@ -38,38 +39,40 @@ pub async fn run(
     // Connect WebSocket BEFORE sending the HTTP message to avoid missing fast replies.
     // For quick responses the server may stream the reply before the HTTP call returns,
     // so the WS connection must be established first.
-    println!("{}", "Waiting for reply...".dimmed());
+    eprintln!("{}", "Waiting for reply...".dimmed());
+
+    let mut renderer = MarkdownRenderer::new();
 
     let ws_result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), async {
         let ws = client.ws_connect(&sid).await?;
         let (_write, read) = ws.split();
         let resp = client.send_message(text, &sid, metadata).await?;
         if let Some(msg_id) = resp.get("message_id").and_then(|v| v.as_str()) {
-            println!("{} {}", "Message ID:".bold(), msg_id.dimmed());
+            eprintln!("{} {}", "Message ID:".bold(), msg_id.dimmed());
         }
-        wait_for_reply(read).await
+        stream_reply(read, &mut renderer).await
     })
     .await;
 
     match ws_result {
-        Ok(Ok(reply)) => {
-            println!("\n{}", "Reply:".green().bold());
-            let renderer = crate::markdown::MarkdownRenderer::new();
-            renderer.render_full(&reply);
-        }
+        Ok(Ok(())) => {}
         Ok(Err(e)) => {
             tracing::debug!("WS error: {e}");
-            println!("{}", "No reply received (connection error).".dimmed());
+            eprintln!("{}", "No reply received (connection error).".dimmed());
         }
         Err(_) => {
-            println!("{}", "No reply received (timeout).".dimmed());
+            eprintln!(
+                "{}",
+                format!("No reply received after {timeout_secs}s (use --timeout to increase).")
+                    .dimmed()
+            );
         }
     }
 
     Ok(())
 }
 
-async fn wait_for_reply<S>(mut read: S) -> Result<String>
+async fn stream_reply<S>(mut read: S, renderer: &mut MarkdownRenderer) -> Result<()>
 where
     S: futures_util::Stream<
             Item = std::result::Result<
@@ -78,35 +81,89 @@ where
             >,
         > + Unpin,
 {
-    let mut accumulated = String::new();
+    let mut got_content = false;
+    let mut thinking_shown = false;
 
     while let Some(msg) = read.next().await {
         let msg = msg?;
-        if msg.is_text() {
-            let text = msg.into_text()?.to_string();
-            match classify_ws_message(&text) {
-                WsMessage::Stream(StreamChunkKind::Delta(data)) => {
-                    accumulated.push_str(&data);
+        if !msg.is_text() {
+            continue;
+        }
+        // Use Deref<Target=str> on Utf8Bytes directly — no allocation needed.
+        let raw = msg.into_text()?;
+        match classify_ws_message(&raw) {
+            WsMessage::Stream(StreamChunkKind::Delta(data)) => {
+                if !got_content {
+                    println!("\n{}", "Reply:".green().bold());
+                    got_content = true;
                 }
-                WsMessage::Stream(StreamChunkKind::Done) => {
-                    if !accumulated.is_empty() {
-                        return Ok(accumulated);
-                    }
-                }
-                WsMessage::Final(content) => {
-                    if accumulated.is_empty() {
-                        return Ok(content);
-                    }
-                    // Already have streamed content, prefer that
-                    return Ok(accumulated);
-                }
-                _ => {}
+                renderer.push_delta(&data);
             }
+            WsMessage::Stream(StreamChunkKind::ToolExecStart {
+                name,
+                input_summary,
+                ..
+            }) => {
+                let label = match &input_summary {
+                    Some(s) => format!("{name}: {s}"),
+                    None => name.clone(),
+                };
+                eprintln!("  {} {}...", "⚙".dimmed(), label.dimmed());
+            }
+            WsMessage::Stream(StreamChunkKind::ToolExecEnd {
+                success,
+                duration_ms,
+                error,
+                result_summary,
+                ..
+            }) => {
+                let dur = crate::util::format_duration_ms(duration_ms);
+                if success {
+                    let suffix = result_summary
+                        .map(|s| format!(" — {s}"))
+                        .unwrap_or_default();
+                    eprintln!("  {} ({dur}){suffix}", "✓".green());
+                } else {
+                    let suffix = error
+                        .or(result_summary)
+                        .map(|s| format!(" — {s}"))
+                        .unwrap_or_default();
+                    eprintln!("  {} ({dur}){suffix}", "✗".red());
+                }
+            }
+            WsMessage::Stream(StreamChunkKind::ThinkingDelta(_)) => {
+                if !thinking_shown {
+                    eprintln!("  {}", "thinking...".dimmed());
+                    thinking_shown = true;
+                }
+            }
+            WsMessage::Stream(StreamChunkKind::AgentSwitch { display_name, .. }) => {
+                eprintln!("  {}", format!("[{display_name}]").dimmed());
+            }
+            WsMessage::Stream(StreamChunkKind::Done) => {
+                if got_content {
+                    renderer.flush();
+                } else {
+                    println!("{}", "(empty response)".dimmed());
+                }
+                return Ok(());
+            }
+            WsMessage::Final(content) => {
+                if !got_content {
+                    println!("\n{}", "Reply:".green().bold());
+                }
+                renderer.render_full(&content);
+                return Ok(());
+            }
+            // ToolStart, ToolEnd, Usage, ContextInfo, PrinciplesUsed — silent
+            _ => {}
         }
     }
 
-    if !accumulated.is_empty() {
-        return Ok(accumulated);
+    if got_content {
+        renderer.flush();
+        Ok(())
+    } else {
+        Err("WebSocket closed without reply".into())
     }
-    Err("WebSocket closed without reply".into())
 }
