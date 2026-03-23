@@ -1,40 +1,64 @@
 [workspace]
 resolver = "2"
 members = [
+  # ── Core ──────────────────────────────────────────────────────────────────
+  # Shared types, traits, error definitions, and standalone utilities
   "crates/orka-core",
+  "crates/orka-circuit-breaker",
+
+  # ── Infrastructure ────────────────────────────────────────────────────────
+  # Redis-backed runtime services (bus, queue, session, memory, secrets, ...)
   "crates/orka-bus",
-  "crates/orka-auth",
-  "crates/orka-session",
   "crates/orka-queue",
-  "crates/orka-worker",
-  "crates/orka-sandbox",
-  "crates/orka-gateway",
-  "crates/orka-workspace",
+  "crates/orka-session",
   "crates/orka-memory",
   "crates/orka-secrets",
+  "crates/orka-scheduler",
   "crates/orka-observe",
-  "crates/orka-skills",
+
+  # ── AI / Intelligence ─────────────────────────────────────────────────────
+  # LLM client, RAG, prompt engine, guardrails, self-learning, evaluation
   "crates/orka-llm",
+  "crates/orka-knowledge",
+  "crates/orka-prompts",
+  "crates/orka-guardrails",
+  "crates/orka-experience",
+  "crates/orka-eval",
+
+  # ── Execution / Extensibility ─────────────────────────────────────────────
+  # Skill registry, WASM sandbox, MCP and A2A protocol clients
+  "crates/orka-skills",
+  "crates/orka-wasm",
+  "crates/orka-sandbox",
   "crates/orka-mcp",
+  "crates/orka-a2a",
+
+  # ── Adapters ──────────────────────────────────────────────────────────────
+  # Platform integrations (Telegram, Discord, Slack, WhatsApp, custom HTTP/WS)
   "crates/orka-adapter-telegram",
   "crates/orka-adapter-discord",
   "crates/orka-adapter-whatsapp",
   "crates/orka-adapter-slack",
   "crates/orka-adapter-custom",
-  "crates/orka-guardrails",
-  "crates/orka-circuit-breaker",
-  "crates/orka-a2a",
-  "crates/orka-wasm",
-  "crates/orka-web",
-  "crates/orka-os",
+
+  # ── Networking / OS ───────────────────────────────────────────────────────
+  # HTTP client, web search, auth, Linux OS integration
   "crates/orka-http",
-  "crates/orka-knowledge",
-  "crates/orka-scheduler",
-  "crates/orka-experience",
+  "crates/orka-web",
+  "crates/orka-auth",
+  "crates/orka-os",
+
+  # ── Orchestration ─────────────────────────────────────────────────────────
+  # High-level: agent loop, workspace loader, gateway, worker pool, CLI, server
   "crates/orka-agent",
-  "crates/orka-eval",
+  "crates/orka-workspace",
+  "crates/orka-gateway",
+  "crates/orka-worker",
   "crates/orka-cli",
-  "orka-server",
+  "crates/orka-server",
+
+  # ── Plugin SDK ────────────────────────────────────────────────────────────
+  # Guest-side SDKs and example plugin for WASM Component Model plugins
   "sdk/orka-plugin-sdk",
   "sdk/orka-plugin-sdk-component",
   "sdk/hello-plugin",
@@ -50,6 +74,25 @@ repository = "https://github.com/gianlucamazza/orka"
 homepage = "https://github.com/gianlucamazza/orka"
 keywords = ["ai", "agent", "orchestration", "llm", "rust"]
 categories = ["command-line-utilities", "web-programming"]
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+# Allow some common/expected pedantic lints that are too noisy
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
 
 [workspace.dependencies]
 # Async runtime
@@ -77,6 +120,7 @@ anyhow = "1"
 # Time & IDs
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
+toml = "0.8"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 # Config
@@ -215,6 +259,11 @@ orka-experience = { path = "crates/orka-experience" }
 orka-eval = { path = "crates/orka-eval" }
 orka-agent = { path = "crates/orka-agent" }
 orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
+orka-prompts = { path = "crates/orka-prompts" }
+handlebars = { version = "6", default-features = false, features = [
+  "rust-embed",
+] }
+walkdir = "2"
 
 # Knowledge & RAG
 qdrant-client = "1"

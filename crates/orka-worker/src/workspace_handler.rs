@@ -21,6 +21,8 @@ use orka_llm::context::{
     TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
     truncate_history_with_hint,
 };
+use orka_prompts::pipeline::{BuildContext, PipelineConfig, SystemPromptPipeline};
+use orka_prompts::template::TemplateRegistry;
 use orka_skills::SkillRegistry;
 use orka_workspace::WorkspaceRegistry;
 use tracing::{Instrument, debug, info, info_span, warn};
@@ -101,26 +103,6 @@ fn summarize_result(name: &str, content: &str, is_error: bool) -> Option<String>
         }
         _ => None,
     }
-}
-
-fn format_current_datetime(timezone: Option<&str>) -> String {
-    use chrono::Utc;
-    if let Some(tz_name) = timezone {
-        if let Ok(tz) = tz_name.parse::<chrono_tz::Tz>() {
-            let now = Utc::now().with_timezone(&tz);
-            return format!(
-                "Current date and time: {} ({})",
-                now.format("%A, %B %-d, %Y, %H:%M %Z"),
-                tz_name
-            );
-        }
-        tracing::warn!(timezone = %tz_name, "invalid timezone in SOUL.md, falling back to UTC");
-    }
-    let now = Utc::now();
-    format!(
-        "Current date and time: {} (UTC)",
-        now.format("%A, %B %-d, %Y, %H:%M UTC")
-    )
 }
 
 /// Configuration parameters for [`WorkspaceHandler`], grouped to reduce constructor arguments.
@@ -291,67 +273,6 @@ impl WorkspaceHandler {
         ));
 
         defs
-    }
-
-    /// Assemble the system prompt from SOUL.md body, TOOLS.md body, current datetime,
-    /// and workspace awareness.
-    #[allow(clippy::too_many_arguments)]
-    fn build_system_prompt(
-        soul_name: &str,
-        soul_body: &str,
-        tools_body: &str,
-        timezone: Option<&str>,
-        workspace_name: &str,
-        available_workspaces: &[&str],
-        principles_section: &str,
-        conversation_summary: Option<&str>,
-        cwd: Option<&str>,
-    ) -> String {
-        let mut prompt = if soul_body.is_empty() {
-            format!("You are {soul_name}.")
-        } else {
-            format!("You are {soul_name}.\n\n{soul_body}")
-        };
-
-        let now_str = format_current_datetime(timezone);
-        prompt.push_str("\n\n");
-        prompt.push_str(&now_str);
-
-        if let Some(dir) = cwd {
-            prompt.push_str(&format!(
-                "\n\nThe user's current working directory is: {dir}\n\
-                When the user asks to create, read, or modify files without specifying an absolute \
-                path, resolve them relative to this directory. Use this directory as the default \
-                working directory for shell commands."
-            ));
-        }
-
-        if !tools_body.is_empty() {
-            prompt.push_str("\n\n");
-            prompt.push_str(tools_body);
-        }
-
-        // Inject learned principles (if any)
-        if !principles_section.is_empty() {
-            prompt.push_str(principles_section);
-        }
-
-        // Workspace awareness
-        let ws_list = available_workspaces.join(", ");
-        prompt.push_str(&format!(
-            "\n\nYou are currently operating in workspace \"{workspace_name}\".\n\
-             Available workspaces: {ws_list}.\n\
-             You can use the workspace_info tool to get details and workspace_switch to change workspace."
-        ));
-
-        // Inject prior conversation summary when the history has been condensed.
-        // This is placed after workspace context so the LLM sees it close to the messages.
-        if let Some(summary) = conversation_summary.filter(|s| !s.is_empty()) {
-            prompt.push_str("\n\n## Prior Conversation Context\n");
-            prompt.push_str(summary);
-        }
-
-        prompt
     }
 
     /// Resolve workspace from the registry by name. Falls back to default if not found.
@@ -1302,32 +1223,89 @@ impl AgentHandler for WorkspaceHandler {
                 }
             });
 
+            // Get workspace info for prompt building
             let user_cwd = envelope
                 .metadata
                 .get("workspace:cwd")
                 .and_then(|v| v.as_str());
-            let mut system_prompt = Self::build_system_prompt(
-                &soul_name,
-                &soul_body,
-                &tools_body,
-                soul_timezone.as_deref(),
-                &resolved_workspace,
-                &available_ws_refs,
-                &principles_section,
-                conversation_summary.as_deref(),
-                user_cwd,
-            );
 
-            // Inject recent local shell commands so the AI has context about what the user ran.
+            // Get template registry from workspace state
+            let state_lock = self.workspace_registry.default_state();
+            let state = state_lock.read().await;
+            let template_registry = state.templates.clone();
+            drop(state);
+
+            // Build system prompt using the configurable pipeline
+            let pipeline_config = PipelineConfig::default();
+            let pipeline = SystemPromptPipeline::from_config(&pipeline_config);
+            
+            // Parse principles from JSON string if available
+            let principles = if !principles_section.is_empty() {
+                // Simple parsing: extract principle items from the formatted section
+                principles_section
+                    .lines()
+                    .filter(|line| line.contains(". [") && line.contains("] "))
+                    .enumerate()
+                    .map(|(i, line)| {
+                        let kind = if line.contains("[AVOID]") { "avoid" } else { "do" };
+                        let text = line.split("] ").nth(1).unwrap_or("").to_string();
+                        serde_json::json!({
+                            "index": i + 1,
+                            "kind": kind,
+                            "text": text,
+                        })
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+            
+            // Build context
+            let available_workspaces: Vec<String> = available_ws_refs
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect();
+            
+            let mut ctx = BuildContext::new(&soul_name)
+                .with_persona(&soul_body)
+                .with_tool_instructions(&tools_body)
+                .with_workspace(&resolved_workspace, available_workspaces)
+                .with_principles(principles)
+                .with_config(pipeline_config);
+            
+            if let Some(cwd) = user_cwd {
+                ctx = ctx.with_cwd(cwd);
+            }
+            
+            if let Some(summary) = conversation_summary.as_deref() {
+                ctx = ctx.with_summary(summary);
+            }
+            
+            // Add shell commands as dynamic section if present
             if let Some(shell_ctx) = envelope
                 .metadata
                 .get("shell:recent_commands")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())
             {
-                system_prompt.push_str("\n\n## Recent local shell commands\n");
-                system_prompt.push_str(shell_ctx);
+                ctx = ctx.with_dynamic_section(
+                    "shell_commands",
+                    format!("## Recent local shell commands\n{shell_ctx}")
+                );
             }
+            
+            if let Some(registry) = template_registry {
+                ctx = ctx.with_templates(registry);
+            }
+            
+            let system_prompt = match pipeline.build(&ctx).await {
+                Ok(prompt) => prompt,
+                Err(e) => {
+                    warn!(error = %e, "failed to build system prompt with pipeline, using fallback");
+                    // Fallback to basic format
+                    format!("You are {soul_name}.\n\n{soul_body}")
+                }
+            };
 
             let mut options = CompletionOptions::default();
             options.model = soul_model.clone();
@@ -1963,24 +1941,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn format_datetime_utc_default() {
-        let result = format_current_datetime(None);
-        assert!(result.starts_with("Current date and time:"));
-        assert!(result.contains("UTC"));
-    }
-
-    #[test]
-    fn format_datetime_with_valid_timezone() {
-        let result = format_current_datetime(Some("Europe/Rome"));
-        assert!(result.contains("Europe/Rome"));
-    }
-
-    #[test]
-    fn format_datetime_invalid_falls_back_to_utc() {
-        let result = format_current_datetime(Some("Invalid/Tz"));
-        assert!(result.contains("UTC"));
-    }
+    // Note: I test per format_current_datetime sono stati rimossi
+    // La formattazione datetime è ora gestita dalla pipeline in orka-prompts
 
     #[tokio::test]
     async fn build_tool_definitions_includes_registered_skills() {
@@ -2008,99 +1970,8 @@ mod tests {
         assert_eq!(defs[1].name, "workspace_switch");
     }
 
-    #[test]
-    fn system_prompt_includes_workspace_awareness() {
-        let prompt = WorkspaceHandler::build_system_prompt(
-            "TestBot",
-            "I am helpful.",
-            "",
-            None,
-            "main",
-            &["main", "support"],
-            "",
-            None,
-            None,
-        );
-        assert!(prompt.contains("You are TestBot."));
-        assert!(prompt.contains("workspace \"main\""));
-        assert!(prompt.contains("main, support"));
-        assert!(prompt.contains("workspace_info"));
-        assert!(prompt.contains("workspace_switch"));
-    }
-
-    #[test]
-    fn system_prompt_includes_principles_when_provided() {
-        let principles = "\n\n## Learned Principles\n\n1. [DO] Use web_search for current info.\n";
-        let prompt = WorkspaceHandler::build_system_prompt(
-            "TestBot",
-            "",
-            "",
-            None,
-            "main",
-            &["main"],
-            principles,
-            None,
-            None,
-        );
-        assert!(prompt.contains("Learned Principles"));
-        assert!(prompt.contains("Use web_search"));
-    }
-
-    #[test]
-    fn system_prompt_omits_principles_when_empty() {
-        let prompt = WorkspaceHandler::build_system_prompt(
-            "TestBot",
-            "",
-            "",
-            None,
-            "main",
-            &["main"],
-            "",
-            None,
-            None,
-        );
-        assert!(!prompt.contains("Learned Principles"));
-    }
-
-    #[test]
-    fn system_prompt_injects_summary_in_system_context_not_as_user_message() {
-        let summary = "The user asked about the weather and I explained it was sunny.";
-        let prompt = WorkspaceHandler::build_system_prompt(
-            "TestBot",
-            "",
-            "",
-            None,
-            "main",
-            &["main"],
-            "",
-            Some(summary),
-            None,
-        );
-        assert!(
-            prompt.contains("## Prior Conversation Context"),
-            "summary section header missing"
-        );
-        assert!(
-            prompt.contains(summary),
-            "summary text missing from system prompt"
-        );
-    }
-
-    #[test]
-    fn system_prompt_omits_summary_section_when_none() {
-        let prompt = WorkspaceHandler::build_system_prompt(
-            "TestBot",
-            "",
-            "",
-            None,
-            "main",
-            &["main"],
-            "",
-            None,
-            None,
-        );
-        assert!(!prompt.contains("## Prior Conversation Context"));
-    }
+    // Note: I test per system prompt sono stati spostati in orka-prompts
+    // dove vengono testati con la pipeline template-based
 
     async fn multi_workspace_registry() -> Arc<WorkspaceRegistry> {
         use orka_workspace::config::SoulFrontmatter;

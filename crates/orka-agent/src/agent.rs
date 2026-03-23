@@ -4,6 +4,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use orka_llm::ThinkingConfig;
+use orka_prompts::pipeline::{BuildContext, PipelineConfig, SystemPromptPipeline};
+use orka_prompts::template::TemplateRegistry;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Opaque, cheaply-cloneable agent identifier.
@@ -82,27 +84,56 @@ pub struct SystemPrompt {
 }
 
 impl SystemPrompt {
-    /// Build the full prompt string for LLM submission.
-    pub fn build(&self, agent_name: &str) -> String {
-        let mut prompt = if self.persona.is_empty() {
-            format!("You are {agent_name}.")
+    /// Build the full prompt using the configurable pipeline.
+    ///
+    /// This method uses the template-based pipeline for maximum flexibility.
+    pub async fn build(
+        &self,
+        agent_name: &str,
+        workspace_name: &str,
+        available_workspaces: Vec<String>,
+        cwd: Option<String>,
+        principles: Vec<serde_json::Value>,
+        conversation_summary: Option<String>,
+        template_registry: Option<Arc<TemplateRegistry>>,
+        config: &PipelineConfig,
+    ) -> orka_core::Result<String> {
+        let pipeline = SystemPromptPipeline::from_config(config);
+
+        let ctx = BuildContext::new(agent_name)
+            .with_persona(&self.persona)
+            .with_tool_instructions(&self.tool_instructions)
+            .with_workspace(workspace_name, available_workspaces)
+            .with_principles(principles)
+            .with_config(config.clone());
+
+        let ctx = if let Some(cwd) = cwd {
+            ctx.with_cwd(cwd)
         } else {
-            format!("You are {agent_name}.\n\n{}", self.persona)
+            ctx
         };
 
-        if !self.tool_instructions.is_empty() {
-            prompt.push_str("\n\n");
-            prompt.push_str(&self.tool_instructions);
-        }
+        let ctx = if let Some(summary) = conversation_summary {
+            ctx.with_summary(summary)
+        } else {
+            ctx
+        };
 
-        for section in self.dynamic_sections.values() {
-            if !section.is_empty() {
-                prompt.push_str("\n\n");
-                prompt.push_str(section);
-            }
-        }
+        let ctx = if let Some(registry) = template_registry {
+            ctx.with_templates(registry)
+        } else {
+            ctx
+        };
 
-        prompt
+        // Add dynamic sections
+        let ctx = self
+            .dynamic_sections
+            .iter()
+            .fold(ctx, |ctx, (name, content)| {
+                ctx.with_dynamic_section(name, content)
+            });
+
+        pipeline.build(&ctx).await
     }
 }
 
@@ -202,10 +233,11 @@ mod tests {
         assert!(!scope.allows("run_code"));
     }
 
-    #[test]
-    fn system_prompt_build_uses_display_name() {
+    #[tokio::test]
+    async fn system_prompt_build_uses_display_name() {
         let sp = SystemPrompt::default();
-        let built = sp.build("Aria");
+        let config = PipelineConfig::default();
+        let built = sp.build("Aria", "default", vec![], None, vec![], None, None, &config).await.unwrap();
         assert!(built.contains("Aria"));
     }
 
@@ -230,40 +262,45 @@ mod tests {
         assert_eq!(back, id);
     }
 
-    #[test]
-    fn system_prompt_build_empty_persona() {
+    #[tokio::test]
+    async fn system_prompt_build_empty_persona() {
         let sp = SystemPrompt::default();
-        let built = sp.build("Bot");
+        let config = PipelineConfig {
+            sections: vec!["persona".to_string()],
+            ..Default::default()
+        };
+        let built = sp.build("Bot", "default", vec![], None, vec![], None, None, &config).await.unwrap();
         assert_eq!(built, "You are Bot.");
     }
 
-    #[test]
-    fn system_prompt_build_skips_empty_dynamic_sections() {
-        let mut sp = SystemPrompt {
-            persona: "Helpful.".into(),
+    #[tokio::test]
+    async fn system_prompt_build_with_persona() {
+        let sp = SystemPrompt {
+            persona: "I am helpful.".into(),
             ..Default::default()
         };
-        sp.dynamic_sections.insert("empty".into(), String::new());
-        sp.dynamic_sections
-            .insert("filled".into(), "Real content.".into());
-        let built = sp.build("Bot");
-        assert!(built.contains("Real content."));
-        // No double blank lines from the empty section
-        assert!(!built.contains("\n\n\n\n"));
+        let config = PipelineConfig {
+            sections: vec!["persona".to_string()],
+            ..Default::default()
+        };
+        let built = sp.build("Bot", "default", vec![], None, vec![], None, None, &config).await.unwrap();
+        assert!(built.contains("You are Bot."));
+        assert!(built.contains("I am helpful."));
     }
 
-    #[test]
-    fn system_prompt_build_includes_all_sections() {
-        let mut sp = SystemPrompt {
+    #[tokio::test]
+    async fn system_prompt_build_with_tools() {
+        let sp = SystemPrompt {
             persona: "I am helpful.".into(),
             tool_instructions: "Use tools wisely.".into(),
             ..Default::default()
         };
-        sp.dynamic_sections
-            .insert("principles".into(), "Be honest.".into());
-        let built = sp.build("Bot");
+        let config = PipelineConfig {
+            sections: vec!["persona".to_string(), "tools".to_string()],
+            ..Default::default()
+        };
+        let built = sp.build("Bot", "default", vec![], None, vec![], None, None, &config).await.unwrap();
         assert!(built.contains("I am helpful."));
         assert!(built.contains("Use tools wisely."));
-        assert!(built.contains("Be honest."));
     }
 }

@@ -313,6 +313,7 @@ mod tests {
             scheduler: Default::default(),
             http: Default::default(),
             experience: Default::default(),
+            prompts: Default::default(),
             agents: vec![],
             graph: None,
         }

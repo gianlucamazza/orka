@@ -72,9 +72,12 @@ impl McpClient {
     pub async fn connect(config: McpServerConfig) -> Result<Self> {
         let name = config.name.clone();
         match config.transport {
-            McpTransportConfig::Stdio { command, args, env, working_dir } => {
-                Self::connect_stdio(name, command, args, env, working_dir).await
-            }
+            McpTransportConfig::Stdio {
+                command,
+                args,
+                env,
+                working_dir,
+            } => Self::connect_stdio(name, command, args, env, working_dir).await,
             McpTransportConfig::StreamableHttp { url, auth } => Self::connect_http(name, url, auth),
         }
     }

@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
-use crate::default_env_var;
+use crate::providers::default_env_var;
 
 /// Watches an `.env` file for changes and hot-swaps LLM clients when API keys rotate.
 pub struct EnvWatcher {

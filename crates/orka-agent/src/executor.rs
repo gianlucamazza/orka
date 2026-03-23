@@ -7,6 +7,7 @@ use orka_core::traits::{EventSink, MemoryStore, SecretManager};
 use orka_core::{DomainEvent, DomainEventKind, OutboundMessage, Payload};
 use orka_experience::ExperienceService;
 use orka_llm::client::LlmClient;
+use orka_prompts::template::TemplateRegistry;
 use orka_skills::SkillRegistry;
 use tracing::{Instrument, info, info_span, warn};
 
@@ -34,6 +35,8 @@ pub struct ExecutorDeps {
     pub experience: Option<Arc<ExperienceService>>,
     /// Optional registry of soft (instruction-based) skills.
     pub soft_skills: Option<std::sync::Arc<orka_skills::SoftSkillRegistry>>,
+    /// Optional template registry for prompt rendering.
+    pub templates: Option<Arc<TemplateRegistry>>,
 }
 
 /// Result of a complete graph execution.

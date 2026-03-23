@@ -1,0 +1,9 @@
+{{#if principles}}
+## Learned Principles
+
+The following principles were learned from past interactions. Apply them when relevant:
+
+{{#each principles}}
+{{index}}. [{{#if (eq kind "avoid")}}AVOID{{else}}DO{{/if}}] {{text}}
+{{/each}}
+{{/if}}

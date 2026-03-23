@@ -9,6 +9,7 @@ license.workspace = true
 orka-core.workspace = true
 orka-knowledge.workspace = true
 orka-llm.workspace = true
+orka-prompts.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -3,32 +3,22 @@ use std::sync::Arc;
 use chrono::Utc;
 use orka_core::Result;
 use orka_llm::client::{ChatMessage, CompletionOptions, LlmClient};
+use orka_prompts::template::TemplateRegistry;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::types::{Principle, PrincipleKind, Trajectory};
 use crate::utils::extract_json_array;
 
-const REFLECTION_SYSTEM_PROMPT: &str = "\
-You are a reflection engine for an AI agent orchestration system. \
-Your job is to analyze a completed interaction trajectory and extract reusable principles.
-
-For each principle, output a JSON object with:
-- \"text\": a concise, actionable statement (1-2 sentences)
-- \"kind\": \"do\" (something that worked well or should be done) or \"avoid\" (something that failed or should be avoided)
-
-Output a JSON array of principle objects. Only include genuinely useful, non-obvious insights. \
-If the interaction was routine with nothing notable, output an empty array [].
-
-Examples:
-[{\"text\": \"When the user asks about system status, use the os_info skill before shell_exec for safer information gathering.\", \"kind\": \"do\"},
- {\"text\": \"Avoid calling web_search with queries longer than 100 characters — the API truncates them silently.\", \"kind\": \"avoid\"}]";
+/// Default reflection system prompt (used when template registry is not available).
+const DEFAULT_REFLECTION_PROMPT: &str = include_str!("../../orka-prompts/templates/system/reflection.hbs");
 
 /// Extracts principles from trajectories using an LLM.
 pub struct PrincipleReflector {
     llm: Arc<dyn LlmClient>,
     model: Option<String>,
     max_tokens: u32,
+    templates: Option<Arc<TemplateRegistry>>,
 }
 
 impl PrincipleReflector {
@@ -38,7 +28,31 @@ impl PrincipleReflector {
             llm,
             model,
             max_tokens,
+            templates: None,
         }
+    }
+
+    /// Set the template registry for prompt rendering.
+    pub fn with_templates(mut self, templates: Arc<TemplateRegistry>) -> Self {
+        self.templates = Some(templates);
+        self
+    }
+
+    /// Get the system prompt for reflection.
+    async fn get_system_prompt(&self) -> String {
+        if let Some(templates) = &self.templates {
+            if templates.has_template("system/reflection").await {
+                // Render template with empty context (template has no variables)
+                return templates
+                    .render("system/reflection", &{})
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!(error = %e, "failed to render reflection template, using default");
+                        DEFAULT_REFLECTION_PROMPT.to_string()
+                    });
+            }
+        }
+        DEFAULT_REFLECTION_PROMPT.to_string()
     }
 
     /// Reflect on a trajectory and extract principles.
@@ -55,9 +69,11 @@ impl PrincipleReflector {
         options.model = self.model.clone();
         options.max_tokens = Some(self.max_tokens);
 
+        let system_prompt = self.get_system_prompt().await;
+
         let response = self
             .llm
-            .complete_with_options(messages, REFLECTION_SYSTEM_PROMPT, options)
+            .complete_with_options(messages, &system_prompt, options)
             .await?;
 
         let principles = self.parse_principles(&response, workspace);

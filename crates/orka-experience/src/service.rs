@@ -3,6 +3,7 @@ use std::sync::Arc;
 use orka_core::Result;
 use orka_core::config::ExperienceConfig;
 use orka_llm::client::LlmClient;
+use orka_prompts::template::TemplateRegistry;
 use rand::Rng as _;
 use tracing::{debug, info, warn};
 
@@ -13,7 +14,7 @@ use crate::distiller::Distiller;
 use crate::reflector::PrincipleReflector;
 use crate::store::PrincipleStore;
 use crate::trajectory_store::TrajectoryStore;
-use crate::types::{Principle, StructuralAction, Trajectory};
+use crate::types::{Principle, PrincipleKind, StructuralAction, Trajectory};
 
 /// Result of a reflection pass: principles for prompt injection and structural actions to apply.
 pub struct ReflectionResult {
@@ -31,6 +32,7 @@ pub struct ExperienceService {
     reflector: PrincipleReflector,
     distiller: Distiller,
     config: ExperienceConfig,
+    templates: Option<Arc<TemplateRegistry>>,
 }
 
 impl ExperienceService {
@@ -57,7 +59,16 @@ impl ExperienceService {
             reflector,
             distiller,
             config,
+            templates: None,
         }
+    }
+
+    /// Set the template registry for prompt rendering.
+    pub fn with_templates(mut self, templates: Arc<TemplateRegistry>) -> Self {
+        self.templates = Some(Arc::clone(&templates));
+        self.reflector = self.reflector.with_templates(templates.clone());
+        self.distiller = self.distiller.with_templates(templates);
+        self
     }
 
     /// Retrieve relevant principles for a user message in the given workspace.
@@ -96,24 +107,49 @@ impl ExperienceService {
 
     /// Format principles for injection into the system prompt.
     pub fn format_principles_section(principles: &[Principle]) -> String {
+        Self::format_principles_section_with_templates(principles, None)
+    }
+
+    /// Format principles using templates if available.
+    pub fn format_principles_section_with_templates(
+        principles: &[Principle],
+        templates: Option<&TemplateRegistry>,
+    ) -> String {
         if principles.is_empty() {
             return String::new();
         }
 
-        let mut section = String::from("\n\n## Learned Principles\n\n");
+        // Try to use template if available
+        if let Some(_templates) = templates {
+            // Note: This is synchronous for now. In the future, we might want to make this async
+            // For now, we use the fallback implementation
+            // TODO: Make this async when tokio::runtime is available
+        }
+
+        // Fallback implementation
+        use orka_prompts::defaults::*;
+
+        let mut section = String::from(SECTION_SEPARATOR);
+        section.push_str(PRINCIPLES_SECTION_HEADER);
+        section.push_str("\n\n");
         section.push_str(
             "The following principles were learned from past interactions. Apply them when relevant:\n\n",
         );
 
         for (i, p) in principles.iter().enumerate() {
             let prefix = match p.kind {
-                crate::types::PrincipleKind::Do => "DO",
-                crate::types::PrincipleKind::Avoid => "AVOID",
+                PrincipleKind::Do => PRINCIPLE_PREFIX_DO,
+                PrincipleKind::Avoid => PRINCIPLE_PREFIX_AVOID,
             };
             section.push_str(&format!("{}. [{}] {}\n", i + 1, prefix, p.text));
         }
 
         section
+    }
+
+    /// Format principles for injection using the configured templates.
+    pub async fn format_principles(&self, principles: &[Principle]) -> String {
+        Self::format_principles_section_with_templates(principles, self.templates.as_deref())
     }
 
     /// Persist a trajectory to the trajectory store for future distillation.

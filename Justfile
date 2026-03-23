@@ -15,13 +15,13 @@ test:
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
 
-# Check formatting
+# Check formatting (nightly required for unstable options in .rustfmt.toml)
 fmt-check:
-    cargo fmt --all -- --check
+    cargo +nightly fmt --all -- --check
 
-# Auto-format all code
+# Auto-format all code (nightly required for unstable options in .rustfmt.toml)
 fmt:
-    cargo fmt --all
+    cargo +nightly fmt --all
 
 # Start infra (Redis)
 infra:

@@ -3,6 +3,7 @@
 
 pub mod agent;
 pub mod config;
+mod context_adapters;
 pub mod context;
 pub mod executor;
 pub mod graph;

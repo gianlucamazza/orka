@@ -24,6 +24,7 @@ orka-llm.workspace = true
 orka-guardrails.workspace = true
 orka-experience.workspace = true
 orka-agent.workspace = true
+orka-prompts.workspace = true
 futures-util = "0.3"
 
 [dev-dependencies]

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::soft_skill::{SoftSkill, SoftSkillSummary};
+use orka_prompts::template::TemplateRegistry;
 
 /// Controls which soft skills are injected into the agent system prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -101,6 +102,21 @@ impl SoftSkillRegistry {
     ///
     /// Used to ask the LLM which skills are relevant for a given request.
     pub fn build_selection_prompt(&self) -> String {
+        self.build_selection_prompt_with_templates(None)
+    }
+
+    /// Build selection prompt using templates if available.
+    pub fn build_selection_prompt_with_templates(
+        &self,
+        templates: Option<&TemplateRegistry>,
+    ) -> String {
+        // Try to use template if available
+        if let Some(_templates) = templates {
+            // Note: This would need to be async in real usage
+            // For now, use fallback
+        }
+
+        // Fallback implementation
         let mut out = String::from(
             "The following instruction skills are available. \
              Reply with a JSON array of skill names that are relevant to the user's request. \

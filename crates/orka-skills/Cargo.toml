@@ -17,6 +17,7 @@ orka-wasm.workspace = true
 tokio.workspace = true
 jsonschema.workspace = true
 orka-circuit-breaker.workspace = true
+orka-prompts.workspace = true
 
 [dev-dependencies]
 orka-core.workspace = true

@@ -117,31 +117,9 @@ Agent-to-Agent communication protocol. Agents can delegate sub-tasks to other Or
 
 ### CLI (orka-cli)
 
-Full management CLI for server administration, agent operations, and observability:
+Full management CLI for server administration, agent operations, and observability.
 
-```
-orka status                      # Server status (uptime, workers, adapters)
-orka send "Hello"                # Send a message (--session-id, --timeout)
-orka chat                        # Interactive session (--session-id)
-orka dashboard [--interval <s>]  # Real-time TUI dashboard
-orka dlq list|replay|purge       # Dead letter queue management
-orka secret set|get|list|delete  # Encrypted secret management
-orka config check                # Validate orka.toml
-orka config migrate              # Schema migration (--dry-run)
-orka sudo check                  # Verify sudoers for allowed commands
-orka skill list|describe <name>  # Registered skills
-orka schedule list|create|delete # Scheduled tasks
-orka workspace list|show <name>  # Server workspaces
-orka graph show [--dot]          # Agent graph (text or Graphviz DOT)
-orka experience status|principles|distill  # Self-learning system
-orka session list|show|delete    # Active sessions
-orka metrics [--filter] [--json] # Prometheus metrics
-orka a2a card|send               # A2A agent card / send task
-orka mcp-serve                   # Run as MCP server (stdio)
-orka completions <shell>         # Generate completions (bash/zsh/fish)
-orka version                     # Show version (--check: exit 1 if update available)
-orka update                      # Self-update the CLI binary
-```
+For a complete list of commands and global options, see the [CLI Reference](cli-reference.md).
 
 The CLI is a thin shell around `orka-core` and `orka-workspace` — it shares configuration and type definitions with the server.
 

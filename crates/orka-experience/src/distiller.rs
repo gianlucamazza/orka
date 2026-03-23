@@ -3,31 +3,15 @@ use std::sync::Arc;
 use chrono::Utc;
 use orka_core::Result;
 use orka_llm::client::{ChatMessage, CompletionOptions, LlmClient};
+use orka_prompts::template::TemplateRegistry;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::types::{Principle, PrincipleKind, Trajectory};
 use crate::utils::extract_json_array;
 
-const DISTILLATION_SYSTEM_PROMPT: &str = "\
-You are a meta-reflection engine for an AI agent orchestration system. \
-You receive a batch of interaction trajectories and must synthesize cross-cutting patterns.
-
-Unlike single-trajectory reflection, your goal is to identify:
-- Patterns that appear across multiple interactions (successes and failures)
-- Systematic strengths or weaknesses in the agent's approach
-- Skills or strategies that consistently help or hinder task completion
-
-For each principle, output a JSON object with:
-- \"text\": a concise, actionable statement (1-2 sentences)
-- \"kind\": \"do\" (something that works well) or \"avoid\" (something that fails or hinders)
-
-Output a JSON array of principle objects. Focus on patterns observed in at least 2 trajectories. \
-If no clear patterns emerge, output an empty array [].
-
-Examples:
-[{\"text\": \"For queries involving real-time data, always chain web_search before summarize to ensure current information.\", \"kind\": \"do\"},
- {\"text\": \"Avoid calling shell_exec without first checking if a safer skill exists — it consistently triggers permission errors.\", \"kind\": \"avoid\"}]";
+/// Default distillation system prompt (used when template registry is not available).
+const DEFAULT_DISTILLATION_PROMPT: &str = include_str!("../../orka-prompts/templates/system/distillation.hbs");
 
 /// Synthesizes principles from a batch of trajectories using an LLM.
 ///
@@ -37,6 +21,7 @@ pub struct Distiller {
     llm: Arc<dyn LlmClient>,
     model: Option<String>,
     max_tokens: u32,
+    templates: Option<Arc<TemplateRegistry>>,
 }
 
 impl Distiller {
@@ -46,7 +31,30 @@ impl Distiller {
             llm,
             model,
             max_tokens,
+            templates: None,
         }
+    }
+
+    /// Set the template registry for prompt rendering.
+    pub fn with_templates(mut self, templates: Arc<TemplateRegistry>) -> Self {
+        self.templates = Some(templates);
+        self
+    }
+
+    /// Get the system prompt for distillation.
+    async fn get_system_prompt(&self) -> String {
+        if let Some(templates) = &self.templates {
+            if templates.has_template("system/distillation").await {
+                return templates
+                    .render("system/distillation", &{})
+                    .await
+                    .unwrap_or_else(|e| {
+                        warn!(error = %e, "failed to render distillation template, using default");
+                        DEFAULT_DISTILLATION_PROMPT.to_string()
+                    });
+            }
+        }
+        DEFAULT_DISTILLATION_PROMPT.to_string()
     }
 
     /// Distill principles from a batch of trajectories.
@@ -66,9 +74,11 @@ impl Distiller {
         options.model = self.model.clone();
         options.max_tokens = Some(self.max_tokens);
 
+        let system_prompt = self.get_system_prompt().await;
+
         let response = self
             .llm
-            .complete_with_options(messages, DISTILLATION_SYSTEM_PROMPT, options)
+            .complete_with_options(messages, &system_prompt, options)
             .await?;
 
         let principles = parse_principles(&response, workspace);

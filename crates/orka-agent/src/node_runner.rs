@@ -1,6 +1,7 @@
 //! Single-agent LLM tool loop, extracted from `workspace_handler.rs`.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use orka_core::{DomainEvent, DomainEventKind, SkillInput};
 use orka_llm::client::{
@@ -11,6 +12,7 @@ use orka_llm::context::{
     TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
     truncate_history_with_hint,
 };
+use orka_prompts::pipeline::PipelineConfig;
 use tracing::{Instrument, debug, info, info_span, warn};
 
 use crate::agent::Agent;
@@ -267,97 +269,123 @@ pub async fn run_agent_node(
     let envelope = &ctx.trigger;
     let message_id = envelope.id;
 
-    // Build system prompt
+    // Extract trigger text once — used for principle retrieval and soft skill selection.
+    let trigger_text = match &ctx.trigger.payload {
+        orka_core::Payload::Text(t) => t.clone(),
+        _ => String::new(),
+    };
+
+    // Get workspace info
+    let workspace_name = ctx.trigger.metadata.get("workspace:name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
+    let available_workspaces = ctx.trigger.metadata.get("workspace:available")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_else(|| vec![workspace_name.to_string()]);
+    let cwd = ctx.trigger.metadata.get("workspace:cwd")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    // Retrieve principles if experience is available
+    let principles = if let Some(ref exp) = deps.experience {
+        match exp.retrieve_principles(&trigger_text, agent.id.0.as_ref()).await {
+            Ok(principles) if !principles.is_empty() => {
+                // Emit events for principles injection
+                deps.event_sink
+                    .emit(DomainEvent::new(DomainEventKind::PrinciplesInjected {
+                        session_id: ctx.session_id,
+                        count: principles.len(),
+                    }))
+                    .await;
+                deps.stream_registry
+                    .send(orka_core::stream::StreamChunk::new(
+                        ctx.session_id,
+                        envelope.channel.clone(),
+                        Some(envelope.id),
+                        orka_core::stream::StreamChunkKind::PrinciplesUsed {
+                            count: principles.len() as u32,
+                        },
+                    ));
+                // Convert principles to JSON for the pipeline
+                principles.into_iter().map(|p| serde_json::json!({
+                    "text": p.text,
+                    "kind": match p.kind {
+                        orka_experience::types::PrincipleKind::Do => "do",
+                        orka_experience::types::PrincipleKind::Avoid => "avoid",
+                    },
+                })).collect()
+            }
+            Err(e) => {
+                warn!(%e, "failed to retrieve principles");
+                vec![]
+            }
+            _ => vec![],
+        }
+    } else {
+        vec![]
+    };
+
+    // Get soft skill section
+    let soft_skill_section = if let Some(ref soft_reg) = deps.soft_skills {
+        if !soft_reg.is_empty() {
+            let selected_names: Vec<&str> =
+                if soft_reg.selection_mode == orka_skills::SoftSkillSelectionMode::Keyword {
+                    soft_reg.filter_by_message(&trigger_text)
+                } else {
+                    soft_reg.list()
+                };
+            soft_reg.build_prompt_section(&selected_names)
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    // Get shell commands context
+    let shell_commands = ctx.trigger.metadata.get("shell:recent_commands")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("## Recent local shell commands\n{s}"))
+        .unwrap_or_default();
+
+    // Build system prompt using the configurable pipeline
+    // Note: Context providers infrastructure is in place for future use
     let system_prompt = {
-        let mut sp = agent.system_prompt.build(&agent.display_name);
-
-        // Extract trigger text once — used for principle retrieval and soft skill selection.
-        let trigger_text = match &ctx.trigger.payload {
-            orka_core::Payload::Text(t) => t.clone(),
-            _ => String::new(),
+        let config = PipelineConfig::default();
+        let mut dynamic_sections = std::collections::BTreeMap::new();
+        
+        // Add soft skills as dynamic section if present
+        if !soft_skill_section.is_empty() {
+            dynamic_sections.insert("soft_skills".to_string(), soft_skill_section);
+        }
+        
+        // Add shell commands as dynamic section if present
+        if !shell_commands.is_empty() {
+            dynamic_sections.insert("shell_commands".to_string(), shell_commands);
+        }
+        
+        let sp = crate::agent::SystemPrompt {
+            persona: agent.system_prompt.persona.clone(),
+            tool_instructions: agent.system_prompt.tool_instructions.clone(),
+            dynamic_sections,
         };
-
-        // Inject learned principles if experience is available
-        if let Some(ref exp) = deps.experience {
-            match exp
-                .retrieve_principles(&trigger_text, agent.id.0.as_ref())
-                .await
-            {
-                Ok(principles) if !principles.is_empty() => {
-                    let section =
-                        orka_experience::ExperienceService::format_principles_section(&principles);
-                    if !section.is_empty() {
-                        sp.push_str(&section);
-                        deps.event_sink
-                            .emit(DomainEvent::new(DomainEventKind::PrinciplesInjected {
-                                session_id: ctx.session_id,
-                                count: principles.len(),
-                            }))
-                            .await;
-                        deps.stream_registry
-                            .send(orka_core::stream::StreamChunk::new(
-                                ctx.session_id,
-                                envelope.channel.clone(),
-                                Some(envelope.id),
-                                orka_core::stream::StreamChunkKind::PrinciplesUsed {
-                                    count: principles.len() as u32,
-                                },
-                            ));
-                    }
-                }
-                Err(e) => {
-                    warn!(%e, "failed to retrieve principles");
-                }
-                _ => {}
-            }
-        }
-
-        // B2: Inject soft skill instructions
-        if let Some(ref soft_reg) = deps.soft_skills {
-            if !soft_reg.is_empty() {
-                let selected_names: Vec<&str> =
-                    if soft_reg.selection_mode == orka_skills::SoftSkillSelectionMode::Keyword {
-                        soft_reg.filter_by_message(&trigger_text)
-                    } else {
-                        soft_reg.list()
-                    };
-                let section = soft_reg.build_prompt_section(&selected_names);
-                if !section.is_empty() {
-                    sp.push_str("\n\n");
-                    sp.push_str(&section);
-                }
-            }
-        }
-
-        // B3: Inject user's current working directory from envelope metadata.
-        if let Some(dir) = ctx
-            .trigger
-            .metadata
-            .get("workspace:cwd")
-            .and_then(|v| v.as_str())
-        {
-            sp.push_str(&format!(
-                "\n\nThe user's current working directory is: {dir}\n\
-                When the user asks to create, read, or modify files without specifying an absolute \
-                path, resolve them relative to this directory. Use this directory as the default \
-                working directory for shell commands."
-            ));
-        }
-
-        // B4: Inject recent local shell commands so the AI has context about what the user ran.
-        if let Some(shell_ctx) = ctx
-            .trigger
-            .metadata
-            .get("shell:recent_commands")
-            .and_then(|v| v.as_str())
-        {
-            if !shell_ctx.is_empty() {
-                sp.push_str("\n\n## Recent local shell commands\n");
-                sp.push_str(shell_ctx);
-            }
-        }
-
-        sp
+        
+        sp.build(
+            &agent.display_name,
+            workspace_name,
+            available_workspaces,
+            cwd,
+            principles,
+            None, // conversation_summary
+            deps.templates.clone(), // template_registry from workspace
+            &config,
+        ).await.unwrap_or_else(|e| {
+            warn!(%e, "failed to build system prompt with pipeline, using fallback");
+            // Fallback to simple format
+            format!("You are {}.\n\n{}", agent.display_name, agent.system_prompt.persona)
+        })
     };
 
     let mut options = CompletionOptions::default();

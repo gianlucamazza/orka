@@ -2578,6 +2578,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
+name = "globset"
+version = "0.4.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52dfc19153a48bde0cbd630453615c8151bce3a5adfac7a0aebfbf0a1e1f57e3"
+dependencies = [
+ "aho-corasick",
+ "bstr",
+ "log",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
 name = "governor"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2628,6 +2641,23 @@ dependencies = [
  "cfg-if",
  "crunchy",
  "zerocopy",
+]
+
+[[package]]
+name = "handlebars"
+version = "6.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b3f9296c208515b87bd915a2f5d1163d4b3f863ba83337d7713cf478055948e"
+dependencies = [
+ "derive_builder",
+ "log",
+ "num-order",
+ "pest",
+ "pest_derive",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4145,6 +4175,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-modular"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17bb261bf36fa7d83f4c294f834e91256769097b3cb505d44831e0a179ac647f"
+
+[[package]]
+name = "num-order"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "537b596b97c40fcf8056d153049eb22f481c17ebce72a513ec9286e4986d1bb6"
+dependencies = [
+ "num-modular",
+]
+
+[[package]]
 name = "num-rational"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4602,6 +4647,7 @@ dependencies = [
  "orka-experience",
  "orka-guardrails",
  "orka-llm",
+ "orka-prompts",
  "orka-skills",
  "orka-workspace",
  "serde",
@@ -4744,6 +4790,7 @@ dependencies = [
  "orka-core",
  "orka-knowledge",
  "orka-llm",
+ "orka-prompts",
  "rand 0.9.2",
  "serde",
  "serde_json",
@@ -4927,6 +4974,26 @@ name = "orka-plugin-sdk-component"
 version = "1.0.0"
 
 [[package]]
+name = "orka-prompts"
+version = "1.0.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "chrono-tz",
+ "handlebars",
+ "notify",
+ "orka-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "walkdir",
+]
+
+[[package]]
 name = "orka-queue"
 version = "1.0.0"
 dependencies = [
@@ -5084,6 +5151,7 @@ dependencies = [
  "jsonschema",
  "orka-circuit-breaker",
  "orka-core",
+ "orka-prompts",
  "orka-wasm",
  "serde",
  "serde_json",
@@ -5133,6 +5201,7 @@ dependencies = [
  "orka-experience",
  "orka-guardrails",
  "orka-llm",
+ "orka-prompts",
  "orka-queue",
  "orka-session",
  "orka-skills",
@@ -5150,6 +5219,7 @@ version = "1.0.0"
 dependencies = [
  "notify",
  "orka-core",
+ "orka-prompts",
  "serde",
  "serde_json",
  "serde_yml",
@@ -6440,6 +6510,7 @@ version = "8.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5bcdef0be6fe7f6fa333b1073c949729274b05f123a0ad7efcb8efd878e5c3b1"
 dependencies = [
+ "globset",
  "sha2",
  "walkdir",
 ]

@@ -238,61 +238,9 @@ dir = "./skills"   # directory containing SKILL.md subdirectories
 
 ## Evaluating Skills
 
-Use `orka-eval` to test skills offline with TOML scenario files.
+`orka-eval` is a dedicated framework for testing skills offline using declarative TOML scenario files. It lets you write assertions against skill output, timing, and success/failure without running a live LLM.
 
-### Scenario file (`evals/my-skill.eval.toml`)
-
-```toml
-skill = "my_skill"
-
-[[scenarios]]
-name        = "basic_echo"
-description = "Returns the input message"
-
-[scenarios.input]
-message = "hello world"
-
-[scenarios.expected]
-is_ok          = true
-contains       = ["hello world"]
-max_duration_ms = 500
-
-[[scenarios]]
-name = "empty_input"
-
-[scenarios.input]
-message = ""
-
-[scenarios.expected]
-is_ok = true
-```
-
-### Run evaluations
-
-```rust
-use std::sync::Arc;
-use orka_eval::EvalRunner;
-use orka_skills::SkillRegistry;
-
-let mut registry = SkillRegistry::new();
-registry.register(Arc::new(MySkill));
-
-let runner = EvalRunner::new(Arc::new(registry));
-let report = runner.run_dir(Path::new("evals"), None).await?;
-
-println!("{}/{} passed", report.passed, report.total);
-```
-
-### Assertion fields
-
-| Field             | Type         | Description                                   |
-| ----------------- | ------------ | --------------------------------------------- |
-| `is_ok`           | `bool`       | Skill must succeed (`true`) or fail (`false`) |
-| `contains`        | `[string]`   | Output must contain all substrings            |
-| `not_contains`    | `[string]`   | Output must not contain any substring         |
-| `format`          | `"json"`     | Output must be valid JSON                     |
-| `output_matches`  | regex string | Output must match the regex                   |
-| `max_duration_ms` | integer      | Execution must complete within this duration  |
+For the full reference—including the scenario file format, all assertion fields, programmatic usage, and CI integration—see the dedicated **[Evaluation Framework Guide](eval-guide.md)**.
 
 ---
 

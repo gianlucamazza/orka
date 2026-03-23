@@ -740,8 +740,7 @@ pub async fn run(
             }
 
             InputAction::ShellExec(cmd) => {
-                let result =
-                    shell::execute_shell(&cmd, &cwd, &env_overrides, &env_removes).await;
+                let result = shell::execute_shell(&cmd, &cwd, &env_overrides, &env_removes).await;
                 last_exit = result.exit_code;
                 let combined = if result.stderr.is_empty() {
                     result.stdout.clone()

@@ -6,7 +6,7 @@ Orka is an AI agent orchestration framework written in Rust. It manages LLM-powe
 
 ## Workspace Structure
 
-Cargo workspace with 37 members: 33 under `crates/`, plus `orka-server/` (main binary) and 3 under `sdk/` (WASM plugin SDKs and example plugin).
+Cargo workspace with 38 members: 34 under `crates/` (including `orka-server` binary), plus 3 under `sdk/` (WASM plugin SDKs and example plugin).
 
 ## Common Commands
 
@@ -26,7 +26,7 @@ cargo test -- --ignored        # Integration tests (requires Redis)
 
 - **MSRV:** 1.85
 - **Error handling:** `thiserror` for library crates, `anyhow` sparingly in binaries
-- **Formatting:** `rustfmt` defaults, no `rustfmt.toml`
+- **Formatting:** `.rustfmt.toml` present with unstable options — run `cargo +nightly fmt --all` (stable options also work with `cargo fmt --all`)
 - **Linting:** `cargo clippy -- -D warnings`
 - **Comments and docs:** English
 - **License:** MIT OR Apache-2.0

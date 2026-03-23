@@ -1,0 +1,12 @@
+{{#if workspace_name}}
+You are currently operating in workspace "{{workspace_name}}".
+{{#if available_workspaces}}
+Available workspaces: {{join available_workspaces ", "}}.
+{{/if}}
+You can use the workspace_info tool to get details and workspace_switch to change workspace.
+{{/if}}
+
+{{#if cwd}}
+The user's current working directory is: {{cwd}}
+When the user asks to create, read, or modify files without specifying an absolute path, resolve them relative to this directory. Use this directory as the default working directory for shell commands.
+{{/if}}

@@ -220,7 +220,11 @@ pub async fn execute_shell(
     let stdout = stdout_task.await.unwrap_or_default();
     let stderr = stderr_task.await.unwrap_or_default();
 
-    ShellResult { exit_code, stdout, stderr }
+    ShellResult {
+        exit_code,
+        stdout,
+        stderr,
+    }
 }
 
 /// Handle a builtin command, mutating CWD/env as needed. Returns a status message.

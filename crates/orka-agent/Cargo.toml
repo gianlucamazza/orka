@@ -13,6 +13,7 @@ orka-skills = { workspace = true }
 orka-experience = { workspace = true }
 orka-workspace = { workspace = true }
 orka-guardrails = { workspace = true }
+orka-prompts = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

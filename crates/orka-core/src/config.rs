@@ -113,6 +113,9 @@ pub struct OrkaConfig {
     /// HTTP client and webhook configuration.
     #[serde(default)]
     pub http: HttpClientConfig,
+    /// Prompt template configuration.
+    #[serde(default)]
+    pub prompts: PromptsConfig,
     /// Experience / self-learning configuration.
     #[serde(default)]
     pub experience: ExperienceConfig,
@@ -1931,6 +1934,58 @@ fn default_webhook_path_prefix() -> String {
     "/webhooks".into()
 }
 
+/// Prompt template configuration.
+#[non_exhaustive]
+#[derive(Debug, Clone, Deserialize)]
+pub struct PromptsConfig {
+    /// Directory containing custom templates (relative to workspace or absolute).
+    #[serde(default = "default_prompts_dir")]
+    pub templates_dir: String,
+    /// Enable hot-reload of templates.
+    #[serde(default = "default_true")]
+    pub hot_reload: bool,
+    /// Default section order for system prompts.
+    #[serde(default)]
+    pub section_order: Vec<String>,
+    /// Separator between sections.
+    #[serde(default = "default_section_separator")]
+    pub section_separator: String,
+    /// Maximum principles to include.
+    #[serde(default = "default_max_principles")]
+    pub max_principles: usize,
+}
+
+impl Default for PromptsConfig {
+    fn default() -> Self {
+        Self {
+            templates_dir: default_prompts_dir(),
+            hot_reload: default_true(),
+            section_order: vec![
+                "persona".to_string(),
+                "datetime".to_string(),
+                "workspace".to_string(),
+                "tools".to_string(),
+                "principles".to_string(),
+                "summary".to_string(),
+            ],
+            section_separator: default_section_separator(),
+            max_principles: default_max_principles(),
+        }
+    }
+}
+
+fn default_prompts_dir() -> String {
+    "PROMPTS".to_string()
+}
+
+fn default_section_separator() -> String {
+    "\n\n".to_string()
+}
+
+fn default_max_principles() -> usize {
+    5
+}
+
 /// Experience & self-learning configuration.
 #[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
@@ -2525,6 +2580,7 @@ mod tests {
             scheduler: SchedulerConfig::default(),
             http: HttpClientConfig::default(),
             experience: ExperienceConfig::default(),
+            prompts: PromptsConfig::default(),
             agents: Vec::new(),
             graph: None,
         });
@@ -2542,6 +2598,7 @@ mod tests {
             redis: RedisConfig::default(),
             logging: LoggingConfig::default(),
             workspace_dir: ".".into(), // current dir exists
+            prompts: PromptsConfig::default(),
             workspaces: Vec::new(),
             default_workspace: None,
             adapters: AdapterConfig::default(),
