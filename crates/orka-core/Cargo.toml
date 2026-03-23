@@ -5,18 +5,33 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["full"]
+full = ["testing", "migrate", "config"]
+
+# Enable test doubles (InMemoryBus, InMemorySessionStore, etc.)
+testing = ["tokio/rt", "tokio/macros"]
+
+# Enable config migration support
+migrate = ["toml_edit"]
+
+# Enable full config support (requires migrate)
+config = ["migrate", "dep:config"]
 
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
 dashmap = "6"
-config.workspace = true
+config = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync", "time"] }
-toml_edit = { workspace = true }
+toml_edit = { workspace = true, optional = true }
 tracing.workspace = true
 uuid.workspace = true
 utoipa.workspace = true
 zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

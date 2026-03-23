@@ -287,6 +287,7 @@ mod tests {
             observe: ObserveConfig::default(),
             audit: AuditConfig::default(),
             gateway: GatewayConfig::default(),
+            prompts: PromptsConfig::default(),
             mcp: McpConfig::default(),
             guardrails: GuardrailsConfig::default(),
             web: WebConfig::default(),

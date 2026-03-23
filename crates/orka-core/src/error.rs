@@ -164,6 +164,7 @@ pub enum Error {
     },
 
     /// Config migration error.
+    #[cfg(feature = "migrate")]
     #[error("config migration error: {0}")]
     Migration(#[from] crate::migrate::MigrationError),
 

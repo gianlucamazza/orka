@@ -106,27 +106,14 @@ impl ExperienceService {
     }
 
     /// Format principles for injection into the system prompt.
+    ///
+    /// This synchronous version uses the default formatting.
+    /// For template-based formatting, use [`Self::format_principles`].
     pub fn format_principles_section(principles: &[Principle]) -> String {
-        Self::format_principles_section_with_templates(principles, None)
-    }
-
-    /// Format principles using templates if available.
-    pub fn format_principles_section_with_templates(
-        principles: &[Principle],
-        templates: Option<&TemplateRegistry>,
-    ) -> String {
         if principles.is_empty() {
             return String::new();
         }
 
-        // Try to use template if available
-        if let Some(_templates) = templates {
-            // Note: This is synchronous for now. In the future, we might want to make this async
-            // For now, we use the fallback implementation
-            // TODO: Make this async when tokio::runtime is available
-        }
-
-        // Fallback implementation
         use orka_prompts::defaults::*;
 
         let mut section = String::from(SECTION_SEPARATOR);
@@ -148,8 +135,37 @@ impl ExperienceService {
     }
 
     /// Format principles for injection using the configured templates.
+    ///
+    /// If templates are configured and a "principles" template exists, it will be used.
+    /// Otherwise falls back to the default formatting.
     pub async fn format_principles(&self, principles: &[Principle]) -> String {
-        Self::format_principles_section_with_templates(principles, self.templates.as_deref())
+        if principles.is_empty() {
+            return String::new();
+        }
+
+        // Try to use template if available
+        if let Some(templates) = &self.templates {
+            let context = serde_json::json!({
+                "principles": principles.iter().map(|p| serde_json::json!({
+                    "text": p.text,
+                    "kind": match p.kind {
+                        PrincipleKind::Do => "do",
+                        PrincipleKind::Avoid => "avoid",
+                    },
+                    "scope": p.scope,
+                })).collect::<Vec<_>>(),
+            });
+
+            match templates.render("principles", &context).await {
+                Ok(rendered) => return rendered,
+                Err(e) => {
+                    tracing::debug!(error = %e, "failed to render principles template, using default");
+                }
+            }
+        }
+
+        // Fallback to default implementation
+        Self::format_principles_section(principles)
     }
 
     /// Persist a trajectory to the trajectory store for future distillation.

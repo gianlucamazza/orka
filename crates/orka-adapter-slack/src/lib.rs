@@ -67,7 +67,9 @@ struct SlackEvent {
 
 #[derive(Debug, Deserialize, Clone)]
 struct SlackFile {
-    // `id` is kept for future use (e.g., files.completeUploadExternal when receiving)
+    /// File ID from Slack API (used for completeness in deserialization).
+    /// Note: File download uses `url_private` directly; upload uses
+    /// `files.getUploadURLExternal`/`completeUploadExternal` flow.
     #[allow(dead_code)]
     id: String,
     mimetype: Option<String>,

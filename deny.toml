@@ -1,87 +1,130 @@
+# Cargo Deny Configuration
+# https://embarkstudios.github.io/cargo-deny/
+
+# Targets to check
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "aarch64-unknown-linux-gnu" },
+]
+
+# Advisory Database
 [advisories]
-unmaintained = "workspace"
-ignore = [
-  # tokio-tar 0.3.1 (archived, no fix): transitive dev-dep via testcontainers.
-  # Waiting on testcontainers to switch to astral-tokio-tar or similar.
-  "RUSTSEC-2025-0111",
-]
+# Path to advisory database (optional, uses default if not specified)
+# db-path = "~/.cargo/advisory-dbs"
+# URL to fetch advisories from
+# db-urls = ["https://github.com/rustsec/advisory-db"]
 
+# Security vulnerabilities
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "deny"
+notice = "warn"
+
+# A list of advisory IDs to ignore
+# ignore = [
+#     "RUSTSEC-0000-0000",
+# ]
+
+# Maximum severity threshold
+# severity-threshold = "low"
+
+# Licenses
 [licenses]
+# Allow the following licenses
 allow = [
-  "MIT",
-  "MIT-0",
-  "Apache-2.0",
-  "Apache-2.0 WITH LLVM-exception",
-  "BSD-2-Clause",
-  "BSD-3-Clause",
-  "ISC",
-  "CC0-1.0",
-  "Unicode-3.0",
-  "Zlib",
-  "MPL-2.0",
-  "BSL-1.0",
-  "NCSA",
-  "CDLA-Permissive-2.0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "WTFPL",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "OFL-1.1",
+    "LicenseRef-ring",
 ]
 
+# Deny the following licenses
+deny = [
+    "GPL-2.0",
+    "GPL-3.0",
+    "AGPL-3.0",
+]
+
+# Allow exceptions for specific crates
+copyleft = "deny"
+allow-osi-fsf-free = "neither"
+default = "deny"
+
+# Clarify licenses for crates that don't specify them correctly
+[[licenses.clarify]]
+name = "ring"
+expression = "LicenseRef-ring"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[[licenses.clarify]]
+name = "webpki"
+expression = "ISC"
+license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
+
+# Bans
 [bans]
-multiple-versions = "deny"
-wildcards = "allow"
+# Deny multiple versions of the same crate
+multiple-versions = "warn"
+wildcards = "allow"  # Allow for workspace dependencies
+highlight = "all"
+
+# Deny specific crates
+# deny = [
+#     { name = "crate_name", version = "*" },
+# ]
+
+# Skip certain crate duplicates (for known issues)
 skip = [
-  # axum 0.7 pulled by tonic (qdrant-client, opentelemetry-otlp)
-  { name = "axum" },
-  { name = "axum-core" },
-  { name = "matchit" },
-  { name = "tower" },
-  # base64 pulled by multiple unrelated transitive deps
-  { name = "base64" },
-  # bitflags 1.x still used by inotify/kqueue/redox_syscall
-  { name = "bitflags" },
-  # various crates with multiple versions in transitive dep trees
-  { name = "bit-set" },
-  { name = "bit-vec" },
-  { name = "convert_case" },
-  { name = "core-foundation" },
-  { name = "derive_more" },
-  { name = "fancy-regex" },
-  { name = "foldhash" },
-  { name = "getrandom" },
-  { name = "hashbrown" },
-  { name = "indexmap" },
-  { name = "itertools" },
-  { name = "linux-raw-sys" },
-  { name = "nom" },
-  { name = "phf" },
-  { name = "phf_shared" },
-  { name = "rand" },
-  { name = "rand_chacha" },
-  { name = "rand_core" },
-  { name = "rand_xoshiro" },
-  { name = "redox_users" },
-  { name = "r-efi" },
-  { name = "rustc-hash" },
-  { name = "rustix" },
-  { name = "serde_spanned" },
-  { name = "socket2" },
-  { name = "thiserror" },
-  { name = "thiserror-impl" },
-  { name = "tiktoken-rs" },
-  { name = "tokio-tungstenite" },
-  { name = "toml" },
-  { name = "toml_datetime" },
-  { name = "tungstenite" },
-  { name = "unicode-width" },
-  { name = "ureq" },
-  { name = "wasm-encoder" },
-  { name = "wast" },
-  { name = "webpki-roots" },
-  { name = "windows-core" },
-  { name = "windows-implement" },
-  { name = "windows-interface" },
-  { name = "windows-result" },
-  { name = "windows-sys" },
+    # Known duplicate from transitive dependencies
+    { name = "bitflags", version = "1.3.2" },
+    { name = "hashbrown", version = "0.12.3" },
+    { name = "indexmap", version = "1.9.3" },
+    { name = "syn", version = "1.0.109" },
+    { name = "windows-sys", version = "0.48.0" },
+    { name = "windows-targets", version = "0.48.5" },
+    { name = "windows_aarch64_gnullvm", version = "0.48.5" },
+    { name = "windows_aarch64_msvc", version = "0.48.5" },
+    { name = "windows_i686_gnu", version = "0.48.5" },
+    { name = "windows_i686_msvc", version = "0.48.5" },
+    { name = "windows_x86_64_gnu", version = "0.48.5" },
+    { name = "windows_x86_64_gnullvm", version = "0.48.5" },
+    { name = "windows_x86_64_msvc", version = "0.48.5" },
 ]
 
+# Skip tree for known duplicate chains
+skip-tree = [
+    { name = "windows-sys", version = "0.48.0" },
+    { name = "windows-sys", version = "0.52.0" },
+]
+
+# Sources
 [sources]
-unknown-registry = "deny"
+# Deny git sources by default
 unknown-git = "deny"
+unknown-registry = "deny"
+
+# Allow specific registries
+allow-registry = [
+    "https://github.com/rust-lang/crates.io-index",
+]
+
+# Allow specific git sources
+allow-git = [
+    # "https://github.com/owner/repo",
+]
+
+[sources.allow-org]
+# github = ["owner1", "owner2"]
+# gitlab = ["owner1", "owner2"]
+# bitbucket = ["owner1", "owner2"]

@@ -7,6 +7,7 @@
 //! - **Types** ([`types`]): `Envelope`, `OutboundMessage`, `Session`, `Payload`, `DomainEvent`, etc.
 //! - **Error** ([`Error`]): unified error type for the entire platform
 //! - **Config** ([`config`]): configuration structs loaded from TOML / environment
+//! - **Container** ([`container`]): lightweight dependency injection container
 //! - **Testing** ([`testing`]): in-memory test doubles for all core traits
 //!
 //! # Examples
@@ -27,12 +28,10 @@
 //! ```
 #![warn(missing_docs)]
 
-/// Configuration types for the Orka platform.
-pub mod config;
+/// Lightweight dependency injection container.
+pub mod container;
 /// Unified error type and `Result` alias.
 pub mod error;
-/// Config versioning and migration engine.
-pub mod migrate;
 /// Slash-command parser for user input.
 pub mod slash_command;
 /// Core traits that define the Orka abstraction layer.
@@ -45,7 +44,16 @@ pub mod retry;
 /// Streaming infrastructure for real-time LLM response delivery.
 pub mod stream;
 
+/// Configuration types for the Orka platform.
+#[cfg(feature = "config")]
+pub mod config;
+
+/// Config versioning and migration engine.
+#[cfg(feature = "migrate")]
+pub mod migrate;
+
 /// In-memory test doubles for core traits.
+#[cfg(feature = "testing")]
 pub mod testing;
 
 pub use error::{Error, Result};
@@ -57,3 +65,9 @@ pub use types::{
     OutboundMessage, Payload, Priority, RunId, SecretValue, Session, SessionId, SkillBudget,
     SkillContext, SkillInput, SkillOutput, SkillSchema, TraceContext, backoff_delay,
 };
+
+#[cfg(feature = "config")]
+pub use config::OrkaConfig;
+
+#[cfg(feature = "migrate")]
+pub use migrate::{MigrationError, MigrationResult, migrate_if_needed};

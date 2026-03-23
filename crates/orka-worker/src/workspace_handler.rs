@@ -1198,7 +1198,7 @@ impl AgentHandler for WorkspaceHandler {
                                 count: principles.len() as u32,
                             },
                         ));
-                        ExperienceService::format_principles_section(&principles)
+                        exp.format_principles(&principles).await
                     }
                     Ok(_) => String::new(),
                     Err(e) => {
