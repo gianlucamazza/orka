@@ -140,4 +140,69 @@ Config fields can also be overridden via `ORKA__<SECTION>__<KEY>` (e.g., `ORKA__
 | `agent`                   | `max_tool_result_chars`   | `50000`                  | Truncation limit for tool output                                        |
 | `agent`                   | `max_tool_retries`        | `2`                      | Retries before self-correction hint                                     |
 
-For a complete reference natively, check the default `orka.toml` file in the root.
+## Adapter Configuration
+
+Orka supports multiple messaging adapters. Below are configuration examples for each.
+
+### Telegram Adapter
+
+```toml
+[adapters.telegram]
+bot_token_secret = "telegram_token"  # Secret name from secret store
+mode = "polling"                      # "polling" or "webhook"
+parse_mode = "HTML"                   # "HTML" or "MarkdownV2"
+
+# Webhook mode (production)
+# webhook_url = "https://your-domain.com/webhook/telegram"
+# webhook_port = 8443
+```
+
+**Setup:**
+1. Create bot via @BotFather in Telegram
+2. Store token: `orka secret set telegram_token "YOUR_TOKEN"`
+3. Configure adapter in `orka.toml`
+
+### Discord Adapter
+
+```toml
+[adapters.discord]
+bot_token_secret = "discord_token"
+application_id = "your_app_id"  # Optional, for slash commands
+```
+
+### Slack Adapter
+
+```toml
+[adapters.slack]
+bot_token_secret = "slack_bot_token"
+listen_port = 3000
+```
+
+### WhatsApp Adapter
+
+```toml
+[adapters.whatsapp]
+access_token_secret = "whatsapp_token"
+phone_number_id = "your_phone_id"
+verify_token = "webhook_verify_token"
+listen_port = 3001
+```
+
+### Custom HTTP/WebSocket Adapter
+
+The custom adapter provides a generic HTTP/WebSocket endpoint (default port 8081):
+
+```toml
+[adapters.custom]
+enabled = true
+listen_port = 8081
+```
+
+**Sending messages via HTTP:**
+```bash
+curl -X POST http://localhost:8081/api/v1/message \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "my-cli", "text": "Hello"}'
+```
+
+For a complete reference, check the default `orka.toml` file in the repository root.

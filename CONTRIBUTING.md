@@ -73,6 +73,68 @@ chore: bump dependencies
 - Add tests for new functionality in `#[cfg(test)] mod tests` blocks
 - Comments and documentation in English
 
+## Rust Best Practices (2026)
+
+Orka uses Rust 1.93+ with Edition 2024. Follow these modern patterns:
+
+### Prefer `let else` for Early Returns
+
+```rust
+// ❌ Avoid
+if let Some(value) = option {
+    // logic
+} else {
+    return Err(Error::NotFound);
+}
+
+// ✅ Prefer
+let Some(value) = option else {
+    return Err(Error::NotFound);
+};
+// logic without extra indentation
+```
+
+### Use `std::sync::LazyLock` for Static Initialization
+
+```rust
+// ❌ Avoid
+use once_cell::sync::Lazy;
+static CONFIG: Lazy<String> = Lazy::new(|| load_config());
+
+// ✅ Prefer
+use std::sync::LazyLock;
+static CONFIG: LazyLock<String> = LazyLock::new(|| load_config());
+```
+
+### Async Patterns
+
+```rust
+// Use native async traits where possible (Rust 1.75+)
+pub trait MyService {
+    async fn process(&self) -> Result<T>;
+}
+
+// For trait objects, use `async_trait` or return `impl Future`
+pub trait ServiceObject {
+    fn process(&self) -> impl Future<Output = Result<T>> + Send;
+}
+```
+
+### Error Handling
+
+- Use `?` operator with `thiserror` for structured errors
+- Use `anyhow` only in binaries, not libraries
+- Prefer `Result<T, E>` over panics
+
+### Testing
+
+```rust
+#[tokio::test]
+async fn test_async_function() {
+    // Async tests are native, no special setup needed
+}
+```
+
 ## Architecture
 
 Orka is organized as a Cargo workspace with ~34 crates. Each crate has a single responsibility:
