@@ -288,6 +288,7 @@ pub async fn run(
     let ws_alive_task = ws_alive.clone();
 
     // Flag: set to true when the user initiates graceful shutdown (e.g. /exit, /quit)
+    // Use SeqCst ordering to ensure visibility across threads during shutdown
     let graceful_shutdown = Arc::new(AtomicBool::new(false));
     let graceful_shutdown_task = graceful_shutdown.clone();
 
@@ -583,7 +584,7 @@ pub async fn run(
                     Err(e) => {
                         // Suppress error message during graceful shutdown - the server
                         // may close the connection before we complete the close handshake
-                        if !graceful_shutdown_task.load(Ordering::Relaxed) {
+                        if !graceful_shutdown_task.load(Ordering::SeqCst) {
                             eprintln!("{} {e}", "Connection error:".red());
                         }
                         break;
@@ -1163,15 +1164,18 @@ pub async fn run(
 
     drop(prompt_tx); // signal the editor thread to exit and save history
     // Signal graceful shutdown to suppress spurious connection error messages
-    graceful_shutdown.store(true, Ordering::Relaxed);
+    graceful_shutdown.store(true, Ordering::SeqCst);
     // Stop pings first — no data frames allowed after Close per WebSocket RFC
     ping_task.abort();
     // Send a clean WS Close frame and wait for the server's Close response
     {
         let mut guard = ws_write.lock().await;
         let _ = guard.send(Message::Close(None)).await;
+        // Flush to ensure the Close frame is sent immediately
+        let _ = guard.flush().await;
     }
     // Give the reader up to 2s to complete the close handshake before aborting
+    // The ws_task will exit when it receives the server's Close frame or EOF
     let _ = tokio::time::timeout(Duration::from_secs(2), &mut ws_task).await;
     ws_task.abort();
     println!("\n{}", "Goodbye!".cyan());
