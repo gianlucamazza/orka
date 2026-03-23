@@ -26,8 +26,8 @@ orka-wasm.workspace = true
 similar = { workspace = true }
 colored.workspace = true
 dirs = "6"
-rustyline = "15"
-indicatif = "0.17"
+rustyline = "17"
+indicatif = "0.18"
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 uuid.workspace = true

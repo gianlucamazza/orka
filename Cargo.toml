@@ -127,11 +127,11 @@ anyhow = "1"
 # Time & IDs
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
-toml = "0.8"
+toml = "0.9"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 # Config
-config = "0.14"
+config = "0.15"
 serde_yml = "0.0.12"
 dotenvy = "0.15"
 
@@ -139,19 +139,19 @@ dotenvy = "0.15"
 arc-swap = "1"
 
 # Filesystem
-notify = { version = "7", default-features = false, features = [
+notify = { version = "8", default-features = false, features = [
   "macos_kqueue",
 ] }
 tempfile = "3"
 shell-words = "1"
 
 # Redis
-redis = { version = "0.27", features = ["tokio-comp", "streams"] }
-deadpool-redis = "0.18"
+redis = { version = "1.1", features = ["tokio-comp", "streams"] }
+deadpool-redis = "0.23"
 
 # Testing
-testcontainers = "0.23"
-testcontainers-modules = { version = "0.11", features = ["redis"] }
+testcontainers = "0.24"
+testcontainers-modules = { version = "0.12", features = ["redis"] }
 proptest = "1"
 insta = { version = "1", features = ["json", "yaml"] }
 
@@ -164,27 +164,27 @@ tower-http = { version = "0.6", features = [
   "limit",
   "set-header",
 ] }
-governor = "0.8"
+governor = "0.10"
 tower-layer = "0.3"
 tower-service = "0.3"
 http = "1"
 tokio-util = { version = "0.7", features = ["rt"] }
-reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
+reqwest = { version = "0.13", features = ["json", "stream", "multipart"] }
 
 # Crypto
 sha2 = "0.10"
 zeroize = { version = "1", features = ["derive"] }
 aes-gcm = "0.10"
-rand = "0.9"
+rand = "0.10"
 hex = "0.4"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
-rustyline = "15"
+rustyline = "17"
 colored = "3"
 comfy-table = "7"
-dialoguer = "0.11"
+dialoguer = "0.12"
 ratatui = { version = "0.30", features = ["crossterm"] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 arboard = "3"
@@ -192,13 +192,13 @@ notify-rust = "4"
 open = "5"
 
 # WASM
-cap-std = "3"
-wasmtime = { version = "42", features = ["component-model"] }
-wasmtime-wasi = "42"
-wit-bindgen = "0.51"
+cap-std = "4"
+wasmtime = { version = "43", features = ["component-model"] }
+wasmtime-wasi = "43"
+wit-bindgen = "0.54"
 
 # JWT
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 
 # Regex
 regex = "1"
@@ -208,28 +208,28 @@ utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 # JSON Schema validation
-jsonschema = "0.28"
+jsonschema = "0.45"
 
 # WebSocket
-tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 futures-util = "0.3"
 
 # Web scraping
-scraper = "0.22"
+scraper = "0.26"
 
 # Metrics
 metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.16", default-features = false }
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 
 # Tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # OpenTelemetry
-opentelemetry = "0.28"
-opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.28", features = ["grpc-tonic"] }
-tracing-opentelemetry = "0.29"
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.32"
 
 # Internal crates
 orka-core = { path = "crates/orka-core" }
@@ -275,27 +275,27 @@ walkdir = "2"
 # Knowledge & RAG
 qdrant-client = "1"
 fastembed = "5"
-text-splitter = { version = "0.16", features = ["tiktoken-rs"] }
-tiktoken-rs = "0.6"
-pdf-extract = "0.7"
+text-splitter = { version = "0.29", features = ["tiktoken-rs"] }
+tiktoken-rs = "0.9"
+pdf-extract = "0.10"
 
 # Scheduler
-cron = "0.13"
+cron = "0.15"
 
 # Config migration
-toml_edit = "0.22"
+toml_edit = "0.25"
 similar = "2"
 
 # Markdown parsing
-pulldown-cmark = "0.12"
+pulldown-cmark = "0.13"
 
 # URL parsing
 url = "2"
 
 # OS integration
-sysinfo = "0.33"
+sysinfo = "0.38"
 glob = "0.3"
-nix = { version = "0.29", features = ["signal"] }
+nix = { version = "0.30", features = ["signal"] }
 libc = "0.2"
 
 [profile.dev]
