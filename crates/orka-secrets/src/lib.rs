@@ -2,13 +2,20 @@
 //!
 //! Provides [`RedisSecretManager`], an implementation of [`orka_core::traits::SecretManager`]
 //! with optional AES-256-GCM encryption, and a [`create_secret_manager`] factory.
+//!
+//! Also includes [`RotatingSecretManager`](rotation::RotatingSecretManager) for zero-downtime
+//! secret rotation.
 
 #![warn(missing_docs)]
 
 /// Redis-backed secret manager with optional AES-256-GCM encryption.
 pub mod redis_secret;
 
+/// Secret rotation support for zero-downtime key rotation.
+pub mod rotation;
+
 pub use crate::redis_secret::RedisSecretManager;
+pub use crate::rotation::{RotatingSecretManager, RotationConfig, RotationStatus};
 
 use std::sync::Arc;
 

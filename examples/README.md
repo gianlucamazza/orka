@@ -35,6 +35,43 @@ Shows how to create custom skills for Orka agents.
 cd custom_skill && cargo run
 ```
 
+### `wasm_plugin`
+
+Demonstrates loading and executing WASM plugins as skills.
+
+**Features demonstrated:**
+- Loading WASM components
+- Configuring runtime limits
+- Executing sandboxed plugins
+- Handling plugin capabilities
+
+**Run:**
+```bash
+# Build the example plugin first
+cd ../sdk/hello-plugin
+cargo build --target wasm32-wasip2 --release
+
+# Run the example
+cd ../../examples/wasm_plugin
+export WASM_PLUGIN_PATH="../../sdk/hello-plugin/target/wasm32-wasip2/release/hello_plugin.wasm"
+cargo run
+```
+
+### `multi_agent`
+
+Demonstrates building a multi-agent workflow with specialized agents.
+
+**Features demonstrated:**
+- Creating an AgentGraph
+- Routing between specialized agents
+- Collaborative task execution
+- Termination policies
+
+**Run:**
+```bash
+cd multi_agent && cargo run
+```
+
 ## Running Examples
 
 Each example is a standalone Cargo project. To run an example:
@@ -45,3 +82,13 @@ cargo run
 ```
 
 Some examples may require environment variables or configuration. Check the example's `src/main.rs` for specific requirements.
+
+## Adding New Examples
+
+When adding a new example:
+
+1. Create a new directory with `Cargo.toml` and `src/main.rs`
+2. Add a brief description to this README
+3. Include usage instructions
+4. Add inline documentation in the code
+5. Add tests where appropriate

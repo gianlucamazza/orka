@@ -1,0 +1,21 @@
+[package]
+name = "wasm_plugin"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[dependencies]
+orka-core = { path = "../../crates/orka-core" }
+orka-wasm = { path = "../../crates/orka-wasm" }
+orka-skills = { path = "../../crates/orka-skills" }
+
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "wasm_plugin"
+path = "src/main.rs"
