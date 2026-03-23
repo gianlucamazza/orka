@@ -22,7 +22,7 @@ use orka_llm::context::{
     truncate_history_with_hint,
 };
 use orka_prompts::pipeline::{BuildContext, PipelineConfig, SystemPromptPipeline};
-use orka_prompts::template::TemplateRegistry;
+
 use orka_skills::SkillRegistry;
 use orka_workspace::WorkspaceRegistry;
 use tracing::{Instrument, debug, info, info_span, warn};
@@ -1085,7 +1085,7 @@ impl AgentHandler for WorkspaceHandler {
         let context_window = agent
             .context_window_tokens
             .unwrap_or(self.default_context_window);
-        let soul_timezone = agent.timezone.clone();
+        let _soul_timezone = agent.timezone.clone();
         let max_iterations = agent.max_iterations;
 
         // Apply input guardrail

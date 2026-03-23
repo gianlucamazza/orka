@@ -8,6 +8,7 @@ use std::sync::Arc;
 /// Context passed during prompt building.
 ///
 /// Contains all data needed to render prompt sections.
+/// This is the unified BuildContext used by both the pipeline and context providers.
 #[derive(Clone, Default)]
 pub struct BuildContext {
     /// Agent display name.
@@ -42,6 +43,12 @@ pub struct BuildContext {
 
     /// Pipeline configuration.
     pub config: PipelineConfig,
+
+    /// Current datetime (ISO 8601 format).
+    pub datetime: String,
+
+    /// Timezone for datetime display.
+    pub timezone: String,
 }
 
 impl BuildContext {
@@ -109,6 +116,18 @@ impl BuildContext {
     /// Set the pipeline configuration.
     pub fn with_config(mut self, config: PipelineConfig) -> Self {
         self.config = config;
+        self
+    }
+
+    /// Set the datetime string.
+    pub fn with_datetime(mut self, datetime: impl Into<String>) -> Self {
+        self.datetime = datetime.into();
+        self
+    }
+
+    /// Set the timezone.
+    pub fn with_timezone(mut self, timezone: impl Into<String>) -> Self {
+        self.timezone = timezone.into();
         self
     }
 }

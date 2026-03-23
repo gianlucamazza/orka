@@ -101,6 +101,7 @@ fn make_deps(llm: Arc<dyn LlmClient>) -> ExecutorDeps {
         stream_registry: StreamRegistry::new(),
         experience: None,
         soft_skills: None,
+        templates: None,
     }
 }
 
@@ -114,6 +115,7 @@ fn make_deps_no_llm() -> ExecutorDeps {
         stream_registry: StreamRegistry::new(),
         experience: None,
         soft_skills: None,
+        templates: None,
     }
 }
 

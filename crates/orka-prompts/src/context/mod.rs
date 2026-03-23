@@ -13,4 +13,7 @@ pub use concrete_providers::{
     SoftSkillRegistry, SoftSkillSelectionMode, SoftSkillsContextProvider,
 };
 pub use provider::{ContextProvider, PrinciplesProvider, WorkspaceProvider};
-pub use types::{BuildContext, PrincipleContext, SessionContext, WorkspaceContext};
+pub use types::{PrincipleContext, SessionContext, WorkspaceContext};
+
+// BuildContext is unified and exported from pipeline module
+pub use crate::pipeline::BuildContext;

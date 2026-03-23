@@ -108,43 +108,44 @@ Context Providers implement the Strategy Pattern for fetching dynamic data via d
 
 ```rust
 use orka_prompts::context::{
-    ContextProvider, ContextProviderRegistry, SessionContext
+    ContextCoordinator, ExperienceContextProvider, SessionContext,
+    ShellContextProvider, SoftSkillsContextProvider, WorkspaceProvider,
+};
+use orka_prompts::pipeline::BuildContext;
+
+// Create base context (from pipeline module)
+let base_context = BuildContext::new("MyAgent")
+    .with_persona("I am helpful.")
+    .with_workspace("default", vec!["default".to_string()]);
+
+// Create session context
+let session_ctx = SessionContext {
+    session_id: "session-123".to_string(),
+    workspace: "default".to_string(),
+    user_message: "Hello".to_string(),
+    cwd: Some("/home/user".to_string()),
+    recent_commands: vec![],
+    metadata: HashMap::new(),
 };
 
-// Implement the trait
-pub struct PrinciplesProvider {
-    experience: Arc<ExperienceService>,
-}
+// Coordinator aggregates data from all providers
+let coordinator = ContextCoordinator::new(base_context)
+    .with_provider(Box::new(WorkspaceProvider::new(vec!["default".to_string()])))
+    .with_provider(Box::new(ShellContextProvider::new()));
 
-#[async_trait]
-impl ContextProvider for PrinciplesProvider {
-    fn provider_id(&self) -> &str { "principles" }
-    
-    async fn provide(&self, ctx: &SessionContext) -> Result<Value> {
-        let principles = self.experience
-            .retrieve_principles(&ctx.workspace.name, 5)
-            .await;
-        Ok(json!({ "principles": principles }))
-    }
-}
-
-// Registry coordinates all providers
-let mut registry = ContextProviderRegistry::new(base_context);
-registry.register(Box::new(PrinciplesProvider::new(exp)));
-registry.register(Box::new(SoftSkillsProvider::new(soft_skills)));
-
-// Gather all data
-let build_context = registry.gather_all(&session_ctx).await?;
+// Build final context
+let build_context = coordinator.build(&session_ctx).await?;
 ```
 
 #### Built-in Providers
 
 | Provider | Data Source | Output |
 |----------|-------------|--------|
-| `PrinciplesProvider` | `ExperienceService` | `{principles: [...]}` |
-| `SoftSkillsProvider` | `SoftSkillRegistry` | `{soft_skills: "..."}` |
-| `ShellCommandsProvider` | Session metadata | `{shell: {recent_commands: [...]}}` |
-| `WorkspaceMetadataProvider` | Session metadata | `{workspace: {...}}` |
+| `ExperienceContextProvider` | `ExperienceService` | `{principles: [...]}` |
+| `SoftSkillsContextProvider` | `SoftSkillRegistry` | `{soft_skills: {content: "..."}}` |
+| `ShellContextProvider` | Session metadata | `{shell_commands: {content: "..."}}` |
+| `WorkspaceProvider` | Session metadata | `{workspace: {name, available, cwd}}` |
+| `SectionsContextProvider` | Static sections | Custom dynamic sections |
 
 ### 5. Configuration
 
@@ -213,43 +214,64 @@ The modern approach uses dependency injection with context providers:
 
 ```rust
 use orka_prompts::context::{
-    ContextProviderRegistry, SessionContext, PrinciplesProvider,
-    SoftSkillsProvider, WorkspaceMetadataProvider, ShellCommandsProvider,
+    ContextCoordinator, ExperienceContextProvider, SessionContext,
+    ShellContextProvider, SoftSkillSelectionMode, SoftSkillsContextProvider,
+    WorkspaceProvider, SectionsContextProvider,
 };
+use orka_prompts::pipeline::{BuildContext, SystemPromptPipeline, PipelineConfig};
 
-// 1. Create session context from trigger data
+// 1. Create base context
+let base_context = BuildContext::new(&agent.display_name)
+    .with_persona(&agent.system_prompt.persona)
+    .with_workspace(workspace_name, available_workspaces)
+    .with_principles(principles);
+
+// 2. Create session context
 let session_ctx = SessionContext {
-    workspace: WorkspaceContext {
-        name: workspace_name,
-        available_workspaces,
-        cwd,
-    },
-    trigger: &ctx.trigger,
-    experience: deps.experience.as_deref(),
+    session_id: ctx.session_id.to_string(),
+    workspace: workspace_name.to_string(),
+    user_message: trigger_text,
+    cwd,
+    recent_commands: vec![],
+    metadata: ctx.trigger.metadata,
 };
 
-// 2. Register providers based on available dependencies
-let mut registry = ContextProviderRegistry::new(base_context);
-if let Some(exp) = deps.experience.clone() {
-    registry.register(Box::new(PrinciplesProvider::new(exp)));
-}
-if let Some(soft) = deps.soft_skills.clone() {
-    registry.register(Box::new(SoftSkillsProvider::new(soft)));
-}
-registry.register(Box::new(WorkspaceMetadataProvider::new()));
-registry.register(Box::new(ShellCommandsProvider::new()));
+// 3. Configure coordinator with providers
+let mut coordinator = ContextCoordinator::new(base_context);
 
-// 3. Gather context and build
-let build_ctx = registry.gather_all(&session_ctx).await?;
+if let Some(exp) = deps.experience.clone() {
+    let adapter = ExperienceServiceAdapter::new(exp);
+    coordinator = coordinator.with_provider(Box::new(
+        ExperienceContextProvider::new(Arc::new(adapter), workspace_name.to_string())
+    ));
+}
+
+if let Some(soft) = deps.soft_skills.clone() {
+    let adapter = SoftSkillRegistryAdapter::new(soft);
+    let mode = get_soft_skill_selection_mode(&soft);
+    coordinator = coordinator.with_provider(Box::new(
+        SoftSkillsContextProvider::new(Arc::new(adapter), mode)
+    ));
+}
+
+coordinator = coordinator
+    .with_provider(Box::new(WorkspaceProvider::new(available_workspaces)))
+    .with_provider(Box::new(ShellContextProvider::new()));
+
+// 4. Build context and render
+let build_ctx = coordinator.build(&session_ctx).await?;
+let pipeline = SystemPromptPipeline::from_config(&PipelineConfig::default());
 let prompt = pipeline.build(&build_ctx).await?;
 ```
 
-The old manual approach is deprecated:
-```rust
-// DEPRECATED: Manual data extraction
-let principles = experience.retrieve_principles(...).await;
-let soft_skills = soft_skill_registry.build_prompt_section(...);
-```
+### BuildContext Unification
+
+There is a single `BuildContext` type used throughout the system:
+- Defined in `orka_prompts::pipeline::BuildContext`
+- Produced by `ContextCoordinator`
+- Consumed by `SystemPromptPipeline`
+
+This ensures type compatibility across the entire prompt building pipeline.
 
 ### Experience Crate
 

@@ -1,5 +1,4 @@
 use crate::state::WorkspaceState;
-use orka_prompts::template::TemplateRegistry;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};

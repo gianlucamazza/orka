@@ -4,7 +4,8 @@
 //! shell history, workspace registry) and make it available to the
 //! prompt building pipeline.
 
-use super::types::{BuildContext, PrincipleContext, SessionContext, WorkspaceContext};
+use super::types::{SessionContext, WorkspaceContext};
+use crate::pipeline::BuildContext;
 use async_trait::async_trait;
 use orka_core::Result;
 use serde_json::Value;
@@ -25,16 +26,17 @@ pub trait ExperienceService: Send + Sync {
 
 /// Principle from experience service.
 pub struct Principle {
+    /// The principle text content.
     pub text: String,
+    /// The kind of principle (Do or Avoid).
     pub kind: PrincipleKind,
 }
 
-/// Kind of principle.
-/// Types of principles
+/// Kind of principle - what the principle represents.
 pub enum PrincipleKind {
-    /// Something the agent should do
+    /// A positive behavior the agent should do.
     Do,
-    /// Something the agent should avoid
+    /// A negative behavior the agent should avoid.
     Avoid,
 }
 
@@ -60,16 +62,18 @@ impl super::provider::ContextProvider for ExperienceContextProvider {
             .retrieve_principles(&ctx.user_message, &self.workspace)
             .await?;
 
-        let contexts: Vec<PrincipleContext> = principles
+        let contexts: Vec<serde_json::Value> = principles
             .into_iter()
             .enumerate()
-            .map(|(i, p)| PrincipleContext {
-                index: Some(i + 1),
-                text: p.text,
-                kind: match p.kind {
-                    PrincipleKind::Do => "do".to_string(),
-                    PrincipleKind::Avoid => "avoid".to_string(),
-                },
+            .map(|(i, p)| {
+                serde_json::json!({
+                    "index": i + 1,
+                    "text": p.text,
+                    "kind": match p.kind {
+                        PrincipleKind::Do => "do",
+                        PrincipleKind::Avoid => "avoid",
+                    },
+                })
             })
             .collect();
 
@@ -135,9 +139,11 @@ pub trait SoftSkillRegistry: Send + Sync {
     fn filter_by_message(&self, message: &str) -> Vec<&str>;
 }
 
-/// Selection mode for soft skills.
+/// Selection mode for soft skills - how to choose which skills apply.
 pub enum SoftSkillSelectionMode {
+    /// Use all available soft skills.
     All,
+    /// Select skills based on keyword matching.
     Keyword,
 }
 
@@ -267,13 +273,15 @@ impl ContextCoordinator {
     fn merge_single(&mut self, key: &str, value: &Value) {
         match key {
             "principles" => {
-                if let Ok(principles) = serde_json::from_value(value.clone()) {
+                if let Ok(principles) = serde_json::from_value::<Vec<serde_json::Value>>(value.clone()) {
                     self.base_context.principles = principles;
                 }
             }
             "workspace" => {
-                if let Ok(ws) = serde_json::from_value(value.clone()) {
-                    self.base_context.workspace = ws;
+                if let Ok(ws) = serde_json::from_value::<WorkspaceContext>(value.clone()) {
+                    self.base_context.workspace_name = ws.name;
+                    self.base_context.available_workspaces = ws.available;
+                    self.base_context.cwd = ws.cwd;
                 }
             }
             "shell_commands" => {

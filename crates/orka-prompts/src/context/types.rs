@@ -24,37 +24,6 @@ pub struct SessionContext {
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
-/// Context data for building a prompt.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct BuildContext {
-    /// Agent display name.
-    pub agent_name: String,
-
-    /// Agent persona content.
-    pub persona: String,
-
-    /// Tool instructions.
-    pub tool_instructions: String,
-
-    /// Workspace context.
-    pub workspace: WorkspaceContext,
-
-    /// Principles to inject.
-    pub principles: Vec<PrincipleContext>,
-
-    /// Conversation summary.
-    pub conversation_summary: Option<String>,
-
-    /// Current datetime (ISO 8601).
-    pub datetime: String,
-
-    /// Timezone.
-    pub timezone: String,
-
-    /// Dynamic sections.
-    pub dynamic_sections: HashMap<String, String>,
-}
-
 /// Workspace context data.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkspaceContext {

@@ -350,42 +350,99 @@ pub async fn run_agent_node(
         .map(|s| format!("## Recent local shell commands\n{s}"))
         .unwrap_or_default();
 
-    // Build system prompt using the configurable pipeline
-    // Note: Context providers infrastructure is in place for future use
+    // Build system prompt using context providers and pipeline
     let system_prompt = {
-        let config = PipelineConfig::default();
-        let mut dynamic_sections = std::collections::BTreeMap::new();
+        use orka_prompts::context::{
+            ContextCoordinator, ExperienceContextProvider, SectionsContextProvider,
+            SessionContext, ShellContextProvider,
+            SoftSkillsContextProvider, WorkspaceProvider,
+        };
+        use orka_prompts::pipeline::BuildContext;
         
-        // Add soft skills as dynamic section if present
-        if !soft_skill_section.is_empty() {
-            dynamic_sections.insert("soft_skills".to_string(), soft_skill_section);
+        // 1. Create base context using the unified BuildContext
+        let mut base_context = BuildContext::new(&agent.display_name)
+            .with_persona(&agent.system_prompt.persona)
+            .with_tool_instructions(&agent.system_prompt.tool_instructions)
+            .with_workspace(workspace_name, available_workspaces.clone())
+            .with_config(PipelineConfig::default());
+        
+        if let Some(cwd_val) = cwd.clone() {
+            base_context = base_context.with_cwd(cwd_val);
+        }
+        if !principles.is_empty() {
+            base_context = base_context.with_principles(principles);
+        }
+        if let Some(ref registry) = deps.templates {
+            base_context = base_context.with_templates(Arc::clone(registry));
         }
         
-        // Add shell commands as dynamic section if present
-        if !shell_commands.is_empty() {
-            dynamic_sections.insert("shell_commands".to_string(), shell_commands);
-        }
-        
-        let sp = crate::agent::SystemPrompt {
-            persona: agent.system_prompt.persona.clone(),
-            tool_instructions: agent.system_prompt.tool_instructions.clone(),
-            dynamic_sections,
+        // 2. Create session context
+        let session_ctx = SessionContext {
+            session_id: ctx.session_id.to_string(),
+            workspace: workspace_name.to_string(),
+            user_message: trigger_text.clone(),
+            cwd: cwd.clone(),
+            recent_commands: vec![],
+            metadata: ctx.trigger.metadata.clone(),
         };
         
-        sp.build(
-            &agent.display_name,
-            workspace_name,
-            available_workspaces,
-            cwd,
-            principles,
-            None, // conversation_summary
-            deps.templates.clone(), // template_registry from workspace
-            &config,
-        ).await.unwrap_or_else(|e| {
-            warn!(%e, "failed to build system prompt with pipeline, using fallback");
-            // Fallback to simple format
-            format!("You are {}.\n\n{}", agent.display_name, agent.system_prompt.persona)
-        })
+        // 3. Configure coordinator with providers
+        let mut coordinator = ContextCoordinator::new(base_context);
+        
+        // Add experience provider if available
+        if let Some(ref exp) = deps.experience {
+            let adapter = crate::context_adapters::ExperienceServiceAdapter::new(Arc::clone(exp));
+            coordinator = coordinator.with_provider(Box::new(
+                ExperienceContextProvider::new(
+                    Arc::new(adapter),
+                    workspace_name.to_string(),
+                )
+            ));
+        }
+        
+        // Add soft skills provider if available
+        if let Some(ref soft_reg) = deps.soft_skills {
+            let adapter = crate::context_adapters::SoftSkillRegistryAdapter::new(Arc::clone(soft_reg));
+            let mode = crate::context_adapters::get_soft_skill_selection_mode(soft_reg);
+            coordinator = coordinator.with_provider(Box::new(
+                SoftSkillsContextProvider::new(Arc::new(adapter), mode)
+            ));
+        }
+        
+        // Add workspace and shell providers
+        coordinator = coordinator
+            .with_provider(Box::new(WorkspaceProvider::new(available_workspaces.clone())))
+            .with_provider(Box::new(ShellContextProvider::new()));
+        
+        // Add dynamic sections provider for soft skills and shell commands
+        let mut sections = std::collections::HashMap::new();
+        if !soft_skill_section.is_empty() {
+            sections.insert("soft_skills".to_string(), soft_skill_section);
+        }
+        if !shell_commands.is_empty() {
+            sections.insert("shell_commands".to_string(), shell_commands);
+        }
+        if !sections.is_empty() {
+            coordinator = coordinator.with_provider(Box::new(SectionsContextProvider::new(sections)));
+        }
+        
+        // 4. Build context and render prompt
+        match coordinator.build(&session_ctx).await {
+            Ok(build_ctx) => {
+                let pipeline = orka_prompts::pipeline::SystemPromptPipeline::from_config(&build_ctx.config);
+                match pipeline.build(&build_ctx).await {
+                    Ok(prompt) => prompt,
+                    Err(e) => {
+                        warn!(%e, "failed to build system prompt with pipeline, using fallback");
+                        format!("You are {}.\n\n{}", agent.display_name, agent.system_prompt.persona)
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(%e, "failed to build context with providers, using fallback");
+                format!("You are {}.\n\n{}", agent.display_name, agent.system_prompt.persona)
+            }
+        }
     };
 
     let mut options = CompletionOptions::default();
