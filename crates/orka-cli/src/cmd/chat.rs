@@ -287,6 +287,10 @@ pub async fn run(
     let ws_alive = Arc::new(AtomicBool::new(true));
     let ws_alive_task = ws_alive.clone();
 
+    // Flag: set to true when the user initiates graceful shutdown (e.g. /exit, /quit)
+    let graceful_shutdown = Arc::new(AtomicBool::new(false));
+    let graceful_shutdown_task = graceful_shutdown.clone();
+
     // Channel to notify the REPL that a response is complete
     let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
@@ -577,7 +581,11 @@ pub async fn run(
                     }
                     Ok(msg) if msg.is_close() => break,
                     Err(e) => {
-                        eprintln!("{} {e}", "Connection error:".red());
+                        // Suppress error message during graceful shutdown - the server
+                        // may close the connection before we complete the close handshake
+                        if !graceful_shutdown_task.load(Ordering::Relaxed) {
+                            eprintln!("{} {e}", "Connection error:".red());
+                        }
                         break;
                     }
                     _ => {}
@@ -670,6 +678,8 @@ pub async fn run(
     let mut env_removes: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut last_exit: Option<i32> = None;
     let mut last_shell_cmd: Option<String> = None;
+    // Recent shell executions buffered until the next agent message.
+    let mut recent_shell_runs: Vec<(String, String, Option<i32>)> = Vec::new();
     let mut workspace_sent = false;
 
     // WS response timeout — configurable via ORKA_WS_TIMEOUT env var (seconds)
@@ -729,14 +739,40 @@ pub async fn run(
             }
 
             InputAction::ShellExec(cmd) => {
-                last_exit = shell::execute_shell(&cmd, &cwd, &env_overrides, &env_removes).await;
+                let result =
+                    shell::execute_shell(&cmd, &cwd, &env_overrides, &env_removes).await;
+                last_exit = result.exit_code;
+                let combined = if result.stderr.is_empty() {
+                    result.stdout.clone()
+                } else if result.stdout.is_empty() {
+                    result.stderr.clone()
+                } else {
+                    format!("{}\n{}", result.stdout, result.stderr)
+                };
+                recent_shell_runs.push((cmd.clone(), combined, result.exit_code));
+                if recent_shell_runs.len() > 5 {
+                    recent_shell_runs.remove(0);
+                }
                 last_shell_cmd = Some(cmd);
             }
 
             InputAction::RepeatLast => {
-                if let Some(ref cmd) = last_shell_cmd {
+                if let Some(ref cmd) = last_shell_cmd.clone() {
                     println!("{} {cmd}", "!".dimmed());
-                    last_exit = shell::execute_shell(cmd, &cwd, &env_overrides, &env_removes).await;
+                    let result =
+                        shell::execute_shell(cmd, &cwd, &env_overrides, &env_removes).await;
+                    last_exit = result.exit_code;
+                    let combined = if result.stderr.is_empty() {
+                        result.stdout.clone()
+                    } else if result.stdout.is_empty() {
+                        result.stderr.clone()
+                    } else {
+                        format!("{}\n{}", result.stdout, result.stderr)
+                    };
+                    recent_shell_runs.push((cmd.clone(), combined, result.exit_code));
+                    if recent_shell_runs.len() > 5 {
+                        recent_shell_runs.remove(0);
+                    }
                 } else {
                     eprintln!("No previous shell command.");
                 }
@@ -971,6 +1007,26 @@ pub async fn run(
                             meta.extend(ws.to_metadata());
                         }
                     }
+                    // Attach buffered shell command outputs so the AI has context.
+                    if !recent_shell_runs.is_empty() {
+                        let mut ctx = String::new();
+                        for (cmd, output, code) in &recent_shell_runs {
+                            ctx.push_str(&format!("$ {cmd}\n"));
+                            if !output.is_empty() {
+                                ctx.push_str(output.trim_end());
+                                ctx.push('\n');
+                            }
+                            if matches!(code, Some(c) if *c != 0) {
+                                ctx.push_str(&format!("[exit {}]\n", code.unwrap()));
+                            }
+                            ctx.push('\n');
+                        }
+                        meta.insert(
+                            "shell:recent_commands".to_string(),
+                            serde_json::Value::String(ctx),
+                        );
+                        recent_shell_runs.clear();
+                    }
                     Some(meta)
                 };
 
@@ -1106,6 +1162,8 @@ pub async fn run(
     }
 
     drop(prompt_tx); // signal the editor thread to exit and save history
+    // Signal graceful shutdown to suppress spurious connection error messages
+    graceful_shutdown.store(true, Ordering::Relaxed);
     // Stop pings first — no data frames allowed after Close per WebSocket RFC
     ping_task.abort();
     // Send a clean WS Close frame and wait for the server's Close response

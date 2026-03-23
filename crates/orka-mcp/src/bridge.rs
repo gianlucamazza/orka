@@ -54,7 +54,21 @@ impl Skill for McpToolBridge {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        let arguments = serde_json::to_value(&input.args)
+        // For shell-like tools, prefix the command with `cd <user_cwd>` so that
+        // commands run in the user's directory rather than the server process CWD.
+        let mut args = input.args.clone();
+        if self.tool_name == "Bash"
+            && let Some(cwd) = input.context.as_ref().and_then(|c| c.user_cwd.as_deref())
+            && let Some(serde_json::Value::String(cmd)) = args.get("command").cloned()
+        {
+            let escaped = cwd.replace('\'', "'\\''");
+            args.insert(
+                "command".to_string(),
+                serde_json::Value::String(format!("cd '{escaped}' && {cmd}")),
+            );
+        }
+
+        let arguments = serde_json::to_value(&args)
             .map_err(|e| orka_core::Error::Skill(format!("failed to serialize args: {e}")))?;
 
         let result = self.client.call_tool(&self.tool_name, arguments).await?;

@@ -24,6 +24,8 @@ pub enum McpTransportConfig {
         args: Vec<String>,
         /// Environment variables injected into the process.
         env: HashMap<String, String>,
+        /// Working directory for the spawned process. Inherits the server CWD when `None`.
+        working_dir: Option<std::path::PathBuf>,
     },
     /// Streamable HTTP transport (MCP spec 2025-03-26).
     StreamableHttp {

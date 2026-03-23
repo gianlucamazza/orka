@@ -329,6 +329,34 @@ pub async fn run_agent_node(
             }
         }
 
+        // B3: Inject user's current working directory from envelope metadata.
+        if let Some(dir) = ctx
+            .trigger
+            .metadata
+            .get("workspace:cwd")
+            .and_then(|v| v.as_str())
+        {
+            sp.push_str(&format!(
+                "\n\nThe user's current working directory is: {dir}\n\
+                When the user asks to create, read, or modify files without specifying an absolute \
+                path, resolve them relative to this directory. Use this directory as the default \
+                working directory for shell commands."
+            ));
+        }
+
+        // B4: Inject recent local shell commands so the AI has context about what the user ran.
+        if let Some(shell_ctx) = ctx
+            .trigger
+            .metadata
+            .get("shell:recent_commands")
+            .and_then(|v| v.as_str())
+        {
+            if !shell_ctx.is_empty() {
+                sp.push_str("\n\n## Recent local shell commands\n");
+                sp.push_str(shell_ctx);
+            }
+        }
+
         sp
     };
 

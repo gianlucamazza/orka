@@ -1417,6 +1417,10 @@ pub struct McpServerEntry {
     /// OAuth 2.1 credentials for the HTTP transport.
     #[serde(default)]
     pub auth: Option<McpAuthEntry>,
+    /// Working directory for the MCP server process (stdio transport only).
+    /// Defaults to the server process CWD when not set.
+    #[serde(default)]
+    pub working_dir: Option<String>,
 }
 
 /// Content guardrails configuration.

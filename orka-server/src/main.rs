@@ -434,6 +434,7 @@ async fn main() -> anyhow::Result<()> {
                     command: cmd.clone(),
                     args: server_config.args.clone(),
                     env: server_config.env.clone(),
+                    working_dir: server_config.working_dir.as_deref().map(std::path::PathBuf::from),
                 },
                 (None, Some(url)) => orka_mcp::McpTransportConfig::StreamableHttp {
                     url: url.clone(),

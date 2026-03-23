@@ -72,8 +72,8 @@ impl McpClient {
     pub async fn connect(config: McpServerConfig) -> Result<Self> {
         let name = config.name.clone();
         match config.transport {
-            McpTransportConfig::Stdio { command, args, env } => {
-                Self::connect_stdio(name, command, args, env).await
+            McpTransportConfig::Stdio { command, args, env, working_dir } => {
+                Self::connect_stdio(name, command, args, env, working_dir).await
             }
             McpTransportConfig::StreamableHttp { url, auth } => Self::connect_http(name, url, auth),
         }
@@ -84,6 +84,7 @@ impl McpClient {
         command: String,
         args: Vec<String>,
         env: HashMap<String, String>,
+        working_dir: Option<std::path::PathBuf>,
     ) -> Result<Self> {
         let mut cmd = Command::new(&command);
         cmd.args(&args)
@@ -92,6 +93,9 @@ impl McpClient {
             .stderr(std::process::Stdio::null());
         for (k, v) in &env {
             cmd.env(k, v);
+        }
+        if let Some(dir) = &working_dir {
+            cmd.current_dir(dir);
         }
 
         let mut child = cmd

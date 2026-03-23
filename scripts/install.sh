@@ -500,15 +500,30 @@ do_install() {
 		fi
 	fi
 
-	# ── Install default workspace files ──────────────────────────────
-	local ws_src ws_dst
+	# ── Install/upgrade default workspace files ───────────────────────
+	# On fresh install: copy unconditionally.
+	# On upgrade: compare the `version` field in the YAML frontmatter and
+	# overwrite (with a dated backup) only when the repo version is newer.
+	local ws_src ws_dst src_ver dst_ver
 	for ws_file in SOUL.md TOOLS.md; do
 		ws_src="$REPO_ROOT/workspaces/${ws_file}"
 		ws_dst="${WORKSPACE_DIR}/${ws_file}"
-		if [[ ! -f "$ws_dst" ]] && [[ -f "$ws_src" ]]; then
+		[[ -f "$ws_src" ]] || continue
+		if [[ ! -f "$ws_dst" ]]; then
 			info "Installing default workspace file → ${ws_dst}"
 			install -Dm644 "$ws_src" "$ws_dst"
 			chown orka:orka "$ws_dst"
+		else
+			# Extract version string from frontmatter (e.g. version: "0.2")
+			src_ver=$(sed -n '/^---$/,/^---$/{/^version:[[:space:]]*"/{s/.*"\(.*\)"/\1/p;q}}' "$ws_src")
+			dst_ver=$(sed -n '/^---$/,/^---$/{/^version:[[:space:]]*"/{s/.*"\(.*\)"/\1/p;q}}' "$ws_dst")
+			if [[ -n "$src_ver" && "$src_ver" != "$dst_ver" ]]; then
+				info "Upgrading ${ws_file}: ${dst_ver:-unversioned} → ${src_ver}"
+				run_cmd cp "$ws_dst" "${ws_dst}.bak.$(date +%Y%m%d)"
+				run_cmd install -Dm644 "$ws_src" "$ws_dst"
+				run_cmd chown orka:orka "$ws_dst"
+				ok "Backed up and upgraded ${ws_file} to version ${src_ver}"
+			fi
 		fi
 	done
 

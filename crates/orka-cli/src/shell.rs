@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+
+use tokio::io::AsyncReadExt as _;
 
 /// Parsed user input action.
 #[derive(Debug, PartialEq)]
@@ -114,13 +117,67 @@ fn shellexpand(s: &str) -> String {
     s.to_string()
 }
 
-/// Execute a shell command and return the exit code.
+/// Maximum bytes captured from a shell command's combined output.
+const MAX_CAPTURE_BYTES: usize = 4096;
+
+/// Result of a shell command execution, including captured output for AI context.
+pub struct ShellResult {
+    pub exit_code: Option<i32>,
+    /// Captured stdout (capped at `MAX_CAPTURE_BYTES`).
+    pub stdout: String,
+    /// Captured stderr (capped at `MAX_CAPTURE_BYTES`).
+    pub stderr: String,
+}
+
+/// Read from `reader`, tee every chunk to real stdout, and accumulate up to `MAX_CAPTURE_BYTES`.
+async fn tee_stdout(mut reader: tokio::process::ChildStdout) -> String {
+    let mut buf = [0u8; 1024];
+    let mut captured: Vec<u8> = Vec::new();
+    loop {
+        match reader.read(&mut buf).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                let chunk = &buf[..n];
+                let _ = std::io::stdout().write_all(chunk);
+                let _ = std::io::stdout().flush();
+                if captured.len() < MAX_CAPTURE_BYTES {
+                    let take = (MAX_CAPTURE_BYTES - captured.len()).min(n);
+                    captured.extend_from_slice(&chunk[..take]);
+                }
+            }
+        }
+    }
+    String::from_utf8_lossy(&captured).into_owned()
+}
+
+/// Read from `reader`, tee every chunk to real stderr, and accumulate up to `MAX_CAPTURE_BYTES`.
+async fn tee_stderr(mut reader: tokio::process::ChildStderr) -> String {
+    let mut buf = [0u8; 1024];
+    let mut captured: Vec<u8> = Vec::new();
+    loop {
+        match reader.read(&mut buf).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                let chunk = &buf[..n];
+                let _ = std::io::stderr().write_all(chunk);
+                let _ = std::io::stderr().flush();
+                if captured.len() < MAX_CAPTURE_BYTES {
+                    let take = (MAX_CAPTURE_BYTES - captured.len()).min(n);
+                    captured.extend_from_slice(&chunk[..take]);
+                }
+            }
+        }
+    }
+    String::from_utf8_lossy(&captured).into_owned()
+}
+
+/// Execute a shell command, display output in real-time, and return captured output + exit code.
 pub async fn execute_shell(
     cmd: &str,
     cwd: &Path,
     env_overrides: &HashMap<String, String>,
     env_removes: &HashSet<String>,
-) -> Option<i32> {
+) -> ShellResult {
     let mut command = tokio::process::Command::new("bash");
     command
         .arg("-c")
@@ -128,8 +185,8 @@ pub async fn execute_shell(
         .current_dir(cwd)
         .envs(env_overrides)
         .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     for key in env_removes {
         command.env_remove(key);
     }
@@ -137,17 +194,33 @@ pub async fn execute_shell(
         Ok(c) => c,
         Err(e) => {
             eprintln!("Failed to spawn shell: {e}");
-            return Some(127);
+            return ShellResult {
+                exit_code: Some(127),
+                stdout: String::new(),
+                stderr: format!("Failed to spawn: {e}"),
+            };
         }
     };
 
-    match child.wait().await {
+    let child_stdout = child.stdout.take().expect("stdout was piped");
+    let child_stderr = child.stderr.take().expect("stderr was piped");
+
+    // Drain both pipes concurrently so the child never blocks on a full pipe buffer.
+    let stdout_task = tokio::spawn(tee_stdout(child_stdout));
+    let stderr_task = tokio::spawn(tee_stderr(child_stderr));
+
+    let exit_code = match child.wait().await {
         Ok(status) => status.code(),
         Err(e) => {
             eprintln!("Failed to wait for shell: {e}");
             Some(1)
         }
-    }
+    };
+
+    let stdout = stdout_task.await.unwrap_or_default();
+    let stderr = stderr_task.await.unwrap_or_default();
+
+    ShellResult { exit_code, stdout, stderr }
 }
 
 /// Handle a builtin command, mutating CWD/env as needed. Returns a status message.
@@ -375,15 +448,32 @@ mod tests {
     #[tokio::test]
     async fn execute_shell_echo_returns_zero() {
         let cwd = std::env::current_dir().unwrap();
-        let code = execute_shell("echo hello", &cwd, &HashMap::new(), &HashSet::new()).await;
-        assert_eq!(code, Some(0));
+        let result = execute_shell("echo hello", &cwd, &HashMap::new(), &HashSet::new()).await;
+        assert_eq!(result.exit_code, Some(0));
+        assert!(result.stdout.contains("hello"));
     }
 
     #[tokio::test]
     async fn execute_shell_false_returns_nonzero() {
         let cwd = std::env::current_dir().unwrap();
-        let code = execute_shell("false", &cwd, &HashMap::new(), &HashSet::new()).await;
-        assert_ne!(code, Some(0));
+        let result = execute_shell("false", &cwd, &HashMap::new(), &HashSet::new()).await;
+        assert_ne!(result.exit_code, Some(0));
+    }
+
+    #[tokio::test]
+    async fn execute_shell_captures_stdout_up_to_limit() {
+        let cwd = std::env::current_dir().unwrap();
+        // Generate more than MAX_CAPTURE_BYTES output
+        let result = execute_shell(
+            "python3 -c \"print('x' * 10000)\"",
+            &cwd,
+            &HashMap::new(),
+            &HashSet::new(),
+        )
+        .await;
+        assert_eq!(result.exit_code, Some(0));
+        assert!(result.stdout.len() <= MAX_CAPTURE_BYTES);
+        assert!(!result.stdout.is_empty());
     }
 
     #[test]

@@ -1306,7 +1306,7 @@ impl AgentHandler for WorkspaceHandler {
                 .metadata
                 .get("workspace:cwd")
                 .and_then(|v| v.as_str());
-            let system_prompt = Self::build_system_prompt(
+            let mut system_prompt = Self::build_system_prompt(
                 &soul_name,
                 &soul_body,
                 &tools_body,
@@ -1317,6 +1317,17 @@ impl AgentHandler for WorkspaceHandler {
                 conversation_summary.as_deref(),
                 user_cwd,
             );
+
+            // Inject recent local shell commands so the AI has context about what the user ran.
+            if let Some(shell_ctx) = envelope
+                .metadata
+                .get("shell:recent_commands")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                system_prompt.push_str("\n\n## Recent local shell commands\n");
+                system_prompt.push_str(shell_ctx);
+            }
 
             let mut options = CompletionOptions::default();
             options.model = soul_model.clone();
