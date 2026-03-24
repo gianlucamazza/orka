@@ -4754,6 +4754,7 @@ dependencies = [
  "chrono",
  "config",
  "dashmap",
+ "futures-util",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -4771,11 +4772,13 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "glob",
+ "insta",
  "orka-core",
  "orka-skills",
  "regex",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "toml 0.8.23",
  "tracing",
@@ -4824,7 +4827,9 @@ name = "orka-guardrails"
 version = "1.0.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "orka-core",
+ "orka-llm",
  "regex",
  "serde",
  "serde_json",

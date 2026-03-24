@@ -1,67 +1,36 @@
-# Cargo Deny Configuration
+# Cargo Deny Configuration v2
 # https://embarkstudios.github.io/cargo-deny/
 
-# Targets to check
+[graph]
 targets = [
     { triple = "x86_64-unknown-linux-gnu" },
     { triple = "x86_64-unknown-linux-musl" },
     { triple = "aarch64-unknown-linux-gnu" },
 ]
 
-# Advisory Database
 [advisories]
-# Path to advisory database (optional, uses default if not specified)
-# db-path = "~/.cargo/advisory-dbs"
-# URL to fetch advisories from
-# db-urls = ["https://github.com/rustsec/advisory-db"]
-
-# Security vulnerabilities
-vulnerability = "deny"
-unmaintained = "warn"
+version = 2
 yanked = "deny"
-notice = "warn"
 
-# A list of advisory IDs to ignore
-# ignore = [
-#     "RUSTSEC-0000-0000",
-# ]
-
-# Maximum severity threshold
-# severity-threshold = "low"
-
-# Licenses
 [licenses]
-# Allow the following licenses
+version = 2
 allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "MIT",
+    "MIT-0",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
-    "Unicode-DFS-2016",
+    "Unicode-3.0",
     "Unlicense",
-    "WTFPL",
     "Zlib",
     "MPL-2.0",
     "CC0-1.0",
-    "OFL-1.1",
+    "CDLA-Permissive-2.0",
     "LicenseRef-ring",
 ]
 
-# Deny the following licenses
-deny = [
-    "GPL-2.0",
-    "GPL-3.0",
-    "AGPL-3.0",
-]
-
-# Allow exceptions for specific crates
-copyleft = "deny"
-allow-osi-fsf-free = "neither"
-default = "deny"
-
-# Clarify licenses for crates that don't specify them correctly
 [[licenses.clarify]]
 name = "ring"
 expression = "LicenseRef-ring"
@@ -72,21 +41,12 @@ name = "webpki"
 expression = "ISC"
 license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
 
-# Bans
 [bans]
-# Deny multiple versions of the same crate
 multiple-versions = "warn"
-wildcards = "allow"  # Allow for workspace dependencies
+wildcards = "allow"
 highlight = "all"
 
-# Deny specific crates
-# deny = [
-#     { name = "crate_name", version = "*" },
-# ]
-
-# Skip certain crate duplicates (for known issues)
 skip = [
-    # Known duplicate from transitive dependencies
     { name = "bitflags", version = "1.3.2" },
     { name = "hashbrown", version = "0.12.3" },
     { name = "indexmap", version = "1.9.3" },
@@ -102,29 +62,7 @@ skip = [
     { name = "windows_x86_64_msvc", version = "0.48.5" },
 ]
 
-# Skip tree for known duplicate chains
-skip-tree = [
-    { name = "windows-sys", version = "0.48.0" },
-    { name = "windows-sys", version = "0.52.0" },
-]
-
-# Sources
 [sources]
-# Deny git sources by default
-unknown-git = "deny"
 unknown-registry = "deny"
-
-# Allow specific registries
-allow-registry = [
-    "https://github.com/rust-lang/crates.io-index",
-]
-
-# Allow specific git sources
-allow-git = [
-    # "https://github.com/owner/repo",
-]
-
-[sources.allow-org]
-# github = ["owner1", "owner2"]
-# gitlab = ["owner1", "owner2"]
-# bitbucket = ["owner1", "owner2"]
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
