@@ -1,7 +1,9 @@
 use std::path::Path;
 
-use orka_core::config::OrkaConfig;
-use orka_core::migrate::{self, CURRENT_CONFIG_VERSION};
+use orka_core::{
+    config::OrkaConfig,
+    migrate::{self, CURRENT_CONFIG_VERSION},
+};
 
 /// `orka config check` — validate config and show version + warnings.
 pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
@@ -14,6 +16,7 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
 
     let raw = std::fs::read_to_string(&resolved)?;
     let (_, result) = migrate::migrate_if_needed(&raw)?;
+    let schema_issues = migrate::inspect_config_issues(&raw)?;
 
     match &result {
         Some(res) => {
@@ -35,6 +38,10 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
         None => {
             println!("Config version: {} (up to date)", CURRENT_CONFIG_VERSION);
         }
+    }
+
+    if !schema_issues.is_empty() {
+        return Err(format!("Schema errors:\n  - {}", schema_issues.join("\n  - ")).into());
     }
 
     // Full deserialization + validation via OrkaConfig::load.
@@ -62,6 +69,7 @@ pub async fn migrate_cmd(
 
     let raw = std::fs::read_to_string(&resolved)?;
     let (migrated_toml, result) = migrate::migrate_if_needed(&raw)?;
+    let schema_issues = migrate::inspect_config_issues(&migrated_toml)?;
 
     match result {
         None => {
@@ -81,6 +89,10 @@ pub async fn migrate_cmd(
                 for w in &res.warnings {
                     println!("  - {w}");
                 }
+            }
+
+            if !schema_issues.is_empty() {
+                return Err(format!("Schema errors:\n  - {}", schema_issues.join("\n  - ")).into());
             }
 
             if dry_run {

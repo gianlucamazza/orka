@@ -1,5 +1,6 @@
-use crate::client::OrkaClient;
 use colored::Colorize;
+
+use crate::client::OrkaClient;
 
 pub async fn card(client: &OrkaClient) -> crate::client::Result<()> {
     let resp = client.get("/.well-known/agent.json").await?;

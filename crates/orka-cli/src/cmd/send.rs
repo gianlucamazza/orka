@@ -2,9 +2,11 @@ use colored::Colorize;
 use futures_util::StreamExt;
 use orka_core::stream::StreamChunkKind;
 
-use crate::client::{OrkaClient, Result};
-use crate::markdown::MarkdownRenderer;
-use crate::protocol::{WsMessage, classify_ws_message};
+use crate::{
+    client::{OrkaClient, Result},
+    markdown::MarkdownRenderer,
+    protocol::{WsMessage, classify_ws_message},
+};
 
 pub async fn run(
     client: &OrkaClient,
@@ -36,12 +38,12 @@ pub async fn run(
     );
     let metadata = Some(metadata);
 
-    // Connect WebSocket BEFORE sending the HTTP message to avoid missing fast replies.
-    // For quick responses the server may stream the reply before the HTTP call returns,
-    // so the WS connection must be established first.
+    // Connect WebSocket BEFORE sending the HTTP message to avoid missing fast
+    // replies. For quick responses the server may stream the reply before the
+    // HTTP call returns, so the WS connection must be established first.
     eprintln!("{}", "Waiting for reply...".dimmed());
 
-    let mut renderer = MarkdownRenderer::new();
+    let mut renderer = MarkdownRenderer::default();
 
     let ws_result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), async {
         let ws = client.ws_connect(&sid).await?;

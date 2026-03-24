@@ -1,10 +1,10 @@
-use std::fmt::Write as _;
-use std::time::Duration;
+use std::{fmt::Write as _, time::Duration};
 
 use serde_json::json;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
-use tokio_tungstenite::tungstenite::http::HeaderValue;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
+use tokio_tungstenite::{
+    MaybeTlsStream, WebSocketStream, connect_async,
+    tungstenite::{client::IntoClientRequest as _, http::HeaderValue},
+};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 

@@ -1,7 +1,7 @@
-use crate::client::OrkaClient;
-use crate::table::make_table;
 use colored::Colorize;
 use serde_json::json;
+
+use crate::{client::OrkaClient, table::make_table};
 
 pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
     let body = client.get_json("/api/v1/skills").await?;

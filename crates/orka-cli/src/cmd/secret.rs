@@ -1,10 +1,9 @@
-use std::io::BufRead as _;
-use std::io::IsTerminal as _;
-use std::sync::Arc;
+use std::{
+    io::{BufRead as _, IsTerminal as _},
+    sync::Arc,
+};
 
-use orka_core::SecretValue;
-use orka_core::config::OrkaConfig;
-use orka_core::traits::SecretManager;
+use orka_core::{SecretValue, config::OrkaConfig, traits::SecretManager};
 
 use crate::client::Result;
 
@@ -16,7 +15,8 @@ fn create_manager() -> Result<Arc<dyn SecretManager>> {
 
 /// Read the secret value.
 /// - Interactive TTY: uses a masked password prompt via dialoguer.
-/// - Pipe: reads the first line from stdin (e.g. `echo -n "$SECRET" | orka secret set path`).
+/// - Pipe: reads the first line from stdin (e.g. `echo -n "$SECRET" | orka
+///   secret set path`).
 fn read_value() -> Result<String> {
     if std::io::stdin().is_terminal() {
         let value = dialoguer::Password::new()

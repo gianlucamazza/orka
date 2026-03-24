@@ -10,19 +10,24 @@
 
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind};
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::{
+    event::{Event, EventStream, KeyCode, KeyEventKind},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen},
+};
 use futures_util::StreamExt as _;
-use ratatui::Frame;
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
+use ratatui::{
+    Frame, Terminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+};
 
-use crate::client::OrkaClient;
-use crate::util::{format_duration_ms, format_uptime, truncate_id};
+use crate::{
+    client::OrkaClient,
+    util::{format_duration_ms, format_uptime, truncate_id},
+};
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -93,7 +98,8 @@ impl DashboardState {
     }
 }
 
-// ── Entry point ───────────────────────────────────────────────────────────────
+// ── Entry point
+// ───────────────────────────────────────────────────────────────
 
 pub async fn run(client: &OrkaClient, interval: u64) -> crate::client::Result<()> {
     // Restore terminal on panic
@@ -119,7 +125,8 @@ pub async fn run(client: &OrkaClient, interval: u64) -> crate::client::Result<()
     result
 }
 
-// ── Main loop ─────────────────────────────────────────────────────────────────
+// ── Main loop
+// ─────────────────────────────────────────────────────────────────
 
 async fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -181,7 +188,8 @@ fn handle_input(event: Event, quit: &mut bool, refresh: &mut bool) {
     }
 }
 
-// ── Polling ───────────────────────────────────────────────────────────────────
+// ── Polling
+// ───────────────────────────────────────────────────────────────────
 
 async fn poll_all(client: &OrkaClient, state: &mut DashboardState) {
     let (health, ready, version, metrics_resp, sessions, dlq) = tokio::join!(
@@ -312,7 +320,8 @@ async fn poll_all(client: &OrkaClient, state: &mut DashboardState) {
     state.last_refresh = Some(Instant::now());
 }
 
-// ── Metric parsing ────────────────────────────────────────────────────────────
+// ── Metric parsing
+// ────────────────────────────────────────────────────────────
 
 fn parse_metric_sum(text: &str, prefix: &str) -> f64 {
     text.lines()
@@ -328,7 +337,8 @@ fn parse_histogram_avg(text: &str, name: &str) -> f64 {
     if count > 0.0 { sum / count } else { 0.0 }
 }
 
-// ── Rendering ─────────────────────────────────────────────────────────────────
+// ── Rendering
+// ─────────────────────────────────────────────────────────────────
 
 fn ui(frame: &mut Frame, state: &DashboardState) {
     let chunks = Layout::vertical([
@@ -401,7 +411,8 @@ fn render_header(frame: &mut Frame, area: Rect, state: &DashboardState) {
     frame.render_widget(Paragraph::new(vec![line1, line2]).block(block), area);
 }
 
-// ── Dependencies ──────────────────────────────────────────────────────────────
+// ── Dependencies
+// ──────────────────────────────────────────────────────────────
 
 fn render_deps(frame: &mut Frame, area: Rect, state: &DashboardState) {
     let lines: Vec<Line> = if state.checks.is_empty() {
@@ -440,7 +451,8 @@ fn render_deps(frame: &mut Frame, area: Rect, state: &DashboardState) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-// ── Metrics ───────────────────────────────────────────────────────────────────
+// ── Metrics
+// ───────────────────────────────────────────────────────────────────
 
 fn render_metrics(frame: &mut Frame, area: Rect, state: &DashboardState) {
     let mut lines: Vec<Line> = vec![
@@ -509,7 +521,8 @@ fn metric_line(label: &'static str, value: String, error: bool) -> Line<'static>
     ])
 }
 
-// ── Sessions ──────────────────────────────────────────────────────────────────
+// ── Sessions
+// ──────────────────────────────────────────────────────────────────
 
 fn render_sessions(frame: &mut Frame, area: Rect, state: &DashboardState) {
     let title = format!(
@@ -597,7 +610,8 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &DashboardState) {
     frame.render_widget(Paragraph::new(line), area);
 }
 
-// ── Formatting helpers ────────────────────────────────────────────────────────
+// ── Formatting helpers
+// ────────────────────────────────────────────────────────
 
 fn format_count(n: f64) -> String {
     let n = if n == 0.0 { 0.0 } else { n };

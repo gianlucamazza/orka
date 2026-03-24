@@ -1,27 +1,30 @@
-use std::collections::HashMap;
-use std::io::Write as _;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    io::Write as _,
+    path::PathBuf,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU16, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use colored::Colorize;
-use futures_util::stream::SplitStream;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{SinkExt, StreamExt, stream::SplitStream};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use orka_core::parse_slash_command;
-use orka_core::stream::StreamChunkKind;
-use rustyline::error::ReadlineError;
+use orka_core::{parse_slash_command, stream::StreamChunkKind};
+use reedline::{FileBackedHistory, Reedline, Signal};
 use serde_json::json;
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
 use unicode_width::UnicodeWidthStr;
 
-use crate::client::{OrkaClient, Result};
-use crate::completion::OrkaHelper;
-use crate::prompt::build_prompt;
-use crate::protocol::{WsMessage, classify_ws_message};
-use crate::shell::{self, Builtin, InputAction};
+use crate::{
+    client::{OrkaClient, Result},
+    completion::{OrkaCompleter, OrkaHighlighter, OrkaHinter, OrkaPrompt, OrkaValidator},
+    prompt::build_prompt,
+    protocol::{WsMessage, classify_ws_message},
+    shell::{self, Builtin, InputAction},
+};
 
 /// Map a category tag to a display icon.
 fn category_icon(category: Option<&str>) -> &'static str {
@@ -39,7 +42,8 @@ fn category_icon(category: Option<&str>) -> &'static str {
 fn print_banner() {
     let version = env!("CARGO_PKG_VERSION");
     let inner = format!("  \u{25c8}  Orka Shell  v{version}  ");
-    // UI-11: use display width (handles wide/ambiguous Unicode) rather than char count
+    // UI-11: use display width (handles wide/ambiguous Unicode) rather than char
+    // count
     let width = inner.as_str().width();
     let bar = "\u{2500}".repeat(width);
     println!("{}", format!("\u{250c}{bar}\u{2510}").cyan().bold());
@@ -118,14 +122,13 @@ fn history_path() -> PathBuf {
 /// Print the agent turn separator with an optional display name.
 ///
 /// UI-1: routed through MultiProgress so it serialises with spinner redraws.
-/// UI-4: adapts to the actual terminal width instead of a hardcoded 40-char bar.
-fn print_agent_header(name: &str, multi: &MultiProgress) {
+/// UI-4: adapts to the actual terminal width instead of a hardcoded 40-char
+/// bar. Reads the shared width atom so it reflows after terminal resize.
+fn print_agent_header(name: &str, multi: &MultiProgress, term_width: &AtomicU16) {
     let label = if name.is_empty() { "Agent" } else { name };
-    let term_width = crossterm::terminal::size()
-        .map(|(w, _)| w as usize)
-        .unwrap_or(80);
+    let width = term_width.load(Ordering::Relaxed) as usize;
     // 4 leading dashes + 2 spaces around the label
-    let bar_len = term_width.saturating_sub(label.len() + 6);
+    let bar_len = width.saturating_sub(label.len() + 6);
     let bar = "\u{2500}".repeat(bar_len);
     multi
         .println(format!(
@@ -144,19 +147,21 @@ fn fmt_tokens(n: u32) -> String {
     }
 }
 
-/// Strip backslash line-continuation sequences (`\` + newline) from multi-line input.
+/// Strip backslash line-continuation sequences (`\` + newline) from multi-line
+/// input.
 ///
-/// When rustyline's Validator returns `Incomplete` for trailing `\`, it concatenates
-/// continuation lines with `\n`, leaving `\\\n` sequences in the string. Removing them
-/// joins the lines as intended before the text is sent to the agent.
+/// When rustyline's Validator returns `Incomplete` for trailing `\`, it
+/// concatenates continuation lines with `\n`, leaving `\\\n` sequences in the
+/// string. Removing them joins the lines as intended before the text is sent to
+/// the agent.
 fn strip_line_continuations(s: &str) -> String {
     s.replace("\\\n", "")
 }
 
 /// Expand `@path` tokens in a message to inline file content as code fences.
 ///
-/// `@path/to/file.rs` is replaced with a fenced code block containing the file's
-/// contents.  Unknown or unreadable paths are left as-is.
+/// `@path/to/file.rs` is replaced with a fenced code block containing the
+/// file's contents.  Unknown or unreadable paths are left as-is.
 fn expand_file_attachments(text: &str) -> String {
     // Fast path: no `@` in text
     if !text.contains('@') {
@@ -236,7 +241,8 @@ pub async fn run(
 ) -> Result<()> {
     let sid = OrkaClient::resolve_session_id(session_id);
 
-    // Wait for server to be ready before attempting WebSocket connection (~30s total)
+    // Wait for server to be ready before attempting WebSocket connection (~30s
+    // total)
     client.wait_for_ready(30, Duration::from_secs(1)).await?;
 
     // Welcome banner
@@ -283,12 +289,39 @@ pub async fn run(
     let multi = MultiProgress::with_draw_target(indicatif::ProgressDrawTarget::stdout_with_hz(10));
     let multi_clone = multi.clone();
 
+    // Shared terminal width — updated on SIGWINCH to fix resize glitches in
+    // streaming markdown output (the renderer reads this instead of calling
+    // crossterm::terminal::size() point-in-time).
+    let term_width = Arc::new(AtomicU16::new(
+        crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80),
+    ));
+    let term_width_ws = term_width.clone();
+
+    // SIGWINCH handler: update the shared width atom whenever the terminal is
+    // resized. This runs only when reedline is NOT reading (output phase), so
+    // there is no conflict with reedline's own resize handling during input.
+    #[cfg(unix)]
+    {
+        let tw = term_width.clone();
+        tokio::spawn(async move {
+            use tokio::signal::unix::{SignalKind, signal};
+            if let Ok(mut sig) = signal(SignalKind::window_change()) {
+                while sig.recv().await.is_some() {
+                    if let Ok((w, _)) = crossterm::terminal::size() {
+                        tw.store(w, Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+    }
+
     // Flag: set to false by the WS task when the connection drops
     let ws_alive = Arc::new(AtomicBool::new(true));
     let ws_alive_task = ws_alive.clone();
 
-    // Flag: set to true when the user initiates graceful shutdown (e.g. /exit, /quit)
-    // Use SeqCst ordering to ensure visibility across threads during shutdown
+    // Flag: set to true when the user initiates graceful shutdown (e.g. /exit,
+    // /quit) Use SeqCst ordering to ensure visibility across threads during
+    // shutdown
     let graceful_shutdown = Arc::new(AtomicBool::new(false));
     let graceful_shutdown_task = graceful_shutdown.clone();
 
@@ -300,7 +333,8 @@ pub async fn run(
     // Channel to notify the REPL that a response is complete
     let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
-    // Channel to pass the completed response text back to the REPL (for /save, /history)
+    // Channel to pass the completed response text back to the REPL (for /save,
+    // /history)
     let (response_tx, mut response_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
     // Shared last usage (overwritten by each Usage chunk; read after Done)
@@ -328,7 +362,7 @@ pub async fn run(
             .unwrap()
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
 
-        let mut renderer = crate::markdown::MarkdownRenderer::new();
+        let mut renderer = crate::markdown::MarkdownRenderer::new(term_width_ws.clone());
         let mut current_ws_read = ws_read;
 
         'reconnect: loop {
@@ -466,7 +500,7 @@ pub async fn run(
                             }
                             WsMessage::Stream(StreamChunkKind::Delta(data)) => {
                                 if !streaming {
-                                    print_agent_header(&current_agent, &multi);
+                                    print_agent_header(&current_agent, &multi, &term_width_ws);
                                     streaming = true;
                                     thinking_shown = false;
                                 }
@@ -584,7 +618,7 @@ pub async fn run(
                                     streamed_this_turn = false;
                                     continue;
                                 }
-                                print_agent_header(&current_agent, &multi);
+                                print_agent_header(&current_agent, &multi, &term_width_ws);
                                 renderer.render_full(&content);
                                 // UI-1: trailing newline through multi
                                 multi.println("").ok();
@@ -592,7 +626,8 @@ pub async fn run(
                                 // CRITICAL: Check timeout flag before sending signals.
                                 // Prevents race condition with main task's channel drain.
                                 if !turn_done_sent && !ws_timeout_task.load(Ordering::Acquire) {
-                                    // Send response before done (same ordering guarantee as Done branch).
+                                    // Send response before done (same ordering guarantee as Done
+                                    // branch).
                                     let _ = response_tx.send(content.clone());
                                     let _ = done_tx.send(());
                                     turn_done_sent = true;
@@ -604,7 +639,8 @@ pub async fn run(
                             WsMessage::Unknown(raw) => {
                                 // UI-1: route through multi
                                 multi.println(format!("\n{raw}")).ok();
-                                // Intentionally no done_tx.send() — Unknown events are not turn completions
+                                // Intentionally no done_tx.send() — Unknown
+                                // events are not turn completions
                             }
                         }
                     }
@@ -640,7 +676,8 @@ pub async fn run(
         } // end 'reconnect loop
     });
 
-    // Keepalive: send a WebSocket Ping every 30 seconds to prevent idle disconnects.
+    // Keepalive: send a WebSocket Ping every 30 seconds to prevent idle
+    // disconnects.
     let ws_write_ping = ws_write.clone();
     let ws_alive_ping = ws_alive.clone();
     let ping_task = tokio::spawn(async move {
@@ -660,54 +697,63 @@ pub async fn run(
         }
     });
 
-    // Set up rustyline in a dedicated blocking thread, communicating via channels.
-    // The editor thread sends lines to us, and we send prompts back to it.
-    let (prompt_tx, prompt_rx) = std::sync::mpsc::channel::<String>();
-    let (line_tx, mut line_rx) =
-        tokio::sync::mpsc::unbounded_channel::<std::result::Result<String, ReadlineError>>();
-
+    // Migrate history format from rustyline (#V2 header) to reedline (plain lines).
     let hist_path = history_path();
-    let hist_path_save = hist_path.clone();
+    migrate_history_if_needed(&hist_path);
+
+    // Set up reedline in a dedicated blocking thread, communicating via channels.
+    // reedline::read_line() is blocking — same pattern as the old rustyline thread.
+    // Channel sends (plain_prompt, colored_prompt) tuples; reedline uses the
+    // colored version directly since it handles ANSI width measurement
+    // internally.
+    let (prompt_tx, prompt_rx) = std::sync::mpsc::channel::<(String, String)>();
+    let (line_tx, mut line_rx) =
+        tokio::sync::mpsc::unbounded_channel::<std::result::Result<String, Signal>>();
 
     let shell_cwd_helper = Arc::new(std::sync::Mutex::new(
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
     ));
     let shell_cwd_shared = shell_cwd_helper.clone();
-    let colored_prompt_shared: Arc<std::sync::Mutex<String>> =
-        Arc::new(std::sync::Mutex::new(String::new()));
-    let colored_prompt_editor = colored_prompt_shared.clone();
     std::thread::spawn(move || {
-        let config = rustyline::Config::builder()
-            .auto_add_history(true)
-            .max_history_size(10_000)
-            .expect("valid history size")
-            .build();
-        let helper = OrkaHelper::new(shell_cwd_helper, colored_prompt_editor);
-        let mut editor =
-            match rustyline::Editor::<OrkaHelper, rustyline::history::DefaultHistory>::with_config(
-                config,
-            ) {
-                Ok(mut ed) => {
-                    ed.set_helper(Some(helper));
-                    let _ = ed.load_history(&hist_path);
-                    ed
+        let history = match FileBackedHistory::with_file(10_000, hist_path) {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("History init error: {e}");
+                FileBackedHistory::default()
+            }
+        };
+        let mut editor = Reedline::create()
+            .with_history(Box::new(history))
+            .with_completer(Box::new(OrkaCompleter::new(shell_cwd_helper)))
+            .with_hinter(Box::new(OrkaHinter::new()))
+            .with_highlighter(Box::new(OrkaHighlighter))
+            .with_validator(Box::new(OrkaValidator))
+            .with_ansi_colors(true);
+
+        while let Ok((_plain, colored)) = prompt_rx.recv() {
+            let prompt = OrkaPrompt { colored };
+            match editor.read_line(&prompt) {
+                Ok(Signal::Success(line)) => {
+                    if line_tx.send(Ok(line)).is_err() {
+                        break;
+                    }
+                }
+                Ok(sig) => {
+                    // CtrlC or CtrlD — propagate and exit the editor loop
+                    let _ = line_tx.send(Err(sig));
+                    break;
                 }
                 Err(e) => {
-                    let _ = line_tx.send(Err(e));
-                    return;
+                    eprintln!("Editor error: {e}");
+                    break;
                 }
-            };
-
-        while let Ok(prompt) = prompt_rx.recv() {
-            let result = editor.readline(&prompt);
-            if line_tx.send(result).is_err() {
-                break;
             }
         }
-        let _ = editor.save_history(&hist_path_save);
+        // FileBackedHistory flushes on drop automatically
     });
 
-    // Shell state — initialise cwd and sync the shared reference used by tab-completion
+    // Shell state — initialise cwd and sync the shared reference used by
+    // tab-completion
     let mut cwd = {
         let guard = shell_cwd_shared.lock().unwrap_or_else(|e| e.into_inner());
         guard.clone()
@@ -733,12 +779,10 @@ pub async fn run(
 
     loop {
         let (plain_prompt, colored_prompt) = build_prompt(&cwd, last_exit);
-        *colored_prompt_shared
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = colored_prompt;
 
-        // Send plain prompt (no ANSI) to the editor thread so rustyline measures width correctly
-        if prompt_tx.send(plain_prompt).is_err() {
+        // Send both plain and colored prompt to the editor thread. Reedline uses
+        // the colored prompt directly (it handles ANSI width internally).
+        if prompt_tx.send((plain_prompt, colored_prompt)).is_err() {
             break;
         }
 
@@ -753,8 +797,10 @@ pub async fn run(
                 ctrl_c_count = 0;
                 line
             }
-            Err(ReadlineError::Eof) => break,
-            Err(ReadlineError::Interrupted) => {
+            // CtrlD → exit
+            Err(Signal::CtrlD) => break,
+            // CtrlC → double-press to exit
+            Err(Signal::CtrlC) => {
                 ctrl_c_count += 1;
                 if ctrl_c_count >= 2 {
                     break;
@@ -762,10 +808,7 @@ pub async fn run(
                 println!("{}", "Press Ctrl-C again or type /quit to exit.".dimmed());
                 continue;
             }
-            Err(e) => {
-                eprintln!("Input error: {e}");
-                break;
-            }
+            Err(_) => break,
         };
 
         match shell::classify_input(&line) {
@@ -1090,27 +1133,27 @@ pub async fn run(
                                     }
                                     Err(_) => {
                                         ctrl_c_count = 0;
-                                        
+
                                         // 1. Close WebSocket FIRST to prevent new messages from arriving
                                         // This ensures no race condition between flag set and message processing
                                         {
                                             let mut guard = ws_write.lock().await;
                                             let _ = guard.close().await;
                                         }
-                                        
+
                                         // 2. Set timeout flag with Release ordering for visibility
                                         ws_timeout_flag.store(true, Ordering::Release);
-                                        
+
                                         // 3. Mark connection as dead and notify
                                         ws_alive.store(false, Ordering::Release);
                                         disconnect_notify.notify_one();
-                                        
+
                                         // 4. CRITICAL: Drain pending signals to prevent spurious completions
                                         // in the next turn. Messages already in-flight might have sent
                                         // done signals that would corrupt the next interaction.
                                         while done_rx.try_recv().is_ok() {}
                                         while response_rx.try_recv().is_ok() {}
-                                        
+
                                         // 5. Show timeout message and clear UI
                                         eprintln!(
                                             "{}",
@@ -1244,6 +1287,17 @@ pub async fn run(
     println!("\n{}", "Goodbye!".cyan());
 
     Ok(())
+}
+
+/// Migrate history file from rustyline's `#V2` format to reedline's plain-line
+/// format. Removes the `#V2\n` header line if present; reedline uses plain
+/// line-per-entry storage.
+fn migrate_history_if_needed(path: &std::path::Path) {
+    if let Ok(content) = std::fs::read_to_string(path)
+        && let Some(stripped) = content.strip_prefix("#V2\n")
+    {
+        let _ = std::fs::write(path, stripped);
+    }
 }
 
 #[cfg(test)]

@@ -1,16 +1,23 @@
-use std::io::Write;
+use std::{
+    io::Write,
+    sync::{
+        Arc,
+        atomic::{AtomicU16, Ordering},
+    },
+};
 
 use comfy_table::{ContentArrangement, Table, presets};
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
-use syntect::easy::HighlightLines;
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
-use syntect::util::as_24_bit_terminal_escaped;
+use syntect::{
+    easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet,
+    util::as_24_bit_terminal_escaped,
+};
 
 /// Renders markdown to the terminal with syntax highlighting for code blocks.
 ///
 /// Supports two modes:
-/// - **Streaming** (`push_delta` + `flush`): block-buffered rendering for progressive output.
+/// - **Streaming** (`push_delta` + `flush`): block-buffered rendering for
+///   progressive output.
 /// - **Full** (`render_full`): renders a complete markdown string at once.
 pub struct MarkdownRenderer {
     syntax_set: SyntaxSet,
@@ -19,16 +26,20 @@ pub struct MarkdownRenderer {
     buffer: String,
     /// Cached value of `NO_COLOR` env var at construction time.
     no_color: bool,
+    /// Shared terminal width updated on SIGWINCH — used for horizontal rules
+    /// and other width-dependent output so they reflow after resize.
+    term_width: Arc<AtomicU16>,
 }
 
 impl MarkdownRenderer {
-    pub fn new() -> Self {
+    pub fn new(term_width: Arc<AtomicU16>) -> Self {
         Self {
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme_set: ThemeSet::load_defaults(),
             theme_name: "base16-eighties.dark".to_string(),
             buffer: String::new(),
             no_color: std::env::var_os("NO_COLOR").is_some(),
+            term_width,
         }
     }
 
@@ -146,7 +157,8 @@ impl MarkdownRenderer {
         }
     }
 
-    /// Render a prose markdown block using pulldown-cmark with ANSI terminal output.
+    /// Render a prose markdown block using pulldown-cmark with ANSI terminal
+    /// output.
     ///
     /// Supports: headings (h1–h6), bold, italic, strikethrough, task lists,
     /// blockquotes, ordered/unordered lists, GFM tables (via comfy-table),
@@ -402,9 +414,7 @@ impl MarkdownRenderer {
 
                 // ── Horizontal rule ────────────────────────────────────────────────
                 Event::Rule => {
-                    let width = crossterm::terminal::size()
-                        .map(|(w, _)| w as usize)
-                        .unwrap_or(80);
+                    let width = self.term_width.load(Ordering::Relaxed) as usize;
                     let rule = if no_color {
                         "-".repeat(width)
                     } else {
@@ -464,7 +474,8 @@ impl MarkdownRenderer {
 
     /// Render a fenced code block with syntax highlighting via syntect.
     fn render_code_block_inline(&self, block: &str) {
-        // UI-5: respect NO_COLOR — cached at construction time to avoid per-call env lookup
+        // UI-5: respect NO_COLOR — cached at construction time to avoid per-call env
+        // lookup
         let no_color = self.no_color;
 
         // Parse the fence: ```lang\n...\n```
@@ -530,11 +541,12 @@ impl MarkdownRenderer {
 
 impl Default for MarkdownRenderer {
     fn default() -> Self {
-        Self::new()
+        Self::new(Arc::new(AtomicU16::new(80)))
     }
 }
 
-/// Find the byte position past a complete fenced code block (opening + closing).
+/// Find the byte position past a complete fenced code block (opening +
+/// closing).
 ///
 /// Tracks the opening fence length so that inner fences of a different length
 /// (e.g. 4 backticks inside a 3-backtick block) are not treated as the close.
@@ -550,7 +562,8 @@ fn find_closing_fence_full(s: &str) -> Option<usize> {
     let mut prev = 0;
     for (nl_pos, _) in rest.match_indices('\n') {
         let line = rest[prev..nl_pos].trim();
-        // Closing fence: exactly `fence_len` backticks, nothing else (no more backticks after)
+        // Closing fence: exactly `fence_len` backticks, nothing else (no more backticks
+        // after)
         if line == closing
             || (line.starts_with(&closing) && !line[closing.len()..].starts_with('`'))
         {
@@ -670,16 +683,14 @@ mod tests {
 
     #[test]
     fn block_boundary_paragraph() {
-        let mut r = MarkdownRenderer::new();
-        r.buffer = "Hello world\n\nSecond paragraph".to_string();
+        let r = MarkdownRenderer { buffer: "Hello world\n\nSecond paragraph".to_string(), ..Default::default() };
         let boundary = r.find_block_boundary();
         assert_eq!(boundary, Some(11)); // "Hello world" ends at 11
     }
 
     #[test]
     fn block_boundary_code_fence() {
-        let mut r = MarkdownRenderer::new();
-        r.buffer = "```rust\nfn main() {}\n```\nmore text".to_string();
+        let r = MarkdownRenderer { buffer: "```rust\nfn main() {}\n```\nmore text".to_string(), ..Default::default() };
         let boundary = r.find_block_boundary();
         assert!(boundary.is_some());
         let end = boundary.unwrap();
@@ -690,8 +701,7 @@ mod tests {
 
     #[test]
     fn block_boundary_no_closing_fence() {
-        let mut r = MarkdownRenderer::new();
-        r.buffer = "```rust\nfn main() {}".to_string();
+        let r = MarkdownRenderer { buffer: "```rust\nfn main() {}".to_string(), ..Default::default() };
         let boundary = r.find_block_boundary();
         assert_eq!(boundary, None); // No closing fence yet
     }
@@ -709,7 +719,7 @@ mod tests {
 
     #[test]
     fn streaming_renders_completed_blocks() {
-        let mut r = MarkdownRenderer::new();
+        let mut r = MarkdownRenderer::default();
         // Push partial — no render yet
         r.push_delta("Hello ");
         assert!(!r.buffer.is_empty());
@@ -721,8 +731,7 @@ mod tests {
 
     #[test]
     fn reset_clears_state() {
-        let mut r = MarkdownRenderer::new();
-        r.buffer = "leftover".to_string();
+        let mut r = MarkdownRenderer { buffer: "leftover".to_string(), ..Default::default() };
         r.reset();
         assert!(r.buffer.is_empty());
     }
@@ -780,7 +789,7 @@ mod tests {
 
     #[test]
     fn streaming_partial_code_fence_not_rendered() {
-        let mut r = MarkdownRenderer::new();
+        let mut r = MarkdownRenderer::default();
         // Push an opening fence without closing — should not render
         r.push_delta("```rust\nfn main() {}\n");
         assert!(r.buffer.contains("```rust"));

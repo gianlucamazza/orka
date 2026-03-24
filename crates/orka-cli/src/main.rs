@@ -45,7 +45,8 @@ struct Cli {
 enum Commands {
     /// Show server status and dependency health
     Status {
-        /// Minimal output with exit code 1 if not healthy (for scripting/probes)
+        /// Minimal output with exit code 1 if not healthy (for
+        /// scripting/probes)
         #[arg(long)]
         short: bool,
     },
@@ -186,7 +187,8 @@ enum ConfigAction {
 
 #[derive(clap::Subcommand)]
 enum SecretAction {
-    /// Set a secret value (value is read from stdin to avoid shell-history exposure)
+    /// Set a secret value (value is read from stdin to avoid shell-history
+    /// exposure)
     Set {
         /// Secret path (e.g. llm/anthropic)
         path: String,

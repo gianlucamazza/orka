@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use orka_core::config::OrkaConfig;
-use orka_core::testing::InMemorySecretManager;
-use orka_core::traits::SecretManager;
+use orka_core::{config::OrkaConfig, testing::InMemorySecretManager, traits::SecretManager};
 
 use crate::client::Result;
 

@@ -1,12 +1,13 @@
-use std::io::Write as _;
-use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use sha2::Digest as _;
+use std::{
+    io::Write as _,
+    path::PathBuf,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use colored::Colorize;
 use reqwest::Client;
 use serde::Deserialize;
+use sha2::Digest as _;
 
 use crate::client::Result;
 
@@ -72,7 +73,8 @@ fn detect_install_method() -> InstallMethod {
     }
 }
 
-/// Returns the upgrade hint for a given install method (used in update notices).
+/// Returns the upgrade hint for a given install method (used in update
+/// notices).
 fn upgrade_hint(method: &InstallMethod) -> &'static str {
     match method {
         InstallMethod::DirectInstall => "Run 'orka update' to upgrade.",

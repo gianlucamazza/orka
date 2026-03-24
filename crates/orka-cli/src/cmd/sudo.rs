@@ -1,6 +1,6 @@
+use std::{path::Path, process::Stdio};
+
 use orka_core::config::OrkaConfig;
-use std::path::Path;
-use std::process::Stdio;
 
 const DROPIN_PATH: &str = "/etc/systemd/system/orka-server.service.d/sudo.conf";
 const SUDOERS_PATH: &str = "/etc/sudoers.d/orka";
@@ -31,17 +31,14 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
     }
 
     println!("sudo allowed: {}", config.os.sudo.allowed);
-    println!(
-        "password required: {}",
-        config.os.sudo.password_required
-    );
+    println!("password required: {}", config.os.sudo.password_required);
     println!(
         "allowed commands: {}",
         config.os.sudo.allowed_commands.join(", ")
     );
     println!();
 
-    let sudo_path = "sudo";  // Use default sudo path
+    let sudo_path = "sudo"; // Use default sudo path
 
     // --- Environment checks ---
     let mut env_ok = true;

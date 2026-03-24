@@ -1,7 +1,9 @@
-use std::collections::{HashMap, HashSet};
-use std::io::Write as _;
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::{
+    collections::{HashMap, HashSet},
+    io::Write as _,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
 
 use tokio::io::AsyncReadExt as _;
 
@@ -120,7 +122,8 @@ fn shellexpand(s: &str) -> String {
 /// Maximum bytes captured from a shell command's combined output.
 const MAX_CAPTURE_BYTES: usize = 4096;
 
-/// Result of a shell command execution, including captured output for AI context.
+/// Result of a shell command execution, including captured output for AI
+/// context.
 pub struct ShellResult {
     pub exit_code: Option<i32>,
     /// Captured stdout (capped at `MAX_CAPTURE_BYTES`).
@@ -129,7 +132,8 @@ pub struct ShellResult {
     pub stderr: String,
 }
 
-/// Read from `reader`, tee every chunk to real stdout, and accumulate up to `MAX_CAPTURE_BYTES`.
+/// Read from `reader`, tee every chunk to real stdout, and accumulate up to
+/// `MAX_CAPTURE_BYTES`.
 async fn tee_stdout(mut reader: tokio::process::ChildStdout) -> String {
     let mut buf = [0u8; 1024];
     let mut captured: Vec<u8> = Vec::new();
@@ -150,7 +154,8 @@ async fn tee_stdout(mut reader: tokio::process::ChildStdout) -> String {
     String::from_utf8_lossy(&captured).into_owned()
 }
 
-/// Read from `reader`, tee every chunk to real stderr, and accumulate up to `MAX_CAPTURE_BYTES`.
+/// Read from `reader`, tee every chunk to real stderr, and accumulate up to
+/// `MAX_CAPTURE_BYTES`.
 async fn tee_stderr(mut reader: tokio::process::ChildStderr) -> String {
     let mut buf = [0u8; 1024];
     let mut captured: Vec<u8> = Vec::new();
@@ -171,7 +176,8 @@ async fn tee_stderr(mut reader: tokio::process::ChildStderr) -> String {
     String::from_utf8_lossy(&captured).into_owned()
 }
 
-/// Execute a shell command, display output in real-time, and return captured output + exit code.
+/// Execute a shell command, display output in real-time, and return captured
+/// output + exit code.
 pub async fn execute_shell(
     cmd: &str,
     cwd: &Path,
@@ -205,7 +211,8 @@ pub async fn execute_shell(
     let child_stdout = child.stdout.take().expect("stdout was piped");
     let child_stderr = child.stderr.take().expect("stderr was piped");
 
-    // Drain both pipes concurrently so the child never blocks on a full pipe buffer.
+    // Drain both pipes concurrently so the child never blocks on a full pipe
+    // buffer.
     let stdout_task = tokio::spawn(tee_stdout(child_stdout));
     let stderr_task = tokio::spawn(tee_stderr(child_stderr));
 
@@ -227,7 +234,8 @@ pub async fn execute_shell(
     }
 }
 
-/// Handle a builtin command, mutating CWD/env as needed. Returns a status message.
+/// Handle a builtin command, mutating CWD/env as needed. Returns a status
+/// message.
 pub fn handle_builtin(
     builtin: &Builtin,
     cwd: &mut PathBuf,

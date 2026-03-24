@@ -1,6 +1,6 @@
-use crate::client::OrkaClient;
-use crate::table::make_table;
 use colored::Colorize;
+
+use crate::{client::OrkaClient, table::make_table};
 
 pub async fn list(client: &OrkaClient, limit: usize) -> crate::client::Result<()> {
     let body = client

@@ -88,8 +88,9 @@ fn git_branch(cwd: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::path::PathBuf;
+
+    use super::*;
 
     #[test]
     fn shorten_home_path() {
@@ -125,7 +126,8 @@ mod tests {
         assert!(plain.contains("❯"));
         // Plain prompt must not contain any ANSI escape sequences
         assert!(!plain.contains('\x1b'));
-        // Colored prompt must contain the indicator (ANSI may be stripped in non-TTY tests)
+        // Colored prompt must contain the indicator (ANSI may be stripped in non-TTY
+        // tests)
         assert!(colored.contains("❯"));
     }
 

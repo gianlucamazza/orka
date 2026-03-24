@@ -1,6 +1,6 @@
-use crate::client::OrkaClient;
-use crate::table::make_table;
 use colored::Colorize;
+
+use crate::{client::OrkaClient, table::make_table};
 
 pub async fn show(client: &OrkaClient, dot: bool) -> crate::client::Result<()> {
     let body = client.get_json("/api/v1/graph").await?;

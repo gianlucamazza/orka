@@ -1,5 +1,6 @@
-use crate::client::OrkaClient;
 use colored::Colorize;
+
+use crate::client::OrkaClient;
 
 pub async fn show(
     client: &OrkaClient,
