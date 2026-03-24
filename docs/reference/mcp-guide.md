@@ -93,7 +93,7 @@ Add Orka as a local MCP server in Claude Code's settings:
 }
 ```
 
-Or use the automated bridge (see [`docs/architecture.md`](architecture.md)):
+Or use the automated bridge (see [`docs/reference/architecture.md`](architecture.md)):
 
 ```bash
 # Start the claude-channel bridge

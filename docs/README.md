@@ -6,25 +6,29 @@ Welcome to the Orka documentation. This directory contains detailed guides on th
 
 If you are new to Orka, you may want to start with the main repository [README](../README.md) for a high-level overview and quick start instructions.
 
-## Guides
+## Layout
 
 The documentation is organized into the following areas:
 
-### Architecture & Operations
-*   **[Architecture Diagram & Overview](architecture.md)**: End-to-end message flow and subsystem overview.
-*   **[Deployment Guide](deployment.md)**: Instructions for running Orka under Docker, bare-metal with systemd, and observability setups.
-*   **[Configuration Reference](configuration.md)**: All `orka.toml` options, environment variables, and adapter setups (Telegram, Discord, Slack, WhatsApp, HTTP).
-*   **[CLI Reference](cli-reference.md)**: Command-line tool reference for the `orka` binary.
+### Reference
+*   **[Architecture Diagram & Overview](reference/architecture.md)**: End-to-end message flow and subsystem overview.
+*   **[Deployment Guide](reference/deployment.md)**: Instructions for running Orka under Docker, bare-metal with systemd, and observability setups.
+*   **[Configuration Reference](reference/configuration.md)**: All `orka.toml` options, environment variables, and adapter setups (Telegram, Discord, Slack, WhatsApp, HTTP).
+*   **[CLI Reference](reference/cli-reference.md)**: Command-line tool reference for the `orka` binary.
+*   **[Model Context Protocol (MCP)](reference/mcp-guide.md)**: Information about using Orka as either an MCP Client or an MCP Server.
 
-### Agent & LLM Features
-*   **[Prompt Architecture (Agents)](agents.md)**: Guide to the template-based prompt pipeline, overriding built-ins, and `SOUL.md`.
-*   **[Experience System](experience-system.md)**: The continuous self-learning loop (reflection and distillation pipelines).
-*   **[Model Context Protocol (MCP)](mcp-guide.md)**: Information about using Orka as either an MCP Client or an MCP Server.
+### Guides
+*   **[Prompt Architecture (Agents)](guides/agents.md)**: Guide to the template-based prompt pipeline, overriding built-ins, and `SOUL.md`.
+*   **[Experience System](guides/experience-system.md)**: The continuous self-learning loop (reflection and distillation pipelines).
+*   **[Skill Development Guide](guides/skill-development.md)**: Writing built-in Rust skills, WASM plugins, and markdown-based Soft skills (`SKILL.md`).
+*   **[WASM Plugin Tutorial](guides/tutorials/build-a-wasm-plugin.md)**: Step-by-step guide to writing WebAssembly modules for Orka.
+*   **[Evaluation Framework](guides/eval-guide.md)**: How to write and run `.eval.toml` integration tests for skills using `orka-eval`.
 
-### Development & Extensibility
-*   **[Skill Development Guide](skill-development.md)**: Writing built-in Rust skills, WASM plugins, and markdown-based Soft skills (`SKILL.md`).
-*   **[WASM Plugin Tutorial](tutorials/build-a-wasm-plugin.md)**: Step-by-step guide to writing WebAssembly modules for Orka.
-*   **[Evaluation Framework](eval-guide.md)**: How to write and run `.eval.toml` integration tests for skills using `orka-eval`.
+### Internal
+*   **[Analysis Report](internal/analysis-report.md)**: Repository analysis and current-state notes.
+*   **[Architecture Fix Plan](internal/architecture-fix-plan.md)**: Architecture remediation backlog and proposed follow-up work.
+*   **[Config Refactor Plan](internal/config-refactor-plan.md)**: Notes and plan for configuration cleanup.
+*   **[Root Organization Decisions](internal/root-organization-decisions.md)**: Decision record for special root files, workspace model, packaging, and test layout.
 
 ### Contributing
 *   **[Contributing Guide](../CONTRIBUTING.md)**: Development setup, coding standards, Rust best practices, and PR guidelines.

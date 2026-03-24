@@ -3,7 +3,7 @@
 **Data:** 2026-03-23  
 **Versione analizzata:** 1.0.0  
 **Commit:** HEAD  
-**MSRV:** 1.85  
+**MSRV:** 1.91  
 **Edition:** 2024
 
 ---
@@ -481,7 +481,7 @@ demo/
 - build
 - test
 - test --ignored (integration)
-- MSRV check (1.85)
+- MSRV check (1.91)
 - coverage
 ```
 

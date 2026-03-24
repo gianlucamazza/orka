@@ -148,22 +148,24 @@ Provides OS-level skills when `os.enabled = true`:
 - **file_read / file_write / file_list** — Filesystem access restricted to
   `os.allowed_paths`.
 - **process_list** — List running processes.
-- **claude_code** — Delegate coding tasks to the `claude` CLI subprocess
-  (auto-detected or configured via `os.claude_code`).
-- **sudo** — Privileged command execution with optional human confirmation.
+- **coding_delegate** — Default routing entrypoint for coding tasks. It selects
+  Claude Code or Codex according to `os.coding`.
+- **sudo** — Privileged command execution gated by `os.sudo.allowed` and the sudo allowlist.
 
-All outputs are sanitised against `os.sensitive_env_patterns` before being
-returned to the LLM.
+The coding-delegation path is split into three layers:
+
+1. `coding_delegate` receives the task and applies Orka's routing policy.
+2. A backend (`claude_code` or `codex`) builds a structured prompt and launches
+   the corresponding CLI with the configured timeout, sandbox, and working directory.
+3. The backend normalizes CLI output into a common Orka `SkillOutput` shape so
+   the orchestrator does not depend on provider-specific event formats.
 
 ### HTTP Client (orka-http)
 
-Provides an outbound HTTP skill when `http.enabled = true`. Supports GET,
+Provides an outbound `http_request` skill configured by the `http` section. Supports GET,
 POST, PUT, PATCH, DELETE with configurable headers and body. SSRF protection
-blocks requests to domains in `http.blocked_domains` (default: AWS metadata
-endpoint). Response bodies are truncated at `http.max_response_bytes`.
-
-Optionally hosts an inbound webhook receiver (`http.webhooks.enabled = true`)
-that turns incoming HTTP callbacks into `Payload::Event` envelopes on the bus.
+blocks requests to internal metadata endpoints. Response bodies are capped by
+the runtime skill limits.
 
 ### Web Search & Read (orka-web)
 
@@ -175,7 +177,9 @@ skill fetches and extracts text from a URL, respecting
 
 ### LLM Router (orka-llm)
 
-Multi-provider LLM client with prefix-based routing. Each configured provider declares a list of model name prefixes (e.g., `["claude"]` for Anthropic, `["gpt", "o3", "o4"]` for OpenAI). When a workspace specifies a model name, the router selects the matching provider. Falls back to the first provider if no prefix matches.
+Multi-provider LLM client with model-name-based routing. Providers are keyed by
+their configured model names, and the router falls back to the first provider
+when no match is found.
 
 Supports streaming responses (Server-Sent Events forwarded to the adapter), per-provider cost tracking, and configurable retry/timeout policies.
 

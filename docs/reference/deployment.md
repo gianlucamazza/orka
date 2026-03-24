@@ -7,7 +7,7 @@
 | Redis      | 7+      | Bus, queue, session, memory  |
 | Qdrant     | 1.14+   | RAG vector store (optional)  |
 | Docker     | 24+     | Container runtime (optional) |
-| Rust       | 1.85+   | Build from source            |
+| Rust       | 1.91+   | Build from source            |
 
 Valkey (Redis-compatible) is also supported as a drop-in Redis replacement.
 
@@ -59,10 +59,13 @@ ORKA_SECRET_ENCRYPTION_KEY=$(openssl rand -hex 32) \
 
 ---
 
-## Arch Linux (systemd)
+## Native Linux Installation (systemd)
 
 ```bash
-# Install deps, build, and install the systemd service
+# Install common dev dependencies, start Redis/Valkey, and verify the build
+just setup
+
+# Build and install the systemd service
 just install
 systemctl enable --now orka-server
 
@@ -70,13 +73,42 @@ systemctl enable --now orka-server
 just uninstall
 ```
 
+The repository follows a portable-first distribution model:
+
+- **Portable upstream artifacts**: OCI image and release tarball work across distributions.
+- **Generic systemd install**: `scripts/install.sh` installs the service using FHS paths and discovers the host's systemd directories.
+- **Native packaging**: Arch packaging is currently provided via `PKGBUILD`; additional distro-native packages can build on the same `deploy/` assets.
+
+`just setup` currently supports common `pacman`, `apt`, and `dnf` based development environments.
+It expects a `rustup`-managed Rust toolchain that satisfies the workspace
+minimum (`rust-version = 1.91`). On distributions with older distro-provided
+`rustc`/`cargo`, install or update Rust via `rustup` before running `just setup`.
+
+### Distribution Support Matrix
+
+| Distribution family | Portable install | Native package status | Source |
+| ------------------- | ---------------- | --------------------- | ------ |
+| Arch Linux          | Yes              | Implemented           | `PKGBUILD` |
+| Debian / Ubuntu     | Yes              | Scaffolded            | `packaging/debian/` with Rust >= 1.91 |
+| Fedora / RHEL       | Yes              | Scaffolded            | `packaging/fedora/` with Rust >= 1.91 |
+
+The native package scaffolds are intentionally thin and reuse the shared assets in `deploy/`. This keeps service hardening, filesystem layout, and runtime identity consistent across distributions.
+
 The `just install` target:
 
-1. Installs Redis and sets it up via systemd.
-2. Builds `orka-server` in release mode.
-3. Writes `/etc/orka/orka.toml` (template).
-4. Installs `orka-server.service` and `orka-server.socket`.
-5. Adds a `sudoers` entry for OS skills if `os.sudo.enabled = true`.
+1. Builds `orka-server` in release mode.
+2. Writes `/etc/orka/orka.toml` (template).
+3. Installs `orka-server.service` using the selected binary prefix.
+4. Installs `sysusers.d` and `tmpfiles.d` definitions.
+5. Adds a `sudoers` entry for OS skills if `os.sudo.allowed = true`.
+
+Best practice for distro-native packages:
+
+- Keep configuration in `/etc/orka`.
+- Keep mutable state in `/var/lib/orka`.
+- Install systemd units in the distro's system unit directory rather than hardcoding a single path.
+- Use `sysusers.d` and `tmpfiles.d` for service users and state directories where supported.
+- Avoid hardcoding distro-specific service dependencies in upstream service units unless they are guaranteed by the package.
 
 ---
 
@@ -152,11 +184,11 @@ readinessProbe:
 
 ### Prometheus
 
-Set `observe.backend = "otel"` to expose `/metrics` in Prometheus text format.
+Set `observe.backend = "prometheus"` to expose `/metrics` in Prometheus text format.
 
 ```toml
 [observe]
-backend = "otel"
+backend = "prometheus"
 ```
 
 Scrape config:
@@ -186,7 +218,7 @@ Key metrics:
 
 ```toml
 [observe]
-backend = "otel"
+backend = "otlp"
 otlp_endpoint = "http://otel-collector:4317"
 ```
 

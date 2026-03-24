@@ -32,6 +32,8 @@ orka graph show [--dot]          # Display the agent execution graph (text or Gr
 orka a2a card|send               # View A2A agent card or send a delegated task
 ```
 
+`orka workspace ...` operates on server-configured and built-in workspaces. Local root `SOUL.md` and `TOOLS.md` are part of local workspace discovery and prompt construction, not a separate server-managed workspace registry.
+
 ### Configuration and Secrets
 
 ```bash

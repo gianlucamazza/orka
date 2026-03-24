@@ -240,7 +240,7 @@ dir = "./skills"   # directory containing SKILL.md subdirectories
 
 `orka-eval` is a dedicated framework for testing skills offline using declarative TOML scenario files. It lets you write assertions against skill output, timing, and success/failure without running a live LLM.
 
-For the full reference—including the scenario file format, all assertion fields, programmatic usage, and CI integration—see the dedicated **[Evaluation Framework Guide](eval-guide.md)**.
+For the full reference including the scenario file format, all assertion fields, programmatic usage, and CI integration, see the dedicated **[Evaluation Framework Guide](eval-guide.md)**.
 
 ---
 
@@ -248,7 +248,7 @@ For the full reference—including the scenario file format, all assertion field
 
 ```toml
 [tools]
-disabled = ["shell_exec", "package_install"]
+deny = ["shell_exec", "package_install"]
 ```
 
 Skills in this list are removed from the registry at startup.

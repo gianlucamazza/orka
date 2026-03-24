@@ -162,6 +162,20 @@ max_principles = 5
 
 ## Custom Templates
 
+## Workspace Model
+
+Orka currently exposes two related workspace concepts:
+
+1. **Local repository workspace**
+   Defined by root-level `SOUL.md` and `TOOLS.md`.
+   This is the workspace discovered by local CLI flows when operating inside a repository or project tree.
+
+2. **Built-in runtime workspaces**
+   Stored under `workspaces/`.
+   These are built-in workspace definitions used by runtime registration, packaging, and installation flows.
+
+The examples below use the **local repository workspace** model unless stated otherwise.
+
 ### Workspace-Level Templates
 
 Create a `PROMPTS/` directory in your workspace:
@@ -176,6 +190,8 @@ my-workspace/
     └── sections/
         └── workspace.hbs     # Override workspace context
 ```
+
+This layout describes a local workspace directory discovered from the current working tree. It is distinct from the built-in workspace files shipped under `workspaces/`.
 
 ### Template Syntax
 
@@ -330,10 +346,10 @@ let prompt = pipeline.build(&ctx).await?;
 
 Ensure templates are loaded:
 ```rust
-// Built-ins are loaded automatically
+// Built-in templates are loaded automatically
 orka_workspace::load_builtins(&registry).await?;
 
-// Custom templates from PROMPTS/
+// Custom templates from the local workspace PROMPTS/ directory
 registry.load_from_dir("PROMPTS").await?;
 ```
 

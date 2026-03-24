@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Orka!
 
 ### Prerequisites
 
-- Rust 1.85+ (MSRV)
+- Rust 1.91+ (MSRV)
 - Redis 7+ (for integration tests)
 - Docker (for `testcontainers`-based integration tests)
 - [just](https://github.com/casey/just) command runner
@@ -17,7 +17,7 @@ Thank you for your interest in contributing to Orka!
 git clone https://github.com/gianlucamazza/orka.git
 cd orka
 
-# Arch Linux: automated setup (installs deps, starts Redis, verifies build)
+# Linux (pacman, apt, dnf): automated setup (installs deps, starts Redis/Valkey, verifies build)
 just setup
 
 # Or manually:
@@ -75,7 +75,7 @@ chore: bump dependencies
 
 ## Rust Best Practices (2026)
 
-Orka uses Rust 1.93+ with Edition 2024. Follow these modern patterns:
+Orka uses Rust 1.91+ with Edition 2024. Follow these modern patterns:
 
 ### Prefer `let else` for Early Returns
 
@@ -165,7 +165,7 @@ Orka is organized as a Cargo workspace with ~34 crates. Each crate has a single 
 - **orka-agent**: Agent orchestration and routing
 - **orka-wasm**: WASM runtime utilities
 
-For a deeper dive into each subsystem and how they interact, see [docs/architecture.md](docs/architecture.md).
+For a deeper dive into each subsystem and how they interact, see [docs/reference/architecture.md](docs/reference/architecture.md).
 
 See the [README](README.md) for the full project structure.
 

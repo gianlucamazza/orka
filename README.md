@@ -3,7 +3,7 @@
 [![CI](https://github.com/gianlucamazza/orka/actions/workflows/ci.yml/badge.svg)](https://github.com/gianlucamazza/orka/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE-APACHE)
-[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
 
 A self-learning AI agent orchestration platform built in Rust.
 
@@ -88,7 +88,7 @@ flowchart TD
     Agent -.-> BG
 ```
 
-For a detailed description of each subsystem and their interactions, see [docs/architecture.md](docs/architecture.md).
+For a detailed description of each subsystem and their interactions, see [docs/reference/architecture.md](docs/reference/architecture.md).
 
 ## Features
 
@@ -118,7 +118,7 @@ For a detailed description of each subsystem and their interactions, see [docs/a
 
 ### Prerequisites
 
-- Rust 1.85+
+- Rust 1.91+
 - Redis 7+
 - Docker (optional)
 
@@ -141,10 +141,10 @@ cargo build --release
 ./target/release/orka-server
 ```
 
-### Native Installation (Arch Linux)
+### Native Installation (Linux with systemd)
 
 ```bash
-# Dev setup — installs deps, starts Redis, runs cargo check
+# Dev setup — installs common deps, starts Redis/Valkey, runs cargo check
 just setup
 
 # Production install — builds release binary, installs systemd service
@@ -154,6 +154,8 @@ systemctl enable --now orka-server
 # Uninstall (preserves config and data)
 just uninstall
 ```
+
+`just setup` supports common `pacman`, `apt`, and `dnf` based development environments. Native Arch packaging is also available via `PKGBUILD`.
 
 The server starts two endpoints:
 
@@ -172,7 +174,7 @@ curl -X POST http://localhost:8081/api/v1/message \
 
 Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 
-For a complete reference of all configuration options, see the [Configuration Guide](docs/configuration.md).
+For a complete reference of all configuration options, see the [Configuration Guide](docs/reference/configuration.md).
 
 ### Environment Variables
 
@@ -206,7 +208,7 @@ Config fields can also be overridden via `ORKA__<SECTION>__<KEY>` (e.g., `ORKA__
 | `GET`    | `/health`                       | Health check                                         |
 | `GET`    | `/health/live`                  | Liveness probe                                       |
 | `GET`    | `/health/ready`                 | Readiness probe                                      |
-| `GET`    | `/metrics`                      | Prometheus metrics (when `observe.backend = "otel"`) |
+| `GET`    | `/metrics`                      | Prometheus metrics (when `observe.backend = "otlp"` or `prometheus`) |
 | `GET`    | `/docs`                         | Swagger UI (OpenAPI)                                 |
 | `GET`    | `/api/v1/version`               | Version info                                         |
 | `GET`    | `/api/v1/dlq`                   | List dead-letter entries                             |
@@ -244,7 +246,14 @@ Agent behavior is configured through workspace files:
 - `SOUL.md` — Agent personality and system prompt (markdown with YAML frontmatter)
 - `TOOLS.md` — Tool usage guidelines for the LLM (plain markdown)
 
-Runtime parameters (model, tokens, heartbeat, etc.) live in `orka.toml` under `[agent]` and `[tools]`.
+Runtime parameters (model, tokens, etc.) live in `orka.toml` under `[[agents]]` and `[tools]`.
+
+Orka currently uses a two-tier workspace model:
+
+- **Local repository workspace** — the root `SOUL.md` and `TOOLS.md` discovered from the current working tree by local tooling and CLI flows.
+- **Built-in runtime workspaces** — distributable workspace files under `workspaces/`, used by runtime registration and installation.
+
+These are related but not interchangeable concepts. The root files define the local repo's active workspace context, while `workspaces/` stores built-in workspace content shipped with the system.
 
 Workspaces support hot-reloading via filesystem watcher.
 
@@ -254,17 +263,16 @@ For a full table of contents, see the [Documentation Index](docs/README.md).
 
 | Guide                                          | Description                                               |
 | ---------------------------------------------- | --------------------------------------------------------- |
-| [Architecture](docs/architecture.md)           | End-to-end message flow and subsystem overview            |
-| [Deployment](docs/deployment.md)               | Docker, bare-metal, systemd, reverse proxy, observability |
-| [Configuration](docs/configuration.md)         | Detailed reference for `orka.toml` and env vars           |
-| [CLI Reference](docs/cli-reference.md)         | Available commands and flags for the `orka` binary        |
-| [Prompt Architecture](docs/agents.md)          | Guide to the prompt pipeline, templates, and Workspaces   |
-| [Skill Development](docs/skill-development.md) | Built-in, WASM, and soft skills; eval framework           |
-| [WASM Tutorial](docs/tutorials/build-a-wasm-plugin.md) | Step-by-step guide to writing WebAssembly plugins |
-| [Adapters Guide](docs/adapters-guide.md)       | Connect Orka to Telegram, Discord, Slack, and WhatsApp    |
-| [MCP Guide](docs/mcp-guide.md)                 | MCP client/server, HTTP transport, OAuth                  |
-| [Experience System](docs/experience-system.md) | Self-learning loop, reflection, distillation              |
-| [Eval Framework](docs/eval-guide.md)           | TOML scenario runner for offline skill testing            |
+| [Architecture](docs/reference/architecture.md) | End-to-end message flow and subsystem overview            |
+| [Deployment](docs/reference/deployment.md)     | Docker, bare-metal, systemd, reverse proxy, observability |
+| [Configuration](docs/reference/configuration.md) | Detailed reference for `orka.toml` and env vars         |
+| [CLI Reference](docs/reference/cli-reference.md) | Available commands and flags for the `orka` binary      |
+| [Prompt Architecture](docs/guides/agents.md)   | Guide to the prompt pipeline, templates, and Workspaces   |
+| [Skill Development](docs/guides/skill-development.md) | Built-in, WASM, and soft skills; eval framework     |
+| [WASM Tutorial](docs/guides/tutorials/build-a-wasm-plugin.md) | Step-by-step guide to writing WebAssembly plugins |
+| [MCP Guide](docs/reference/mcp-guide.md)       | MCP client/server, HTTP transport, OAuth                  |
+| [Experience System](docs/guides/experience-system.md) | Self-learning loop, reflection, distillation        |
+| [Eval Framework](docs/guides/eval-guide.md)    | TOML scenario runner for offline skill testing            |
 | [Security](SECURITY.md)                        | Vulnerability reporting, hardening checklist              |
 
 ## Development
@@ -287,13 +295,12 @@ cargo clippy --workspace --all-targets
 
 The `orka` command-line tool provides a full suite of management commands for server administration, agent operations, and observability.
 
-For a complete list of commands and global options, see the [CLI Reference](docs/cli-reference.md).
+For a complete list of commands and global options, see the [CLI Reference](docs/reference/cli-reference.md).
 
 ## Project Structure
 
 ```
 orka/
-├── orka-server/              # Binary composition root
 ├── crates/
 │   ├── orka-core/            # Shared types, traits, errors
 │   ├── orka-bus/             # Message bus (Redis Streams + in-memory)
@@ -328,12 +335,34 @@ orka/
 │   ├── orka-plugin-sdk/          # WASM module plugin SDK
 │   ├── orka-plugin-sdk-component/ # WASM Component Model plugin SDK (WIT-based)
 │   └── hello-plugin/             # Example WASM plugin
+├── docs/
+│   ├── reference/            # Stable reference docs
+│   ├── guides/               # How-tos and development guides
+│   └── internal/             # Internal analysis and planning docs
 ├── evals/                    # Built-in evaluation scenarios (*.eval.toml)
-├── wit/                      # Shared WIT interface definitions
+├── examples/                 # Runnable examples and integration samples
 ├── deploy/                   # systemd service unit, sysusers, tmpfiles, sudoers
+├── workspaces/               # Built-in workspace prompt files used by the runtime
 ├── tools/claude-channel/     # MCP bridge for Claude Code ↔ Orka integration (TypeScript/Bun)
+├── tests/                    # Reserved for end-to-end and cross-crate integration tests
 └── scripts/                  # install.sh and setup-dev.sh
 ```
+
+## Root Conventions
+
+The repository root is intentionally kept as the composition layer of the project.
+
+- Keep product code in `crates/`, not in ad hoc top-level folders.
+- Keep stable entrypoints and repo-wide manifests in root: `Cargo.toml`, `orka.toml`, `Justfile`, `Dockerfile`, `docker-compose*.yml`.
+- Keep repository-wide policy and tooling config in root: `.editorconfig`, `.rustfmt.toml`, `deny.toml`, `release.toml`, `cliff.toml`, `.pre-commit-config.yaml`.
+- Keep user-facing examples, SDKs, docs, deploy assets, and scripts in their dedicated top-level directories.
+- Treat `workspaces/` as a runtime data area for built-in workspace prompt files, not as a general development folder.
+- Treat root `SOUL.md` and `TOOLS.md` as the local repository workspace, distinct from the built-in workspaces stored under `workspaces/`.
+- Use `scripts/` for shell automation and installation flows.
+- Use `tools/` for standalone helper utilities with their own runtime or toolchain.
+- Reserve `tests/` for end-to-end or cross-crate tests. Crate-local unit and integration tests should stay inside each crate.
+
+Some root files exist for local tool integration rather than core runtime architecture, such as `.mcp.json`, `.claude/`, and `GEMINI.md`. They should remain documented and intentional, but they are not the primary model for organizing product code.
 
 ## Privacy
 
