@@ -1,23 +1,26 @@
 //! Long-polling loop for the Telegram adapter.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use orka_core::MemoryEntry;
-use orka_core::traits::MemoryStore;
-use orka_core::types::{
-    CommandPayload, Envelope, EventPayload, MessageId, MessageSink, Payload, SessionId,
+use orka_core::{
+    MemoryEntry,
+    traits::MemoryStore,
+    types::{
+        CommandPayload, Envelope, EventPayload, MessageId, MessageSink, Payload, SessionId,
+        backoff_delay,
+    },
 };
 use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::TelegramAuthGuard;
-use crate::api::TelegramApi;
-use crate::media::resolve_inbound_media;
-use crate::types::{CallbackQuery, TelegramMessage, Update};
-use orka_core::types::backoff_delay;
+use crate::{
+    TelegramAuthGuard,
+    api::TelegramApi,
+    media::resolve_inbound_media,
+    types::{CallbackQuery, TelegramMessage, Update},
+};
 
 /// Resolve the session ID for a given Telegram chat ID.
 ///
@@ -101,15 +104,7 @@ pub(crate) async fn run_polling_loop(
                 error_count = 0;
                 for update in updates {
                     offset = update.update_id + 1;
-                    handle_update(
-                        &api,
-                        update,
-                        &sessions,
-                        &memory,
-                        &sink,
-                        &auth_guard,
-                    )
-                    .await;
+                    handle_update(&api, update, &sessions, &memory, &sink, &auth_guard).await;
                 }
             }
             Err(e) => {

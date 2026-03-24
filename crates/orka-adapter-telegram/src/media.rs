@@ -2,8 +2,7 @@
 
 use orka_core::types::MediaPayload;
 
-use crate::api::TelegramApi;
-use crate::types::TelegramMessage;
+use crate::{api::TelegramApi, types::TelegramMessage};
 
 /// How to send an outbound media file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

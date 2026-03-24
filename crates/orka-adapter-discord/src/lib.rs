@@ -2,17 +2,18 @@
 
 #![warn(missing_docs)]
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
-use orka_core::traits::ChannelAdapter;
-use orka_core::types::{
-    CommandPayload, Envelope, MediaPayload, MessageSink, OutboundMessage, Payload, SessionId,
-    backoff_delay,
+use orka_core::{
+    Error, Result,
+    traits::ChannelAdapter,
+    types::{
+        CommandPayload, Envelope, MediaPayload, MessageSink, OutboundMessage, Payload, SessionId,
+        backoff_delay,
+    },
 };
-use orka_core::{Error, Result};
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::sync::Mutex;
@@ -496,8 +497,9 @@ impl ChannelAdapter for DiscordAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use orka_core::types::{OutboundMessage, SessionId};
+
+    use super::*;
 
     #[test]
     fn channel_id_returns_discord() {

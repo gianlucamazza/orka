@@ -42,10 +42,11 @@ pub fn build_agent_card(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::Arc;
 
     use orka_core::testing::EchoSkill;
+
+    use super::*;
 
     #[test]
     fn build_agent_card_empty_registry() {

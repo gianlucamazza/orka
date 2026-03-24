@@ -1,8 +1,7 @@
+use std::{collections::HashMap, sync::Arc};
+
 use orka_adapter_whatsapp::WhatsAppAdapter;
-use orka_core::traits::ChannelAdapter;
-use orka_core::types::SessionId;
-use std::collections::HashMap;
-use std::sync::Arc;
+use orka_core::{traits::ChannelAdapter, types::SessionId};
 use tokio::sync::Mutex;
 
 #[test]
@@ -16,7 +15,8 @@ fn channel_id_returns_whatsapp() {
     assert_eq!(adapter.channel_id(), "whatsapp");
 }
 
-/// Same sender phone number maps to the same SessionId; different numbers differ.
+/// Same sender phone number maps to the same SessionId; different numbers
+/// differ.
 #[tokio::test]
 async fn session_map_consistency() {
     let sessions: Arc<Mutex<HashMap<String, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -111,7 +111,8 @@ fn non_text_messages_filtered() {
     assert_ne!(msg_type, "text", "non-text messages should be filtered");
 }
 
-/// Webhook verification logic: mode=subscribe + matching token → return challenge.
+/// Webhook verification logic: mode=subscribe + matching token → return
+/// challenge.
 #[test]
 fn webhook_verification_logic() {
     let verify_token = "my-secret-token";

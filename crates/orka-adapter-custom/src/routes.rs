@@ -11,14 +11,18 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use orka_core::{Envelope, MessageSink, SessionId, StreamRegistry};
 use serde::Deserialize;
-use tower_http::cors::{AllowMethods, AllowOrigin, CorsLayer};
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    cors::{AllowMethods, AllowOrigin, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    trace::TraceLayer,
+};
 use tracing::info;
 use uuid::Uuid;
 
-use crate::types::{InboundRequest, InboundResponse};
-use crate::ws::WsRegistry;
+use crate::{
+    types::{InboundRequest, InboundResponse},
+    ws::WsRegistry,
+};
 
 /// Maximum request body size: 1 MB.
 const MAX_BODY_SIZE: usize = 1024 * 1024;
@@ -110,7 +114,8 @@ pub fn app_router(
     ),
     tag = "messages"
 )]
-/// POST `/api/v1/message` — accept an inbound message and route it into the bus.
+/// POST `/api/v1/message` — accept an inbound message and route it into the
+/// bus.
 pub async fn handle_message(
     State(state): State<AppState>,
     Json(req): Json<InboundRequest>,
@@ -160,7 +165,8 @@ pub async fn handle_message(
     ),
     tag = "health"
 )]
-/// GET `/api/v1/health` — liveness check that always returns `{"status": "ok"}`.
+/// GET `/api/v1/health` — liveness check that always returns `{"status":
+/// "ok"}`.
 pub async fn handle_health() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok" }))
 }

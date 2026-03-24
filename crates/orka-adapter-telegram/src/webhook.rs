@@ -1,20 +1,22 @@
 //! Axum-based webhook server for Telegram Bot API updates.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{Json, Router, extract::State, routing::post};
-use orka_core::traits::MemoryStore;
-use orka_core::types::MessageSink;
+use orka_core::{
+    traits::MemoryStore,
+    types::{MessageSink, SessionId},
+};
 use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
-use crate::TelegramAuthGuard;
-use crate::api::TelegramApi;
-use crate::polling::{extract_user_info, process_message, resolve_session};
-use crate::types::{CallbackQuery, Update};
-use orka_core::types::SessionId;
+use crate::{
+    TelegramAuthGuard,
+    api::TelegramApi,
+    polling::{extract_user_info, process_message, resolve_session},
+    types::{CallbackQuery, Update},
+};
 
 #[derive(Clone)]
 struct WebhookState {
@@ -126,6 +128,7 @@ async fn handle_callback_query(
 }
 
 /// Start the webhook HTTP server.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_webhook_server(
     api: Arc<TelegramApi>,
     sink: Arc<Mutex<Option<MessageSink>>>,
@@ -133,7 +136,7 @@ pub(crate) async fn run_webhook_server(
     memory: Option<Arc<dyn MemoryStore>>,
     webhook_url: String,
     port: u16,
-    mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+    shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     auth_guard: Arc<TelegramAuthGuard>,
 ) {
     // Register webhook with Telegram

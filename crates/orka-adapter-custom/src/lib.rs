@@ -19,8 +19,7 @@ use orka_core::{
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use crate::routes::app_router;
-use crate::ws::WsRegistry;
+use crate::{routes::app_router, ws::WsRegistry};
 
 /// Custom HTTP/WS adapter for receiving messages via REST API.
 pub struct CustomAdapter {
@@ -33,7 +32,8 @@ pub struct CustomAdapter {
 }
 
 impl CustomAdapter {
-    /// Create a new adapter with an optional stream registry for real-time streaming.
+    /// Create a new adapter with an optional stream registry for real-time
+    /// streaming.
     pub fn new(
         config: CustomAdapterConfig,
         auth_layer: Option<orka_auth::AuthLayer>,

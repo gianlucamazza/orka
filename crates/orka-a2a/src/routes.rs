@@ -1,15 +1,12 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{Json, extract::State, response::IntoResponse};
 use chrono::Utc;
+use orka_core::{SkillContext, SkillInput, traits::SecretManager};
+use orka_skills::SkillRegistry;
 use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::debug;
-
-use orka_core::traits::SecretManager;
-use orka_core::{SkillContext, SkillInput};
-use orka_skills::SkillRegistry;
 
 use crate::types::*;
 

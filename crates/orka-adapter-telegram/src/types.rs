@@ -2,8 +2,9 @@
 
 use serde::Deserialize;
 
-// Note: These types are used for serde deserialization of Telegram API responses.
-// Not all fields are accessed directly in code, but are required for complete JSON parsing.
+// Note: These types are used for serde deserialization of Telegram API
+// responses. Not all fields are accessed directly in code, but are required for
+// complete JSON parsing.
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct TelegramResponse<T> {
@@ -13,7 +14,8 @@ pub(crate) struct TelegramResponse<T> {
     pub parameters: Option<ResponseParameters>,
 }
 
-// Note: Used for serde deserialization; retry_after is the primary field accessed.
+// Note: Used for serde deserialization; retry_after is the primary field
+// accessed.
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct ResponseParameters {
@@ -139,8 +141,9 @@ pub(crate) struct TelegramFile {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn deserialize_update_with_text_message() {

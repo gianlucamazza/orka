@@ -215,7 +215,8 @@ pub(crate) fn split_html(html: &str, max_len: usize) -> Vec<String> {
     let lines: Vec<&str> = html.split('\n').collect();
     let mut chunks: Vec<String> = Vec::new();
     let mut current = String::new();
-    // Stack of open tag strings (just the opening tag, e.g. `<b>` or `<a href="...">`)
+    // Stack of open tag strings (just the opening tag, e.g. `<b>` or `<a
+    // href="...">`)
     let mut open_tags: Vec<String> = Vec::new();
 
     let prefix_from_stack = |stack: &Vec<String>| stack.join("");
@@ -300,7 +301,8 @@ fn update_open_tags(stack: &mut Vec<String>, line: &str) {
     }
 }
 
-/// Extract the tag name from an opening tag string like `<b>` or `<a href="...">`.
+/// Extract the tag name from an opening tag string like `<b>` or `<a
+/// href="...">`.
 fn tag_name(open_tag: &str) -> &str {
     // open_tag is like `<b>` or `<a href="url">`
     let inner = open_tag.trim_start_matches('<').trim_end_matches('>');

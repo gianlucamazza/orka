@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// Inbound message request from an HTTP client.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]

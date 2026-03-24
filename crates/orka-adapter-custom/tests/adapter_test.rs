@@ -74,10 +74,12 @@ async fn health_endpoint_returns_ok() {
 #[tokio::test]
 async fn adapter_start_and_shutdown() {
     let adapter = CustomAdapter::new(
-        CustomAdapterConfig {
-            host: "127.0.0.1".into(),
-            port: 0,
-            workspace: None,
+        {
+            let mut cfg = CustomAdapterConfig::default();
+            cfg.host = "127.0.0.1".into();
+            cfg.port = 0;
+            cfg.workspace = None;
+            cfg
         },
         None,
         StreamRegistry::new(),
@@ -91,10 +93,12 @@ async fn adapter_start_and_shutdown() {
 #[tokio::test]
 async fn ws_connect_and_receive_outbound() {
     let adapter = CustomAdapter::new(
-        CustomAdapterConfig {
-            host: "127.0.0.1".into(),
-            port: 0,
-            workspace: None,
+        {
+            let mut cfg = CustomAdapterConfig::default();
+            cfg.host = "127.0.0.1".into();
+            cfg.port = 0;
+            cfg.workspace = None;
+            cfg
         },
         None,
         StreamRegistry::new(),
@@ -103,8 +107,8 @@ async fn ws_connect_and_receive_outbound() {
     let (tx, _rx) = mpsc::channel(16);
     adapter.start(tx).await.unwrap();
 
-    // We need to find the actual port — start adapter and get the port from the listener.
-    // Since the adapter binds to port 0, we need another approach.
+    // We need to find the actual port — start adapter and get the port from the
+    // listener. Since the adapter binds to port 0, we need another approach.
     // Use app_router directly for controlled testing.
     adapter.shutdown().await.unwrap();
 

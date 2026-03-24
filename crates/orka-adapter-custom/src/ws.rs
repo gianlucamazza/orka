@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use orka_core::SessionId;
 use tokio::sync::{Mutex, mpsc};
 
-/// Thread-safe registry mapping session IDs to active WebSocket sender channels.
+/// Thread-safe registry mapping session IDs to active WebSocket sender
+/// channels.
 #[derive(Clone, Default)]
 pub struct WsRegistry {
     inner: Arc<Mutex<HashMap<SessionId, Vec<mpsc::UnboundedSender<String>>>>>,
@@ -17,7 +17,8 @@ impl WsRegistry {
     }
 
     /// Register a new WebSocket connection for the given session.
-    /// Returns the (sender, receiver) pair — the receiver yields messages to forward to the WS client.
+    /// Returns the (sender, receiver) pair — the receiver yields messages to
+    /// forward to the WS client.
     pub async fn register(
         &self,
         session_id: SessionId,
@@ -42,8 +43,9 @@ impl WsRegistry {
         }
     }
 
-    /// Broadcast a text message to all active WS connections for the given session.
-    /// Prunes closed senders. Returns the number of successful deliveries.
+    /// Broadcast a text message to all active WS connections for the given
+    /// session. Prunes closed senders. Returns the number of successful
+    /// deliveries.
     pub async fn send_to_session(&self, session_id: &SessionId, text: &str) -> usize {
         let mut map = self.inner.lock().await;
         let senders = match map.get_mut(session_id) {

@@ -26,28 +26,14 @@ webhook_url = "https://example.com/telegram/webhook"
 webhook_port = 8443
 parse_mode = "HTML"                       # "HTML" (default), "MarkdownV2", "none"
 streaming = false
-# owner_id = 123456789                   # restrict access to this Telegram user ID
-# allowed_users = [111, 222]             # additional allowed user IDs
 ```
 
 ## Authorization
 
-By default the bot is open to anyone. To restrict access, set `owner_id` and/or `allowed_users`:
-
-```toml
-[adapters.telegram]
-bot_token_secret = "adapters/telegram"
-owner_id = 123456789        # your Telegram user ID
-allowed_users = [987654321] # optional additional users
-```
-
-Messages from unauthorized users are logged with `WARN` level and silently dropped (Telegram receives HTTP 200 to prevent retries in webhook mode).
-
-To discover your Telegram user ID, start the bot without `owner_id`, send it a message, then check the logs:
-
-```sh
-journalctl -u orka-server -n 50 | grep telegram_user_id
-```
+The current adapter configuration does not expose a per-user allowlist. The bot is open to
+any Telegram user who can reach it. If access control is required, enforce it externally
+at the deployment boundary or reintroduce an explicit ACL field in `TelegramAdapterConfig`
+before documenting it.
 
 ## Inbound metadata keys
 

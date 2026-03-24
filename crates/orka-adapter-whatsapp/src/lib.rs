@@ -2,9 +2,7 @@
 
 #![warn(missing_docs)]
 
-use std::collections::HashMap;
-use std::future::IntoFuture;
-use std::sync::Arc;
+use std::{collections::HashMap, future::IntoFuture, sync::Arc};
 
 use async_trait::async_trait;
 use axum::{
@@ -12,11 +10,13 @@ use axum::{
     extract::{Query, State},
     routing::get,
 };
-use orka_core::traits::ChannelAdapter;
-use orka_core::types::{
-    Envelope, MediaPayload, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay,
+use orka_core::{
+    Error, Result,
+    traits::ChannelAdapter,
+    types::{
+        Envelope, MediaPayload, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay,
+    },
 };
-use orka_core::{Error, Result};
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::sync::Mutex;
@@ -449,8 +449,9 @@ impl ChannelAdapter for WhatsAppAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use orka_core::types::{OutboundMessage, SessionId};
+
+    use super::*;
 
     fn make_adapter() -> WhatsAppAdapter {
         WhatsAppAdapter::new(

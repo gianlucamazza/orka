@@ -1,9 +1,7 @@
+use std::{collections::HashMap, sync::Arc};
+
 use orka_adapter_telegram::TelegramAdapter;
-use orka_core::config::TelegramAdapterConfig;
-use orka_core::traits::ChannelAdapter;
-use orka_core::types::SessionId;
-use std::collections::HashMap;
-use std::sync::Arc;
+use orka_core::{config::TelegramAdapterConfig, traits::ChannelAdapter, types::SessionId};
 use tokio::sync::Mutex;
 
 #[test]
@@ -12,8 +10,8 @@ fn channel_id_returns_telegram() {
     assert_eq!(adapter.channel_id(), "telegram");
 }
 
-/// Verifies that the same chat_id always resolves to the same SessionId (in-memory path)
-/// and that different chat_ids yield different SessionIds.
+/// Verifies that the same chat_id always resolves to the same SessionId
+/// (in-memory path) and that different chat_ids yield different SessionIds.
 #[tokio::test]
 async fn session_map_consistency() {
     let sessions: Arc<Mutex<HashMap<i64, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -91,8 +89,9 @@ async fn shutdown_without_start_is_ok() {
 }
 
 #[test]
-fn config_defaults_include_auth_fields() {
+fn config_defaults_match_current_api() {
     let config = TelegramAdapterConfig::default();
-    assert!(config.owner_id.is_none());
-    assert!(config.allowed_users.is_none());
+    assert!(config.mode.is_none());
+    assert_eq!(config.webhook_port_or_default(), 8443);
+    assert!(!config.is_webhook());
 }

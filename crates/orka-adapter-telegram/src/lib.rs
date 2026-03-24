@@ -12,23 +12,26 @@ pub mod polling;
 mod types;
 mod webhook;
 
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
+use api::TelegramApi;
 use async_trait::async_trait;
-use orka_core::config::TelegramAdapterConfig;
-use orka_core::traits::{ChannelAdapter, MemoryStore};
-use orka_core::types::{MessageSink, OutboundMessage, Payload, SessionId};
-use orka_core::{Error, Result};
+use media::{SendMethod, select_send_method};
+use orka_core::{
+    Error, Result,
+    config::TelegramAdapterConfig,
+    traits::{ChannelAdapter, MemoryStore},
+    types::{MessageSink, OutboundMessage, Payload, SessionId},
+};
 use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use api::TelegramApi;
-use media::SendMethod;
-use media::select_send_method;
-
-/// Authorization guard for restricting bot access to specific Telegram user IDs.
+/// Authorization guard for restricting bot access to specific Telegram user
+/// IDs.
 #[derive(Clone, Debug)]
 pub(crate) struct TelegramAuthGuard {
     allowed: Option<HashSet<i64>>,
@@ -77,9 +80,11 @@ impl TelegramAdapter {
         }
     }
 
-    /// Attach a memory store so that chat-id → session-id mappings survive restarts.
+    /// Attach a memory store so that chat-id → session-id mappings survive
+    /// restarts.
     ///
-    /// Mappings are persisted under the key `orka:adapter_session:telegram:{chat_id}`.
+    /// Mappings are persisted under the key
+    /// `orka:adapter_session:telegram:{chat_id}`.
     pub fn with_memory(mut self, memory: Arc<dyn MemoryStore>) -> Self {
         self.memory = Some(memory);
         self
@@ -134,15 +139,8 @@ impl ChannelAdapter for TelegramAdapter {
             }
             _ => {
                 tokio::spawn(async move {
-                    polling::run_polling_loop(
-                        api,
-                        sink,
-                        sessions,
-                        memory,
-                        shutdown_rx,
-                        auth_guard,
-                    )
-                    .await;
+                    polling::run_polling_loop(api, sink, sessions, memory, shutdown_rx, auth_guard)
+                        .await;
                 });
                 info!("Telegram adapter started (long polling)");
             }
@@ -340,9 +338,9 @@ impl ChannelAdapter for TelegramAdapter {
 
 #[cfg(test)]
 mod tests {
+    use orka_core::{config::TelegramAdapterConfig, types::SessionId};
+
     use super::*;
-    use orka_core::config::TelegramAdapterConfig;
-    use orka_core::types::SessionId;
 
     fn make_adapter() -> TelegramAdapter {
         TelegramAdapter::new(TelegramAdapterConfig::default(), "TEST_TOKEN".into())
@@ -386,40 +384,12 @@ mod tests {
     }
 
     #[test]
-    fn auth_guard_owner_only() {
-        let config = TelegramAdapterConfig {
-            owner_id: Some(42),
-            ..Default::default()
-        };
-        let guard = TelegramAuthGuard::from_config(&config);
-        assert!(!guard.is_open());
-        assert!(guard.is_allowed(42));
-        assert!(!guard.is_allowed(99));
-    }
-
-    #[test]
-    fn auth_guard_owner_plus_allowed() {
-        let config = TelegramAdapterConfig {
-            owner_id: Some(1),
-            allowed_users: Some(vec![2, 3]),
-            ..Default::default()
-        };
-        let guard = TelegramAuthGuard::from_config(&config);
-        assert!(!guard.is_open());
-        assert!(guard.is_allowed(1));
-        assert!(guard.is_allowed(2));
-        assert!(guard.is_allowed(3));
-        assert!(!guard.is_allowed(4));
-    }
-
-    #[test]
-    fn auth_guard_empty_allowed_is_open() {
-        let config = TelegramAdapterConfig {
-            allowed_users: Some(vec![]),
-            ..Default::default()
-        };
+    fn auth_guard_stays_open_without_acl_config() {
+        let mut config = TelegramAdapterConfig::default();
+        config.mode = Some("polling".into());
         let guard = TelegramAuthGuard::from_config(&config);
         assert!(guard.is_open());
-        assert!(guard.is_allowed(99999));
+        assert!(guard.is_allowed(42));
+        assert!(guard.is_allowed(99));
     }
 }

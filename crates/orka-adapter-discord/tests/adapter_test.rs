@@ -1,8 +1,7 @@
+use std::{collections::HashMap, sync::Arc};
+
 use orka_adapter_discord::DiscordAdapter;
-use orka_core::traits::ChannelAdapter;
-use orka_core::types::SessionId;
-use std::collections::HashMap;
-use std::sync::Arc;
+use orka_core::{traits::ChannelAdapter, types::SessionId};
 use tokio::sync::Mutex;
 
 #[test]
@@ -64,7 +63,8 @@ async fn envelope_from_discord_message() {
     assert_eq!(envelope.metadata["chat_type"], serde_json::json!("group"));
 }
 
-/// Verifies chat_type classification: guild_id present = group, absent = direct.
+/// Verifies chat_type classification: guild_id present = group, absent =
+/// direct.
 #[test]
 fn chat_type_classification() {
     let server_msg = serde_json::json!({

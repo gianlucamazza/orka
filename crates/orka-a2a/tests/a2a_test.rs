@@ -1,16 +1,18 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use http::header::CONTENT_TYPE;
-use tokio::sync::Mutex;
-use tower::ServiceExt;
-
-use orka_a2a::routes::extract_text_from_message;
-use orka_a2a::{A2aState, AgentCard, TaskStatus, a2a_router, build_agent_card};
+use orka_a2a::{
+    A2aState, AgentCard, TaskStatus, a2a_router, build_agent_card,
+    routes::extract_text_from_message,
+};
 use orka_core::testing::{EchoSkill, InMemorySecretManager};
 use orka_skills::SkillRegistry;
+use tokio::sync::Mutex;
+use tower::ServiceExt;
 
 fn test_state() -> A2aState {
     let mut skills = SkillRegistry::new();

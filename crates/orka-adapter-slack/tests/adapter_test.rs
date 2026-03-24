@@ -1,8 +1,7 @@
+use std::{collections::HashMap, sync::Arc};
+
 use orka_adapter_slack::SlackAdapter;
-use orka_core::traits::ChannelAdapter;
-use orka_core::types::SessionId;
-use std::collections::HashMap;
-use std::sync::Arc;
+use orka_core::{traits::ChannelAdapter, types::SessionId};
 use tokio::sync::Mutex;
 
 #[test]
