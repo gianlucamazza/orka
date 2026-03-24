@@ -1,10 +1,8 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::Utc;
 use orka_core::Result;
-use orka_knowledge::embeddings::EmbeddingProvider;
-use orka_knowledge::vector_store::VectorStore;
+use orka_knowledge::{embeddings::EmbeddingProvider, vector_store::VectorStore};
 use tracing::{debug, warn};
 
 use crate::types::{Principle, PrincipleKind};
@@ -18,7 +16,8 @@ pub struct PrincipleStore {
 }
 
 impl PrincipleStore {
-    /// Create a new principle store backed by the given vector store and embedding provider.
+    /// Create a new principle store backed by the given vector store and
+    /// embedding provider.
     pub fn new(
         embeddings: Arc<dyn EmbeddingProvider>,
         vector_store: Arc<dyn VectorStore>,
@@ -45,9 +44,11 @@ impl PrincipleStore {
         Ok(())
     }
 
-    /// Store a principle, reinforcing an existing similar one if found above the dedup threshold.
+    /// Store a principle, reinforcing an existing similar one if found above
+    /// the dedup threshold.
     ///
-    /// Returns `true` if a new principle was created, `false` if an existing one was reinforced.
+    /// Returns `true` if a new principle was created, `false` if an existing
+    /// one was reinforced.
     pub async fn store(&self, principle: &Principle, dedup_threshold: f32) -> Result<bool> {
         self.ensure_init().await?;
 
@@ -214,7 +215,8 @@ impl PrincipleStore {
 
     /// Store a batch of principles with deduplication.
     ///
-    /// Returns the number of newly created principles (reinforced ones are not counted).
+    /// Returns the number of newly created principles (reinforced ones are not
+    /// counted).
     pub async fn store_batch(
         &self,
         principles: &[Principle],

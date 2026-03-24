@@ -1,8 +1,11 @@
-//! Code execution guardrail that blocks dangerous patterns before sandbox execution.
+//! Code execution guardrail that blocks dangerous patterns before sandbox
+//! execution.
 
 use async_trait::async_trait;
-use orka_core::traits::{Guardrail, GuardrailDecision};
-use orka_core::{Result, Session};
+use orka_core::{
+    Result, Session,
+    traits::{Guardrail, GuardrailDecision},
+};
 use regex::Regex;
 
 /// A guardrail that scans code submitted to the sandbox for dangerous patterns.

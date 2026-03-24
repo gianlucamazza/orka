@@ -8,12 +8,11 @@
 /// Redis implementation of the memory store.
 pub mod redis_store;
 
-pub use crate::redis_store::RedisMemoryStore;
-
 use std::sync::Arc;
 
-use orka_core::config::primitives::MemoryBackend;
-use orka_core::traits::MemoryStore;
+use orka_core::{config::primitives::MemoryBackend, traits::MemoryStore};
+
+pub use crate::redis_store::RedisMemoryStore;
 
 /// Create a [`MemoryStore`] from the given configuration.
 pub fn create_memory_store(
@@ -40,37 +39,44 @@ pub fn create_memory_store(
 
 #[cfg(test)]
 mod tests {
-    use orka_core::config::{BusConfig, MemoryConfig};
+    use orka_core::config::{
+        MemoryConfig,
+        primitives::{BusBackend, MemoryBackend},
+    };
 
-    fn effective_backend(bus_backend: &str, memory_backend: &str) -> String {
-        let bus = BusConfig {
-            backend: bus_backend.into(),
-            ..Default::default()
-        };
-        let memory = MemoryConfig {
-            backend: memory_backend.into(),
-            ..Default::default()
-        };
-        if memory.backend == "auto" {
-            bus.backend.clone()
+    /// Mirrors the runtime logic: if memory backend is Auto, follow the bus
+    /// backend.
+    fn effective_memory_backend(bus: BusBackend, memory: MemoryBackend) -> MemoryBackend {
+        if memory == MemoryBackend::Auto {
+            match bus {
+                BusBackend::Redis => MemoryBackend::Redis,
+                BusBackend::Memory => MemoryBackend::Memory,
+                BusBackend::Nats => MemoryBackend::Redis,
+            }
         } else {
-            memory.backend.clone()
+            memory
         }
     }
 
     #[test]
     fn memory_explicit_memory_overrides_redis_bus() {
-        assert_eq!(effective_backend("redis", "memory"), "memory");
+        assert_eq!(
+            effective_memory_backend(BusBackend::Redis, MemoryBackend::Memory),
+            MemoryBackend::Memory
+        );
     }
 
     #[test]
     fn memory_auto_follows_bus_backend() {
-        assert_eq!(effective_backend("memory", "auto"), "memory");
+        assert_eq!(
+            effective_memory_backend(BusBackend::Memory, MemoryBackend::Auto),
+            MemoryBackend::Memory
+        );
     }
 
     #[test]
     fn memory_default_backend_is_auto() {
         let config = MemoryConfig::default();
-        assert_eq!(config.backend, "auto");
+        assert_eq!(config.backend, MemoryBackend::Auto);
     }
 }

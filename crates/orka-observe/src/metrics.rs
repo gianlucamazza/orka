@@ -2,7 +2,8 @@ use metrics::{counter, histogram};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use orka_core::{DomainEvent, DomainEventKind};
 
-/// Install the Prometheus metrics recorder. Returns the render handle for `/metrics`.
+/// Install the Prometheus metrics recorder. Returns the render handle for
+/// `/metrics`.
 ///
 /// Call this once at startup. Returns `None` if already installed.
 pub fn install_prometheus_recorder() -> Option<PrometheusHandle> {
@@ -139,8 +140,9 @@ pub fn record_event(event: &DomainEvent) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use orka_core::types::{MessageId, SessionId};
+
+    use super::*;
 
     fn make_event(kind: DomainEventKind) -> DomainEvent {
         DomainEvent::new(kind)

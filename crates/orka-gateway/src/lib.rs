@@ -1,17 +1,20 @@
-//! Inbound message gateway with deduplication, rate limiting, and priority routing.
+//! Inbound message gateway with deduplication, rate limiting, and priority
+//! routing.
 //!
 //! The [`Gateway`] subscribes to the message bus, resolves sessions, applies
-//! rate limits and idempotency checks, then enqueues messages for worker processing.
+//! rate limits and idempotency checks, then enqueues messages for worker
+//! processing.
 
 #![warn(missing_docs)]
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::Utc;
 use deadpool_redis::Pool;
-use orka_core::traits::{EventSink, MessageBus, PriorityQueue, SessionStore};
-use orka_core::{DomainEvent, DomainEventKind, Envelope, Session};
+use orka_core::{
+    DomainEvent, DomainEventKind, Envelope, Session,
+    traits::{EventSink, MessageBus, PriorityQueue, SessionStore},
+};
 use orka_workspace::WorkspaceLoader;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -63,7 +66,8 @@ impl Gateway {
         }
     }
 
-    /// Start the gateway loop, processing messages until `shutdown` is signalled.
+    /// Start the gateway loop, processing messages until `shutdown` is
+    /// signalled.
     pub async fn run(&self, shutdown: CancellationToken) -> orka_core::Result<()> {
         info!("gateway starting");
         let mut rx = self.bus.subscribe("inbound").await?;
@@ -105,7 +109,8 @@ impl Gateway {
             }
         };
         let key = format!("{DEDUP_KEY_PREFIX}{message_id}");
-        // SET NX EX - returns true if key was set (not duplicate), false if already exists
+        // SET NX EX - returns true if key was set (not duplicate), false if already
+        // exists
         let result: redis::RedisResult<bool> = redis::cmd("SET")
             .arg(&key)
             .arg("1")
@@ -310,10 +315,14 @@ fn resolve_user_id(envelope: &Envelope) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use orka_core::testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore};
-    use orka_core::{DomainEventKind, SessionId};
     use std::time::Duration;
+
+    use orka_core::{
+        DomainEventKind, SessionId,
+        testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
+    };
+
+    use super::*;
 
     fn test_gateway(
         rate_limit: u32,

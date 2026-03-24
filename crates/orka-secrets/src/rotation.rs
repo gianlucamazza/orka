@@ -1,14 +1,16 @@
 //! Secret rotation support for zero-downtime key rotation.
 //!
 //! Provides [`RotatingSecretManager`] which wraps multiple secret managers
-//! (primary and previous) to enable graceful key rotation without service interruption.
+//! (primary and previous) to enable graceful key rotation without service
+//! interruption.
 
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use async_trait::async_trait;
-use orka_core::traits::SecretManager;
-use orka_core::{Result, SecretValue};
+use orka_core::{Result, SecretValue, traits::SecretManager};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
@@ -40,20 +42,19 @@ impl Default for RotationConfig {
 ///
 /// ```no_run
 /// use std::sync::Arc;
+///
 /// use orka_core::traits::SecretManager;
-/// use orka_secrets::rotation::{RotatingSecretManager, RotationConfig};
-/// use orka_secrets::RedisSecretManager;
+/// use orka_secrets::{
+///     RedisSecretManager,
+///     rotation::{RotatingSecretManager, RotationConfig},
+/// };
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Create managers with different encryption keys
 /// let primary = Arc::new(RedisSecretManager::new("redis://localhost")?);
 /// let previous = Arc::new(RedisSecretManager::new("redis://localhost")?);
 ///
-/// let rotating = RotatingSecretManager::new(
-///     primary,
-///     Some(previous),
-///     RotationConfig::default(),
-/// );
+/// let rotating = RotatingSecretManager::new(primary, Some(previous), RotationConfig::default());
 ///
 /// // Read secret - tries primary first, then previous
 /// let secret = rotating.get_secret("api/key").await?;
@@ -61,7 +62,7 @@ impl Default for RotationConfig {
 /// # }
 /// ```
 pub struct RotatingSecretManager {
-    primary: Arc<dyn SecretManager>,
+    primary: RwLock<Arc<dyn SecretManager>>,
     previous: RwLock<Option<Arc<dyn SecretManager>>>,
     rotation_time: RwLock<Option<SystemTime>>,
     config: RotationConfig,
@@ -85,24 +86,25 @@ impl RotatingSecretManager {
         };
 
         Self {
-            primary,
+            primary: RwLock::new(primary),
             previous: RwLock::new(previous),
             rotation_time: RwLock::new(rotation_time),
             config,
         }
     }
 
-    /// Trigger a rotation: current primary becomes previous, new primary takes over.
-    pub async fn rotate(&self, _new_primary: Arc<dyn SecretManager>) {
+    /// Trigger a rotation: current primary becomes previous, new primary takes
+    /// over.
+    pub async fn rotate(&self, new_primary: Arc<dyn SecretManager>) {
+        let mut primary = self.primary.write().await;
         let mut previous = self.previous.write().await;
         let mut rotation_time = self.rotation_time.write().await;
 
-        // Current primary becomes previous
-        *previous = Some(self.primary.clone());
+        // Current primary becomes previous, new primary takes over.
+        *previous = Some(primary.clone());
+        *primary = new_primary;
         *rotation_time = Some(SystemTime::now());
 
-        // Update primary (this would require interior mutability in practice)
-        // For now, we log the rotation
         if self.config.enable_logging {
             info!("Secret rotation triggered - previous key now in overlap period");
         }
@@ -185,7 +187,8 @@ impl SecretManager for RotatingSecretManager {
         self.check_overlap_expired().await;
 
         // Try primary first
-        match self.primary.get_secret(path).await {
+        let primary = self.primary.read().await;
+        match primary.get_secret(path).await {
             Ok(secret) => {
                 debug!(path, "retrieved secret from primary");
                 Ok(secret)
@@ -197,7 +200,10 @@ impl SecretManager for RotatingSecretManager {
                     match prev.get_secret(path).await {
                         Ok(secret) => {
                             if self.config.enable_logging {
-                                warn!(path, "retrieved secret from previous (rotation in progress)");
+                                warn!(
+                                    path,
+                                    "retrieved secret from previous (rotation in progress)"
+                                );
                             }
                             Ok(secret)
                         }
@@ -221,12 +227,14 @@ impl SecretManager for RotatingSecretManager {
 
     async fn set_secret(&self, path: &str, value: &SecretValue) -> Result<()> {
         // Always write to primary
-        self.primary.set_secret(path, value).await
+        let primary = self.primary.read().await;
+        primary.set_secret(path, value).await
     }
 
     async fn delete_secret(&self, path: &str) -> Result<()> {
         // Delete from both primary and previous
-        let result = self.primary.delete_secret(path).await;
+        let primary = self.primary.read().await;
+        let result = primary.delete_secret(path).await;
 
         let previous = self.previous.read().await;
         if let Some(prev) = previous.as_ref() {
@@ -238,25 +246,26 @@ impl SecretManager for RotatingSecretManager {
 
     async fn list_secrets(&self) -> Result<Vec<String>> {
         // List from primary only (previous is being phased out)
-        self.primary.list_secrets().await
+        let primary = self.primary.read().await;
+        primary.list_secrets().await
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use orka_core::testing::InMemorySecretManager;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_primary_only() {
         let primary = Arc::new(InMemorySecretManager::new());
-        primary.set_secret("key", &SecretValue::new(b"value".to_vec())).await.unwrap();
+        primary
+            .set_secret("key", &SecretValue::new(b"value".to_vec()))
+            .await
+            .unwrap();
 
-        let rotating = RotatingSecretManager::new(
-            primary.clone(),
-            None,
-            RotationConfig::default(),
-        );
+        let rotating = RotatingSecretManager::new(primary.clone(), None, RotationConfig::default());
 
         let secret = rotating.get_secret("key").await.unwrap();
         assert_eq!(secret.expose(), b"value");
@@ -268,7 +277,10 @@ mod tests {
         let previous = Arc::new(InMemorySecretManager::new());
 
         // Secret only in previous
-        previous.set_secret("old_key", &SecretValue::new(b"old_value".to_vec())).await.unwrap();
+        previous
+            .set_secret("old_key", &SecretValue::new(b"old_value".to_vec()))
+            .await
+            .unwrap();
 
         let rotating = RotatingSecretManager::new(
             primary.clone(),
@@ -287,8 +299,14 @@ mod tests {
         let previous = Arc::new(InMemorySecretManager::new());
 
         // Different values in primary and previous
-        primary.set_secret("key", &SecretValue::new(b"new_value".to_vec())).await.unwrap();
-        previous.set_secret("key", &SecretValue::new(b"old_value".to_vec())).await.unwrap();
+        primary
+            .set_secret("key", &SecretValue::new(b"new_value".to_vec()))
+            .await
+            .unwrap();
+        previous
+            .set_secret("key", &SecretValue::new(b"old_value".to_vec()))
+            .await
+            .unwrap();
 
         let rotating = RotatingSecretManager::new(
             primary.clone(),
@@ -347,7 +365,10 @@ mod tests {
             RotationConfig::default(),
         );
 
-        rotating.set_secret("key", &SecretValue::new(b"value".to_vec())).await.unwrap();
+        rotating
+            .set_secret("key", &SecretValue::new(b"value".to_vec()))
+            .await
+            .unwrap();
 
         // Should be in primary
         assert!(primary.get_secret("key").await.is_ok());

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use orka_core::traits::SecretManager;
-use orka_core::{SkillContext, SkillInput};
+use orka_core::{SkillContext, SkillInput, traits::SecretManager};
 use orka_skills::SkillRegistry;
 use serde_json::json;
 
@@ -12,7 +11,8 @@ pub struct McpServer {
 }
 
 impl McpServer {
-    /// Create a new MCP server backed by the given skill registry and secret manager.
+    /// Create a new MCP server backed by the given skill registry and secret
+    /// manager.
     pub fn new(skills: Arc<SkillRegistry>, secrets: Arc<dyn SecretManager>) -> Self {
         Self { skills, secrets }
     }
@@ -153,8 +153,9 @@ impl McpServer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use orka_core::testing::InMemorySecretManager;
+
+    use super::*;
 
     fn test_server() -> McpServer {
         let skills = Arc::new(SkillRegistry::new());

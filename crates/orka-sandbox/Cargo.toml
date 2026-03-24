@@ -18,3 +18,4 @@ serde_json.workspace = true
 tracing.workspace = true
 orka-wasm.workspace = true
 tempfile.workspace = true
+nix = { workspace = true, features = ["resource"] }

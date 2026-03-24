@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
-use orka_core::testing::{EchoSkill, InMemorySecretManager};
-use orka_core::traits::SecretManager;
+use orka_core::{
+    testing::{EchoSkill, InMemorySecretManager},
+    traits::SecretManager,
+};
 use orka_mcp::McpServer;
 use orka_skills::SkillRegistry;
 use serde_json::json;

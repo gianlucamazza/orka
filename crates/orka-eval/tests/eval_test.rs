@@ -1,12 +1,13 @@
 //! Integration tests for orka-eval framework.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use orka_core::{Error, SkillOutput};
-use orka_eval::assertion::{check_all, AssertionResult};
-use orka_eval::report::{EvalReport, ScenarioResult};
-use orka_eval::scenario::{EvalFile, Expectations, Scenario};
+use orka_eval::{
+    assertion::{AssertionResult, check_all},
+    report::{EvalReport, ScenarioResult},
+    scenario::{EvalFile, Expectations},
+};
 use orka_skills::SkillRegistry;
 
 // Helper to create SkillOutput for tests
@@ -14,7 +15,8 @@ fn make_output(data: serde_json::Value) -> SkillOutput {
     // Use serde_json to create the struct since it's non-exhaustive
     serde_json::from_value(serde_json::json!({
         "data": data
-    })).unwrap()
+    }))
+    .unwrap()
 }
 
 #[test]
@@ -157,14 +159,20 @@ async fn test_check_all_format_json_failure() {
     let output = make_output(serde_json::json!({"valid": "json"}));
     let result: Result<SkillOutput, Error> = Ok(output);
     let expectations = Expectations {
-        format: Some("xml".to_string()),  // unsupported format
+        format: Some("xml".to_string()), // unsupported format
         ..Default::default()
     };
 
     let checks = check_all(&result, &expectations, Duration::from_millis(10));
     assert_eq!(checks.len(), 1);
     assert!(!checks[0].passed);
-    assert!(checks[0].detail.as_ref().unwrap().contains("unknown format"));
+    assert!(
+        checks[0]
+            .detail
+            .as_ref()
+            .unwrap()
+            .contains("unknown format")
+    );
 }
 
 #[tokio::test]
@@ -251,7 +259,7 @@ fn test_scenario_result_debug() {
         duration: Duration::from_millis(100),
         error: None,
     };
-    
+
     // Just ensure Debug impl works
     let debug_str = format!("{:?}", result);
     assert!(debug_str.contains("test_skill"));
@@ -268,7 +276,7 @@ fn test_eval_report_print_pretty() {
         duration: Duration::from_millis(100),
         error: None,
     };
-    
+
     let report = EvalReport {
         results: vec![result],
         total: 1,
@@ -276,7 +284,7 @@ fn test_eval_report_print_pretty() {
         failed: 0,
         duration: Duration::from_millis(100),
     };
-    
+
     // Just ensure it doesn't panic
     report.print_pretty();
 }
@@ -313,11 +321,11 @@ async fn test_eval_runner_with_mock_registry() {
     // Create a simple registry for testing
     let registry = SkillRegistry::new();
     let runner = orka_eval::EvalRunner::new(Arc::new(registry));
-    
+
     // Create a temporary directory with an eval file
     let temp_dir = tempfile::tempdir().unwrap();
     let eval_path = temp_dir.path().join("test.eval.toml");
-    
+
     let eval_content = r#"
 skill = "nonexistent_skill"
 
@@ -331,17 +339,18 @@ arg1 = "value1"
 [scenarios.expected]
 is_ok = false
 "#;
-    
+
     std::fs::write(&eval_path, eval_content).unwrap();
-    
+
     // Run the eval without filter to ensure file is found
     let report = runner.run_dir(temp_dir.path(), None).await.unwrap();
-    
+
     // Verify report - skill doesn't exist so it should fail
     assert!(report.total >= 1, "should have run at least one scenario");
-    // The scenario expects is_ok=false, and since skill doesn't exist, it should fail
-    // So the assertion should pass (expecting failure, got failure)
-    // But we're testing that the runner works, not the assertion logic
+    // The scenario expects is_ok=false, and since skill doesn't exist, it
+    // should fail So the assertion should pass (expecting failure, got
+    // failure) But we're testing that the runner works, not the assertion
+    // logic
 }
 
 #[test]
@@ -362,20 +371,26 @@ is_ok = true
 contains = ["expected", "output"]
 max_duration_ms = 1000
 "#;
-    
+
     let eval: EvalFile = toml::from_str(content).unwrap();
     assert_eq!(eval.skill, Some("test_skill".to_string()));
     assert_eq!(eval.scenarios.len(), 1);
-    
+
     let scenario = &eval.scenarios[0];
     assert_eq!(scenario.name, "scenario1");
-    assert_eq!(scenario.description, Some("First test scenario".to_string()));
+    assert_eq!(
+        scenario.description,
+        Some("First test scenario".to_string())
+    );
     assert_eq!(scenario.input.get("arg1").unwrap().as_str(), Some("value1"));
     assert_eq!(scenario.input.get("arg2").unwrap().as_i64(), Some(42));
-    
+
     let expected = &scenario.expected;
     assert_eq!(expected.is_ok, Some(true));
-    assert_eq!(expected.contains, Some(vec!["expected".to_string(), "output".to_string()]));
+    assert_eq!(
+        expected.contains,
+        Some(vec!["expected".to_string(), "output".to_string()])
+    );
     assert_eq!(expected.max_duration_ms, Some(1000));
 }
 

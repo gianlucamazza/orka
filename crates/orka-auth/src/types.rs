@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 /// Identity established after authentication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthIdentity {
-    /// Unique identifier of the authenticated entity (e.g. API key name, JWT subject).
+    /// Unique identifier of the authenticated entity (e.g. API key name, JWT
+    /// subject).
     pub principal: String,
     /// Permission scopes granted to this identity.
     pub scopes: Vec<String>,

@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use orka_core::testing::EchoSkill;
-use orka_core::traits::Skill;
-use orka_core::{SkillInput, SkillOutput, SkillSchema};
+use orka_core::{SkillInput, SkillOutput, SkillSchema, testing::EchoSkill, traits::Skill};
 use orka_skills::SkillRegistry;
 
 // ---------------------------------------------------------------------------

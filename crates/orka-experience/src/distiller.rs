@@ -7,16 +7,20 @@ use orka_prompts::template::TemplateRegistry;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::types::{Principle, PrincipleKind, Trajectory};
-use crate::utils::extract_json_array;
+use crate::{
+    types::{Principle, PrincipleKind, Trajectory},
+    utils::extract_json_array,
+};
 
-/// Default distillation system prompt (used when template registry is not available).
-const DEFAULT_DISTILLATION_PROMPT: &str = include_str!("../../orka-prompts/templates/system/distillation.hbs");
+/// Default distillation system prompt (used when template registry is not
+/// available).
+const DEFAULT_DISTILLATION_PROMPT: &str =
+    include_str!("../../orka-prompts/templates/system/distillation.hbs");
 
 /// Synthesizes principles from a batch of trajectories using an LLM.
 ///
-/// Unlike [`crate::reflector::PrincipleReflector`] which reflects on a single trajectory,
-/// `Distiller` identifies patterns across multiple interactions.
+/// Unlike [`crate::reflector::PrincipleReflector`] which reflects on a single
+/// trajectory, `Distiller` identifies patterns across multiple interactions.
 pub struct Distiller {
     llm: Arc<dyn LlmClient>,
     model: Option<String>,
@@ -25,7 +29,8 @@ pub struct Distiller {
 }
 
 impl Distiller {
-    /// Create a new distiller with the given LLM client and generation settings.
+    /// Create a new distiller with the given LLM client and generation
+    /// settings.
     pub fn new(llm: Arc<dyn LlmClient>, model: Option<String>, max_tokens: u32) -> Self {
         Self {
             llm,
@@ -43,16 +48,16 @@ impl Distiller {
 
     /// Get the system prompt for distillation.
     async fn get_system_prompt(&self) -> String {
-        if let Some(templates) = &self.templates {
-            if templates.has_template("system/distillation").await {
-                return templates
-                    .render("system/distillation", &{})
-                    .await
-                    .unwrap_or_else(|e| {
-                        warn!(error = %e, "failed to render distillation template, using default");
-                        DEFAULT_DISTILLATION_PROMPT.to_string()
-                    });
-            }
+        if let Some(templates) = &self.templates
+            && templates.has_template("system/distillation").await
+        {
+            return templates
+                .render("system/distillation", &{})
+                .await
+                .unwrap_or_else(|e| {
+                    warn!(error = %e, "failed to render distillation template, using default");
+                    DEFAULT_DISTILLATION_PROMPT.to_string()
+                });
         }
         DEFAULT_DISTILLATION_PROMPT.to_string()
     }
@@ -184,9 +189,10 @@ struct RawPrinciple {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+
     use super::*;
     use crate::types::SkillTrace;
-    use chrono::Utc;
 
     fn make_trajectory(success: bool, skills: &[(&str, bool)]) -> Trajectory {
         Trajectory {

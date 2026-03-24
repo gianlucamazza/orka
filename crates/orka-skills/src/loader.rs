@@ -1,8 +1,6 @@
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
-use orka_core::config::PluginConfig;
-use orka_core::traits::Skill;
+use orka_core::{config::PluginConfig, traits::Skill};
 use orka_wasm::{PluginCapabilities, WasmEngine};
 use tracing::{info, warn};
 
@@ -37,11 +35,12 @@ pub fn load_plugins(
                 .unwrap_or("")
                 .to_string();
 
-            // Build capabilities: start with global defaults, override with per-plugin config
+            // Build capabilities: start with global defaults, override with per-plugin
+            // config
             let caps = PluginCapabilities {
-                env: vec![],  // TODO: support env var allowlist from config
+                env: vec![], // TODO: support env var allowlist from config
                 fs: if plugin_config.capabilities.filesystem {
-                    vec![".".to_string()]  // Allow current dir
+                    vec![".".to_string()] // Allow current dir
                 } else {
                     vec![]
                 },
@@ -49,12 +48,12 @@ pub fn load_plugins(
             };
 
             // Override with per-plugin config if present
-            if let Some(instance_config) = plugin_config.plugins.get(&plugin_name) {
-                if !instance_config.enabled {
-                    info!(name = %plugin_name, "plugin disabled in config, skipping");
-                    continue;
-                }
-                // TODO: support per-plugin capability overrides via instance_config.config
+            // TODO: support per-plugin capability overrides via instance_config.config
+            if let Some(instance_config) = plugin_config.plugins.get(&plugin_name)
+                && !instance_config.enabled
+            {
+                info!(name = %plugin_name, "plugin disabled in config, skipping");
+                continue;
             }
 
             match super::wasm_plugin::WasmPluginSkill::load(&path, engine, caps) {

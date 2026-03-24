@@ -1,13 +1,13 @@
 use std::time::Instant;
 
 use async_trait::async_trait;
-use orka_core::{Error, Result};
+use nix::sys::resource::{Resource, setrlimit};
+use orka_core::{Error, Result, config::SandboxConfig};
 use tempfile::NamedTempFile;
 use tokio::io::AsyncWriteExt;
-use tracing::warn;
+use tracing::debug;
 
 use crate::executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult};
-use orka_core::config::SandboxConfig;
 
 /// Process-based sandbox executor for Python and Bash.
 pub struct ProcessSandbox {
@@ -56,8 +56,6 @@ impl SandboxExecutor for ProcessSandbox {
             }
         };
 
-        warn!("process sandbox has no memory limiting — dev use only");
-
         // Write code to a temp file.
         let tmp = NamedTempFile::with_suffix(ext)
             .map_err(|e| Error::sandbox(e, "failed to create temp file"))?;
@@ -70,6 +68,21 @@ impl SandboxExecutor for ProcessSandbox {
         command.arg(tmp.path());
         command.stdout(std::process::Stdio::piped());
         command.stderr(std::process::Stdio::piped());
+
+        // Apply resource limits in the child process via pre_exec (Linux only).
+        // pre_exec runs after fork() and before exec(), so limits apply only to
+        // the child. RLIMIT_AS caps virtual address space (closest to RSS memory).
+        let mem_limit = req.limits.max_memory_bytes as u64;
+        // SAFETY: pre_exec closure runs in the forked child between fork and exec.
+        // Only async-signal-safe operations should be used; setrlimit is safe here.
+        unsafe {
+            command.pre_exec(move || {
+                setrlimit(Resource::RLIMIT_AS, mem_limit, mem_limit)
+                    .map_err(std::io::Error::other)?;
+                Ok(())
+            });
+        }
+        debug!(max_memory_bytes = mem_limit, "process sandbox resource limits applied");
 
         // Set environment variables.
         for (k, v) in &req.env {
@@ -128,7 +141,8 @@ enum JsRuntime {
     Node,
 }
 
-/// Detect which JavaScript runtime is available. Prefers Deno for its built-in sandboxing.
+/// Detect which JavaScript runtime is available. Prefers Deno for its built-in
+/// sandboxing.
 fn which_js_runtime() -> JsRuntime {
     if std::process::Command::new("deno")
         .arg("--version")
@@ -146,8 +160,9 @@ fn which_js_runtime() -> JsRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_bash_echo() {

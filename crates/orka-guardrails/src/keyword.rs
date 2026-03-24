@@ -1,6 +1,8 @@
 use async_trait::async_trait;
-use orka_core::traits::{Guardrail, GuardrailDecision};
-use orka_core::{Result, Session};
+use orka_core::{
+    Result, Session,
+    traits::{Guardrail, GuardrailDecision},
+};
 
 /// Simple keyword blocklist guardrail.
 pub struct KeywordGuardrail {
@@ -8,7 +10,8 @@ pub struct KeywordGuardrail {
 }
 
 impl KeywordGuardrail {
-    /// Create a guardrail that blocks text containing any of the given keywords (case-insensitive).
+    /// Create a guardrail that blocks text containing any of the given keywords
+    /// (case-insensitive).
     pub fn new(blocked_words: Vec<String>) -> Self {
         Self {
             blocked_words: blocked_words

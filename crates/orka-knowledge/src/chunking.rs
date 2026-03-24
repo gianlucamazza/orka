@@ -89,8 +89,9 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
-    use super::*;
     use proptest::prelude::*;
+
+    use super::*;
 
     proptest! {
         #[test]

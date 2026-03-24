@@ -3,9 +3,10 @@ pub mod memory;
 /// Qdrant vector database backend implementation.
 pub mod qdrant;
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use orka_core::Result;
-use std::collections::HashMap;
 
 use crate::types::SearchResult;
 

@@ -28,7 +28,8 @@ impl TokenizerHint {
     }
 }
 
-/// Thread-safe singleton for the cl100k_base tokenizer (used by GPT-series / o-series).
+/// Thread-safe singleton for the cl100k_base tokenizer (used by GPT-series /
+/// o-series).
 fn cl100k_bpe() -> &'static CoreBPE {
     static BPE: OnceLock<CoreBPE> = OnceLock::new();
     BPE.get_or_init(|| tiktoken_rs::cl100k_base().expect("failed to load cl100k_base tokenizer"))
@@ -52,7 +53,8 @@ pub fn estimate_tokens_with_hint(text: &str, hint: TokenizerHint) -> u32 {
     }
 }
 
-/// Estimate tokens for a single chat message (content + 4 overhead per message).
+/// Estimate tokens for a single chat message (content + 4 overhead per
+/// message).
 pub fn estimate_message_tokens(msg: &ChatMessage) -> u32 {
     estimate_message_tokens_with_hint(msg, TokenizerHint::Unknown)
 }
@@ -172,7 +174,8 @@ pub fn group_into_turns(messages: &[ChatMessage]) -> Vec<std::ops::Range<usize>>
     turns
 }
 
-/// Truncate history to fit within available tokens, dropping oldest turns first.
+/// Truncate history to fit within available tokens, dropping oldest turns
+/// first.
 ///
 /// When `protect_first_turn` is `true` the first conversation turn is never
 /// dropped, regardless of budget pressure.
@@ -424,7 +427,8 @@ mod tests {
                 text: "hello".into(),
             }]),
         };
-        // Both messages should have the same token estimate: only the text block counts.
+        // Both messages should have the same token estimate: only the text block
+        // counts.
         assert_eq!(
             estimate_message_tokens(&msg_with_thinking),
             estimate_message_tokens(&msg_text_only),
@@ -446,7 +450,8 @@ mod tests {
 
     #[test]
     fn truncate_history_first_turn_protected() {
-        // When protect_first_turn is true, the first turn survives even under extreme budget pressure.
+        // When protect_first_turn is true, the first turn survives even under extreme
+        // budget pressure.
         let mut messages: Vec<ChatMessage> = (0..6)
             .map(|_| ChatMessage {
                 role: Role::User,

@@ -1,17 +1,25 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use orka_core::{Error, Result};
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
-use tokio::sync::{Mutex, oneshot};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    process::{Child, Command},
+    sync::{Mutex, oneshot},
+};
 use tracing::{debug, warn};
 
-use crate::config::{McpServerConfig, McpTransportConfig};
-use crate::http_transport::HttpTransport;
-use crate::oauth::OAuthClient;
+use crate::{
+    config::{McpServerConfig, McpTransportConfig},
+    http_transport::HttpTransport,
+    oauth::OAuthClient,
+};
 
 /// Metadata for a single tool advertised by an MCP server.
 #[derive(Debug, Clone, Serialize, Deserialize)]

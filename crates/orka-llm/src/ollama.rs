@@ -2,11 +2,13 @@ use async_trait::async_trait;
 use orka_core::Result;
 use tracing::debug;
 
-use crate::client::{
-    ChatMessage, CompletionOptions, CompletionResponse, LlmClient, LlmStream, LlmToolStream,
-    ToolDefinition,
+use crate::{
+    client::{
+        ChatMessage, CompletionOptions, CompletionResponse, LlmClient, LlmStream, LlmToolStream,
+        ToolDefinition,
+    },
+    openai::OpenAiClient,
 };
-use crate::openai::OpenAiClient;
 
 /// Ollama client — delegates to OpenAI-compatible API.
 pub struct OllamaClient {

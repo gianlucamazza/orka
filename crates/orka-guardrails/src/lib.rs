@@ -3,9 +3,12 @@
 //! - [`GuardrailChain`] — composable chain of [`Guardrail`] checks
 //! - [`KeywordGuardrail`] — blocklist-based keyword filter
 //! - [`RegexGuardrail`] — regex-based block/redact filter with PII support
-//! - [`CodeGuardrail`] — blocks dangerous code patterns before sandbox execution
-//! - [`LlmModerationGuardrail`] — LLM-based content moderation (hate, violence, etc.)
-//! - [`PromptInjectionGuardrail`] — detects prompt injection and jailbreak attempts
+//! - [`CodeGuardrail`] — blocks dangerous code patterns before sandbox
+//!   execution
+//! - [`LlmModerationGuardrail`] — LLM-based content moderation (hate, violence,
+//!   etc.)
+//! - [`PromptInjectionGuardrail`] — detects prompt injection and jailbreak
+//!   attempts
 
 #![warn(missing_docs)]
 
@@ -22,17 +25,16 @@ pub mod prompt_injection;
 /// Regex-based block and redact guardrail.
 pub mod regex_filter;
 
+use std::sync::Arc;
+
 pub use chain::GuardrailChain;
 pub use code_filter::CodeGuardrail;
 pub use keyword::KeywordGuardrail;
 pub use llm_moderation::LlmModerationGuardrail;
+use orka_core::{config::GuardrailsConfig, traits::Guardrail};
+use orka_llm::client::LlmClient;
 pub use prompt_injection::PromptInjectionGuardrail;
 pub use regex_filter::RegexGuardrail;
-
-use orka_core::config::GuardrailsConfig;
-use orka_core::traits::Guardrail;
-use orka_llm::client::LlmClient;
-use std::sync::Arc;
 use tracing::warn;
 
 /// Build a guardrail chain from config. Returns None if no rules configured.
@@ -67,7 +69,9 @@ pub fn create_guardrail(config: &GuardrailsConfig) -> Option<Arc<dyn Guardrail>>
 
     // LLM-based content moderation
     if config.input.llm_moderation.enabled {
-        warn!("LLM moderation enabled but requires LLM client initialization - use create_guardrail_with_llm instead");
+        warn!(
+            "LLM moderation enabled but requires LLM client initialization - use create_guardrail_with_llm instead"
+        );
     }
 
     Some(Arc::new(chain))

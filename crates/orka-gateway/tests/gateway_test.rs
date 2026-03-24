@@ -1,9 +1,10 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use orka_core::testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore};
-use orka_core::traits::{MessageBus, PriorityQueue, SessionStore};
-use orka_core::{Envelope, SessionId};
+use orka_core::{
+    Envelope, SessionId,
+    testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
+    traits::{MessageBus, PriorityQueue, SessionStore},
+};
 use orka_gateway::Gateway;
 use orka_workspace::WorkspaceLoader;
 use tokio_util::sync::CancellationToken;

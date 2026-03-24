@@ -1,12 +1,14 @@
-use serde::Deserialize;
 use std::path::PathBuf;
+
+use serde::Deserialize;
 
 /// YAML frontmatter parsed from a SKILL.md file.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SoftSkillMeta {
     /// Unique skill name (kebab-case, max 64 chars).
     pub name: String,
-    /// Description for LLM-based selection. Should say what the skill does and when to use it.
+    /// Description for LLM-based selection. Should say what the skill does and
+    /// when to use it.
     pub description: String,
     /// Optional tags for grouping.
     #[serde(default)]

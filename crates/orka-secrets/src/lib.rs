@@ -1,10 +1,11 @@
 //! Encrypted secret storage backed by Redis.
 //!
-//! Provides [`RedisSecretManager`], an implementation of [`orka_core::traits::SecretManager`]
-//! with optional AES-256-GCM encryption, and a [`create_secret_manager`] factory.
+//! Provides [`RedisSecretManager`], an implementation of
+//! [`orka_core::traits::SecretManager`] with optional AES-256-GCM encryption,
+//! and a [`create_secret_manager`] factory.
 //!
-//! Also includes [`RotatingSecretManager`](rotation::RotatingSecretManager) for zero-downtime
-//! secret rotation.
+//! Also includes [`RotatingSecretManager`](rotation::RotatingSecretManager) for
+//! zero-downtime secret rotation.
 
 #![warn(missing_docs)]
 
@@ -14,19 +15,22 @@ pub mod redis_secret;
 /// Secret rotation support for zero-downtime key rotation.
 pub mod rotation;
 
-pub use crate::redis_secret::RedisSecretManager;
-pub use crate::rotation::{RotatingSecretManager, RotationConfig, RotationStatus};
-
 use std::sync::Arc;
 
 use orka_core::traits::SecretManager;
 use tracing::warn;
 
+pub use crate::{
+    redis_secret::RedisSecretManager,
+    rotation::{RotatingSecretManager, RotationConfig, RotationStatus},
+};
+
 /// Create a [`SecretManager`] from the given configuration.
 pub fn create_secret_manager(
     config: &orka_core::config::OrkaConfig,
 ) -> orka_core::Result<Arc<dyn SecretManager>> {
-    // Resolve encryption key from the configured env var (hex-encoded, 32 bytes = 64 hex chars)
+    // Resolve encryption key from the configured env var (hex-encoded, 32 bytes =
+    // 64 hex chars)
     let encryption_key = config
         .secrets
         .encryption_key_env

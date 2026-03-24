@@ -1,10 +1,11 @@
 use orka_core::{Error, Result};
-use wasmtime::component::{Component, Linker, ResourceTable};
-use wasmtime::{Store, StoreLimits, StoreLimitsBuilder};
+use wasmtime::{
+    Store, StoreLimits, StoreLimitsBuilder,
+    component::{Component, Linker, ResourceTable},
+};
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use crate::config::WasmLimits;
-use crate::engine::WasmEngine;
+use crate::{config::WasmLimits, engine::WasmEngine};
 
 /// Capabilities granted to a plugin instance (deny-by-default).
 #[derive(Debug, Clone, Default)]
@@ -43,7 +44,8 @@ impl WasiView for PluginState {
     }
 }
 
-/// A compiled WASM Component. Cheap to clone, thread-safe, reusable across calls.
+/// A compiled WASM Component. Cheap to clone, thread-safe, reusable across
+/// calls.
 #[derive(Clone)]
 pub struct WasmComponent {
     pub(crate) component: Component,

@@ -1,9 +1,11 @@
 //! Skill registry and plugin loading for agent tool use.
 //!
-//! - [`SkillRegistry`] — thread-safe registry of named [`Skill`](orka_core::traits::Skill) implementations
+//! - [`SkillRegistry`] — thread-safe registry of named
+//!   [`Skill`](orka_core::traits::Skill) implementations
 //! - [`WasmPluginSkill`] — WASM-based plugin skill loaded at runtime
 //! - [`EchoSkill`] — built-in echo skill for testing
-//! - [`SoftSkillRegistry`] — registry for instruction-based soft skills loaded from `SKILL.md` directories
+//! - [`SoftSkillRegistry`] — registry for instruction-based soft skills loaded
+//!   from `SKILL.md` directories
 
 #![warn(missing_docs)]
 

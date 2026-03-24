@@ -1,13 +1,13 @@
-use std::path::Path;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{path::Path, sync::Arc, time::Instant};
 
 use orka_core::SkillInput;
 use orka_skills::SkillRegistry;
 
-use crate::assertion::check_all;
-use crate::report::{EvalReport, ScenarioResult};
-use crate::scenario::EvalFile;
+use crate::{
+    assertion::check_all,
+    report::{EvalReport, ScenarioResult},
+    scenario::EvalFile,
+};
 
 /// Runs evaluation scenarios against a skill registry.
 pub struct EvalRunner {

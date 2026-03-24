@@ -4,8 +4,7 @@ use async_trait::async_trait;
 use orka_core::Result;
 use tracing::debug;
 
-use crate::extract;
-use crate::types::SearchResult;
+use crate::{extract, types::SearchResult};
 
 /// Options passed to search providers.
 pub struct SearchOptions {

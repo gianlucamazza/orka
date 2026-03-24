@@ -1,16 +1,18 @@
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::{
+    sync::Arc,
+    task::{Context, Poll},
+};
 
-use axum::body::Body;
-use axum::response::IntoResponse;
+use axum::{body::Body, response::IntoResponse};
 use http::{Request, Response};
+use orka_core::config::AuthConfig;
 use tower_layer::Layer;
 use tower_service::Service;
 
-use orka_core::config::AuthConfig;
-
-use crate::authenticator::Authenticator;
-use crate::types::{AuthIdentity, Credentials};
+use crate::{
+    authenticator::Authenticator,
+    types::{AuthIdentity, Credentials},
+};
 
 /// Authentication middleware configuration.
 #[derive(Clone)]
@@ -45,9 +47,13 @@ impl AuthLayer {
             config,
         }
     }
-    
-    /// Create the layer with the given authenticator and default config (auth enabled).
-    pub fn new_with_auth_config(authenticator: Arc<dyn Authenticator>, _config: &AuthConfig) -> Self {
+
+    /// Create the layer with the given authenticator and default config (auth
+    /// enabled).
+    pub fn new_with_auth_config(
+        authenticator: Arc<dyn Authenticator>,
+        _config: &AuthConfig,
+    ) -> Self {
         Self {
             authenticator,
             config: Arc::new(AuthMiddlewareConfig::default()),
@@ -144,16 +150,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::testing::InMemoryAuthenticator;
     use http::StatusCode;
     use tower::ServiceExt;
 
-    fn auth_config(enabled: bool) -> Arc<AuthConfig> {
-        Arc::new(AuthConfig {
+    use super::*;
+    use crate::testing::InMemoryAuthenticator;
+
+    fn auth_config(enabled: bool) -> Arc<AuthMiddlewareConfig> {
+        Arc::new(AuthMiddlewareConfig {
             enabled,
-            api_key_header: "X-Api-Key".into(),
-            ..Default::default()
+            api_key_header: http::HeaderName::from_static("x-api-key"),
         })
     }
 

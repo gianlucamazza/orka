@@ -1,16 +1,17 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use orka_core::Result;
-use orka_experience::collector::TrajectoryCollector;
-use orka_experience::service::ExperienceService;
-use orka_experience::store::PrincipleStore;
-use orka_experience::trajectory_store::TrajectoryStore;
-use orka_experience::types::{OutcomeSignal, PrincipleKind};
-use orka_knowledge::embeddings::EmbeddingProvider;
-use orka_knowledge::types::SearchResult;
-use orka_knowledge::vector_store::VectorStore;
+use orka_experience::{
+    collector::TrajectoryCollector,
+    service::ExperienceService,
+    store::PrincipleStore,
+    trajectory_store::TrajectoryStore,
+    types::{OutcomeSignal, PrincipleKind},
+};
+use orka_knowledge::{
+    embeddings::EmbeddingProvider, types::SearchResult, vector_store::VectorStore,
+};
 use orka_llm::client::{ChatMessage, CompletionOptions, LlmClient};
 
 // ---------------------------------------------------------------------------

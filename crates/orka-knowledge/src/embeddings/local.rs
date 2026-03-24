@@ -1,7 +1,8 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use orka_core::Result;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use super::EmbeddingProvider;

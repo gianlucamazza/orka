@@ -202,7 +202,8 @@ pub struct CompletionOptions {
     pub max_tokens: Option<u32>,
     /// Optional JSON Schema for structured/constrained output.
     pub response_format: Option<ResponseFormat>,
-    /// Sampling temperature (0.0–2.0). Note: Anthropic requires temperature=1 when thinking is enabled.
+    /// Sampling temperature (0.0–2.0). Note: Anthropic requires temperature=1
+    /// when thinking is enabled.
     pub temperature: Option<f32>,
     /// Extended thinking / reasoning configuration.
     pub thinking: Option<ThinkingConfig>,
@@ -324,8 +325,8 @@ pub enum ContentBlockInput {
         /// The model's internal reasoning text.
         thinking: String,
     },
-    /// Unknown block type — ignored gracefully to avoid deserialization failures
-    /// when the API introduces new block types.
+    /// Unknown block type — ignored gracefully to avoid deserialization
+    /// failures when the API introduces new block types.
     #[serde(other)]
     Unknown,
 }
@@ -344,7 +345,8 @@ pub struct Usage {
     /// Tokens written to cache.
     #[serde(default)]
     pub cache_creation_input_tokens: u32,
-    /// Tokens consumed by extended thinking / reasoning (Anthropic + OpenAI o-series).
+    /// Tokens consumed by extended thinking / reasoning (Anthropic + OpenAI
+    /// o-series).
     #[serde(default)]
     pub reasoning_tokens: u32,
 }
@@ -438,8 +440,8 @@ pub trait LlmClient: Send + Sync + 'static {
         Ok(Box::pin(futures_util::stream::once(async { Ok(result) })))
     }
 
-    /// Complete with tool definitions. Returns content blocks, usage, and stop reason.
-    /// Default implementation ignores tools and returns text only.
+    /// Complete with tool definitions. Returns content blocks, usage, and stop
+    /// reason. Default implementation ignores tools and returns text only.
     async fn complete_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -471,7 +473,8 @@ pub trait LlmClient: Send + Sync + 'static {
     }
 
     /// Streaming variant with tool support — yields StreamEvent as they arrive.
-    /// Default implementation calls `complete_with_tools()` and yields events from the full response.
+    /// Default implementation calls `complete_with_tools()` and yields events
+    /// from the full response.
     async fn complete_stream_with_tools(
         &self,
         messages: &[ChatMessage],

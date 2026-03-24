@@ -1,8 +1,7 @@
 use std::time::Instant;
 
 use async_trait::async_trait;
-use orka_core::config::SandboxConfig;
-use orka_core::{Error, Result};
+use orka_core::{Error, Result, config::SandboxConfig};
 use orka_wasm::{WasmEngine, WasmInstance, WasmLimits};
 
 use crate::executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult};
@@ -93,8 +92,9 @@ fn run_wasm_sync(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_wasm_hello() {

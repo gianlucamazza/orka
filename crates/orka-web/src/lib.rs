@@ -1,7 +1,7 @@
 //! Web search and content reading skills.
 //!
-//! Provides `web_search` and `web_read` skills with configurable search providers
-//! and HTML-to-markdown extraction.
+//! Provides `web_search` and `web_read` skills with configurable search
+//! providers and HTML-to-markdown extraction.
 
 #![warn(missing_docs)]
 
@@ -15,21 +15,19 @@ pub mod types;
 
 use std::sync::Arc;
 
-use orka_core::Result;
-use orka_core::traits::Skill;
-use tracing::info;
-
-pub use types::{SearchProviderKind, WebConfig};
-
 use cache::WebCache;
+use orka_core::{Result, traits::Skill};
 use provider::{BraveProvider, SearchProvider, SearxngProvider, TavilyProvider};
 use read::WebReadSkill;
 use search::WebSearchSkill;
+use tracing::info;
+pub use types::{SearchProviderKind, WebConfig};
 
 /// Create web skills (web_search + web_read) from config.
 ///
 /// Returns an empty vec if the provider is set to `none`.
-/// The API key is resolved from: config.api_key > env var (config.api_key_env) > provider-specific env var.
+/// The API key is resolved from: config.api_key > env var (config.api_key_env)
+/// > provider-specific env var.
 pub fn create_web_skills(config: &WebConfig) -> Result<Vec<Arc<dyn Skill>>> {
     if config.search_provider == SearchProviderKind::None {
         return Ok(Vec::new());

@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use orka_core::{Error, Result, retry::retry_with_backoff};
 use reqwest::Client;
 use serde_json::json;
 use tracing::debug;
@@ -11,8 +12,6 @@ use crate::client::{
     LlmStream, LlmToolStream, RetryableError, StopReason, StreamEvent, ToolCall, ToolDefinition,
     Usage,
 };
-use orka_core::retry::retry_with_backoff;
-use orka_core::{Error, Result};
 
 /// OpenAI Chat Completions API client with retry and streaming support.
 pub struct OpenAiClient {
@@ -25,7 +24,8 @@ pub struct OpenAiClient {
 }
 
 impl OpenAiClient {
-    /// Create a client with default settings (30s timeout, 4096 max tokens, 2 retries).
+    /// Create a client with default settings (30s timeout, 4096 max tokens, 2
+    /// retries).
     pub fn new(api_key: String, model: String) -> Self {
         Self::with_options(
             api_key,
@@ -121,7 +121,10 @@ impl OpenAiClient {
     }
 
     fn parse_response(resp: &serde_json::Value) -> (Vec<ContentBlock>, Usage, Option<StopReason>) {
-        let choice = &resp["choices"][0];
+        let choice = match resp["choices"].as_array().and_then(|a| a.first()) {
+            Some(c) => c,
+            None => return (Vec::new(), Usage::default(), None),
+        };
         let message = &choice["message"];
 
         let mut blocks = Vec::new();
@@ -285,8 +288,10 @@ impl LlmClient for OpenAiClient {
         debug!(model, messages = messages.len(), "calling OpenAI API");
         let resp = self.send_with_retry(&body).await?;
 
-        let text = resp["choices"][0]["message"]["content"]
-            .as_str()
+        let text = resp["choices"]
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(|c| c["message"]["content"].as_str())
             .unwrap_or("")
             .to_string();
 
@@ -494,7 +499,10 @@ impl LlmClient for OpenAiClient {
                                 Err(_) => continue,
                             };
 
-                            let choice = &event["choices"][0];
+                            let choice = match event["choices"].as_array().and_then(|a| a.first()) {
+                                Some(c) => c,
+                                None => continue,
+                            };
                             let delta = &choice["delta"];
 
                             // Text content delta

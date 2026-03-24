@@ -1,6 +1,5 @@
 use orka_bus::RedisBus;
-use orka_core::traits::MessageBus;
-use orka_core::{Envelope, MessageId, SessionId};
+use orka_core::{Envelope, MessageId, SessionId, traits::MessageBus};
 
 #[test]
 fn stream_key_format() {

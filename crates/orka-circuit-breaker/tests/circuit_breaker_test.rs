@@ -103,13 +103,14 @@ async fn half_open_success_closes_circuit() {
     let result: Result<i32, CircuitBreakerError<TestError>> = cb.call(|| async { Ok(1) }).await;
     assert!(result.is_ok());
 
-    // Need to advance time again to allow another probe after the open->half-open transition
-    // triggered by the call above. The breaker is still in HalfOpen waiting for success_threshold.
-    // But we need the probe counter to allow another call. Since half_open allows 1 concurrent
-    // and we already finished, the counter is back to 0.
+    // Need to advance time again to allow another probe after the open->half-open
+    // transition triggered by the call above. The breaker is still in HalfOpen
+    // waiting for success_threshold. But we need the probe counter to allow
+    // another call. Since half_open allows 1 concurrent and we already
+    // finished, the counter is back to 0.
 
-    // Wait for open_duration again since the first successful call might have been done
-    // via the Open->HalfOpen path.
+    // Wait for open_duration again since the first successful call might have been
+    // done via the Open->HalfOpen path.
     tokio::time::advance(Duration::from_secs(6)).await;
 
     // Second successful probe should close the circuit.

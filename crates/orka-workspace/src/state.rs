@@ -1,7 +1,8 @@
-use crate::config::*;
-use crate::parse::Document;
-use orka_prompts::template::TemplateRegistry;
 use std::sync::Arc;
+
+use orka_prompts::template::TemplateRegistry;
+
+use crate::{config::*, parse::Document};
 
 /// Live state of a loaded workspace.
 #[derive(Debug, Clone, Default)]

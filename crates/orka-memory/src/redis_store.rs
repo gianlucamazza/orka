@@ -1,10 +1,8 @@
 use async_trait::async_trait;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
+use orka_core::{Error, MemoryEntry, Result, traits::MemoryStore};
 use redis::AsyncCommands;
 use tracing::{debug, warn};
-
-use orka_core::traits::MemoryStore;
-use orka_core::{Error, MemoryEntry, Result};
 
 /// Redis implementation of [`orka_core::traits::MemoryStore`].
 pub struct RedisMemoryStore {
@@ -256,7 +254,8 @@ impl MemoryStore for RedisMemoryStore {
                 result.is_some()
             }
             Err(e) => {
-                // Fail-open: if Redis is unavailable, allow processing rather than stalling all workers
+                // Fail-open: if Redis is unavailable, allow processing rather than stalling all
+                // workers
                 warn!(%e, session_id, "redis conn failed for session lock; proceeding without lock");
                 true
             }

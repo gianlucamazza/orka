@@ -18,16 +18,14 @@ pub mod types;
 
 use std::sync::Arc;
 
-use orka_core::Result;
-use orka_core::config::SchedulerConfig;
-use orka_core::traits::Skill;
-use tracing::info;
-
 pub use memory_store::InMemoryScheduleStore;
+use orka_core::{Result, config::SchedulerConfig, traits::Skill};
 pub use scheduler::{Scheduler, SkillRegistry};
 pub use store::{RedisScheduleStore, ScheduleStore};
+use tracing::info;
 
-/// A list of skills bundled with the schedule store needed to run the scheduler loop.
+/// A list of skills bundled with the schedule store needed to run the scheduler
+/// loop.
 pub type SchedulerSkills = (Vec<Arc<dyn Skill>>, Arc<dyn ScheduleStore>);
 
 /// Create scheduler skills and the schedule store.

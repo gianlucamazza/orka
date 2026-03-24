@@ -9,10 +9,11 @@ use crate::client::{
     ToolDefinition,
 };
 
-/// An `LlmClient` wrapper that allows atomic hot-swapping of the underlying client.
+/// An `LlmClient` wrapper that allows atomic hot-swapping of the underlying
+/// client.
 ///
-/// Uses `ArcSwap` for lock-free reads on the hot path. Call [`Self::swap`] to atomically
-/// replace the inner client (e.g., after an API key rotation).
+/// Uses `ArcSwap` for lock-free reads on the hot path. Call [`Self::swap`] to
+/// atomically replace the inner client (e.g., after an API key rotation).
 pub struct SwappableLlmClient {
     inner: ArcSwap<Arc<dyn LlmClient>>,
 }

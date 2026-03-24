@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 
 use crate::client::McpClient;
 
@@ -12,7 +11,8 @@ pub struct McpToolBridge {
     tool_name: String,
     tool_description: String,
     tool_schema: serde_json::Value,
-    /// Qualified name: "server_name__tool_name" (double underscore, safe for LLM tool name patterns)
+    /// Qualified name: "server_name__tool_name" (double underscore, safe for
+    /// LLM tool name patterns)
     qualified_name: String,
 }
 

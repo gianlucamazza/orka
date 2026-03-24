@@ -8,73 +8,77 @@
 
 /// Text chunking utilities for splitting documents into overlapping segments.
 pub mod chunking;
-/// Embedding providers: local ONNX (`local`) and OpenAI-compatible REST (`openai`).
+/// Embedding providers: local ONNX (`local`) and OpenAI-compatible REST
+/// (`openai`).
 pub mod embeddings;
 /// Document parsers for HTML, Markdown, PDF, and plain text.
 pub mod parsers;
 /// Knowledge skills: `doc_ingest`, `doc_list`, `memory_search`, `memory_store`.
 pub mod skills;
-/// Core domain types: [`types::Chunk`], [`types::Document`], [`types::SearchResult`].
+/// Core domain types: [`types::Chunk`], [`types::Document`],
+/// [`types::SearchResult`].
 pub mod types;
 /// Vector store trait and Qdrant backend implementation.
 pub mod vector_store;
 
 use std::sync::Arc;
 
-use orka_core::Result;
-use orka_core::config::KnowledgeConfig;
-use orka_core::traits::Skill;
-use tracing::info;
-
 pub use embeddings::EmbeddingProvider;
+use orka_core::{Result, config::KnowledgeConfig, traits::Skill};
+use tracing::info;
 pub use vector_store::VectorStore;
 
 /// Create knowledge/RAG skills from config.
 pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn Skill>>> {
     use orka_core::config::primitives::EmbeddingProvider;
-    
+
     // Initialize embedding provider
-    let embedding_provider: Arc<dyn embeddings::EmbeddingProvider> = match config.embeddings.provider {
-        EmbeddingProvider::Openai => {
-            let api_key = std::env::var("OPENAI_API_KEY").or_else(|_| {
-                config.embeddings.api_key.clone().ok_or_else(|| {
-                    orka_core::Error::Config(
-                        "OPENAI_API_KEY required for openai embedding provider".into(),
-                    )
-                })
-            })?;
-            Arc::new(embeddings::openai::OpenAiEmbeddingProvider::new(
-                api_key,
-                config.embeddings.model.clone(),
-                1536, // OpenAI ada-002 dimensions
-            ))
-        }
-        EmbeddingProvider::Anthropic => {
-            // Anthropic embeddings not yet implemented - use local as fallback
-            Arc::new(embeddings::local::LocalEmbeddingProvider::new(
-                &config.embeddings.model,
-                384, // BGE-small dimensions
-            )?)
-        }
-        EmbeddingProvider::Custom => {
-            // Custom endpoint not yet implemented - use local as fallback
-            Arc::new(embeddings::local::LocalEmbeddingProvider::new(
-                &config.embeddings.model,
-                384, // BGE-small dimensions
-            )?)
-        }
-        EmbeddingProvider::Local => {
-            // Default: local fastembed
-            Arc::new(embeddings::local::LocalEmbeddingProvider::new(
-                &config.embeddings.model,
-                384, // BGE-small dimensions
-            )?)
-        }
-    };
+    let embedding_provider: Arc<dyn embeddings::EmbeddingProvider> =
+        match config.embeddings.provider {
+            EmbeddingProvider::Openai => {
+                let api_key = std::env::var("OPENAI_API_KEY").or_else(|_| {
+                    config.embeddings.api_key.clone().ok_or_else(|| {
+                        orka_core::Error::Config(
+                            "OPENAI_API_KEY required for openai embedding provider".into(),
+                        )
+                    })
+                })?;
+                Arc::new(embeddings::openai::OpenAiEmbeddingProvider::new(
+                    api_key,
+                    config.embeddings.model.clone(),
+                    1536, // OpenAI ada-002 dimensions
+                ))
+            }
+            EmbeddingProvider::Anthropic => {
+                // Anthropic embeddings not yet implemented - use local as fallback
+                Arc::new(embeddings::local::LocalEmbeddingProvider::new(
+                    &config.embeddings.model,
+                    384, // BGE-small dimensions
+                )?)
+            }
+            EmbeddingProvider::Custom => {
+                // Custom endpoint not yet implemented - use local as fallback
+                Arc::new(embeddings::local::LocalEmbeddingProvider::new(
+                    &config.embeddings.model,
+                    384, // BGE-small dimensions
+                )?)
+            }
+            EmbeddingProvider::Local => {
+                // Default: local fastembed
+                Arc::new(embeddings::local::LocalEmbeddingProvider::new(
+                    &config.embeddings.model,
+                    384, // BGE-small dimensions
+                )?)
+            }
+        };
 
     // Initialize vector store
     let vector_store: Arc<dyn VectorStore> = Arc::new(vector_store::qdrant::QdrantStore::new(
-        config.vector_store.url.as_deref().unwrap_or("http://localhost:6333"),
+        config
+            .vector_store
+            .url
+            .as_deref()
+            .unwrap_or("http://localhost:6333"),
     )?);
 
     create_knowledge_skills_with(config, embedding_provider, vector_store)

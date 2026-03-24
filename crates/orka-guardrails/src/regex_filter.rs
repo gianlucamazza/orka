@@ -1,6 +1,8 @@
 use async_trait::async_trait;
-use orka_core::traits::{Guardrail, GuardrailDecision};
-use orka_core::{Result, Session};
+use orka_core::{
+    Result, Session,
+    traits::{Guardrail, GuardrailDecision},
+};
 use regex::Regex;
 
 /// Regex-based guardrail that can redact or block matching patterns.
@@ -25,7 +27,8 @@ impl RegexGuardrail {
         }
     }
 
-    /// Add a regex pattern that will cause the guardrail to block matching content.
+    /// Add a regex pattern that will cause the guardrail to block matching
+    /// content.
     pub fn add_block_pattern(mut self, pattern: &str) -> Self {
         if let Ok(re) = Regex::new(pattern) {
             self.patterns.push((re, RegexAction::Block));

@@ -17,7 +17,8 @@ pub struct McpOAuthConfig {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum McpTransportConfig {
-    /// Stdio transport: spawn a child process and communicate over stdin/stdout.
+    /// Stdio transport: spawn a child process and communicate over
+    /// stdin/stdout.
     Stdio {
         /// Executable path or name.
         command: String,
@@ -25,7 +26,8 @@ pub enum McpTransportConfig {
         args: Vec<String>,
         /// Environment variables injected into the process.
         env: HashMap<String, String>,
-        /// Working directory for the spawned process. Inherits the server CWD when `None`.
+        /// Working directory for the spawned process. Inherits the server CWD
+        /// when `None`.
         working_dir: Option<std::path::PathBuf>,
     },
     /// Streamable HTTP transport (MCP spec 2025-03-26).
@@ -85,8 +87,12 @@ impl StdioBuilder {
     }
 
     /// Set multiple environment variables.
-    pub fn envs(mut self, envs: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>) -> Self {
-        self.env.extend(envs.into_iter().map(|(k, v)| (k.into(), v.into())));
+    pub fn envs(
+        mut self,
+        envs: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        self.env
+            .extend(envs.into_iter().map(|(k, v)| (k.into(), v.into())));
         self
     }
 

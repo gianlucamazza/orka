@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use orka_core::{Error, config::ApiKeyEntry};
 use sha2::{Digest, Sha256};
 
-use orka_core::Error;
-use orka_core::config::ApiKeyEntry;
-
-use crate::authenticator::Authenticator;
-use crate::types::{AuthIdentity, Credentials};
+use crate::{
+    authenticator::Authenticator,
+    types::{AuthIdentity, Credentials},
+};
 
 /// Authenticator that validates API keys by comparing SHA-256 hashes.
 pub struct ApiKeyAuthenticator {
@@ -57,11 +57,7 @@ mod tests {
     use super::*;
 
     fn make_entry(name: &str, raw_key: &str, scopes: Vec<String>) -> ApiKeyEntry {
-        ApiKeyEntry {
-            name: name.into(),
-            key_hash: ApiKeyAuthenticator::hash_key(raw_key),
-            scopes,
-        }
+        ApiKeyEntry::new(name, ApiKeyAuthenticator::hash_key(raw_key), scopes)
     }
 
     #[tokio::test]

@@ -7,11 +7,15 @@ use orka_prompts::template::TemplateRegistry;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::types::{Principle, PrincipleKind, Trajectory};
-use crate::utils::extract_json_array;
+use crate::{
+    types::{Principle, PrincipleKind, Trajectory},
+    utils::extract_json_array,
+};
 
-/// Default reflection system prompt (used when template registry is not available).
-const DEFAULT_REFLECTION_PROMPT: &str = include_str!("../../orka-prompts/templates/system/reflection.hbs");
+/// Default reflection system prompt (used when template registry is not
+/// available).
+const DEFAULT_REFLECTION_PROMPT: &str =
+    include_str!("../../orka-prompts/templates/system/reflection.hbs");
 
 /// Extracts principles from trajectories using an LLM.
 pub struct PrincipleReflector {
@@ -22,7 +26,8 @@ pub struct PrincipleReflector {
 }
 
 impl PrincipleReflector {
-    /// Create a new reflector with the given LLM client and generation settings.
+    /// Create a new reflector with the given LLM client and generation
+    /// settings.
     pub fn new(llm: Arc<dyn LlmClient>, model: Option<String>, max_tokens: u32) -> Self {
         Self {
             llm,
@@ -40,17 +45,17 @@ impl PrincipleReflector {
 
     /// Get the system prompt for reflection.
     async fn get_system_prompt(&self) -> String {
-        if let Some(templates) = &self.templates {
-            if templates.has_template("system/reflection").await {
-                // Render template with empty context (template has no variables)
-                return templates
-                    .render("system/reflection", &{})
-                    .await
-                    .unwrap_or_else(|e| {
-                        warn!(error = %e, "failed to render reflection template, using default");
-                        DEFAULT_REFLECTION_PROMPT.to_string()
-                    });
-            }
+        if let Some(templates) = &self.templates
+            && templates.has_template("system/reflection").await
+        {
+            // Render template with empty context (template has no variables)
+            return templates
+                .render("system/reflection", &{})
+                .await
+                .unwrap_or_else(|e| {
+                    warn!(error = %e, "failed to render reflection template, using default");
+                    DEFAULT_REFLECTION_PROMPT.to_string()
+                });
         }
         DEFAULT_REFLECTION_PROMPT.to_string()
     }
@@ -273,7 +278,8 @@ mod tests {
         assert!(principles.is_empty());
     }
 
-    /// Minimal mock LLM for unit tests (not used in parse tests but needed for constructor).
+    /// Minimal mock LLM for unit tests (not used in parse tests but needed for
+    /// constructor).
     struct MockLlm;
 
     #[async_trait::async_trait]

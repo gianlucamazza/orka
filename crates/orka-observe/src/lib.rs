@@ -1,6 +1,8 @@
-//! Observability infrastructure: event sinks, metrics, and OpenTelemetry integration.
+//! Observability infrastructure: event sinks, metrics, and OpenTelemetry
+//! integration.
 //!
-//! - [`create_event_sink`] — factory that selects the appropriate [`EventSink`] backend
+//! - [`create_event_sink`] — factory that selects the appropriate [`EventSink`]
+//!   backend
 //! - [`metrics`] — Prometheus-compatible metrics collection
 //! - [`otel_sink`] — OpenTelemetry trace/span export
 //! - [`audit_sink`] — Append-only skill invocation audit log
@@ -10,9 +12,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::config::OrkaConfig;
-use orka_core::traits::EventSink;
-use orka_core::{DomainEvent, DomainEventKind};
+use orka_core::{DomainEvent, DomainEventKind, config::OrkaConfig, traits::EventSink};
 use tracing::{debug, info, warn};
 
 /// Append-only JSONL audit log for skill invocations.
@@ -227,7 +227,12 @@ pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
     };
 
     if config.audit.enabled {
-        let path_str = config.audit.path.as_deref().map(|p| p.to_string_lossy()).unwrap_or_else(|| "orka-audit.jsonl".into());
+        let path_str = config
+            .audit
+            .path
+            .as_deref()
+            .map(|p| p.to_string_lossy())
+            .unwrap_or_else(|| "orka-audit.jsonl".into());
         match audit_sink::AuditSink::new(path_str.as_ref()) {
             Ok(audit) => {
                 info!(path = path_str.as_ref(), "audit log enabled");
@@ -257,9 +262,12 @@ impl EventSink for FanoutSink {
 
 #[cfg(test)]
 mod tests {
+    use orka_core::{
+        config::*,
+        types::{MessageId, SessionId},
+    };
+
     use super::*;
-    use orka_core::config::*;
-    use orka_core::types::{MessageId, SessionId};
 
     fn test_config() -> OrkaConfig {
         OrkaConfig {
@@ -282,7 +290,6 @@ mod tests {
             session: SessionConfig::default(),
             queue: QueueConfig::default(),
             llm: LlmConfig::default(),
-            agent: AgentConfig::default(),
             tools: ToolsConfig::default(),
             observe: ObserveConfig::default(),
             audit: AuditConfig::default(),

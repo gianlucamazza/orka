@@ -1,7 +1,7 @@
-use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Result, SkillInput, SkillOutput, SkillSchema};
 use std::sync::Arc;
+
+use async_trait::async_trait;
+use orka_core::{Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 
 use crate::vector_store::VectorStore;
 
@@ -12,7 +12,8 @@ pub struct DocListSkill {
 }
 
 impl DocListSkill {
-    /// Create the skill with the given vector store and default collection name.
+    /// Create the skill with the given vector store and default collection
+    /// name.
     pub fn new(store: Arc<dyn VectorStore>, default_collection: String) -> Self {
         Self {
             store,

@@ -1,10 +1,11 @@
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
-use opentelemetry::KeyValue;
-use opentelemetry::trace::{Span, SpanKind, Status, Tracer};
-use orka_core::traits::EventSink;
-use orka_core::{DomainEvent, DomainEventKind};
+use opentelemetry::{
+    KeyValue,
+    trace::{Span, SpanKind, Status, Tracer},
+};
+use orka_core::{DomainEvent, DomainEventKind, traits::EventSink};
 
 /// Event sink that emits domain events as OpenTelemetry spans following the
 /// [OTel GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/).

@@ -1,7 +1,10 @@
-use orka_workspace::config::*;
-use orka_workspace::loader::WorkspaceLoader;
-use orka_workspace::parse::{parse_document, strip_frontmatter};
 use std::sync::Arc;
+
+use orka_workspace::{
+    config::*,
+    loader::WorkspaceLoader,
+    parse::{parse_document, strip_frontmatter},
+};
 use tempfile::TempDir;
 use tokio::fs;
 
@@ -153,8 +156,7 @@ async fn loader_malformed_file() {
 
 #[tokio::test]
 async fn watcher_detects_change() {
-    use orka_workspace::loader::WorkspaceEvent;
-    use orka_workspace::watcher::WorkspaceWatcher;
+    use orka_workspace::{loader::WorkspaceEvent, watcher::WorkspaceWatcher};
 
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("SOUL.md"), "---\nname: Original\n---\nBody")

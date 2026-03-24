@@ -105,7 +105,8 @@ fn into_output_returns_empty_for_module_with_no_io() {
     assert!(stderr.is_empty());
 }
 
-/// Build multiple instances from the same module — verifies the module is reusable.
+/// Build multiple instances from the same module — verifies the module is
+/// reusable.
 #[test]
 fn module_can_be_instantiated_multiple_times() {
     let engine = WasmEngine::new().unwrap();

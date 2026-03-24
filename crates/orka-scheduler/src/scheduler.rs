@@ -1,9 +1,10 @@
-use crate::store::ScheduleStore;
+use std::{str::FromStr, sync::Arc};
+
 use chrono::Utc;
-use std::str::FromStr;
-use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+
+use crate::store::ScheduleStore;
 
 /// Async poll loop that checks for due tasks and executes them.
 pub struct Scheduler {
@@ -171,8 +172,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    use crate::memory_store::InMemoryScheduleStore;
-    use crate::types::Schedule;
+    use crate::{memory_store::InMemoryScheduleStore, types::Schedule};
 
     fn make_schedule(id: &str, name: &str, skill: &str, next_run: i64) -> Schedule {
         Schedule {

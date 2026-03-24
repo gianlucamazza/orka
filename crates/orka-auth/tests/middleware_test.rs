@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use axum::body::Body;
-use axum::response::IntoResponse;
+use axum::{body::Body, response::IntoResponse};
 use http::{Request, StatusCode};
-use orka_auth::ApiKeyAuthenticator;
-use orka_auth::middleware::AuthLayer;
-use orka_auth::types::AuthIdentity;
-use orka_core::config::{ApiKeyEntry, AuthConfig};
+use orka_auth::{
+    ApiKeyAuthenticator,
+    middleware::{AuthLayer, AuthMiddlewareConfig},
+    types::AuthIdentity,
+};
+use orka_core::config::ApiKeyEntry;
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
@@ -17,18 +18,13 @@ fn hash_key(raw: &str) -> String {
 }
 
 fn make_auth_layer(raw_key: &str, key_name: &str) -> AuthLayer {
-    let entries = vec![ApiKeyEntry {
-        name: key_name.into(),
-        key_hash: hash_key(raw_key),
-        scopes: vec!["read".into()],
-    }];
+    let entries = vec![ApiKeyEntry::new(
+        key_name,
+        hash_key(raw_key),
+        vec!["read".into()],
+    )];
     let authenticator = Arc::new(ApiKeyAuthenticator::new(&entries));
-    let config = Arc::new(AuthConfig {
-        enabled: true,
-        api_key_header: "X-Api-Key".into(),
-        api_keys: entries,
-        jwt: None,
-    });
+    let config = Arc::new(AuthMiddlewareConfig::default());
     AuthLayer::new(authenticator, config)
 }
 

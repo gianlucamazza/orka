@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// A chunk of text with metadata, ready for embedding and storage.
 #[derive(Debug, Clone, Serialize, Deserialize)]

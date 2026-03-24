@@ -1,6 +1,7 @@
 //! LLM-based content moderation guardrail.
 //!
-//! Uses an LLM to analyze content for policy violations across multiple categories:
+//! Uses an LLM to analyze content for policy violations across multiple
+//! categories:
 //! - Hate speech, harassment, self-harm, violence
 //! - Sexual content, dangerous activities, spam, profanity
 //!
@@ -9,10 +10,12 @@
 
 use std::sync::Arc;
 
-use orka_core::config::{GuardrailRules, LlmModerationConfig};
-use orka_core::traits::{Guardrail, GuardrailDecision};
-use orka_core::types::Session;
-use orka_core::Result;
+use orka_core::{
+    Result,
+    config::{GuardrailRules, LlmModerationConfig},
+    traits::{Guardrail, GuardrailDecision},
+    types::Session,
+};
 use orka_llm::client::{ChatMessage, LlmClient};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -117,7 +120,12 @@ Remember to respond with valid JSON only."#,
         // Use complete_with_tools to get CompletionResponse with blocks
         let response = self
             .llm
-            .complete_with_tools(&messages, "", &[], orka_llm::client::CompletionOptions::default())
+            .complete_with_tools(
+                &messages,
+                "",
+                &[],
+                orka_llm::client::CompletionOptions::default(),
+            )
             .await?;
 
         // Extract text from content blocks
@@ -134,10 +142,9 @@ Remember to respond with valid JSON only."#,
             .collect::<Vec<_>>()
             .join("");
 
-        let moderation: ModerationResponse =
-            serde_json::from_str(&text_content).map_err(|e| {
-                orka_core::Error::Guardrail(format!("Failed to parse moderation response: {e}"))
-            })?;
+        let moderation: ModerationResponse = serde_json::from_str(&text_content).map_err(|e| {
+            orka_core::Error::Guardrail(format!("Failed to parse moderation response: {e}"))
+        })?;
 
         Ok(ModerationAnalysis {
             response: moderation,
@@ -204,10 +211,7 @@ impl Guardrail for LlmModerationGuardrail {
                         })
                         .collect();
 
-                    let reason = format!(
-                        "Content moderation failed: {}",
-                        violations.join("; ")
-                    );
+                    let reason = format!("Content moderation failed: {}", violations.join("; "));
                     warn!(reason, "LLM guardrail blocked input");
                     Ok(GuardrailDecision::Block(reason))
                 }
@@ -244,10 +248,7 @@ impl Guardrail for LlmModerationGuardrail {
                         })
                         .collect();
 
-                    let reason = format!(
-                        "Content moderation failed: {}",
-                        violations.join("; ")
-                    );
+                    let reason = format!("Content moderation failed: {}", violations.join("; "));
                     warn!(reason, "LLM guardrail blocked output");
                     Ok(GuardrailDecision::Block(reason))
                 }
@@ -262,6 +263,8 @@ impl Guardrail for LlmModerationGuardrail {
 
 #[cfg(test)]
 mod tests {
+    use orka_core::config::ModerationCategory;
+
     use super::*;
 
     // Mock LLM for testing
@@ -285,46 +288,10 @@ mod tests {
 
     #[async_trait::async_trait]
     impl LlmClient for MockLlm {
-        async fn complete(
-            &self,
-            _messages: Vec<ChatMessage>,
-            _system_prompt_override: &str,
-        ) -> Result<String> {
+        // complete() is the only required method; all others have default impls in the
+        // trait.
+        async fn complete(&self, _messages: Vec<ChatMessage>, _system: &str) -> Result<String> {
             Ok(self.response.clone())
-        }
-
-        async fn complete_with_tools(
-            &self,
-            _messages: Vec<ChatMessage>,
-            _tools: Vec<orka_llm::client::ToolDefinition>,
-            _system_prompt_override: &str,
-        ) -> Result<orka_llm::client::CompletionResponse> {
-            Ok(orka_llm::client::CompletionResponse {
-                blocks: vec![orka_llm::client::ContentBlock::Text(self.response.clone())],
-                usage: orka_llm::client::Usage {
-                    input_tokens: 0,
-                    output_tokens: 0,
-                    total_tokens: 0,
-                },
-                stop_reason: None,
-            })
-        }
-
-        async fn stream(
-            &self,
-            _messages: Vec<ChatMessage>,
-            _system_prompt_override: &str,
-        ) -> Result<orka_llm::client::LlmStream> {
-            unimplemented!()
-        }
-
-        async fn stream_with_tools(
-            &self,
-            _messages: Vec<ChatMessage>,
-            _tools: Vec<orka_llm::client::ToolDefinition>,
-            _system_prompt_override: &str,
-        ) -> Result<orka_llm::client::LlmToolStream> {
-            unimplemented!()
         }
     }
 
@@ -336,7 +303,7 @@ mod tests {
             .with_model("mock")
             .with_threshold(0.7)
             .with_categories(vec![ModerationCategory::Hate]);
-        
+
         let guardrail = LlmModerationGuardrail::new(llm, config);
 
         let session = Session::new("test", "user1");
@@ -356,7 +323,7 @@ mod tests {
             .with_model("mock")
             .with_threshold(0.7)
             .with_categories(vec![ModerationCategory::Hate]);
-        
+
         let guardrail = LlmModerationGuardrail::new(llm, config);
 
         let session = Session::new("test", "user1");
@@ -376,7 +343,7 @@ mod tests {
             .with_model("mock")
             .with_threshold(0.7)
             .with_categories(vec![ModerationCategory::Hate]);
-        
+
         let guardrail = LlmModerationGuardrail::new(llm, config);
 
         let analysis = guardrail.analyze("test").await.unwrap();

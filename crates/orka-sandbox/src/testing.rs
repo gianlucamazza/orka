@@ -1,5 +1,4 @@
-use std::sync::Mutex;
-use std::time::Duration;
+use std::{sync::Mutex, time::Duration};
 
 use async_trait::async_trait;
 
@@ -11,7 +10,8 @@ pub struct InMemorySandbox {
 }
 
 impl InMemorySandbox {
-    /// Create a sandbox that always returns exit_code=0, stdout=b"ok", empty stderr.
+    /// Create a sandbox that always returns exit_code=0, stdout=b"ok", empty
+    /// stderr.
     pub fn new() -> Self {
         Self {
             result: Mutex::new(SandboxResult {

@@ -1,14 +1,13 @@
+use std::{collections::HashMap, sync::Arc};
+
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Result, SkillInput, SkillOutput, SkillSchema};
-use std::collections::HashMap;
-use std::sync::Arc;
+use orka_core::{Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 use uuid::Uuid;
 
-use crate::embeddings::EmbeddingProvider;
-use crate::vector_store::VectorStore;
+use crate::{embeddings::EmbeddingProvider, vector_store::VectorStore};
 
-/// Skill that embeds a piece of text and stores it in the vector store for later retrieval.
+/// Skill that embeds a piece of text and stores it in the vector store for
+/// later retrieval.
 pub struct MemoryStoreSkill {
     embeddings: Arc<dyn EmbeddingProvider>,
     store: Arc<dyn VectorStore>,
@@ -16,7 +15,8 @@ pub struct MemoryStoreSkill {
 }
 
 impl MemoryStoreSkill {
-    /// Create the skill with the given embedding provider, vector store, and default collection.
+    /// Create the skill with the given embedding provider, vector store, and
+    /// default collection.
     pub fn new(
         embeddings: Arc<dyn EmbeddingProvider>,
         store: Arc<dyn VectorStore>,

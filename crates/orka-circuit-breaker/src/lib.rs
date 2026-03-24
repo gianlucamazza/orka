@@ -1,13 +1,18 @@
 //! Circuit breaker pattern for protecting remote service calls.
 //!
-//! [`CircuitBreaker`] tracks consecutive failures and trips open after a threshold,
-//! rejecting calls immediately until a cooldown period allows a half-open probe.
+//! [`CircuitBreaker`] tracks consecutive failures and trips open after a
+//! threshold, rejecting calls immediately until a cooldown period allows a
+//! half-open probe.
 
 #![warn(missing_docs)]
 
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
-use std::time::Duration;
+use std::{
+    sync::{
+        Mutex,
+        atomic::{AtomicU8, AtomicU32, Ordering},
+    },
+    time::Duration,
+};
 
 use tokio::time::Instant;
 
@@ -52,7 +57,8 @@ pub enum CircuitBreakerError<E> {
 pub struct CircuitBreakerConfig {
     /// Number of consecutive environmental failures before opening the circuit.
     pub failure_threshold: u32,
-    /// Number of consecutive semantic (quality) failures before opening the circuit.
+    /// Number of consecutive semantic (quality) failures before opening the
+    /// circuit.
     ///
     /// Semantic failures come from `validate_output()` returning an error.
     /// Tracked independently of environmental failures so that both thresholds
@@ -111,10 +117,10 @@ impl CircuitBreaker {
 
     /// Execute `f` through the circuit breaker.
     ///
-    /// - **Closed**: calls `f`. On failure, increments the failure counter.
-    ///   If the threshold is reached the circuit opens.
-    /// - **Open**: if `open_duration` has elapsed, transitions to half-open
-    ///   and allows the call. Otherwise returns [`CircuitBreakerError::Open`].
+    /// - **Closed**: calls `f`. On failure, increments the failure counter. If
+    ///   the threshold is reached the circuit opens.
+    /// - **Open**: if `open_duration` has elapsed, transitions to half-open and
+    ///   allows the call. Otherwise returns [`CircuitBreakerError::Open`].
     /// - **HalfOpen**: allows at most one concurrent probe. On success the
     ///   circuit closes; on failure it opens again.
     pub async fn call<F, Fut, T, E>(&self, f: F) -> Result<T, CircuitBreakerError<E>>
@@ -148,8 +154,9 @@ impl CircuitBreaker {
 
     /// Record a success without executing a closure (post-hoc feedback).
     ///
-    /// Equivalent to what `call()` does internally on success: resets the failure
-    /// counter in Closed state, or advances the success counter in HalfOpen state.
+    /// Equivalent to what `call()` does internally on success: resets the
+    /// failure counter in Closed state, or advances the success counter in
+    /// HalfOpen state.
     pub fn record_success(&self) {
         let state = CircuitState::from_u8(self.state.load(Ordering::SeqCst));
         match state {
@@ -169,8 +176,8 @@ impl CircuitBreaker {
 
     /// Record a failure without executing a closure (post-hoc feedback).
     ///
-    /// Equivalent to what `call()` does internally on failure: increments the failure
-    /// counter and trips the circuit if the threshold is reached.
+    /// Equivalent to what `call()` does internally on failure: increments the
+    /// failure counter and trips the circuit if the threshold is reached.
     pub fn record_failure(&self) {
         let state = CircuitState::from_u8(self.state.load(Ordering::SeqCst));
         match state {
@@ -193,10 +200,12 @@ impl CircuitBreaker {
         }
     }
 
-    /// Record a semantic (quality) failure — output validation rejected the result.
+    /// Record a semantic (quality) failure — output validation rejected the
+    /// result.
     ///
-    /// Tracked in a separate counter from environmental failures. Trips the circuit
-    /// when `quality_failures >= config.quality_failure_threshold` (unless threshold is 0).
+    /// Tracked in a separate counter from environmental failures. Trips the
+    /// circuit when `quality_failures >= config.quality_failure_threshold`
+    /// (unless threshold is 0).
     pub fn record_quality_failure(&self) {
         if self.config.quality_failure_threshold == 0 {
             return;

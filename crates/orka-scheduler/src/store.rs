@@ -1,7 +1,8 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use orka_core::Result;
 use redis::AsyncCommands;
-use std::sync::Arc;
 
 use crate::types::Schedule;
 

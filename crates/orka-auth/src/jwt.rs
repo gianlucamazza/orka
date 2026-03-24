@@ -4,8 +4,10 @@ use orka_core::{Error, Result};
 use serde::Deserialize;
 use tracing::debug;
 
-use crate::authenticator::Authenticator;
-use crate::types::{AuthIdentity, Credentials};
+use crate::{
+    authenticator::Authenticator,
+    types::{AuthIdentity, Credentials},
+};
 
 #[derive(Debug, Deserialize)]
 struct Claims {
@@ -18,7 +20,8 @@ struct Claims {
     _aud: Option<serde_json::Value>,
 }
 
-/// Authenticator that validates JWTs using either an HMAC secret or an RSA public key.
+/// Authenticator that validates JWTs using either an HMAC secret or an RSA
+/// public key.
 pub struct JwtAuthenticator {
     _issuer: String,
     _audience: Option<String>,
@@ -82,7 +85,8 @@ impl Authenticator for JwtAuthenticator {
 
         let principal = claims.sub.unwrap_or_else(|| "anonymous".into());
 
-        // Extract scopes from either `scope` (space-separated string) or `scopes` (array)
+        // Extract scopes from either `scope` (space-separated string) or `scopes`
+        // (array)
         let scopes = if let Some(scope_str) = claims.scope {
             scope_str
                 .split_whitespace()
@@ -100,9 +104,10 @@ impl Authenticator for JwtAuthenticator {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use jsonwebtoken::{EncodingKey, Header, encode};
     use serde::Serialize;
+
+    use super::*;
 
     #[derive(Serialize)]
     struct TestClaims {

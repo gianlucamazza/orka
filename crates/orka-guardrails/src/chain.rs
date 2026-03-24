@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::{Guardrail, GuardrailDecision};
-use orka_core::{Result, Session};
+use orka_core::{
+    Result, Session,
+    traits::{Guardrail, GuardrailDecision},
+};
 
-/// Chains multiple guardrails. Processes in order; first Block wins, Modify accumulates.
+/// Chains multiple guardrails. Processes in order; first Block wins, Modify
+/// accumulates.
 pub struct GuardrailChain {
     guardrails: Vec<Arc<dyn Guardrail>>,
 }

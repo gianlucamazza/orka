@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use deadpool_redis::{Config, Pool, Runtime};
@@ -8,7 +10,6 @@ use orka_core::{
     types::{Envelope, Priority},
 };
 use redis::AsyncCommands;
-use std::time::Duration;
 use tracing::{debug, warn};
 
 const PENDING_KEY: &str = "orka:queue:pending";
@@ -33,8 +34,9 @@ impl RedisPriorityQueue {
 
 /// Compute the sorted-set score for a given priority and timestamp.
 ///
-/// Lower score = higher priority. Urgent maps to bucket 0, Normal to 1, Background to 2.
-/// Within the same bucket, earlier timestamps sort first (FIFO).
+/// Lower score = higher priority. Urgent maps to bucket 0, Normal to 1,
+/// Background to 2. Within the same bucket, earlier timestamps sort first
+/// (FIFO).
 pub fn priority_score(priority: &Priority, timestamp: DateTime<Utc>) -> f64 {
     let bucket: u64 = match priority {
         Priority::Urgent => 0,
@@ -276,8 +278,9 @@ impl PriorityQueue for RedisPriorityQueue {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::TimeZone;
+
+    use super::*;
 
     #[test]
     fn priority_score_ordering() {

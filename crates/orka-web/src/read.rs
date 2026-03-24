@@ -1,13 +1,12 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
+};
 use tracing::debug;
 
-use crate::cache::WebCache;
-use crate::extract;
+use crate::{cache::WebCache, extract};
 
 /// Skill that fetches and reads a web page, extracting readable text.
 pub struct WebReadSkill {
@@ -190,8 +189,9 @@ impl Skill for WebReadSkill {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
+
+    use super::*;
 
     fn make_skill() -> WebReadSkill {
         WebReadSkill::new(

@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 
-use orka_knowledge::vector_store::VectorStore;
-use orka_knowledge::vector_store::qdrant::QdrantStore;
-use testcontainers::core::WaitFor;
-use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, GenericImage};
+use orka_knowledge::vector_store::{VectorStore, qdrant::QdrantStore};
+use testcontainers::{ContainerAsync, GenericImage, core::WaitFor, runners::AsyncRunner};
 
 async fn setup_qdrant() -> (QdrantStore, ContainerAsync<GenericImage>) {
     let container = GenericImage::new("qdrant/qdrant", "v1.12.1")

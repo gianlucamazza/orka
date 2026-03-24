@@ -1,13 +1,14 @@
 use chrono::Utc;
-use uuid::Uuid;
-
 use orka_core::ErrorCategory;
+use uuid::Uuid;
 
 use crate::types::{OutcomeSignal, SkillTrace, Trajectory};
 
-/// Collects domain event data during a single handler invocation and produces a [`Trajectory`].
+/// Collects domain event data during a single handler invocation and produces a
+/// [`Trajectory`].
 ///
-/// Usage: create at handler start, call record methods as events occur, then call `finish()`.
+/// Usage: create at handler start, call record methods as events occur, then
+/// call `finish()`.
 #[derive(Debug)]
 pub struct TrajectoryCollector {
     id: String,

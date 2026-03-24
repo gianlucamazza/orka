@@ -49,8 +49,8 @@
 //!
 //! # ABI contract
 //!
-//! The [`export_plugin!`] macro generates the following `extern "C"` exports that
-//! the Orka host calls:
+//! The [`export_plugin!`] macro generates the following `extern "C"` exports
+//! that the Orka host calls:
 //!
 //! | Symbol | Signature | Description |
 //! |---|---|---|
@@ -69,15 +69,19 @@ use serde::{Deserialize, Serialize};
 /// ABI version exported by v2 plugins.
 pub const ABI_VERSION: i32 = 2;
 
-/// Metadata returned by a plugin describing its identity and parameter contract.
+/// Metadata returned by a plugin describing its identity and parameter
+/// contract.
 ///
 /// The `parameters_schema` field must be a valid [JSON Schema](https://json-schema.org/)
-/// string. Orka uses it to validate input and to present the plugin's interface to the LLM.
+/// string. Orka uses it to validate input and to present the plugin's interface
+/// to the LLM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginInfo {
-    /// Unique skill name registered in the Orka skill registry (e.g. `"web_search"`).
+    /// Unique skill name registered in the Orka skill registry (e.g.
+    /// `"web_search"`).
     pub name: String,
-    /// Human-readable description shown to the LLM as part of the tool definition.
+    /// Human-readable description shown to the LLM as part of the tool
+    /// definition.
     pub description: String,
     /// JSON Schema for the `args` object passed to [`Plugin::execute`].
     pub parameters_schema: String,
@@ -100,9 +104,9 @@ pub struct PluginOutput {
 
 /// Core trait implemented by all Orka WASM plugins.
 ///
-/// Plugin types must also implement [`Default`] so the host can instantiate them
-/// without arguments. State should not be held across calls — plugins are stateless
-/// by design.
+/// Plugin types must also implement [`Default`] so the host can instantiate
+/// them without arguments. State should not be held across calls — plugins are
+/// stateless by design.
 pub trait Plugin: Default {
     /// Return static metadata about this plugin.
     ///
@@ -132,7 +136,8 @@ pub trait Plugin: Default {
     }
 }
 
-/// Macro to export a plugin. Generates the WASM-compatible FFI functions (ABI v2).
+/// Macro to export a plugin. Generates the WASM-compatible FFI functions (ABI
+/// v2).
 #[macro_export]
 macro_rules! export_plugin {
     ($plugin_ty:ty) => {
@@ -182,7 +187,8 @@ macro_rules! export_plugin {
             (ptr << 32) | len
         }
 
-        /// Execute the plugin with JSON input. Encoding: (ptr << 32) | len, or 0 on error.
+        /// Execute the plugin with JSON input. Encoding: (ptr << 32) | len, or 0 on
+        /// error.
         #[no_mangle]
         pub extern "C" fn orka_plugin_execute(ptr: u32, len: u32) -> i64 {
             // SAFETY: The host allocated this memory via `orka_alloc` and wrote `len` bytes

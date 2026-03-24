@@ -1,14 +1,12 @@
+use aes_gcm::{
+    Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit, OsRng, rand_core::RngCore},
+};
 use async_trait::async_trait;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
+use orka_core::{Error, Result, SecretValue, traits::SecretManager};
 use redis::AsyncCommands;
 use tracing::debug;
-
-use aes_gcm::aead::rand_core::RngCore;
-use aes_gcm::aead::{Aead, KeyInit, OsRng};
-use aes_gcm::{Aes256Gcm, Nonce};
-
-use orka_core::traits::SecretManager;
-use orka_core::{Error, Result, SecretValue};
 
 /// AES-256-GCM nonce size in bytes.
 const NONCE_SIZE: usize = 12;
@@ -26,15 +24,17 @@ impl RedisSecretManager {
     ///
     /// If `encryption_key` is `Some`, secrets are encrypted with AES-256-GCM
     /// before being written to Redis. The key must be exactly 32 bytes.
-    /// If `None`, secrets are stored in plaintext (suitable for local development).
+    /// If `None`, secrets are stored in plaintext (suitable for local
+    /// development).
     pub fn new(redis_url: &str) -> Result<Self> {
         Self::with_encryption(redis_url, None)
     }
 
     /// Create a new secret manager with optional AES-256-GCM encryption.
     ///
-    /// `encryption_key` must be exactly 32 bytes if provided. When `None`, secrets
-    /// are stored in plaintext (suitable for local development only).
+    /// `encryption_key` must be exactly 32 bytes if provided. When `None`,
+    /// secrets are stored in plaintext (suitable for local development
+    /// only).
     pub fn with_encryption(redis_url: &str, encryption_key: Option<&[u8]>) -> Result<Self> {
         let cfg = DeadpoolConfig::from_url(redis_url);
         let pool = cfg

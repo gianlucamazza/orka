@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
-use orka_core::DomainEvent;
-use orka_core::traits::EventSink;
+use orka_core::{DomainEvent, traits::EventSink};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 

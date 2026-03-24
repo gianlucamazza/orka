@@ -2,7 +2,8 @@
 //!
 //! - [`Authenticator`] — async trait for credential verification
 //! - [`ApiKeyAuthenticator`], [`JwtAuthenticator`] — built-in implementations
-//! - [`AuthLayer`] / [`AuthService`] — tower middleware for request authentication
+//! - [`AuthLayer`] / [`AuthService`] — tower middleware for request
+//!   authentication
 
 #![warn(missing_docs)]
 
@@ -17,7 +18,8 @@ pub mod middleware;
 /// Identity and credentials types.
 pub mod types;
 
-/// In-memory test doubles for authentication (available with `test-util` feature or `#[cfg(test)]`).
+/// In-memory test doubles for authentication (available with `test-util`
+/// feature or `#[cfg(test)]`).
 #[cfg(any(feature = "test-util", test))]
 pub mod testing;
 
@@ -25,7 +27,6 @@ pub use api_key::ApiKeyAuthenticator;
 pub use authenticator::Authenticator;
 pub use jwt::JwtAuthenticator;
 pub use middleware::{AuthLayer, AuthService};
-pub use types::{AuthIdentity, Credentials};
-
 #[cfg(any(feature = "test-util", test))]
 pub use testing::InMemoryAuthenticator;
+pub use types::{AuthIdentity, Credentials};

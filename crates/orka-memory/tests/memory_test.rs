@@ -1,5 +1,4 @@
-use orka_core::MemoryEntry;
-use orka_core::traits::MemoryStore;
+use orka_core::{MemoryEntry, traits::MemoryStore};
 use orka_memory::RedisMemoryStore;
 
 async fn setup() -> (

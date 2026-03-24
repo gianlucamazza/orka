@@ -8,10 +8,10 @@
 /// Redis sorted-set implementation of the priority queue.
 pub mod redis_queue;
 
-pub use redis_queue::RedisPriorityQueue;
+use std::sync::Arc;
 
 use orka_core::{Result, config::OrkaConfig, traits::PriorityQueue};
-use std::sync::Arc;
+pub use redis_queue::RedisPriorityQueue;
 
 /// Create a priority queue from the given configuration.
 /// Uses Redis backend (queue is always Redis-backed in production).

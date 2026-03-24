@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use crate::soft_skill::{SoftSkill, SoftSkillSummary};
 use orka_prompts::template::TemplateRegistry;
+
+use crate::soft_skill::{SoftSkill, SoftSkillSummary};
 
 /// Controls which soft skills are injected into the agent system prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -9,8 +10,8 @@ pub enum SoftSkillSelectionMode {
     /// Inject all registered soft skills (default, backward-compatible).
     #[default]
     All,
-    /// Inject only soft skills whose name or tags match words in the user's message.
-    /// Reduces prompt bloat when many skills are registered.
+    /// Inject only soft skills whose name or tags match words in the user's
+    /// message. Reduces prompt bloat when many skills are registered.
     Keyword,
 }
 
@@ -129,11 +130,13 @@ impl SoftSkillRegistry {
         out
     }
 
-    /// Return names of skills whose name or tags appear in `message` (case-insensitive).
+    /// Return names of skills whose name or tags appear in `message`
+    /// (case-insensitive).
     ///
-    /// Used by [`SoftSkillSelectionMode::Keyword`] to reduce prompt bloat by injecting
-    /// only contextually relevant skills instead of the full registry.
-    /// Falls back to all skills when no keyword matches are found.
+    /// Used by [`SoftSkillSelectionMode::Keyword`] to reduce prompt bloat by
+    /// injecting only contextually relevant skills instead of the full
+    /// registry. Falls back to all skills when no keyword matches are
+    /// found.
     pub fn filter_by_message<'a>(&'a self, message: &str) -> Vec<&'a str> {
         let msg_lower = message.to_lowercase();
         let matched: Vec<&'a str> = self
@@ -168,9 +171,10 @@ impl Default for SoftSkillRegistry {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use crate::soft_skill::SoftSkillMeta;
-    use std::path::PathBuf;
 
     fn make_skill(name: &str, desc: &str, body: &str) -> SoftSkill {
         SoftSkill::new(

@@ -48,13 +48,14 @@ pub enum LlmError {
 }
 
 impl From<LlmError> for orka_core::Error {
-    /// Convert an [`LlmError`] into the unified [`orka_core::Error::Llm`] variant.
+    /// Convert an [`LlmError`] into the unified [`orka_core::Error::Llm`]
+    /// variant.
     ///
     /// # Examples
     ///
     /// ```
-    /// use orka_llm::error::LlmError;
     /// use orka_core::Error;
+    /// use orka_llm::error::LlmError;
     ///
     /// let llm_err = LlmError::Auth("invalid API key".into());
     /// let core_err: Error = llm_err.into();

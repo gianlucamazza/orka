@@ -31,12 +31,12 @@ impl AssertionResult {
             detail: Some(detail.into()),
         }
     }
-    
+
     /// Create a passing assertion result (public API for tests).
     pub fn pass_test(check: impl Into<String>) -> Self {
         Self::pass(check)
     }
-    
+
     /// Create a failing assertion result (public API for tests).
     pub fn fail_test(check: impl Into<String>, detail: impl Into<String>) -> Self {
         Self::fail(check, detail)

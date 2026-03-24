@@ -1,10 +1,8 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::Utc;
 use orka_core::Result;
-use orka_knowledge::embeddings::EmbeddingProvider;
-use orka_knowledge::vector_store::VectorStore;
+use orka_knowledge::{embeddings::EmbeddingProvider, vector_store::VectorStore};
 use tracing::debug;
 
 use crate::types::{SkillTrace, Trajectory};
@@ -21,7 +19,8 @@ pub struct TrajectoryStore {
 }
 
 impl TrajectoryStore {
-    /// Create a new trajectory store backed by the given vector store and embedding provider.
+    /// Create a new trajectory store backed by the given vector store and
+    /// embedding provider.
     pub fn new(
         embeddings: Arc<dyn EmbeddingProvider>,
         vector_store: Arc<dyn VectorStore>,
@@ -47,7 +46,8 @@ impl TrajectoryStore {
         Ok(())
     }
 
-    /// Persist a trajectory. The user message is embedded for later similarity search.
+    /// Persist a trajectory. The user message is embedded for later similarity
+    /// search.
     pub async fn store(&self, trajectory: &Trajectory) -> Result<()> {
         self.ensure_init().await?;
 
@@ -75,7 +75,8 @@ impl TrajectoryStore {
         Ok(())
     }
 
-    /// Load up to `limit` recent trajectories, optionally filtered by workspace.
+    /// Load up to `limit` recent trajectories, optionally filtered by
+    /// workspace.
     pub async fn load_recent(
         &self,
         workspace: Option<&str>,
@@ -199,8 +200,9 @@ fn truncate(s: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::Utc;
+
+    use super::*;
 
     fn make_trajectory(id: &str, workspace: &str, success: bool) -> Trajectory {
         Trajectory {

@@ -1,19 +1,18 @@
+use std::{collections::HashMap, sync::Arc};
+
 use async_trait::async_trait;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
-use std::collections::HashMap;
-use std::sync::Arc;
+use orka_core::{Envelope, Error, MessageId, MessageStream, Result, traits::MessageBus};
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, warn};
-
-use orka_core::traits::MessageBus;
-use orka_core::{Envelope, Error, MessageId, MessageStream, Result};
 
 /// Redis Streams implementation of [`orka_core::traits::MessageBus`].
 pub struct RedisBus {
     pool: Pool,
     group: String,
     consumer: String,
-    pending: Arc<Mutex<HashMap<String, (String, String)>>>, // message_id_str -> (stream_key, redis_entry_id)
+    pending: Arc<Mutex<HashMap<String, (String, String)>>>, /* message_id_str -> (stream_key,
+                                                             * redis_entry_id) */
     block_ms: u64,
     batch_size: usize,
     backoff_initial_secs: u64,
@@ -317,7 +316,8 @@ fn parse_xreadgroup_response(value: &redis::Value) -> Option<Vec<(String, String
     }
 }
 
-/// Convert a Redis Value to a String, handling both BulkString and SimpleString variants.
+/// Convert a Redis Value to a String, handling both BulkString and SimpleString
+/// variants.
 fn value_to_string(value: &redis::Value) -> Option<String> {
     match value {
         redis::Value::BulkString(bytes) => String::from_utf8(bytes.clone()).ok(),

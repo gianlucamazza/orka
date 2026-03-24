@@ -1,10 +1,8 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::RwLock;
 
-use crate::loader::WorkspaceLoader;
-use crate::state::WorkspaceState;
+use crate::{loader::WorkspaceLoader, state::WorkspaceState};
 
 /// Registry of named workspaces, used for multi-workspace support.
 ///

@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use orka_circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError};
@@ -20,7 +19,8 @@ pub struct LlmRouter {
     default_provider: Arc<dyn LlmClient>,
     /// Map of provider name -> client (e.g., "anthropic" -> AnthropicClient).
     providers: HashMap<String, Arc<dyn LlmClient>>,
-    /// Map of model prefix -> provider name (e.g., "claude" -> "anthropic", "gpt" -> "openai").
+    /// Map of model prefix -> provider name (e.g., "claude" -> "anthropic",
+    /// "gpt" -> "openai").
     prefix_map: HashMap<String, String>,
     /// Per-provider circuit breakers.
     breakers: HashMap<String, Arc<CircuitBreaker>>,
@@ -45,8 +45,8 @@ impl LlmRouter {
         }
     }
 
-    /// Set a custom circuit breaker config. Affects subsequently added providers
-    /// and replaces the default provider's breaker.
+    /// Set a custom circuit breaker config. Affects subsequently added
+    /// providers and replaces the default provider's breaker.
     pub fn with_circuit_breaker_config(mut self, config: CircuitBreakerConfig) -> Self {
         self.default_breaker = Arc::new(CircuitBreaker::new(config.clone()));
         self.breaker_config = config;
@@ -260,9 +260,12 @@ impl LlmRouter {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        sync::atomic::{AtomicU32, Ordering},
+        time::Duration,
+    };
+
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::Duration;
 
     struct MockLlm {
         fail_count: AtomicU32,

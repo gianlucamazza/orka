@@ -1,9 +1,10 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use orka_core::config::{SandboxConfig, SandboxLimitsConfig};
-use orka_core::traits::Skill;
-use orka_core::types::SkillInput;
+use orka_core::{
+    config::{SandboxConfig, SandboxLimitsConfig},
+    traits::Skill,
+    types::SkillInput,
+};
 use orka_sandbox::{
     ProcessSandbox, SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxSkill,
 };

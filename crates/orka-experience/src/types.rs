@@ -2,7 +2,8 @@ use chrono::{DateTime, Utc};
 use orka_core::ErrorCategory;
 use serde::{Deserialize, Serialize};
 
-/// A structured trajectory record aggregated from domain events during a single handler invocation.
+/// A structured trajectory record aggregated from domain events during a single
+/// handler invocation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trajectory {
     /// Unique trajectory identifier (UUID v7).
@@ -75,7 +76,8 @@ pub struct Principle {
     pub scope: String,
     /// When this principle was first created.
     pub created_at: DateTime<Utc>,
-    /// How many times this principle has been reinforced by subsequent reflections.
+    /// How many times this principle has been reinforced by subsequent
+    /// reflections.
     pub reinforcement_count: u32,
     /// Relevance score from the last retrieval (transient, not stored).
     #[serde(skip)]
@@ -92,7 +94,8 @@ pub enum PrincipleKind {
     Avoid,
 }
 
-/// Outcome signal for a completed interaction, used to decide whether to reflect.
+/// Outcome signal for a completed interaction, used to decide whether to
+/// reflect.
 #[derive(Debug, Clone)]
 pub enum OutcomeSignal {
     /// At least one skill or the overall handler failed.

@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

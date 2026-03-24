@@ -1,6 +1,7 @@
 use serde::de::DeserializeOwned;
 
-/// A parsed markdown document with typed YAML frontmatter and a plain-text body.
+/// A parsed markdown document with typed YAML frontmatter and a plain-text
+/// body.
 #[derive(Debug, Clone)]
 pub struct Document<T> {
     /// Deserialized YAML frontmatter.

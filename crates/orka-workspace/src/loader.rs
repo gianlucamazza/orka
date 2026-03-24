@@ -1,8 +1,12 @@
-use crate::state::WorkspaceState;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
 use tokio::sync::{RwLock, broadcast};
 use tracing::{debug, warn};
+
+use crate::state::WorkspaceState;
 
 /// Events broadcast by [`WorkspaceLoader`] when workspace files change.
 #[derive(Debug, Clone)]
@@ -50,7 +54,8 @@ impl WorkspaceLoader {
     pub async fn load_all(&self) -> orka_core::Result<()> {
         self.load_file("SOUL.md").await;
         self.load_file("TOOLS.md").await;
-        // broadcast::send fails only when there are no active subscribers — safe to ignore.
+        // broadcast::send fails only when there are no active subscribers — safe to
+        // ignore.
         let _ = self.tx.send(WorkspaceEvent::Reloaded);
         Ok(())
     }
@@ -77,7 +82,8 @@ impl WorkspaceLoader {
             }
             other => warn!(file = %other, "unknown workspace file"),
         }
-        // broadcast::send fails only when there are no active subscribers — safe to ignore.
+        // broadcast::send fails only when there are no active subscribers — safe to
+        // ignore.
         let _ = self
             .tx
             .send(WorkspaceEvent::FileChanged(filename.to_string()));

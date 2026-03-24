@@ -1,22 +1,22 @@
 use std::sync::Arc;
 
-use orka_core::Result;
-use orka_core::config::ExperienceConfig;
+use orka_core::{ErrorCategory, Result, config::ExperienceConfig};
 use orka_llm::client::LlmClient;
 use orka_prompts::template::TemplateRegistry;
 use rand::Rng as _;
 use tracing::{debug, info, warn};
 
-use orka_core::ErrorCategory;
+use crate::{
+    collector::TrajectoryCollector,
+    distiller::Distiller,
+    reflector::PrincipleReflector,
+    store::PrincipleStore,
+    trajectory_store::TrajectoryStore,
+    types::{Principle, PrincipleKind, StructuralAction, Trajectory},
+};
 
-use crate::collector::TrajectoryCollector;
-use crate::distiller::Distiller;
-use crate::reflector::PrincipleReflector;
-use crate::store::PrincipleStore;
-use crate::trajectory_store::TrajectoryStore;
-use crate::types::{Principle, PrincipleKind, StructuralAction, Trajectory};
-
-/// Result of a reflection pass: principles for prompt injection and structural actions to apply.
+/// Result of a reflection pass: principles for prompt injection and structural
+/// actions to apply.
 pub struct ReflectionResult {
     /// Number of principles created or updated by this reflection.
     pub principles_created: usize,
@@ -24,8 +24,8 @@ pub struct ReflectionResult {
     pub actions: Vec<StructuralAction>,
 }
 
-/// High-level facade combining trajectory collection, principle reflection, retrieval,
-/// trajectory persistence, and offline distillation.
+/// High-level facade combining trajectory collection, principle reflection,
+/// retrieval, trajectory persistence, and offline distillation.
 pub struct ExperienceService {
     store: Arc<PrincipleStore>,
     trajectory_store: Arc<TrajectoryStore>,
@@ -136,8 +136,8 @@ impl ExperienceService {
 
     /// Format principles for injection using the configured templates.
     ///
-    /// If templates are configured and a "principles" template exists, it will be used.
-    /// Otherwise falls back to the default formatting.
+    /// If templates are configured and a "principles" template exists, it will
+    /// be used. Otherwise falls back to the default formatting.
     pub async fn format_principles(&self, principles: &[Principle]) -> String {
         if principles.is_empty() {
             return String::new();
@@ -176,10 +176,12 @@ impl ExperienceService {
         self.trajectory_store.store(trajectory).await
     }
 
-    /// Decide whether to reflect on a trajectory and, if so, perform reflection.
+    /// Decide whether to reflect on a trajectory and, if so, perform
+    /// reflection.
     ///
-    /// Returns a [`ReflectionResult`] with the number of principles created and any
-    /// structural actions (e.g. skill disabling) derived deterministically from the trajectory.
+    /// Returns a [`ReflectionResult`] with the number of principles created and
+    /// any structural actions (e.g. skill disabling) derived
+    /// deterministically from the trajectory.
     pub async fn maybe_reflect(&self, trajectory: &Trajectory) -> Result<ReflectionResult> {
         let actions = Self::derive_structural_actions(trajectory);
 
@@ -226,7 +228,8 @@ impl ExperienceService {
         })
     }
 
-    /// Derive structural actions deterministically from a trajectory (no LLM involved).
+    /// Derive structural actions deterministically from a trajectory (no LLM
+    /// involved).
     fn derive_structural_actions(trajectory: &Trajectory) -> Vec<StructuralAction> {
         trajectory
             .skills_used
@@ -241,8 +244,9 @@ impl ExperienceService {
 
     /// Run offline distillation over recent trajectories.
     ///
-    /// Loads up to `distillation_batch_size` recent trajectories from the workspace,
-    /// synthesizes cross-trajectory patterns, and stores the resulting principles.
+    /// Loads up to `distillation_batch_size` recent trajectories from the
+    /// workspace, synthesizes cross-trajectory patterns, and stores the
+    /// resulting principles.
     ///
     /// Returns the number of new principles created.
     pub async fn distill(&self, workspace: &str) -> Result<usize> {

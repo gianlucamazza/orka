@@ -29,51 +29,71 @@ pub use state::WorkspaceState;
 pub use watcher::WorkspaceWatcher;
 
 /// Load built-in templates into the registry.
-pub async fn load_builtins(registry: &TemplateRegistry) -> Result<(), orka_prompts::template::TemplateError> {
-    registry.register_inline(
-        "system/reflection",
-        include_str!("../../orka-prompts/templates/system/reflection.hbs"),
-    ).await?;
+pub async fn load_builtins(
+    registry: &TemplateRegistry,
+) -> Result<(), orka_prompts::template::TemplateError> {
+    registry
+        .register_inline(
+            "system/reflection",
+            include_str!("../../orka-prompts/templates/system/reflection.hbs"),
+        )
+        .await?;
 
-    registry.register_inline(
-        "system/distillation",
-        include_str!("../../orka-prompts/templates/system/distillation.hbs"),
-    ).await?;
+    registry
+        .register_inline(
+            "system/distillation",
+            include_str!("../../orka-prompts/templates/system/distillation.hbs"),
+        )
+        .await?;
 
-    registry.register_inline(
-        "sections/persona",
-        include_str!("../../orka-prompts/templates/sections/persona.hbs"),
-    ).await?;
+    registry
+        .register_inline(
+            "sections/persona",
+            include_str!("../../orka-prompts/templates/sections/persona.hbs"),
+        )
+        .await?;
 
-    registry.register_inline(
-        "sections/datetime",
-        include_str!("../../orka-prompts/templates/sections/datetime.hbs"),
-    ).await?;
+    registry
+        .register_inline(
+            "sections/datetime",
+            include_str!("../../orka-prompts/templates/sections/datetime.hbs"),
+        )
+        .await?;
 
-    registry.register_inline(
-        "sections/tools",
-        include_str!("../../orka-prompts/templates/sections/tools.hbs"),
-    ).await?;
+    registry
+        .register_inline(
+            "sections/tools",
+            include_str!("../../orka-prompts/templates/sections/tools.hbs"),
+        )
+        .await?;
 
-    registry.register_inline(
-        "sections/workspace",
-        include_str!("../../orka-prompts/templates/sections/workspace.hbs"),
-    ).await?;
+    registry
+        .register_inline(
+            "sections/workspace",
+            include_str!("../../orka-prompts/templates/sections/workspace.hbs"),
+        )
+        .await?;
 
-    registry.register_inline(
-        "sections/principles",
-        include_str!("../../orka-prompts/templates/sections/principles.hbs"),
-    ).await?;
+    registry
+        .register_inline(
+            "sections/principles",
+            include_str!("../../orka-prompts/templates/sections/principles.hbs"),
+        )
+        .await?;
 
-    registry.register_inline(
-        "sections/summary",
-        include_str!("../../orka-prompts/templates/sections/summary.hbs"),
-    ).await?;
+    registry
+        .register_inline(
+            "sections/summary",
+            include_str!("../../orka-prompts/templates/sections/summary.hbs"),
+        )
+        .await?;
 
-    registry.register_inline(
-        "selection/soft_skill",
-        include_str!("../../orka-prompts/templates/selection/soft_skill.hbs"),
-    ).await?;
+    registry
+        .register_inline(
+            "selection/soft_skill",
+            include_str!("../../orka-prompts/templates/selection/soft_skill.hbs"),
+        )
+        .await?;
 
     Ok(())
 }

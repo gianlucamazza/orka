@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use orka_mcp::{
     McpClient, McpContent, McpOAuthConfig, McpServerConfig, McpToolInfo, McpToolResult,
     McpTransportConfig,
@@ -16,7 +14,9 @@ fn config_stdio_fields() {
     };
     assert_eq!(config.name, "test-server");
     match &config.transport {
-        McpTransportConfig::Stdio { command, args, env, .. } => {
+        McpTransportConfig::Stdio {
+            command, args, env, ..
+        } => {
             assert_eq!(command, "echo");
             assert_eq!(args, &vec!["hello", "world"]);
             assert_eq!(env.get("KEY").unwrap(), "VALUE");
@@ -54,8 +54,7 @@ fn config_http_fields() {
 async fn connect_nonexistent_command_fails() {
     let config = McpServerConfig {
         name: "bad".into(),
-        transport: McpTransportConfig::stdio("/nonexistent/binary/that/does/not/exist")
-            .build(),
+        transport: McpTransportConfig::stdio("/nonexistent/binary/that/does/not/exist").build(),
     };
     let result = McpClient::connect(config).await;
     assert!(

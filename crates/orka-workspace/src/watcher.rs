@@ -1,7 +1,9 @@
-use crate::loader::WorkspaceLoader;
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::Arc;
+
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
+
+use crate::loader::WorkspaceLoader;
 
 /// Filesystem watcher that triggers workspace reloads on file changes.
 pub struct WorkspaceWatcher {
@@ -12,7 +14,8 @@ pub struct WorkspaceWatcher {
 impl WorkspaceWatcher {
     /// Start watching the workspace directory associated with `loader`.
     ///
-    /// Workspace files (`SOUL.md`, `TOOLS.md`) are reloaded with a 500 ms debounce.
+    /// Workspace files (`SOUL.md`, `TOOLS.md`) are reloaded with a 500 ms
+    /// debounce.
     pub fn start(loader: Arc<WorkspaceLoader>) -> orka_core::Result<Self> {
         let (tx, mut rx) = mpsc::channel::<notify::Event>(256);
         let root = loader.root().to_path_buf();
@@ -34,6 +37,7 @@ impl WorkspaceWatcher {
 
         let handle = tokio::spawn(async move {
             use std::collections::HashMap;
+
             use tokio::time::{Duration, Instant};
 
             let mut last_seen: HashMap<String, Instant> = HashMap::new();

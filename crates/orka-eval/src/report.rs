@@ -73,7 +73,8 @@ impl EvalReport {
 
     /// Serialize the report to JSON.
     pub fn to_json(&self) -> String {
-        // Simple manual JSON serialization to avoid adding serde derive to internal types
+        // Simple manual JSON serialization to avoid adding serde derive to internal
+        // types
         let results: Vec<serde_json::Value> = self
             .results
             .iter()

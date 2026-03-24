@@ -1,9 +1,7 @@
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 use orka_wasm::{PluginCapabilities, WasmComponent, WasmEngine, WasmLimits};
 
 /// A skill backed by a WASM Component Model plugin.
@@ -61,7 +59,8 @@ impl Skill for WasmPluginSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        // Convert HashMap<String, Value> → Vec<(String, String)> (JSON-encode each value).
+        // Convert HashMap<String, Value> → Vec<(String, String)> (JSON-encode each
+        // value).
         let args: Vec<(String, String)> = input
             .args
             .into_iter()

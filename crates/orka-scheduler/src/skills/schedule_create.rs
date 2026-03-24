@@ -1,13 +1,11 @@
+use std::{str::FromStr, sync::Arc};
+
 use async_trait::async_trait;
 use chrono::Utc;
-use orka_core::traits::Skill;
-use orka_core::{ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
-use std::str::FromStr;
-use std::sync::Arc;
+use orka_core::{ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 use uuid::Uuid;
 
-use crate::store::ScheduleStore;
-use crate::types::Schedule;
+use crate::{store::ScheduleStore, types::Schedule};
 
 /// Skill that creates a new schedule entry in the store.
 pub struct ScheduleCreateSkill {

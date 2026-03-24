@@ -1,5 +1,7 @@
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 use orka_core::{Error, Result};
 use reqwest::Client;

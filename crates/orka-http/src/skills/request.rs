@@ -1,8 +1,7 @@
+use std::{sync::Arc, time::Duration};
+
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
-use std::sync::Arc;
-use std::time::Duration;
+use orka_core::{ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 use tracing::debug;
 
 use crate::guard::SsrfGuard;

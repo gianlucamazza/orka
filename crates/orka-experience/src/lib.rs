@@ -1,8 +1,11 @@
-//! Self-learning experience system that extracts reusable principles from agent interactions.
+//! Self-learning experience system that extracts reusable principles from agent
+//! interactions.
 //!
-//! - [`TrajectoryCollector`] — records tool-use trajectories during conversations
+//! - [`TrajectoryCollector`] — records tool-use trajectories during
+//!   conversations
 //! - [`TrajectoryStore`] — persists raw trajectories for offline processing
-//! - [`ExperienceService`] — reflects on outcomes, distills patterns, and stores/retrieves principles
+//! - [`ExperienceService`] — reflects on outcomes, distills patterns, and
+//!   stores/retrieves principles
 //! - [`PrincipleStore`] — vector-backed storage for learned principles
 
 #![warn(missing_docs)]
@@ -13,7 +16,8 @@ pub mod collector;
 pub mod distiller;
 /// Single-trajectory principle reflection using an LLM.
 pub mod reflector;
-/// High-level facade combining collection, reflection, retrieval, and distillation.
+/// High-level facade combining collection, reflection, retrieval, and
+/// distillation.
 pub mod service;
 /// Vector-backed principle storage and retrieval.
 pub mod store;
@@ -25,16 +29,13 @@ pub(crate) mod utils;
 
 use std::sync::Arc;
 
-use orka_core::Result;
-use orka_core::config::ExperienceConfig;
-use orka_knowledge::embeddings::EmbeddingProvider;
-use orka_knowledge::vector_store::VectorStore;
-use orka_llm::client::LlmClient;
-use tracing::info;
-
 pub use collector::TrajectoryCollector;
+use orka_core::{Result, config::ExperienceConfig};
+use orka_knowledge::{embeddings::EmbeddingProvider, vector_store::VectorStore};
+use orka_llm::client::LlmClient;
 pub use service::{ExperienceService, ReflectionResult};
 pub use store::PrincipleStore;
+use tracing::info;
 pub use trajectory_store::TrajectoryStore;
 pub use types::{OutcomeSignal, Principle, PrincipleKind, StructuralAction, Trajectory};
 

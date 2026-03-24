@@ -1,9 +1,10 @@
+use std::time::Duration;
+
 use orka_core::{
     traits::PriorityQueue,
     types::{Envelope, Priority, SessionId},
 };
 use orka_queue::RedisPriorityQueue;
-use std::time::Duration;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::redis::Redis;
 

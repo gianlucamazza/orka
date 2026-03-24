@@ -1,11 +1,9 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
+use orka_core::{Error, Result, Session, SessionId, traits::SessionStore};
 use redis::AsyncCommands;
 use tracing::debug;
-
-use orka_core::traits::SessionStore;
-use orka_core::{Error, Result, Session, SessionId};
 
 /// Redis implementation of [`orka_core::traits::SessionStore`].
 pub struct RedisSessionStore {

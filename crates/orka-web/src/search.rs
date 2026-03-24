@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
+};
 use tracing::debug;
 
-use crate::cache::WebCache;
-use crate::provider::{SearchOptions, SearchProvider};
+use crate::{
+    cache::WebCache,
+    provider::{SearchOptions, SearchProvider},
+};
 
 /// Skill that searches the web using a configured provider.
 pub struct WebSearchSkill {
@@ -147,9 +150,10 @@ impl Skill for WebSearchSkill {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::types::SearchResult;
-    use std::collections::HashMap;
 
     struct MockProvider {
         results: Vec<SearchResult>,
@@ -293,7 +297,8 @@ mod tests {
         args2.insert("query".into(), serde_json::json!("test"));
         args2.insert("include_content".into(), serde_json::json!(false));
         let input2 = SkillInput::new(args2);
-        // This should succeed (hits provider, not cache) — verifies different cache keys
+        // This should succeed (hits provider, not cache) — verifies different cache
+        // keys
         let output = skill.execute(input2).await.unwrap();
         assert_eq!(output.data.as_array().unwrap().len(), 1);
     }

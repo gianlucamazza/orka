@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use orka_circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput};
+use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, traits::Skill};
 
 /// Per-skill entry combining the skill implementation with its circuit breaker.
 struct SkillEntry {
@@ -12,7 +9,8 @@ struct SkillEntry {
     circuit: CircuitBreaker,
 }
 
-/// Thread-safe registry that maps skill names to their [`Skill`] implementations.
+/// Thread-safe registry that maps skill names to their [`Skill`]
+/// implementations.
 ///
 /// Each registered skill is paired with a [`CircuitBreaker`] that opens after
 /// repeated environmental failures, preventing the LLM from repeatedly calling
@@ -22,8 +20,10 @@ pub struct SkillRegistry {
 }
 
 /// Circuit breaker configuration:
-/// - Environmental: opens after 3 consecutive failures, stays open for 5 minutes.
-/// - Semantic: opens after 5 consecutive quality failures (validate_output errors).
+/// - Environmental: opens after 3 consecutive failures, stays open for 5
+///   minutes.
+/// - Semantic: opens after 5 consecutive quality failures (validate_output
+///   errors).
 const ENV_CIRCUIT_CONFIG: CircuitBreakerConfig = CircuitBreakerConfig {
     failure_threshold: 3,
     quality_failure_threshold: 5,
@@ -66,7 +66,8 @@ impl SkillRegistry {
         Ok(())
     }
 
-    /// Call `cleanup()` on every registered skill. Errors are logged but not propagated.
+    /// Call `cleanup()` on every registered skill. Errors are logged but not
+    /// propagated.
     pub async fn cleanup_all(&self) {
         for (name, entry) in &self.skills {
             let skill_ref: &dyn Skill = entry.skill.as_ref();
@@ -81,14 +82,17 @@ impl SkillRegistry {
         self.skills.get(name).map(|e| &e.skill)
     }
 
-    /// Return the names of all registered skills (including those with open circuits).
+    /// Return the names of all registered skills (including those with open
+    /// circuits).
     pub fn list(&self) -> Vec<&str> {
         self.skills.keys().map(|s| s.as_str()).collect()
     }
 
-    /// Return full metadata for all registered skills, sorted by category then name.
+    /// Return full metadata for all registered skills, sorted by category then
+    /// name.
     ///
-    /// Includes skills with open circuit breakers so callers can show their status.
+    /// Includes skills with open circuit breakers so callers can show their
+    /// status.
     pub fn list_info(&self) -> Vec<(&str, &Arc<dyn Skill>, CircuitState)> {
         let mut entries: Vec<_> = self
             .skills
@@ -103,10 +107,12 @@ impl SkillRegistry {
         entries
     }
 
-    /// Return a mapping from category name to available (name, description) skill pairs.
+    /// Return a mapping from category name to available (name, description)
+    /// skill pairs.
     ///
     /// Only includes skills whose circuit breaker is Closed or HalfOpen.
-    /// Used for progressive disclosure: the LLM sees categories before individual tools.
+    /// Used for progressive disclosure: the LLM sees categories before
+    /// individual tools.
     pub fn list_by_category(&self) -> HashMap<String, Vec<(String, String)>> {
         let mut map: HashMap<String, Vec<(String, String)>> = HashMap::new();
         for (name, entry) in &self.skills {
@@ -169,11 +175,13 @@ impl SkillRegistry {
         self.invoke(name, input).await
     }
 
-    /// Invoke a skill by name after validating the input against its JSON schema.
+    /// Invoke a skill by name after validating the input against its JSON
+    /// schema.
     ///
     /// Environmental errors increment the circuit breaker failure counter.
-    /// After `failure_threshold` consecutive environmental failures the circuit opens
-    /// and this method returns an error immediately without executing the skill.
+    /// After `failure_threshold` consecutive environmental failures the circuit
+    /// opens and this method returns an error immediately without executing
+    /// the skill.
     pub async fn invoke(&self, name: &str, input: SkillInput) -> Result<SkillOutput> {
         let entry = self
             .skills
@@ -267,7 +275,8 @@ impl SkillRegistry {
                 entry.circuit.record_success();
             }
             Err(_) => {
-                // Non-environmental errors do not count against the circuit breaker
+                // Non-environmental errors do not count against the circuit
+                // breaker
             }
         }
 
@@ -283,8 +292,9 @@ impl Default for SkillRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use orka_core::testing::EchoSkill;
+
+    use super::*;
 
     /// A skill that always fails with an environmental error.
     struct FailingSkill;

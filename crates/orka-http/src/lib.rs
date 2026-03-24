@@ -10,12 +10,9 @@ mod skills;
 
 use std::sync::Arc;
 
-use orka_core::Result;
-use orka_core::config::HttpClientConfig;
-use orka_core::traits::Skill;
-use tracing::info;
-
 pub use guard::SsrfGuard;
+use orka_core::{Result, config::HttpClientConfig, traits::Skill};
+use tracing::info;
 
 /// Create HTTP skills from config.
 pub fn create_http_skills(config: &HttpClientConfig) -> Result<Vec<Arc<dyn Skill>>> {
@@ -31,7 +28,10 @@ pub fn create_http_skills(config: &HttpClientConfig) -> Result<Vec<Arc<dyn Skill
         guard,
         10 * 1024 * 1024, // Default 10MB max response
         config.timeout_secs,
-        &config.user_agent.clone().unwrap_or_else(|| "Orka/1.0".to_string()),
+        &config
+            .user_agent
+            .clone()
+            .unwrap_or_else(|| "Orka/1.0".to_string()),
     )?);
 
     info!("HTTP skills initialized (http_request)");

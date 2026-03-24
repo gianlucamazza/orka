@@ -1,5 +1,4 @@
-use orka_core::SecretValue;
-use orka_core::traits::SecretManager;
+use orka_core::{SecretValue, traits::SecretManager};
 use orka_secrets::RedisSecretManager;
 
 async fn setup() -> (

@@ -2,10 +2,13 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 
-use crate::authenticator::Authenticator;
-use crate::types::{AuthIdentity, Credentials};
+use crate::{
+    authenticator::Authenticator,
+    types::{AuthIdentity, Credentials},
+};
 
-/// In-memory authenticator for testing. Stores plain API keys mapped to identities.
+/// In-memory authenticator for testing. Stores plain API keys mapped to
+/// identities.
 pub struct InMemoryAuthenticator {
     keys: HashMap<String, AuthIdentity>,
 }

@@ -2,8 +2,7 @@ use async_trait::async_trait;
 use orka_core::Result;
 use tokio::sync::Mutex;
 
-use crate::store::ScheduleStore;
-use crate::types::Schedule;
+use crate::{store::ScheduleStore, types::Schedule};
 
 /// In-memory [`ScheduleStore`] for use in tests (no Redis required).
 pub struct InMemoryScheduleStore {

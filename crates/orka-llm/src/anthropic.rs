@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use orka_core::{Error, Result, retry::retry_with_backoff};
 use reqwest::Client;
 use serde_json::json;
 use tracing::debug;
@@ -11,8 +12,6 @@ use crate::client::{
     ContentBlockInput, LlmClient, LlmStream, LlmToolStream, RetryableError, StopReason,
     StreamEvent, ToolCall, ToolDefinition, Usage,
 };
-use orka_core::retry::retry_with_backoff;
-use orka_core::{Error, Result};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1/messages";
 
@@ -47,7 +46,8 @@ impl AnthropicClient {
         )
     }
 
-    /// Create a client with full configuration including max_tokens and custom base URL.
+    /// Create a client with full configuration including max_tokens and custom
+    /// base URL.
     pub fn with_options(
         api_key: String,
         model: String,
@@ -185,7 +185,8 @@ impl AnthropicClient {
     }
 
     /// Build API messages from ChatMessage.
-    /// Thinking blocks are filtered out — Anthropic requires they are not re-sent in history.
+    /// Thinking blocks are filtered out — Anthropic requires they are not
+    /// re-sent in history.
     fn build_ext_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         messages
             .iter()
@@ -203,8 +204,9 @@ impl AnthropicClient {
             .collect()
     }
 
-    /// Clamp `budget_tokens` to `max_tokens - 1` if it would equal or exceed `max_tokens`.
-    /// The Anthropic API returns a 400 error when `budget_tokens >= max_tokens`.
+    /// Clamp `budget_tokens` to `max_tokens - 1` if it would equal or exceed
+    /// `max_tokens`. The Anthropic API returns a 400 error when
+    /// `budget_tokens >= max_tokens`.
     fn validated_thinking(
         thinking: &Option<crate::client::ThinkingConfig>,
         max_tokens: u32,
@@ -330,7 +332,8 @@ impl LlmClient for AnthropicClient {
             body["tools"] = json!(api_tools);
         }
 
-        // Extended thinking: inject thinking param and force temperature=1 (Anthropic requirement)
+        // Extended thinking: inject thinking param and force temperature=1 (Anthropic
+        // requirement)
         match &thinking {
             Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
                 body["thinking"] = json!({
@@ -348,7 +351,8 @@ impl LlmClient for AnthropicClient {
         }
 
         // Structured output support (not all providers support this)
-        // Anthropic doesn't have native response_format, but we can add it to system prompt
+        // Anthropic doesn't have native response_format, but we can add it to system
+        // prompt
         if let Some(ref format) = options.response_format {
             match format {
                 crate::client::ResponseFormat::Json => {
@@ -579,7 +583,8 @@ impl LlmClient for AnthropicClient {
                                     let block = &event["content_block"];
                                     match block["type"].as_str() {
                                         Some("thinking") => {
-                                            // thinking block — deltas arrive as thinking_delta
+                                            // thinking block — deltas arrive as
+                                            // thinking_delta
                                         }
                                         Some("tool_use") => {
                                             let id = block["id"].as_str().unwrap_or("").to_string();
@@ -594,7 +599,8 @@ impl LlmClient for AnthropicClient {
                                             state.tool_input_buffer.clear();
                                         }
                                         _ => {
-                                            // text block start — deltas come next
+                                            // text block start — deltas come
+                                            // next
                                         }
                                     }
                                 }

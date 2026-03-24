@@ -1,19 +1,19 @@
 //! Publish/subscribe message bus backed by Redis Streams.
 //!
-//! Provides the [`RedisBus`] implementation of [`orka_core::traits::MessageBus`]
-//! and a [`create_bus`] factory that selects the backend from configuration.
+//! Provides the [`RedisBus`] implementation of
+//! [`orka_core::traits::MessageBus`] and a [`create_bus`] factory that selects
+//! the backend from configuration.
 
 #![warn(missing_docs)]
 
 /// Redis Streams implementation of the message bus.
 pub mod redis_bus;
 
-pub use crate::redis_bus::RedisBus;
-
 use std::sync::Arc;
 
-use orka_core::config::primitives::BusBackend;
-use orka_core::traits::MessageBus;
+use orka_core::{config::primitives::BusBackend, traits::MessageBus};
+
+pub use crate::redis_bus::RedisBus;
 
 /// Create a [`MessageBus`] from the given configuration.
 pub fn create_bus(
@@ -26,7 +26,7 @@ pub fn create_bus(
         }
         BusBackend::Memory => Ok(Arc::new(orka_core::testing::InMemoryBus::new())),
         BusBackend::Nats => Err(orka_core::Error::bus(
-            "NATS bus backend not yet implemented"
+            "NATS bus backend not yet implemented",
         )),
     }
 }

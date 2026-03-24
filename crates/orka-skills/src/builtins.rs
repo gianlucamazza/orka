@@ -1,6 +1,5 @@
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Error, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 
 /// Echo skill — returns input arguments as output data.
 pub struct EchoSkill;

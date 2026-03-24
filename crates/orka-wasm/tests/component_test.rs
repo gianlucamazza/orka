@@ -58,13 +58,12 @@ fn capabilities_env_only() {
 // This test is ignored by default because it requires a compiled `.wasm`
 // Component Model binary. To run it:
 //
-//   1. Build the hello plugin:
-//      cargo build -p hello-plugin --target wasm32-wasip2 --release
-//      cp target/wasm32-wasip2/release/hello_plugin.wasm \
-//         crates/orka-wasm/tests/fixtures/hello-plugin.wasm
+//   1. Build the hello plugin: cargo build -p hello-plugin --target
+//      wasm32-wasip2 --release cp
+//      target/wasm32-wasip2/release/hello_plugin.wasm \
+//      crates/orka-wasm/tests/fixtures/hello-plugin.wasm
 //
-//   2. Run:
-//      cargo test -p orka-wasm -- --ignored component_round_trip
+//   2. Run: cargo test -p orka-wasm -- --ignored component_round_trip
 // ---------------------------------------------------------------------------
 
 #[test]

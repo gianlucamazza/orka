@@ -1,10 +1,8 @@
 use orka_core::{Error, Result};
 use wasmtime::{Linker, Store, StoreLimits, StoreLimitsBuilder, TypedFunc};
-use wasmtime_wasi::WasiCtxBuilder;
-use wasmtime_wasi::p1::WasiP1Ctx;
+use wasmtime_wasi::{WasiCtxBuilder, p1::WasiP1Ctx};
 
-use crate::config::WasmLimits;
-use crate::engine::WasmModule;
+use crate::{config::WasmLimits, engine::WasmModule};
 
 struct InstanceState {
     wasi: WasiP1Ctx,

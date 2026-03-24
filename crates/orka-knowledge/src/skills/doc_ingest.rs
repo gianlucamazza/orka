@@ -1,14 +1,10 @@
+use std::{collections::HashMap, sync::Arc};
+
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Result, SkillInput, SkillOutput, SkillSchema};
-use std::collections::HashMap;
-use std::sync::Arc;
+use orka_core::{Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 use uuid::Uuid;
 
-use crate::chunking;
-use crate::embeddings::EmbeddingProvider;
-use crate::parsers;
-use crate::vector_store::VectorStore;
+use crate::{chunking, embeddings::EmbeddingProvider, parsers, vector_store::VectorStore};
 
 /// Skill that parses, chunks, embeds, and stores documents in the vector store.
 pub struct DocIngestSkill {
@@ -20,7 +16,8 @@ pub struct DocIngestSkill {
 }
 
 impl DocIngestSkill {
-    /// Create the skill with the given embedding provider, vector store, and chunking defaults.
+    /// Create the skill with the given embedding provider, vector store, and
+    /// chunking defaults.
     pub fn new(
         embeddings: Arc<dyn EmbeddingProvider>,
         store: Arc<dyn VectorStore>,

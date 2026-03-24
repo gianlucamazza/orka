@@ -6,13 +6,10 @@
 //! to avoid leaking sensitive values; set `full_args = true` in config for
 //! debug environments.
 
-use std::io::Write as _;
-use std::sync::Mutex;
-use std::time::SystemTime;
+use std::{io::Write as _, sync::Mutex, time::SystemTime};
 
 use async_trait::async_trait;
-use orka_core::traits::EventSink;
-use orka_core::{DomainEvent, DomainEventKind};
+use orka_core::{DomainEvent, DomainEventKind, traits::EventSink};
 use serde::Serialize;
 
 /// A single record written to the audit log.
