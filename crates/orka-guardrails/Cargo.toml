@@ -7,11 +7,14 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+orka-llm.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 regex = "1"
+tokio.workspace = true
+base64 = "0.22"
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["test-util", "macros"] }
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
