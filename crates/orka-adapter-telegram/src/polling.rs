@@ -78,7 +78,6 @@ pub(crate) async fn run_polling_loop(
     memory: Option<Arc<dyn MemoryStore>>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     auth_guard: Arc<TelegramAuthGuard>,
-    group_mode: Option<String>,
 ) {
     let mut offset: i64 = 0;
     let mut error_count: u32 = 0;
@@ -109,7 +108,6 @@ pub(crate) async fn run_polling_loop(
                         &memory,
                         &sink,
                         &auth_guard,
-                        group_mode.as_deref(),
                     )
                     .await;
                 }
@@ -130,7 +128,6 @@ async fn handle_update(
     memory: &Option<Arc<dyn MemoryStore>>,
     sink: &MessageSink,
     auth_guard: &TelegramAuthGuard,
-    group_mode: Option<&str>,
 ) {
     if let Some((user_id, username)) = extract_user_info(&update) {
         if !auth_guard.is_allowed(user_id) {
@@ -156,7 +153,7 @@ async fn handle_update(
         _ => return,
     };
 
-    process_message(api, msg, sessions, memory, sink, is_edited, group_mode).await;
+    process_message(api, msg, sessions, memory, sink, is_edited).await;
 }
 
 /// Process a regular or edited message.
@@ -167,26 +164,8 @@ pub(crate) async fn process_message(
     memory: &Option<Arc<dyn MemoryStore>>,
     sink: &MessageSink,
     is_edited: bool,
-    group_mode: Option<&str>,
 ) {
     let chat_id = msg.chat.id;
-
-    // In "commands_only" group mode, drop non-command messages from group/supergroup chats.
-    if group_mode == Some("commands_only") {
-        let is_group = matches!(
-            msg.chat.r#type.as_deref(),
-            Some("group") | Some("supergroup")
-        );
-        if is_group {
-            let is_command = msg
-                .entities
-                .iter()
-                .any(|e| e.r#type == "bot_command" && e.offset == 0);
-            if !is_command {
-                return;
-            }
-        }
-    }
 
     let session_id = resolve_session(chat_id, sessions, memory).await;
 

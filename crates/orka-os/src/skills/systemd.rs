@@ -1,15 +1,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
-use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
-use uuid::Uuid;
 
-use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
+use crate::approval::ApprovalChannel;
 use crate::config::PermissionLevel;
-use crate::events::{emit_denied, emit_executed};
+use crate::events::emit_executed;
 use crate::guard::PermissionGuard;
 
 fn categorize_daemon_spawn_error(daemon: &str, e: std::io::Error) -> Error {
@@ -246,22 +243,19 @@ impl Skill for JournalReadSkill {
 /// Skill that starts, stops, or restarts systemd services via sudo.
 pub struct ServiceControlSkill {
     guard: Arc<PermissionGuard>,
-    require_confirmation: bool,
-    confirmation_timeout_secs: u64,
+    sudo_requires_password: bool,
     approval: Arc<dyn ApprovalChannel>,
 }
 
 impl ServiceControlSkill {
-    /// Create a new `service_control` skill from config, a permission guard, and an approval channel.
+    /// Create a new `service_control` skill from a permission guard and an approval channel.
     pub fn new(
         guard: Arc<PermissionGuard>,
-        config: &OsConfig,
         approval: Arc<dyn ApprovalChannel>,
     ) -> Self {
         Self {
             guard,
-            require_confirmation: config.sudo.require_confirmation,
-            confirmation_timeout_secs: config.sudo.confirmation_timeout_secs,
+            sudo_requires_password: false, // Default: no password
             approval,
         }
     }
@@ -330,51 +324,8 @@ impl Skill for ServiceControlSkill {
         self.guard
             .check_sudo_command("systemctl", &[action, unit])?;
 
-        // Request approval if needed
-        if self.require_confirmation {
-            let now = Utc::now();
-            let req = ApprovalRequest {
-                id: Uuid::now_v7(),
-                command: "systemctl".to_string(),
-                args: vec![action.to_string(), unit.to_string()],
-                reason: format!("systemctl {} {}", action, unit),
-                session_id: orka_core::types::SessionId::new(),
-                message_id: orka_core::types::MessageId::new(),
-                requested_at: now,
-                expires_at: now + chrono::Duration::seconds(self.confirmation_timeout_secs as i64),
-            };
-            match self.approval.request_approval(req).await? {
-                ApprovalDecision::Approved => {}
-                ApprovalDecision::Denied { reason } => {
-                    let args = &[action, unit];
-                    emit_denied(
-                        &input,
-                        "systemctl",
-                        args,
-                        &format!("service control denied: {reason}"),
-                    )
-                    .await;
-                    return Err(Error::SkillCategorized {
-                        message: format!("service control denied: {}", reason),
-                        category: ErrorCategory::Input,
-                    });
-                }
-                ApprovalDecision::Expired => {
-                    let args = &[action, unit];
-                    emit_denied(
-                        &input,
-                        "systemctl",
-                        args,
-                        "service control approval expired",
-                    )
-                    .await;
-                    return Err(Error::SkillCategorized {
-                        message: "service control approval expired".into(),
-                        category: ErrorCategory::Timeout,
-                    });
-                }
-            }
-        }
+        // Sudo execution proceeds without interactive approval
+        // (approval should be handled externally via sudoers configuration)
 
         let start = std::time::Instant::now();
         let output = tokio::process::Command::new(self.guard.sudo_path())

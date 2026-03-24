@@ -74,10 +74,10 @@ pub fn create_os_skills_with_approval(
     // ReadOnly skills — always included
     let mut result: Vec<Arc<dyn Skill>> = vec![
         Arc::new(skills::system_info::SystemInfoSkill::new(guard.clone())),
-        Arc::new(skills::fs::FsReadSkill::new(guard.clone(), config)),
-        Arc::new(skills::fs::FsListSkill::new(guard.clone(), config)),
+        Arc::new(skills::fs::FsReadSkill::new(guard.clone())),
+        Arc::new(skills::fs::FsListSkill::new(guard.clone())),
         Arc::new(skills::fs::FsInfoSkill::new(guard.clone())),
-        Arc::new(skills::fs::FsSearchSkill::new(guard.clone(), config)),
+        Arc::new(skills::fs::FsSearchSkill::new(guard.clone())),
         Arc::new(skills::process::ProcessListSkill::new(guard.clone())),
         Arc::new(skills::process::ProcessInfoSkill::new(guard.clone())),
         Arc::new(skills::env::EnvGetSkill::new(guard.clone())),
@@ -150,7 +150,6 @@ pub fn create_os_skills_with_approval(
     if level >= PermissionLevel::Execute {
         result.push(Arc::new(skills::shell::ShellExecSkill::new(
             guard.clone(),
-            config,
             approval.clone(),
         )));
         result.push(Arc::new(skills::process::ProcessSignalSkill::new(
@@ -174,7 +173,6 @@ pub fn create_os_skills_with_approval(
         if guard.sudo_enabled() {
             result.push(Arc::new(skills::package::PackageInstallSkill::new(
                 guard.clone(),
-                config,
                 approval.clone(),
             )));
         }
@@ -184,7 +182,6 @@ pub fn create_os_skills_with_approval(
             if guard.sudo_enabled() {
                 result.push(Arc::new(skills::systemd::ServiceControlSkill::new(
                     guard.clone(),
-                    config,
                     approval.clone(),
                 )));
             }
@@ -192,13 +189,8 @@ pub fn create_os_skills_with_approval(
     }
 
     // Claude Code delegation skill — optional, requires `claude` CLI on PATH.
-    // "auto" (default): register only if probe found claude; "true": always register;
-    // "false": never register.
-    let claude_code_available = match config.claude_code.enabled.as_str() {
-        "true" => true,
-        "false" => false,
-        _ => caps.map(|c| c.claude_code.available).unwrap_or(false),
-    };
+    // true: always register; false: never register.
+    let claude_code_available = config.claude_code.enabled;
     if claude_code_available {
         info!("claude_code skill auto-enabled");
         result.push(Arc::new(skills::claude_code::ClaudeCodeSkill::new(

@@ -12,19 +12,45 @@ use orka_core::config::AuthConfig;
 use crate::authenticator::Authenticator;
 use crate::types::{AuthIdentity, Credentials};
 
+/// Authentication middleware configuration.
+#[derive(Clone)]
+pub struct AuthMiddlewareConfig {
+    /// Whether authentication is enabled.
+    pub enabled: bool,
+    /// Header name for API key authentication.
+    pub api_key_header: http::HeaderName,
+}
+
+impl Default for AuthMiddlewareConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            api_key_header: http::HeaderName::from_static("x-api-key"),
+        }
+    }
+}
+
 /// Tower layer that injects authentication middleware.
 #[derive(Clone)]
 pub struct AuthLayer {
     authenticator: Arc<dyn Authenticator>,
-    config: Arc<AuthConfig>,
+    config: Arc<AuthMiddlewareConfig>,
 }
 
 impl AuthLayer {
-    /// Create the layer with the given authenticator and auth config.
-    pub fn new(authenticator: Arc<dyn Authenticator>, config: Arc<AuthConfig>) -> Self {
+    /// Create the layer with the given authenticator and middleware config.
+    pub fn new(authenticator: Arc<dyn Authenticator>, config: Arc<AuthMiddlewareConfig>) -> Self {
         Self {
             authenticator,
             config,
+        }
+    }
+    
+    /// Create the layer with the given authenticator and default config (auth enabled).
+    pub fn new_with_auth_config(authenticator: Arc<dyn Authenticator>, _config: &AuthConfig) -> Self {
+        Self {
+            authenticator,
+            config: Arc::new(AuthMiddlewareConfig::default()),
         }
     }
 }
@@ -46,7 +72,7 @@ impl<S> Layer<S> for AuthLayer {
 pub struct AuthService<S> {
     inner: S,
     authenticator: Arc<dyn Authenticator>,
-    config: Arc<AuthConfig>,
+    config: Arc<AuthMiddlewareConfig>,
 }
 
 impl<S> Service<Request<Body>> for AuthService<S>

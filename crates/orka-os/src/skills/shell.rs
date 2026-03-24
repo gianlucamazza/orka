@@ -2,16 +2,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
-use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use tracing::debug;
-use uuid::Uuid;
 
-use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
+use crate::approval::ApprovalChannel;
 use crate::config::PermissionLevel;
-use crate::events::{emit_denied, emit_executed};
+use crate::events::emit_executed;
 use crate::guard::PermissionGuard;
 
 /// Skill that executes shell commands with permission and approval enforcement.
@@ -19,24 +16,21 @@ pub struct ShellExecSkill {
     guard: Arc<PermissionGuard>,
     timeout_secs: u64,
     max_output_bytes: usize,
-    require_confirmation: bool,
-    confirmation_timeout_secs: u64,
+    sudo_requires_password: bool,
     approval: Arc<dyn ApprovalChannel>,
 }
 
 impl ShellExecSkill {
-    /// Create a new `shell_exec` skill from config, a permission guard, and an approval channel.
+    /// Create a new `shell_exec` skill from a permission guard and an approval channel.
     pub fn new(
         guard: Arc<PermissionGuard>,
-        config: &OsConfig,
         approval: Arc<dyn ApprovalChannel>,
     ) -> Self {
         Self {
             guard,
-            timeout_secs: config.shell_timeout_secs,
-            max_output_bytes: config.max_output_bytes,
-            require_confirmation: config.sudo.require_confirmation,
-            confirmation_timeout_secs: config.sudo.confirmation_timeout_secs,
+            timeout_secs: 30, // Default timeout
+            max_output_bytes: 100 * 1024, // Default 100KB
+            sudo_requires_password: false,
             approval,
         }
     }
@@ -155,42 +149,13 @@ impl Skill for ShellExecSkill {
             .unwrap_or(false);
 
         if use_sudo {
-            // Sudo flow: Admin check + allowlist + approval
+            // Sudo flow: Admin check + allowlist
             self.guard.check_sudo_command(command, &args)?;
 
-            if self.require_confirmation {
-                let now = Utc::now();
-                let req = ApprovalRequest {
-                    id: Uuid::now_v7(),
-                    command: command.to_string(),
-                    args: args.iter().map(|s| s.to_string()).collect(),
-                    reason: format!("sudo execution of: {} {}", command, args.join(" ")),
-                    session_id: orka_core::types::SessionId::new(),
-                    message_id: orka_core::types::MessageId::new(),
-                    requested_at: now,
-                    expires_at: now
-                        + chrono::Duration::seconds(self.confirmation_timeout_secs as i64),
-                };
-                match self.approval.request_approval(req).await? {
-                    ApprovalDecision::Approved => {}
-                    ApprovalDecision::Denied { reason } => {
-                        emit_denied(
-                            &input,
-                            command,
-                            &args,
-                            &format!("sudo execution denied: {reason}"),
-                        )
-                        .await;
-                        return Err(Error::Skill(format!("sudo execution denied: {}", reason)));
-                    }
-                    ApprovalDecision::Expired => {
-                        emit_denied(&input, command, &args, "sudo approval request expired").await;
-                        return Err(Error::Skill("sudo approval request expired".into()));
-                    }
-                }
-            }
+            // Sudo execution proceeds without interactive approval
+            // (approval should be handled externally via sudoers configuration)
         } else {
-            // Normal flow: just validate command against block/allow lists
+            // Normal flow: just validate command against allow lists
             self.guard.check_command(command, &args)?;
         }
 

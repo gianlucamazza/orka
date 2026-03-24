@@ -23,7 +23,6 @@ struct WebhookState {
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
     memory: Option<Arc<dyn MemoryStore>>,
     auth_guard: Arc<TelegramAuthGuard>,
-    group_mode: Option<String>,
 }
 
 async fn handle_update(
@@ -62,7 +61,6 @@ async fn handle_update(
             &state.memory,
             &sink,
             is_edited,
-            state.group_mode.as_deref(),
         )
         .await;
     } else if let Some(cq) = update.callback_query {
@@ -128,7 +126,6 @@ async fn handle_callback_query(
 }
 
 /// Start the webhook HTTP server.
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_webhook_server(
     api: Arc<TelegramApi>,
     sink: Arc<Mutex<Option<MessageSink>>>,
@@ -136,9 +133,8 @@ pub(crate) async fn run_webhook_server(
     memory: Option<Arc<dyn MemoryStore>>,
     webhook_url: String,
     port: u16,
-    shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+    mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     auth_guard: Arc<TelegramAuthGuard>,
-    group_mode: Option<String>,
 ) {
     // Register webhook with Telegram
     match api
@@ -161,7 +157,6 @@ pub(crate) async fn run_webhook_server(
         sessions,
         memory,
         auth_guard,
-        group_mode,
     };
 
     let app = Router::new()

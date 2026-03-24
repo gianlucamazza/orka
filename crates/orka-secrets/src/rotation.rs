@@ -38,15 +38,16 @@ impl Default for RotationConfig {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```no_run
 /// use std::sync::Arc;
+/// use orka_core::traits::SecretManager;
 /// use orka_secrets::rotation::{RotatingSecretManager, RotationConfig};
 /// use orka_secrets::RedisSecretManager;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Create managers with different encryption keys
-/// let primary = Arc::new(RedisSecretManager::new(/* ... */)?);
-/// let previous = Arc::new(RedisSecretManager::new(/* ... */)?);
+/// let primary = Arc::new(RedisSecretManager::new("redis://localhost")?);
+/// let previous = Arc::new(RedisSecretManager::new("redis://localhost")?);
 ///
 /// let rotating = RotatingSecretManager::new(
 ///     primary,

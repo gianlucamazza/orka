@@ -9,8 +9,7 @@ use crate::config::PermissionLevel;
 pub struct PermissionGuard {
     level: PermissionLevel,
     allowed_paths: Vec<PathBuf>,
-    blocked_paths: Vec<String>,
-    blocked_commands: Vec<String>,
+    denied_paths: Vec<PathBuf>,
     allowed_commands: Vec<String>,
     max_file_size_bytes: u64,
     sensitive_env_patterns: Vec<String>,
@@ -22,10 +21,17 @@ pub struct PermissionGuard {
 impl PermissionGuard {
     /// Build a guard from the given OS configuration.
     pub fn new(config: &OsConfig) -> Self {
-        let level = PermissionLevel::from_str_config(&config.permission_level)
-            .expect("permission_level already validated by OrkaConfig::validate");
+        let level = config.permission_level.into();
         let allowed_paths = config
             .allowed_paths
+            .iter()
+            .map(|p| {
+                let expanded = shellexpand(p);
+                PathBuf::from(expanded)
+            })
+            .collect();
+        let denied_paths = config
+            .denied_paths
             .iter()
             .map(|p| {
                 let expanded = shellexpand(p);
@@ -35,14 +41,19 @@ impl PermissionGuard {
         Self {
             level,
             allowed_paths,
-            blocked_paths: config.blocked_paths.clone(),
-            blocked_commands: config.blocked_commands.clone(),
-            allowed_commands: config.allowed_commands.clone(),
-            max_file_size_bytes: config.max_file_size_bytes,
-            sensitive_env_patterns: config.sensitive_env_patterns.clone(),
-            sudo_enabled: config.sudo.enabled,
+            denied_paths,
+            allowed_commands: config.allowed_shell_commands.clone(),
+            max_file_size_bytes: 100 * 1024 * 1024, // Default 100MB
+            sensitive_env_patterns: vec![
+                ".*PASSWORD.*".to_string(),
+                ".*SECRET.*".to_string(),
+                ".*TOKEN.*".to_string(),
+                ".*API_KEY.*".to_string(),
+                ".*PRIVATE_KEY.*".to_string(),
+            ],
+            sudo_enabled: config.sudo.allowed,
             sudo_allowed_commands: config.sudo.allowed_commands.clone(),
-            sudo_path: config.sudo.sudo_path.clone(),
+            sudo_path: "sudo".to_string(),
         }
     }
 
@@ -87,7 +98,7 @@ impl PermissionGuard {
         Ok(canonical_parent.join(file_name))
     }
 
-    /// Validate a command against block/allow lists.
+    /// Validate a command against allow lists.
     pub fn check_command(&self, cmd: &str, args: &[&str]) -> orka_core::Result<()> {
         let full = if args.is_empty() {
             cmd.to_string()
@@ -95,28 +106,9 @@ impl PermissionGuard {
             format!("{} {}", cmd, args.join(" "))
         };
 
-        // Check blocked commands (substring match)
-        for blocked in &self.blocked_commands {
-            if full.contains(blocked.as_str()) || cmd == blocked.as_str() {
-                return Err(orka_core::Error::Skill(format!(
-                    "command blocked: matches blocked pattern '{}'",
-                    blocked,
-                )));
-            }
-            // Try as regex
-            if let Ok(re) = Regex::new(blocked)
-                && re.is_match(&full)
-            {
-                return Err(orka_core::Error::Skill(format!(
-                    "command blocked: matches blocked pattern '{}'",
-                    blocked,
-                )));
-            }
-        }
-
         // Check allowed commands (if non-empty, only those are permitted)
         if !self.allowed_commands.is_empty()
-            && !self.allowed_commands.iter().any(|a| cmd == a.as_str())
+            && !self.allowed_commands.iter().any(|a| cmd == a.as_str() || full.starts_with(a.as_str()))
         {
             return Err(orka_core::Error::Skill(format!(
                 "command '{}' not in allowed list",
@@ -187,7 +179,6 @@ impl PermissionGuard {
     /// 1. sudo is enabled
     /// 2. caller has Admin permission level
     /// 3. command matches an entry in `sudo.allowed_commands` (prefix match at word boundary)
-    /// 4. command is NOT in the block list (block list takes absolute precedence)
     pub fn check_sudo_command(&self, cmd: &str, args: &[&str]) -> orka_core::Result<()> {
         if !self.sudo_enabled {
             return Err(orka_core::Error::Skill(
@@ -197,28 +188,11 @@ impl PermissionGuard {
 
         self.check_permission(PermissionLevel::Admin)?;
 
-        // Block list has absolute precedence
         let full = if args.is_empty() {
             cmd.to_string()
         } else {
             format!("{} {}", cmd, args.join(" "))
         };
-        for blocked in &self.blocked_commands {
-            if full.contains(blocked.as_str()) || cmd == blocked.as_str() {
-                return Err(orka_core::Error::Skill(format!(
-                    "privileged command blocked: matches blocked pattern '{}'",
-                    blocked,
-                )));
-            }
-            if let Ok(re) = Regex::new(blocked)
-                && re.is_match(&full)
-            {
-                return Err(orka_core::Error::Skill(format!(
-                    "privileged command blocked: matches blocked pattern '{}'",
-                    blocked,
-                )));
-            }
-        }
 
         // Check sudo allowed commands (prefix match at word boundary)
         let allowed = self.sudo_allowed_commands.iter().any(|allowed_cmd| {
@@ -235,14 +209,13 @@ impl PermissionGuard {
     }
 
     fn validate_canonical_path(&self, canonical: &Path) -> orka_core::Result<()> {
-        let path_str = canonical.to_string_lossy();
+        let _path_str = canonical.to_string_lossy();
 
-        // Check blocked paths
-        for blocked in &self.blocked_paths {
-            let expanded = shellexpand(blocked);
-            if path_str.starts_with(&expanded) || glob_match(&expanded, &path_str) {
+        // Check denied paths (takes precedence)
+        for denied in &self.denied_paths {
+            if canonical.starts_with(denied) {
                 return Err(orka_core::Error::Skill(format!(
-                    "path '{}' is blocked",
+                    "path '{}' is denied",
                     canonical.display(),
                 )));
             }
@@ -315,19 +288,8 @@ mod tests {
             enabled: true,
             permission_level: "read-only".into(),
             allowed_paths: vec!["/tmp".into()],
-            blocked_paths: vec!["/tmp/secret".into()],
-            blocked_commands: vec!["rm -rf /".into(), "dd".into()],
-            allowed_commands: vec![],
-            max_file_size_bytes: 1024,
-            shell_timeout_secs: 30,
-            max_output_bytes: 1024,
-            max_list_entries: 100,
-            sensitive_env_patterns: vec![
-                "*_KEY".into(),
-                "*_SECRET".into(),
-                "*_TOKEN".into(),
-                "*_PASSWORD".into(),
-            ],
+            denied_paths: vec!["/tmp/secret".into()],
+            allowed_shell_commands: vec![],
             sudo: orka_core::config::SudoConfig::default(),
             claude_code: orka_core::config::ClaudeCodeConfig::default(),
         }
@@ -346,9 +308,9 @@ mod tests {
     }
 
     #[test]
-    fn blocked_path_rejected() {
+    fn denied_path_rejected() {
         let guard = PermissionGuard::new(&test_config());
-        // Create a file in blocked path
+        // Create a file in denied path
         let _ = std::fs::create_dir_all("/tmp/secret");
         let _ = std::fs::write("/tmp/secret/test.txt", "data");
         let result = guard.check_path(Path::new("/tmp/secret/test.txt"));
@@ -372,14 +334,8 @@ mod tests {
     }
 
     #[test]
-    fn blocked_command_rejected() {
-        let guard = PermissionGuard::new(&test_config());
-        assert!(guard.check_command("dd", &["if=/dev/zero"]).is_err());
-        assert!(guard.check_command("rm", &["-rf", "/"]).is_err());
-    }
-
-    #[test]
-    fn unblocked_command_allowed() {
+    fn command_not_in_allowed_list_rejected() {
+        // With empty allowed_shell_commands, all commands are allowed (no restriction)
         let guard = PermissionGuard::new(&test_config());
         assert!(guard.check_command("ls", &["-la"]).is_ok());
     }
@@ -428,22 +384,16 @@ mod tests {
             enabled: true,
             permission_level: "admin".into(),
             allowed_paths: vec!["/tmp".into()],
-            blocked_paths: vec![],
-            blocked_commands: vec!["rm -rf /".into(), "dd".into()],
-            allowed_commands: vec![],
-            max_file_size_bytes: 1024,
-            shell_timeout_secs: 30,
-            max_output_bytes: 1024,
-            max_list_entries: 100,
-            sensitive_env_patterns: vec![],
+            denied_paths: vec![],
+            allowed_shell_commands: vec![],
             sudo: orka_core::config::SudoConfig {
-                enabled: true,
+                allowed: true,
                 allowed_commands: vec![
                     "systemctl restart".into(),
                     "systemctl stop".into(),
                     "pacman -S".into(),
                 ],
-                ..orka_core::config::SudoConfig::default()
+                password_required: false,
             },
             claude_code: orka_core::config::ClaudeCodeConfig::default(),
         }

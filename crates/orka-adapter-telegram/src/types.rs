@@ -2,7 +2,8 @@
 
 use serde::Deserialize;
 
-// Fields used by serde deserialization; not all are accessed directly in code.
+// Note: These types are used for serde deserialization of Telegram API responses.
+// Not all fields are accessed directly in code, but are required for complete JSON parsing.
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct TelegramResponse<T> {
@@ -12,7 +13,7 @@ pub(crate) struct TelegramResponse<T> {
     pub parameters: Option<ResponseParameters>,
 }
 
-// Fields used by serde deserialization; not all are accessed directly in code.
+// Note: Used for serde deserialization; retry_after is the primary field accessed.
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct ResponseParameters {
@@ -27,7 +28,7 @@ pub(crate) struct Update {
     pub callback_query: Option<CallbackQuery>,
 }
 
-// Fields used by serde deserialization; not all are accessed directly in code.
+// Note: Used for serde deserialization; not all fields accessed directly.
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct TelegramMessage {
@@ -71,7 +72,7 @@ pub(crate) struct PhotoSize {
     pub file_size: Option<u64>,
 }
 
-// Fields used by serde deserialization; not all are accessed directly in code.
+// Note: Used for serde deserialization; not all fields accessed directly.
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct Document {
@@ -115,7 +116,7 @@ pub(crate) struct Sticker {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-// Fields used by serde deserialization; not all are accessed directly in code.
+// Note: Used for serde deserialization; not all fields accessed directly.
 #[allow(dead_code)]
 pub(crate) struct MessageEntity {
     pub r#type: String,

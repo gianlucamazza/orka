@@ -3,7 +3,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::config::OsConfig;
 use orka_core::traits::Skill;
 use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
 use tracing::debug;
@@ -40,10 +39,10 @@ pub struct FsReadSkill {
 
 impl FsReadSkill {
     /// Create a new `fs_read` skill from config and a permission guard.
-    pub fn new(guard: Arc<PermissionGuard>, config: &OsConfig) -> Self {
+    pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self {
             guard,
-            max_output_bytes: config.max_output_bytes,
+            max_output_bytes: 100 * 1024, // Default 100KB
         }
     }
 }
@@ -173,10 +172,10 @@ pub struct FsListSkill {
 
 impl FsListSkill {
     /// Create a new `fs_list` skill from config and a permission guard.
-    pub fn new(guard: Arc<PermissionGuard>, config: &OsConfig) -> Self {
+    pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self {
             guard,
-            max_list_entries: config.max_list_entries,
+            max_list_entries: 1000, // Default max entries
         }
     }
 }
@@ -412,10 +411,10 @@ pub struct FsSearchSkill {
 
 impl FsSearchSkill {
     /// Create a new `fs_search` skill from config and a permission guard.
-    pub fn new(guard: Arc<PermissionGuard>, config: &OsConfig) -> Self {
+    pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self {
             guard,
-            max_list_entries: config.max_list_entries,
+            max_list_entries: 1000, // Default max entries
         }
     }
 }

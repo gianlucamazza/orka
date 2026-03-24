@@ -21,15 +21,16 @@ pub struct ClaudeCodeSkill {
 
 impl ClaudeCodeSkill {
     /// Create a new `ClaudeCodeSkill` from the OS config.
-    pub fn new(config: &orka_core::config::ClaudeCodeConfig) -> Self {
+    pub fn new(_config: &orka_core::config::ClaudeCodeConfig) -> Self {
+        // Use default values - ClaudeCodeConfig is minimal now
         Self {
-            working_dir: config.working_dir.as_deref().map(PathBuf::from),
-            model: config.model.clone(),
-            max_turns: config.max_turns,
-            timeout_secs: config.timeout_secs,
-            system_prompt: config.system_prompt.clone(),
-            allowed_tools: config.allowed_tools.clone(),
-            inject_context: config.inject_context,
+            working_dir: None,
+            model: None,
+            max_turns: None,
+            timeout_secs: 300, // 5 minutes default
+            system_prompt: None,
+            allowed_tools: vec![],
+            inject_context: false,
         }
     }
 }
