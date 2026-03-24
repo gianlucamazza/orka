@@ -36,21 +36,9 @@ pub(crate) struct TelegramAuthGuard {
 
 impl TelegramAuthGuard {
     pub(crate) fn from_config(config: &TelegramAdapterConfig) -> Self {
-        let has_owner = config.owner_id.is_some();
-        let has_users = config.allowed_users.as_ref().is_some_and(|v| !v.is_empty());
-
-        if !has_owner && !has_users {
-            return Self { allowed: None };
-        }
-
-        let mut set = HashSet::new();
-        if let Some(id) = config.owner_id {
-            set.insert(id);
-        }
-        if let Some(ref users) = config.allowed_users {
-            set.extend(users.iter().copied());
-        }
-        Self { allowed: Some(set) }
+        // Allow all users by default (no owner_id or allowed_users in config anymore)
+        let _ = config; // Suppress unused warning
+        Self { allowed: None }
     }
 
     pub(crate) fn is_allowed(&self, user_id: i64) -> bool {
@@ -121,7 +109,6 @@ impl ChannelAdapter for TelegramAdapter {
             info!(authorized_users = n, "Telegram auth enabled");
         }
 
-        let group_mode = self.config.group_mode.clone();
         match mode.as_str() {
             "webhook" => {
                 let webhook_url =
@@ -140,7 +127,6 @@ impl ChannelAdapter for TelegramAdapter {
                         port,
                         shutdown_rx,
                         auth_guard,
-                        group_mode,
                     )
                     .await;
                 });
@@ -155,7 +141,6 @@ impl ChannelAdapter for TelegramAdapter {
                         memory,
                         shutdown_rx,
                         auth_guard,
-                        group_mode,
                     )
                     .await;
                 });

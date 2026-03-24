@@ -12,19 +12,15 @@ pub use crate::redis_store::RedisMemoryStore;
 
 use std::sync::Arc;
 
+use orka_core::config::primitives::MemoryBackend;
 use orka_core::traits::MemoryStore;
 
 /// Create a [`MemoryStore`] from the given configuration.
 pub fn create_memory_store(
     config: &orka_core::config::OrkaConfig,
 ) -> orka_core::Result<Arc<dyn MemoryStore>> {
-    let effective = if config.memory.backend == "auto" {
-        config.bus.backend.as_str()
-    } else {
-        config.memory.backend.as_str()
-    };
-    match effective {
-        "memory" => {
+    match config.memory.backend {
+        MemoryBackend::Memory => {
             tracing::debug!(
                 max_entries = config.memory.max_entries,
                 "in-memory memory store created"

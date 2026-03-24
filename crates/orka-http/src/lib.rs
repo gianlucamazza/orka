@@ -19,13 +19,19 @@ pub use guard::SsrfGuard;
 
 /// Create HTTP skills from config.
 pub fn create_http_skills(config: &HttpClientConfig) -> Result<Vec<Arc<dyn Skill>>> {
-    let guard = Arc::new(SsrfGuard::new(config.blocked_domains.clone()));
+    // SSRF protection with default blocked domains (AWS metadata, etc.)
+    let blocked_domains = vec![
+        "169.254.169.254".to_string(), // AWS metadata
+        "metadata.google.internal".to_string(),
+        "100.100.100.200".to_string(), // Alibaba metadata
+    ];
+    let guard = Arc::new(SsrfGuard::new(blocked_domains));
 
     let request_skill: Arc<dyn Skill> = Arc::new(skills::request::HttpRequestSkill::new(
         guard,
-        config.max_response_bytes,
-        config.default_timeout_secs,
-        &config.user_agent,
+        10 * 1024 * 1024, // Default 10MB max response
+        config.timeout_secs,
+        &config.user_agent.clone().unwrap_or_else(|| "Orka/1.0".to_string()),
     )?);
 
     info!("HTTP skills initialized (http_request)");

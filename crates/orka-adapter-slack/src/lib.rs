@@ -70,6 +70,7 @@ struct SlackFile {
     /// File ID from Slack API (used for completeness in deserialization).
     /// Note: File download uses `url_private` directly; upload uses
     /// `files.getUploadURLExternal`/`completeUploadExternal` flow.
+    // Note: ID is required by Slack API schema for deserialization completeness.
     #[allow(dead_code)]
     id: String,
     mimetype: Option<String>,

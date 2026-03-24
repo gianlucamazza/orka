@@ -35,6 +35,18 @@ impl PermissionLevel {
     }
 }
 
+impl From<orka_core::config::primitives::OsPermissionLevel> for PermissionLevel {
+    fn from(level: orka_core::config::primitives::OsPermissionLevel) -> Self {
+        match level {
+            orka_core::config::primitives::OsPermissionLevel::ReadOnly => Self::ReadOnly,
+            orka_core::config::primitives::OsPermissionLevel::Interact => Self::Interact,
+            orka_core::config::primitives::OsPermissionLevel::Write => Self::Write,
+            orka_core::config::primitives::OsPermissionLevel::Execute => Self::Execute,
+            orka_core::config::primitives::OsPermissionLevel::Admin => Self::Admin,
+        }
+    }
+}
+
 impl fmt::Display for PermissionLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

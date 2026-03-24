@@ -15,7 +15,7 @@ pub enum WsMessage {
 ///
 /// 1. Parse as `serde_json::Value` (single parse for the whole message)
 /// 2. Try deserializing that value as `StreamChunkKind`
-/// 3. Try extracting text from OutboundMessage shape or legacy fields
+/// 3. Try extracting text from OutboundMessage shape (`payload.data`)
 /// 4. Fall back to `Unknown`
 pub fn classify_ws_message(raw: &str) -> WsMessage {
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(raw) else {
@@ -34,16 +34,6 @@ pub fn classify_ws_message(raw: &str) -> WsMessage {
         .and_then(|d| d.as_str())
     {
         return WsMessage::Final(data.to_string());
-    }
-
-    // Legacy fields
-    if let Some(text) = parsed
-        .get("text")
-        .or_else(|| parsed.get("content"))
-        .or_else(|| parsed.get("message"))
-        .and_then(|v| v.as_str())
-    {
-        return WsMessage::Final(text.to_string());
     }
 
     WsMessage::Unknown(raw.to_string())
@@ -101,15 +91,6 @@ mod tests {
         let raw = r#"{"channel":"custom","session_id":"abc","payload":{"type":"Text","data":"hello world"},"reply_to":null,"metadata":{}}"#;
         match classify_ws_message(raw) {
             WsMessage::Final(text) => assert_eq!(text, "hello world"),
-            other => panic!("expected Final, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn classifies_legacy_text_as_final() {
-        let raw = r#"{"text":"hi there"}"#;
-        match classify_ws_message(raw) {
-            WsMessage::Final(text) => assert_eq!(text, "hi there"),
             other => panic!("expected Final, got {other:?}"),
         }
     }
@@ -194,24 +175,6 @@ mod tests {
                 assert_eq!(count, 5);
             }
             other => panic!("expected PrinciplesUsed, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn classifies_legacy_content_field_as_final() {
-        let raw = r#"{"content":"response via content"}"#;
-        match classify_ws_message(raw) {
-            WsMessage::Final(text) => assert_eq!(text, "response via content"),
-            other => panic!("expected Final, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn classifies_legacy_message_field_as_final() {
-        let raw = r#"{"message":"response via message"}"#;
-        match classify_ws_message(raw) {
-            WsMessage::Final(text) => assert_eq!(text, "response via message"),
-            other => panic!("expected Final, got {other:?}"),
         }
     }
 }

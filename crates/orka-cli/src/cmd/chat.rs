@@ -292,6 +292,11 @@ pub async fn run(
     let graceful_shutdown = Arc::new(AtomicBool::new(false));
     let graceful_shutdown_task = graceful_shutdown.clone();
 
+    // Timeout flag for the WebSocket task — set to true on timeout to suppress
+    // stale message output and prevent terminal corruption. Reset on reconnect.
+    let ws_timeout_flag: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    let ws_timeout_task = ws_timeout_flag.clone();
+
     // Channel to notify the REPL that a response is complete
     let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
@@ -339,7 +344,24 @@ pub async fn run(
             // Accumulate response text for /save and /history
             let mut current_response = String::new();
 
-            while let Some(msg) = current_ws_read.next().await {
+            loop {
+                // Check for timeout flag before each message
+                // Use Acquire ordering to ensure visibility of the store in the main task
+                if ws_timeout_task.load(Ordering::Acquire) {
+                    // Timeout occurred: clear spinners and exit inner loop
+                    // The task will wait on reconnect_ws_rx for a new connection
+                    for (_, (_, _, _, pb)) in active_tools.drain() {
+                        pb.finish_and_clear();
+                    }
+                    break;
+                }
+
+                let msg = current_ws_read.next().await;
+
+                let msg = match msg {
+                    Some(m) => m,
+                    None => break, // Connection closed, wait for reconnect
+                };
                 match msg {
                     Ok(msg) if msg.is_text() => {
                         let text = match msg.into_text() {
@@ -545,7 +567,11 @@ pub async fn run(
                                 renderer.reset();
                                 streaming = false;
                                 thinking_shown = false;
-                                if !turn_done_sent {
+                                // CRITICAL: Check timeout flag before sending signals.
+                                // The main task may have already drained the channels during
+                                // timeout handling; sending now would create spurious signals
+                                // that corrupt the next user interaction.
+                                if !turn_done_sent && !ws_timeout_task.load(Ordering::Acquire) {
                                     // Send response before done so try_recv() in the REPL
                                     // always finds the response after receiving the done signal.
                                     let _ = response_tx.send(std::mem::take(&mut current_response));
@@ -563,7 +589,9 @@ pub async fn run(
                                 // UI-1: trailing newline through multi
                                 multi.println("").ok();
                                 thinking_shown = false;
-                                if !turn_done_sent {
+                                // CRITICAL: Check timeout flag before sending signals.
+                                // Prevents race condition with main task's channel drain.
+                                if !turn_done_sent && !ws_timeout_task.load(Ordering::Acquire) {
                                     // Send response before done (same ordering guarantee as Done branch).
                                     let _ = response_tx.send(content.clone());
                                     let _ = done_tx.send(());
@@ -600,7 +628,10 @@ pub async fn run(
             match reconnect_ws_rx.recv().await {
                 Some(new_read) => {
                     current_ws_read = new_read;
-                    ws_alive_task.store(true, Ordering::Relaxed);
+                    // Use Release ordering to ensure visibility in the WS task
+                    ws_alive_task.store(true, Ordering::Release);
+                    // Reset the timeout flag for the new connection
+                    ws_timeout_task.store(false, Ordering::Release);
                     renderer.reset();
                     // per-connection state is reset at the top of 'reconnect
                 }
@@ -611,11 +642,17 @@ pub async fn run(
 
     // Keepalive: send a WebSocket Ping every 30 seconds to prevent idle disconnects.
     let ws_write_ping = ws_write.clone();
+    let ws_alive_ping = ws_alive.clone();
     let ping_task = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         interval.tick().await; // consume the immediate first tick
         loop {
             interval.tick().await;
+            // Skip ping if connection is down (timeout or disconnect)
+            // The task will naturally exit on next send failure
+            if !ws_alive_ping.load(Ordering::Acquire) {
+                continue;
+            }
             let mut guard = ws_write_ping.lock().await;
             if guard.send(Message::Ping(Default::default())).await.is_err() {
                 break;
@@ -949,7 +986,8 @@ pub async fn run(
 
             InputAction::SlashServer(ref text) | InputAction::AgentMessage(ref text) => {
                 // Reconnect with exponential backoff if the WebSocket is down
-                if !ws_alive.load(Ordering::Relaxed) {
+                // Use Acquire ordering to see the latest store from the WS task
+                if !ws_alive.load(Ordering::Acquire) {
                     let mut delay = 1u64;
                     let mut reconnected = false;
                     for attempt in 1u32..=5 {
@@ -968,7 +1006,10 @@ pub async fn run(
                                 }
                                 let _ = reconnect_ws_tx.send(new_read);
                                 workspace_sent = false;
+                                // Drain stale signals from previous connection to prevent
+                                // spurious completions in this new session
                                 while done_rx.try_recv().is_ok() {}
+                                while response_rx.try_recv().is_ok() {}
                                 println!("  {} Reconnected.", "\u{2713}".green());
                                 reconnected = true;
                                 break;
@@ -1049,6 +1090,28 @@ pub async fn run(
                                     }
                                     Err(_) => {
                                         ctrl_c_count = 0;
+                                        
+                                        // 1. Close WebSocket FIRST to prevent new messages from arriving
+                                        // This ensures no race condition between flag set and message processing
+                                        {
+                                            let mut guard = ws_write.lock().await;
+                                            let _ = guard.close().await;
+                                        }
+                                        
+                                        // 2. Set timeout flag with Release ordering for visibility
+                                        ws_timeout_flag.store(true, Ordering::Release);
+                                        
+                                        // 3. Mark connection as dead and notify
+                                        ws_alive.store(false, Ordering::Release);
+                                        disconnect_notify.notify_one();
+                                        
+                                        // 4. CRITICAL: Drain pending signals to prevent spurious completions
+                                        // in the next turn. Messages already in-flight might have sent
+                                        // done signals that would corrupt the next interaction.
+                                        while done_rx.try_recv().is_ok() {}
+                                        while response_rx.try_recv().is_ok() {}
+                                        
+                                        // 5. Show timeout message and clear UI
                                         eprintln!(
                                             "{}",
                                             format!(
@@ -1058,6 +1121,7 @@ pub async fn run(
                                             )
                                             .yellow()
                                         );
+                                        multi.clear().ok();
                                         // Don't break — let the user decide what to do next.
                                     }
                                     Ok(Some(())) => {

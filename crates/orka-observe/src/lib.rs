@@ -227,10 +227,10 @@ pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
     };
 
     if config.audit.enabled {
-        let path = config.audit.path.as_deref().unwrap_or("orka-audit.jsonl");
-        match audit_sink::AuditSink::new(path) {
+        let path_str = config.audit.path.as_deref().map(|p| p.to_string_lossy()).unwrap_or_else(|| "orka-audit.jsonl".into());
+        match audit_sink::AuditSink::new(path_str.as_ref()) {
             Ok(audit) => {
-                info!(%path, "audit log enabled");
+                info!(path = path_str.as_ref(), "audit log enabled");
                 Arc::new(FanoutSink(vec![primary, Arc::new(audit)]))
             }
             Err(e) => {

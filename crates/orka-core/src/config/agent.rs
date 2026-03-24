@@ -1,0 +1,125 @@
+//! Agent and multi-agent graph configuration.
+
+use crate::config::defaults;
+use crate::config::primitives::GraphExecutionMode;
+use serde::Deserialize;
+
+/// Per-agent runtime configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct AgentConfig {
+    /// Agent identifier (must be unique within workspace).
+    #[serde(default = "defaults::default_agent_id")]
+    pub id: String,
+    /// Human-readable agent name.
+    #[serde(default = "defaults::default_agent_name")]
+    pub name: String,
+    /// System prompt/instructions for the agent.
+    #[serde(default)]
+    pub system_prompt: String,
+    /// Model identifier to use.
+    #[serde(default = "defaults::default_model")]
+    pub model: String,
+    /// Temperature for generation.
+    #[serde(default = "defaults::default_temperature")]
+    pub temperature: f32,
+    /// Maximum tokens per response.
+    #[serde(default = "defaults::default_max_tokens")]
+    pub max_tokens: u32,
+    /// Maximum conversation iterations.
+    #[serde(default = "defaults::default_max_iterations")]
+    pub max_iterations: usize,
+    /// Maximum characters for tool results.
+    #[serde(default = "defaults::default_tool_result_max_chars")]
+    pub tool_result_max_chars: usize,
+    /// Allowed tools for this agent.
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    /// Denied tools (takes precedence).
+    #[serde(default)]
+    pub denied_tools: Vec<String>,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            id: defaults::default_agent_id(),
+            name: defaults::default_agent_name(),
+            system_prompt: String::new(),
+            model: defaults::default_model().to_string(),
+            temperature: defaults::default_temperature(),
+            max_tokens: defaults::default_max_tokens(),
+            max_iterations: defaults::default_max_iterations(),
+            tool_result_max_chars: defaults::default_tool_result_max_chars(),
+            allowed_tools: Vec::new(),
+            denied_tools: Vec::new(),
+        }
+    }
+}
+
+impl AgentConfig {
+    /// Validate the agent configuration.
+    pub fn validate(&self) -> crate::Result<()> {
+        if self.id.is_empty() {
+            return Err(crate::Error::Config(
+                "agent.id must not be empty".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Multi-agent definition for graph-based execution.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct AgentDef {
+    /// Agent identifier.
+    pub id: String,
+    /// Agent configuration.
+    #[serde(flatten)]
+    pub config: AgentConfig,
+}
+
+/// Graph topology for multi-agent execution.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct GraphDef {
+    /// Execution mode for the graph.
+    #[serde(default)]
+    pub execution_mode: GraphExecutionMode,
+    /// Maximum number of hops in the graph.
+    #[serde(default = "defaults::default_max_hops")]
+    pub max_hops: usize,
+    /// Edges connecting agents.
+    #[serde(default)]
+    pub edges: Vec<EdgeDef>,
+}
+
+impl Default for GraphDef {
+    fn default() -> Self {
+        Self {
+            execution_mode: GraphExecutionMode::default(),
+            max_hops: defaults::default_max_hops(),
+            edges: Vec::new(),
+        }
+    }
+}
+
+/// Edge definition for agent graph.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct EdgeDef {
+    /// Source agent ID.
+    pub from: String,
+    /// Target agent ID.
+    pub to: String,
+    /// Condition for traversing this edge (optional).
+    pub condition: Option<String>,
+    /// Edge weight for routing decisions.
+    #[serde(default = "default_edge_weight")]
+    pub weight: f32,
+}
+
+const fn default_edge_weight() -> f32 {
+    1.0
+}

@@ -25,23 +25,23 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
     let path = config_path.map(Path::new);
     let config = OrkaConfig::load(path)?;
 
-    if !config.os.sudo.enabled {
-        println!("sudo is disabled in configuration");
+    if !config.os.sudo.allowed {
+        println!("sudo is not allowed in configuration");
         return Ok(());
     }
 
-    println!("sudo path: {}", config.os.sudo.sudo_path);
+    println!("sudo allowed: {}", config.os.sudo.allowed);
     println!(
-        "require confirmation: {}",
-        config.os.sudo.require_confirmation
+        "password required: {}",
+        config.os.sudo.password_required
     );
     println!(
-        "confirmation timeout: {}s",
-        config.os.sudo.confirmation_timeout_secs
+        "allowed commands: {}",
+        config.os.sudo.allowed_commands.join(", ")
     );
     println!();
 
-    let sudo_path = &config.os.sudo.sudo_path;
+    let sudo_path = "sudo";  // Use default sudo path
 
     // --- Environment checks ---
     let mut env_ok = true;
@@ -146,9 +146,9 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
     if all_ok && env_ok {
         println!("all checks passed");
     } else if all_ok {
-        println!("all commands have NOPASSWD access, but environment issues remain");
+        println!("all commands checked, but environment issues remain");
     } else {
-        println!("some commands lack NOPASSWD access");
+        println!("some commands have issues");
         println!("hint: create /etc/sudoers.d/orka with appropriate NOPASSWD entries");
     }
 

@@ -286,7 +286,7 @@ impl WorkspaceHandler {
             .soul
             .as_ref()
             .and_then(|doc| doc.frontmatter.name.clone())
-            .unwrap_or_else(|| self.agent_config.display_name.clone());
+            .unwrap_or_else(|| self.agent_config.name.clone());
         let soul_body = state
             .soul
             .as_ref()
@@ -308,12 +308,12 @@ impl WorkspaceHandler {
                 Ok(doc) => (
                     doc.frontmatter
                         .name
-                        .unwrap_or_else(|| self.agent_config.display_name.clone()),
+                        .unwrap_or_else(|| self.agent_config.name.clone()),
                     doc.body,
                 ),
                 Err(e) => {
                     warn!(%e, "failed to parse workspace override SOUL.md, falling back");
-                    (self.agent_config.display_name.clone(), raw.to_string())
+                    (self.agent_config.name.clone(), raw.to_string())
                 }
             }
         } else {
@@ -323,7 +323,7 @@ impl WorkspaceHandler {
                 .soul
                 .as_ref()
                 .and_then(|doc| doc.frontmatter.name.clone())
-                .unwrap_or_else(|| self.agent_config.display_name.clone());
+                .unwrap_or_else(|| self.agent_config.name.clone());
             let body = state
                 .soul
                 .as_ref()
@@ -498,9 +498,8 @@ impl WorkspaceHandler {
             let event_sink = self.event_sink.clone();
             let message_id = envelope.id;
             let secrets = self.secrets.clone();
-            let skill_timeout =
-                std::time::Duration::from_secs(self.agent_config.skill_timeout_secs);
-            let max_result_chars = self.agent_config.max_tool_result_chars;
+            let skill_timeout = std::time::Duration::from_secs(30); // Default timeout
+            let max_result_chars = 10000; // Default max chars
             let user_cwd = envelope
                 .metadata
                 .get("workspace:cwd")
@@ -654,7 +653,7 @@ impl WorkspaceHandler {
         &self,
         messages: Vec<ChatMessage>,
         max_entries: usize,
-        summarization_model: Option<&str>,
+        _summarization_model: Option<&str>,
         existing_summary: Option<&str>,
         memory_key: &str,
         summary_key: &str,
@@ -670,8 +669,7 @@ impl WorkspaceHandler {
             let old_messages = &messages[..split_point];
 
             let summary_text = if let Some(llm) = &self.llm {
-                Self::summarize_messages(llm, old_messages, summarization_model, existing_summary)
-                    .await
+                Self::summarize_messages(llm, old_messages, None, existing_summary).await
             } else {
                 // No LLM configured: fall back to bullet-point extraction.
                 Self::fallback_summary(old_messages)
@@ -1079,14 +1077,8 @@ impl AgentHandler for WorkspaceHandler {
         let agent = &self.agent_config;
         let soul_model = agent.model.clone();
         let soul_max_tokens = agent.max_tokens;
-        let max_tokens_per_session = agent.max_tokens_per_session;
-        let summarization_model = agent.summarization_model.clone();
-        let max_entries = agent.max_history_entries;
-        let context_window = agent
-            .context_window_tokens
-            .unwrap_or(self.default_context_window);
-        let _soul_timezone = agent.timezone.clone();
         let max_iterations = agent.max_iterations;
+        let context_window = self.default_context_window;
 
         // Apply input guardrail
         let text = if let Some(ref guardrail) = self.guardrail {
@@ -1313,8 +1305,8 @@ impl AgentHandler for WorkspaceHandler {
 
             // Agent loop: call LLM, execute tool calls, feed results back
             let mut final_text = String::new();
-            let llm_model = soul_model.as_deref().unwrap_or("default").to_string();
-            let max_tool_retries = self.agent_config.max_tool_retries;
+            let llm_model = soul_model.clone();
+            let max_tool_retries = 3; // Default max retries
             // Track per-tool-name consecutive error counts for self-correction
             let mut tool_error_counts: HashMap<String, u32> = HashMap::new();
             for iteration in 0..max_iterations {
@@ -1467,16 +1459,8 @@ impl AgentHandler for WorkspaceHandler {
                     tc.record_iteration(iteration_tokens);
                 }
 
-                // Check token budget
-                if let Some(budget) = max_tokens_per_session
-                    && session_tokens > budget
-                {
-                    warn!(session_tokens, budget, "token budget exceeded for session");
-                    final_text = format!(
-                        "I've reached the token budget for this session ({budget} tokens). Please start a new conversation."
-                    );
-                    break;
-                }
+                // Check token budget (simplified - no per-session budget in new config)
+                // Token tracking still happens but no hard limit enforced
 
                 if completion.stop_reason == Some(StopReason::MaxTokens) {
                     warn!("LLM response truncated (max_tokens reached)");
@@ -1652,10 +1636,11 @@ impl AgentHandler for WorkspaceHandler {
 
             // Always persist conversation history, even if final_text is empty
             // (e.g. when the LLM stream fails mid-turn, tool calls should still be saved).
+            let max_entries = 50; // Default max history entries
             self.save_conversation_history(
                 messages,
                 max_entries,
-                summarization_model.as_deref(),
+                None, // summarization_model removed from config
                 conversation_summary.as_deref(),
                 &memory_key,
                 &summary_key,

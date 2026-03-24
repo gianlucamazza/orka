@@ -31,32 +31,50 @@ pub use vector_store::VectorStore;
 
 /// Create knowledge/RAG skills from config.
 pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn Skill>>> {
+    use orka_core::config::primitives::EmbeddingProvider;
+    
     // Initialize embedding provider
-    let embedding_provider: Arc<dyn EmbeddingProvider> = match config.embeddings.provider.as_str() {
-        "openai" => {
-            let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
-                orka_core::Error::Config(
-                    "OPENAI_API_KEY required for openai embedding provider".into(),
-                )
+    let embedding_provider: Arc<dyn embeddings::EmbeddingProvider> = match config.embeddings.provider {
+        EmbeddingProvider::Openai => {
+            let api_key = std::env::var("OPENAI_API_KEY").or_else(|_| {
+                config.embeddings.api_key.clone().ok_or_else(|| {
+                    orka_core::Error::Config(
+                        "OPENAI_API_KEY required for openai embedding provider".into(),
+                    )
+                })
             })?;
             Arc::new(embeddings::openai::OpenAiEmbeddingProvider::new(
                 api_key,
                 config.embeddings.model.clone(),
-                config.embeddings.dimensions,
+                1536, // OpenAI ada-002 dimensions
             ))
         }
-        _ => {
+        EmbeddingProvider::Anthropic => {
+            // Anthropic embeddings not yet implemented - use local as fallback
+            Arc::new(embeddings::local::LocalEmbeddingProvider::new(
+                &config.embeddings.model,
+                384, // BGE-small dimensions
+            )?)
+        }
+        EmbeddingProvider::Custom => {
+            // Custom endpoint not yet implemented - use local as fallback
+            Arc::new(embeddings::local::LocalEmbeddingProvider::new(
+                &config.embeddings.model,
+                384, // BGE-small dimensions
+            )?)
+        }
+        EmbeddingProvider::Local => {
             // Default: local fastembed
             Arc::new(embeddings::local::LocalEmbeddingProvider::new(
                 &config.embeddings.model,
-                config.embeddings.dimensions,
+                384, // BGE-small dimensions
             )?)
         }
     };
 
     // Initialize vector store
     let vector_store: Arc<dyn VectorStore> = Arc::new(vector_store::qdrant::QdrantStore::new(
-        &config.vector_store.url,
+        config.vector_store.url.as_deref().unwrap_or("http://localhost:6333"),
     )?);
 
     create_knowledge_skills_with(config, embedding_provider, vector_store)
@@ -71,10 +89,7 @@ pub fn create_knowledge_skills_with(
     embedding_provider: Arc<dyn EmbeddingProvider>,
     vector_store: Arc<dyn VectorStore>,
 ) -> Result<Vec<Arc<dyn Skill>>> {
-    let full_collection = format!(
-        "{}{}",
-        config.vector_store.collection_prefix, config.vector_store.default_collection
-    );
+    let full_collection = config.vector_store.collection_name.clone();
 
     let memory_store: Arc<dyn Skill> = Arc::new(skills::memory_store::MemoryStoreSkill::new(
         embedding_provider.clone(),

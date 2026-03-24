@@ -97,6 +97,10 @@ pub enum Error {
         category: ErrorCategory,
     },
 
+    /// Guardrail check failure.
+    #[error("guardrail error: {0}")]
+    Guardrail(String),
+
     /// Memory store operation failure.
     #[error("memory error: {context}")]
     Memory {

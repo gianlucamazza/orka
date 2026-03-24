@@ -8,7 +8,8 @@ use tracing::{info, warn};
 
 /// Scan `dir` for `.wasm` files and load each as a WASM Component plugin skill.
 ///
-/// Per-plugin capabilities are read from `plugin_config.capabilities`.
+/// Per-plugin configuration is read from `plugin_config.plugins`. Global
+/// capabilities from `plugin_config.capabilities` are used as defaults.
 /// Missing or empty directories are silently skipped. Files that fail to load
 /// are logged as warnings and skipped rather than aborting the whole scan.
 pub fn load_plugins(
@@ -36,15 +37,25 @@ pub fn load_plugins(
                 .unwrap_or("")
                 .to_string();
 
-            let caps = plugin_config
-                .capabilities
-                .get(&plugin_name)
-                .map(|c| PluginCapabilities {
-                    env: c.env.clone(),
-                    fs: c.fs.clone(),
-                    network: !c.network.is_empty(),
-                })
-                .unwrap_or_default();
+            // Build capabilities: start with global defaults, override with per-plugin config
+            let caps = PluginCapabilities {
+                env: vec![],  // TODO: support env var allowlist from config
+                fs: if plugin_config.capabilities.filesystem {
+                    vec![".".to_string()]  // Allow current dir
+                } else {
+                    vec![]
+                },
+                network: plugin_config.capabilities.network,
+            };
+
+            // Override with per-plugin config if present
+            if let Some(instance_config) = plugin_config.plugins.get(&plugin_name) {
+                if !instance_config.enabled {
+                    info!(name = %plugin_name, "plugin disabled in config, skipping");
+                    continue;
+                }
+                // TODO: support per-plugin capability overrides via instance_config.config
+            }
 
             match super::wasm_plugin::WasmPluginSkill::load(&path, engine, caps) {
                 Ok(skill) => {

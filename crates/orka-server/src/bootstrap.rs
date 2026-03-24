@@ -123,27 +123,27 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         let mut mcp_set = tokio::task::JoinSet::new();
         for server_config in &config.mcp.servers {
             let transport = match (&server_config.command, &server_config.url) {
-                (Some(cmd), _) => orka_mcp::McpTransportConfig::Stdio {
-                    command: cmd.clone(),
-                    args: server_config.args.clone(),
-                    env: server_config.env.clone(),
-                    working_dir: server_config
-                        .working_dir
-                        .as_deref()
-                        .map(std::path::PathBuf::from),
-                },
-                (None, Some(url)) => orka_mcp::McpTransportConfig::StreamableHttp {
-                    url: url.clone(),
-                    auth: server_config
-                        .auth
-                        .as_ref()
-                        .map(|a| orka_mcp::McpOAuthConfig {
-                            token_url: a.token_url.clone(),
-                            client_id: a.client_id.clone(),
-                            client_secret_env: a.client_secret_env.clone(),
-                            scopes: a.scopes.clone(),
-                        }),
-                },
+                (Some(cmd), _) => {
+                    let mut builder = orka_mcp::McpTransportConfig::stdio(cmd.clone())
+                        .args(server_config.args.clone())
+                        .envs(server_config.env.clone());
+                    if let Some(dir) = &server_config.working_dir {
+                        builder = builder.working_dir(std::path::PathBuf::from(dir));
+                    }
+                    builder.build()
+                }
+                (None, Some(url)) => {
+                    let mut builder = orka_mcp::McpTransportConfig::http(url.clone());
+                    if let Some(auth) = &server_config.auth {
+                        builder = builder.auth(orka_mcp::McpOAuthConfig {
+                            token_url: auth.token_url.clone(),
+                            client_id: auth.client_id.clone(),
+                            client_secret_env: auth.client_secret_env.clone(),
+                            scopes: auth.scopes.clone(),
+                        });
+                    }
+                    builder.build()
+                }
                 (None, None) => {
                     tracing::error!(
                         name = %server_config.name,
@@ -394,11 +394,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
 
     // 6c. Auth layer
     let auth_layer = if config.auth.enabled {
-        use orka_auth::{ApiKeyAuthenticator, AuthLayer};
+        use orka_auth::{ApiKeyAuthenticator, AuthLayer, AuthMiddlewareConfig};
         let authenticator = ApiKeyAuthenticator::new(&config.auth.api_keys);
         Some(AuthLayer::new(
             Arc::new(authenticator),
-            Arc::new(config.auth.clone()),
+            Arc::new(AuthMiddlewareConfig::default()),
         ))
     } else {
         None
@@ -484,7 +484,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         let authenticator = orka_auth::ApiKeyAuthenticator::new(&config.auth.api_keys);
         Some(orka_auth::AuthLayer::new(
             Arc::new(authenticator),
-            Arc::new(config.auth.clone()),
+            Arc::new(orka_auth::AuthMiddlewareConfig::default()),
         ))
     } else {
         None
