@@ -10,7 +10,8 @@ pub enum PermissionLevel {
     Interact,
     /// Adds filesystem mutations (`fs_write`).
     Write,
-    /// Adds shell execution, process signalling, file watching, and desktop open/screenshot.
+    /// Adds shell execution, process signalling, file watching, and desktop
+    /// open/screenshot.
     Execute,
     /// Adds sudo-only operations: package install, service control.
     Admin,

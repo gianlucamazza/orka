@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 use sysinfo::{Networks, System};
 
 use crate::guard::PermissionGuard;
@@ -197,12 +196,14 @@ fn os_info() -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
 
+    use super::*;
+
     fn make_skill() -> SystemInfoSkill {
-        use crate::guard::PermissionGuard;
         use orka_core::config::OsConfig;
+
+        use crate::guard::PermissionGuard;
         let config = OsConfig::default();
         SystemInfoSkill::new(Arc::new(PermissionGuard::new(&config)))
     }

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
+};
 
-use crate::config::PermissionLevel;
-use crate::guard::PermissionGuard;
+use crate::{config::PermissionLevel, guard::PermissionGuard};
 
 fn is_wayland() -> bool {
     std::env::var("WAYLAND_DISPLAY").is_ok()
@@ -186,14 +186,14 @@ impl Skill for ClipboardWriteSkill {
 
 #[cfg(test)]
 mod tests {
+    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
+
     use super::*;
 
     fn make_guard() -> Arc<PermissionGuard> {
-        use orka_core::config::OsConfig;
-        Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "interact".into(),
-            ..OsConfig::default()
-        }))
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Interact;
+        Arc::new(PermissionGuard::new(&config))
     }
 
     #[test]
@@ -211,11 +211,9 @@ mod tests {
 
     #[tokio::test]
     async fn clipboard_read_requires_interact_permission() {
-        use orka_core::config::OsConfig;
-        let guard = Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "read-only".into(),
-            ..OsConfig::default()
-        }));
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::ReadOnly;
+        let guard = Arc::new(PermissionGuard::new(&config));
         let skill = ClipboardReadSkill::new(guard);
         let input = SkillInput::new(std::collections::HashMap::new());
         assert!(skill.execute(input).await.is_err());

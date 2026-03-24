@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
+};
 use sysinfo::System;
 
-use crate::config::PermissionLevel;
-use crate::guard::PermissionGuard;
+use crate::{config::PermissionLevel, guard::PermissionGuard};
 
 // ── process_list ──
 
@@ -299,8 +299,9 @@ impl Skill for ProcessSignalSkill {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
+
+    use super::*;
 
     fn make_guard() -> Arc<PermissionGuard> {
         use orka_core::config::OsConfig;
@@ -335,11 +336,10 @@ mod tests {
     #[tokio::test]
     async fn process_signal_requires_execute() {
         let guard = {
-            use orka_core::config::OsConfig;
-            Arc::new(PermissionGuard::new(&OsConfig {
-                permission_level: "read-only".into(),
-                ..OsConfig::default()
-            }))
+            use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
+            let mut config = OsConfig::default();
+            config.permission_level = OsPermissionLevel::ReadOnly;
+            Arc::new(PermissionGuard::new(&config))
         };
         let skill = ProcessSignalSkill::new(guard);
         let mut args = HashMap::new();

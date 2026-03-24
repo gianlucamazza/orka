@@ -1,12 +1,10 @@
-//! Operating system interaction skills with permission guards and approval channels.
+//! Operating system interaction skills with permission guards.
 //!
 //! Provides file, shell, process, and network skills gated by configurable
-//! [`PermissionLevel`] and [`ApprovalChannel`].
+//! [`PermissionLevel`].
 
 #![warn(missing_docs)]
 
-/// Approval channel trait and implementations for privileged command confirmation.
-pub mod approval;
 /// [`PermissionLevel`] enum for OS skill access control.
 pub mod config;
 /// Shared domain-event helpers for privileged OS skills.
@@ -20,12 +18,9 @@ pub mod skills;
 
 use std::sync::Arc;
 
-use orka_core::Result;
-use orka_core::config::OsConfig;
-use orka_core::traits::Skill;
-use tracing::{info, warn};
-
+use orka_core::{Result, config::OsConfig, traits::Skill};
 pub use probe::{EnvironmentCapabilities, PackageUpdateMethod};
+use tracing::{info, warn};
 
 /// Check whether the current process has `NoNewPrivileges` set.
 ///
@@ -44,28 +39,16 @@ pub fn has_no_new_privileges() -> bool {
     }
 }
 
-use approval::{ApprovalChannel, AutoApproveChannel};
 use config::PermissionLevel;
 use guard::PermissionGuard;
 
-/// Create OS skills from config, filtered by permission level and feature flags.
-///
-/// Uses an [`AutoApproveChannel`] for sudo approval. For custom approval
-/// channels (e.g. interactive confirmation), use [`create_os_skills_with_approval`].
+/// Create OS skills from config, filtered by permission level and feature
+/// flags.
 ///
 /// Pass `caps` from [`EnvironmentCapabilities::probe`] to conditionally exclude
 /// skills that are not functional in the current environment.
 pub fn create_os_skills(
     config: &OsConfig,
-    caps: Option<&EnvironmentCapabilities>,
-) -> Result<Vec<Arc<dyn Skill>>> {
-    create_os_skills_with_approval(config, Arc::new(AutoApproveChannel), caps)
-}
-
-/// Create OS skills with a custom approval channel for sudo commands.
-pub fn create_os_skills_with_approval(
-    config: &OsConfig,
-    approval: Arc<dyn ApprovalChannel>,
     caps: Option<&EnvironmentCapabilities>,
 ) -> Result<Vec<Arc<dyn Skill>>> {
     let guard = Arc::new(PermissionGuard::new(config));
@@ -148,10 +131,7 @@ pub fn create_os_skills_with_approval(
 
     // Execute skills
     if level >= PermissionLevel::Execute {
-        result.push(Arc::new(skills::shell::ShellExecSkill::new(
-            guard.clone(),
-            approval.clone(),
-        )));
+        result.push(Arc::new(skills::shell::ShellExecSkill::new(guard.clone())));
         result.push(Arc::new(skills::process::ProcessSignalSkill::new(
             guard.clone(),
         )));
@@ -173,7 +153,6 @@ pub fn create_os_skills_with_approval(
         if guard.sudo_enabled() {
             result.push(Arc::new(skills::package::PackageInstallSkill::new(
                 guard.clone(),
-                approval.clone(),
             )));
         }
 
@@ -182,20 +161,35 @@ pub fn create_os_skills_with_approval(
             if guard.sudo_enabled() {
                 result.push(Arc::new(skills::systemd::ServiceControlSkill::new(
                     guard.clone(),
-                    approval.clone(),
                 )));
             }
         }
     }
 
-    // Claude Code delegation skill — optional, requires `claude` CLI on PATH.
-    // true: always register; false: never register.
-    let claude_code_available = config.claude_code.enabled;
-    if claude_code_available {
-        info!("claude_code skill auto-enabled");
-        result.push(Arc::new(skills::claude_code::ClaudeCodeSkill::new(
-            &config.claude_code,
+    // Coding delegation skills — routing entrypoint plus explicit backends.
+    let claude_enabled = config.coding.providers.claude_code.enabled
+        && caps.map(|c| c.claude_code.available).unwrap_or(true);
+    let codex_enabled =
+        config.coding.providers.codex.enabled && caps.map(|c| c.codex.available).unwrap_or(true);
+
+    if config.coding.providers.claude_code.enabled && !claude_enabled {
+        warn!("coding provider claude_code disabled: CLI not functional in current environment");
+    }
+    if config.coding.providers.codex.enabled && !codex_enabled {
+        warn!("coding provider codex disabled: CLI not functional in current environment");
+    }
+
+    if config.coding.enabled && (claude_enabled || codex_enabled) {
+        result.push(Arc::new(skills::coding_delegate::CodingDelegateSkill::new(
+            config,
         )));
+    }
+    if config.coding.enabled {
+        info!(
+            claude_code = claude_enabled,
+            codex = codex_enabled,
+            "coding_delegate skill routing initialized"
+        );
     }
 
     info!(
@@ -209,14 +203,19 @@ pub fn create_os_skills_with_approval(
 
 #[cfg(test)]
 mod tests {
+    use orka_core::config::{OsConfig, SudoConfig, primitives::OsPermissionLevel};
+
     use super::*;
+
+    fn config_with_level(level: OsPermissionLevel) -> OsConfig {
+        let mut config = OsConfig::default();
+        config.permission_level = level;
+        config
+    }
 
     #[test]
     fn read_only_skill_count() {
-        let config = OsConfig {
-            permission_level: "read-only".into(),
-            ..OsConfig::default()
-        };
+        let config = config_with_level(OsPermissionLevel::ReadOnly);
         let skills = create_os_skills(&config, None).unwrap();
         // 11 base + 4 package read skills + 0–3 systemd read skills (feature-gated)
         let count = skills.len();
@@ -232,66 +231,45 @@ mod tests {
 
     #[test]
     fn interact_level_has_more_skills() {
-        let config = OsConfig {
-            permission_level: "interact".into(),
-            ..OsConfig::default()
-        };
+        let config = config_with_level(OsPermissionLevel::Interact);
         let skills = create_os_skills(&config, None).unwrap();
         assert!(skills.len() >= 15);
     }
 
     #[test]
     fn write_level_has_more_skills() {
-        let config = OsConfig {
-            permission_level: "write".into(),
-            ..OsConfig::default()
-        };
+        let config = config_with_level(OsPermissionLevel::Write);
         let skills = create_os_skills(&config, None).unwrap();
         assert!(skills.len() > 15);
     }
 
     #[test]
     fn execute_level_has_more_skills() {
-        let config = OsConfig {
-            permission_level: "execute".into(),
-            ..OsConfig::default()
-        };
+        let config = config_with_level(OsPermissionLevel::Execute);
         let skills = create_os_skills(&config, None).unwrap();
         // Should include read-only + write + execute skills
-        let write_config = OsConfig {
-            permission_level: "write".into(),
-            ..OsConfig::default()
-        };
+        let write_config = config_with_level(OsPermissionLevel::Write);
         let write_skills = create_os_skills(&write_config, None).unwrap();
         assert!(skills.len() > write_skills.len());
     }
 
     #[test]
     fn admin_level_has_all_skills() {
-        use orka_core::config::SudoConfig;
-        let sudo = SudoConfig {
-            enabled: true,
-            allowed_commands: vec![
-                "pacman -S".into(),
-                "apt install".into(),
-                "dnf install".into(),
-                "systemctl restart".into(),
-                "systemctl start".into(),
-                "systemctl stop".into(),
-            ],
-            ..SudoConfig::default()
-        };
-        let config = OsConfig {
-            permission_level: "admin".into(),
-            sudo: sudo.clone(),
-            ..OsConfig::default()
-        };
+        let mut sudo = SudoConfig::default();
+        sudo.allowed = true;
+        sudo.allowed_commands = vec![
+            "pacman -S".into(),
+            "apt install".into(),
+            "dnf install".into(),
+            "systemctl restart".into(),
+            "systemctl start".into(),
+            "systemctl stop".into(),
+        ];
+        let mut config = config_with_level(OsPermissionLevel::Admin);
+        config.sudo = sudo.clone();
         let skills = create_os_skills(&config, None).unwrap();
-        let exec_config = OsConfig {
-            permission_level: "execute".into(),
-            sudo,
-            ..OsConfig::default()
-        };
+        let mut exec_config = config_with_level(OsPermissionLevel::Execute);
+        exec_config.sudo = sudo;
         let exec_skills = create_os_skills(&exec_config, None).unwrap();
         assert!(
             skills.len() > exec_skills.len(),
@@ -303,10 +281,7 @@ mod tests {
 
     #[test]
     fn all_skills_have_valid_schemas() {
-        let config = OsConfig {
-            permission_level: "admin".into(),
-            ..OsConfig::default()
-        };
+        let config = config_with_level(OsPermissionLevel::Admin);
         let skills = create_os_skills(&config, None).unwrap();
         for skill in &skills {
             let schema = skill.schema();
@@ -320,10 +295,7 @@ mod tests {
 
     #[test]
     fn all_skills_have_unique_names() {
-        let config = OsConfig {
-            permission_level: "admin".into(),
-            ..OsConfig::default()
-        };
+        let config = config_with_level(OsPermissionLevel::Admin);
         let skills = create_os_skills(&config, None).unwrap();
         let mut names: Vec<&str> = skills.iter().map(|s| s.name()).collect();
         let total = names.len();

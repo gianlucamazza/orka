@@ -1,14 +1,12 @@
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
-use std::sync::Arc;
+use std::{os::unix::fs::PermissionsExt, path::Path, sync::Arc};
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
+};
 use tracing::debug;
 
-use crate::config::PermissionLevel;
-use crate::guard::PermissionGuard;
+use crate::{config::PermissionLevel, guard::PermissionGuard};
 
 fn missing_arg(arg: &str) -> Error {
     Error::SkillCategorized {
@@ -971,28 +969,26 @@ impl Skill for FsWatchSkill {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
 
-    fn test_guard(level: &str) -> Arc<PermissionGuard> {
-        let config = OsConfig {
-            permission_level: level.into(),
-            allowed_paths: vec!["/tmp".into()],
-            ..OsConfig::default()
-        };
-        Arc::new(PermissionGuard::new(&config))
-    }
+    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
 
-    fn test_os_config() -> OsConfig {
-        OsConfig {
-            allowed_paths: vec!["/tmp".into()],
-            ..OsConfig::default()
-        }
+    use super::*;
+
+    fn test_guard(level: &str) -> Arc<PermissionGuard> {
+        let mut config = OsConfig::default();
+        config.permission_level = match level {
+            "read-only" => OsPermissionLevel::ReadOnly,
+            "write" => OsPermissionLevel::Write,
+            other => panic!("unsupported test permission level: {other}"),
+        };
+        config.allowed_paths = vec!["/tmp".into()];
+        Arc::new(PermissionGuard::new(&config))
     }
 
     #[test]
     fn fs_read_schema_valid() {
-        let skill = FsReadSkill::new(test_guard("read-only"), &test_os_config());
+        let skill = FsReadSkill::new(test_guard("read-only"));
         let schema = skill.schema();
         assert_eq!(schema.parameters["required"][0], "path");
     }
@@ -1003,12 +999,10 @@ mod tests {
         let file = dir.path().join("test.txt");
         std::fs::write(&file, "hello world").unwrap();
 
-        let config = OsConfig {
-            allowed_paths: vec![dir.path().to_string_lossy().to_string()],
-            ..OsConfig::default()
-        };
+        let mut config = OsConfig::default();
+        config.allowed_paths = vec![dir.path().to_string_lossy().to_string()];
         let guard = Arc::new(PermissionGuard::new(&config));
-        let skill = FsReadSkill::new(guard, &config);
+        let skill = FsReadSkill::new(guard);
 
         let mut args = HashMap::new();
         args.insert("path".into(), serde_json::json!(file.to_string_lossy()));
@@ -1019,7 +1013,7 @@ mod tests {
 
     #[tokio::test]
     async fn fs_read_missing_path_errors() {
-        let skill = FsReadSkill::new(test_guard("read-only"), &test_os_config());
+        let skill = FsReadSkill::new(test_guard("read-only"));
         let input = SkillInput::new(HashMap::new());
         assert!(skill.execute(input).await.is_err());
     }
@@ -1030,12 +1024,10 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), "").unwrap();
         std::fs::write(dir.path().join("b.txt"), "").unwrap();
 
-        let config = OsConfig {
-            allowed_paths: vec![dir.path().to_string_lossy().to_string()],
-            ..OsConfig::default()
-        };
+        let mut config = OsConfig::default();
+        config.allowed_paths = vec![dir.path().to_string_lossy().to_string()];
         let guard = Arc::new(PermissionGuard::new(&config));
-        let skill = FsListSkill::new(guard, &config);
+        let skill = FsListSkill::new(guard);
 
         let mut args = HashMap::new();
         args.insert(
@@ -1063,11 +1055,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("out.txt");
 
-        let config = OsConfig {
-            permission_level: "write".into(),
-            allowed_paths: vec![dir.path().to_string_lossy().to_string()],
-            ..OsConfig::default()
-        };
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Write;
+        config.allowed_paths = vec![dir.path().to_string_lossy().to_string()];
         let guard = Arc::new(PermissionGuard::new(&config));
         let skill = FsWriteSkill::new(guard);
 
@@ -1088,7 +1078,7 @@ mod tests {
 
     #[test]
     fn fs_search_schema_valid() {
-        let skill = FsSearchSkill::new(test_guard("read-only"), &test_os_config());
+        let skill = FsSearchSkill::new(test_guard("read-only"));
         let schema = skill.schema();
         assert_eq!(schema.parameters["required"][0], "path");
         assert_eq!(schema.parameters["required"][1], "pattern");

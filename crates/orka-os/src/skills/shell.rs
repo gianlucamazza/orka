@@ -1,37 +1,27 @@
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
+};
 use tracing::debug;
 
-use crate::approval::ApprovalChannel;
-use crate::config::PermissionLevel;
-use crate::events::emit_executed;
-use crate::guard::PermissionGuard;
+use crate::{config::PermissionLevel, events::emit_executed, guard::PermissionGuard};
 
 /// Skill that executes shell commands with permission and approval enforcement.
 pub struct ShellExecSkill {
     guard: Arc<PermissionGuard>,
     timeout_secs: u64,
     max_output_bytes: usize,
-    sudo_requires_password: bool,
-    approval: Arc<dyn ApprovalChannel>,
 }
 
 impl ShellExecSkill {
-    /// Create a new `shell_exec` skill from a permission guard and an approval channel.
-    pub fn new(
-        guard: Arc<PermissionGuard>,
-        approval: Arc<dyn ApprovalChannel>,
-    ) -> Self {
+    /// Create a new `shell_exec` skill from a permission guard.
+    pub fn new(guard: Arc<PermissionGuard>) -> Self {
         Self {
             guard,
-            timeout_secs: 30, // Default timeout
+            timeout_secs: 30,             // Default timeout
             max_output_bytes: 100 * 1024, // Default 100KB
-            sudo_requires_password: false,
-            approval,
         }
     }
 }
@@ -105,7 +95,8 @@ impl Skill for ShellExecSkill {
             .unwrap_or_default();
 
         // When the LLM packs command+args into a single string (e.g. "df -h /"),
-        // split it with POSIX shell quoting rules so Command::new gets the right binary.
+        // split it with POSIX shell quoting rules so Command::new gets the right
+        // binary.
         let (command_owned, args_owned) = if explicit_args.is_empty() && raw_command.contains(' ') {
             let mut parts =
                 shell_words::split(raw_command).map_err(|e| Error::SkillCategorized {
@@ -282,21 +273,16 @@ impl Skill for ShellExecSkill {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
 
+    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
+
+    use super::*;
+
     fn make_skill() -> ShellExecSkill {
-        use crate::approval::AutoApproveChannel;
-        use orka_core::config::OsConfig;
-        let config = OsConfig {
-            permission_level: "execute".into(),
-            ..OsConfig::default()
-        };
-        ShellExecSkill::new(
-            Arc::new(PermissionGuard::new(&config)),
-            &config,
-            Arc::new(AutoApproveChannel),
-        )
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Execute;
+        ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)))
     }
 
     #[test]
@@ -324,17 +310,9 @@ mod tests {
 
     #[tokio::test]
     async fn exec_requires_execute_permission() {
-        use crate::approval::AutoApproveChannel;
-        use orka_core::config::OsConfig;
-        let config = OsConfig {
-            permission_level: "read-only".into(),
-            ..OsConfig::default()
-        };
-        let skill = ShellExecSkill::new(
-            Arc::new(PermissionGuard::new(&config)),
-            &config,
-            Arc::new(AutoApproveChannel),
-        );
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::ReadOnly;
+        let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)));
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("echo"));
         assert!(skill.execute(SkillInput::new(args)).await.is_err());
@@ -342,18 +320,10 @@ mod tests {
 
     #[tokio::test]
     async fn exec_blocked_command() {
-        use crate::approval::AutoApproveChannel;
-        use orka_core::config::OsConfig;
-        let config = OsConfig {
-            permission_level: "execute".into(),
-            blocked_commands: vec!["rm".into()],
-            ..OsConfig::default()
-        };
-        let skill = ShellExecSkill::new(
-            Arc::new(PermissionGuard::new(&config)),
-            &config,
-            Arc::new(AutoApproveChannel),
-        );
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Execute;
+        config.allowed_shell_commands = vec!["echo".into()];
+        let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)));
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("rm"));
         args.insert("args".into(), serde_json::json!(["-rf", "/"]));
@@ -369,23 +339,15 @@ mod tests {
 
     #[tokio::test]
     async fn exec_sudo_requires_admin() {
-        use crate::approval::AutoApproveChannel;
         use orka_core::config::{OsConfig, SudoConfig};
-        let config = OsConfig {
-            permission_level: "execute".into(),
-            sudo: SudoConfig {
-                enabled: true,
-                allowed_commands: vec!["echo".into()],
-                require_confirmation: false,
-                ..SudoConfig::default()
-            },
-            ..OsConfig::default()
-        };
-        let skill = ShellExecSkill::new(
-            Arc::new(PermissionGuard::new(&config)),
-            &config,
-            Arc::new(AutoApproveChannel),
-        );
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Execute;
+        let mut sudo = SudoConfig::default();
+        sudo.allowed = true;
+        sudo.allowed_commands = vec!["echo".into()];
+        sudo.password_required = false;
+        config.sudo = sudo;
+        let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)));
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("echo"));
         args.insert("args".into(), serde_json::json!(["hi"]));
@@ -393,64 +355,15 @@ mod tests {
         assert!(skill.execute(SkillInput::new(args)).await.is_err());
     }
 
-    #[tokio::test]
-    async fn exec_sudo_denied_by_approval() {
-        use crate::approval::{ApprovalChannel, ApprovalDecision, ApprovalRequest};
-        use orka_core::config::{OsConfig, SudoConfig};
-
-        struct DenyChannel;
-        #[async_trait]
-        impl ApprovalChannel for DenyChannel {
-            async fn request_approval(
-                &self,
-                _req: ApprovalRequest,
-            ) -> orka_core::Result<ApprovalDecision> {
-                Ok(ApprovalDecision::Denied {
-                    reason: "test denial".into(),
-                })
-            }
-        }
-
-        let config = OsConfig {
-            permission_level: "admin".into(),
-            sudo: SudoConfig {
-                enabled: true,
-                allowed_commands: vec!["echo".into()],
-                require_confirmation: true,
-                ..SudoConfig::default()
-            },
-            ..OsConfig::default()
-        };
-        let skill = ShellExecSkill::new(
-            Arc::new(PermissionGuard::new(&config)),
-            &config,
-            Arc::new(DenyChannel),
-        );
-        let mut args = HashMap::new();
-        args.insert("command".into(), serde_json::json!("echo"));
-        args.insert("args".into(), serde_json::json!(["hi"]));
-        args.insert("sudo".into(), serde_json::json!(true));
-        let err = skill.execute(SkillInput::new(args)).await.unwrap_err();
-        assert!(err.to_string().contains("denied"));
-    }
-
     #[test]
     fn schema_includes_sudo_for_admin() {
-        use crate::approval::AutoApproveChannel;
         use orka_core::config::{OsConfig, SudoConfig};
-        let config = OsConfig {
-            permission_level: "admin".into(),
-            sudo: SudoConfig {
-                enabled: true,
-                ..SudoConfig::default()
-            },
-            ..OsConfig::default()
-        };
-        let skill = ShellExecSkill::new(
-            Arc::new(PermissionGuard::new(&config)),
-            &config,
-            Arc::new(AutoApproveChannel),
-        );
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Admin;
+        let mut sudo = SudoConfig::default();
+        sudo.allowed = true;
+        config.sudo = sudo;
+        let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)));
         let schema = skill.schema();
         assert!(schema.parameters["properties"]["sudo"].is_object());
     }
@@ -498,18 +411,10 @@ mod tests {
 
     #[tokio::test]
     async fn exec_split_blocked_command() {
-        use crate::approval::AutoApproveChannel;
-        use orka_core::config::OsConfig;
-        let config = OsConfig {
-            permission_level: "execute".into(),
-            blocked_commands: vec!["rm".into()],
-            ..OsConfig::default()
-        };
-        let skill = ShellExecSkill::new(
-            Arc::new(PermissionGuard::new(&config)),
-            &config,
-            Arc::new(AutoApproveChannel),
-        );
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Execute;
+        config.allowed_shell_commands = vec!["echo".into()];
+        let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)));
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("rm -rf /"));
         assert!(skill.execute(SkillInput::new(args)).await.is_err());
@@ -517,21 +422,13 @@ mod tests {
 
     #[test]
     fn schema_hides_sudo_for_non_admin() {
-        use crate::approval::AutoApproveChannel;
         use orka_core::config::{OsConfig, SudoConfig};
-        let config = OsConfig {
-            permission_level: "execute".into(),
-            sudo: SudoConfig {
-                enabled: true,
-                ..SudoConfig::default()
-            },
-            ..OsConfig::default()
-        };
-        let skill = ShellExecSkill::new(
-            Arc::new(PermissionGuard::new(&config)),
-            &config,
-            Arc::new(AutoApproveChannel),
-        );
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Execute;
+        let mut sudo = SudoConfig::default();
+        sudo.allowed = true;
+        config.sudo = sudo;
+        let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)));
         let schema = skill.schema();
         assert!(schema.parameters["properties"]["sudo"].is_null());
     }

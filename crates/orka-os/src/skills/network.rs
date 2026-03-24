@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 use sysinfo::Networks;
 
 use crate::guard::PermissionGuard;
@@ -145,8 +144,9 @@ impl Skill for NetworkCheckSkill {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::collections::HashMap;
+
+    use super::*;
 
     fn make_guard() -> Arc<PermissionGuard> {
         use orka_core::config::OsConfig;

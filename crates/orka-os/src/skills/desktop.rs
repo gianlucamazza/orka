@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
+};
 
-use crate::config::PermissionLevel;
-use crate::guard::PermissionGuard;
+use crate::{config::PermissionLevel, guard::PermissionGuard};
 
 fn is_wayland() -> bool {
     std::env::var("WAYLAND_DISPLAY").is_ok()
@@ -227,15 +227,15 @@ impl Skill for DesktopScreenshotSkill {
 
 #[cfg(test)]
 mod tests {
+    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
+
     use super::*;
 
     fn make_guard() -> Arc<PermissionGuard> {
-        use orka_core::config::OsConfig;
-        Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "execute".into(),
-            allowed_paths: vec!["/tmp".into()],
-            ..OsConfig::default()
-        }))
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Execute;
+        config.allowed_paths = vec!["/tmp".into()];
+        Arc::new(PermissionGuard::new(&config))
     }
 
     #[test]
@@ -253,11 +253,9 @@ mod tests {
 
     #[tokio::test]
     async fn desktop_open_requires_execute() {
-        use orka_core::config::OsConfig;
-        let guard = Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "read-only".into(),
-            ..OsConfig::default()
-        }));
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::ReadOnly;
+        let guard = Arc::new(PermissionGuard::new(&config));
         let skill = DesktopOpenSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("target".into(), serde_json::json!("https://example.com"));

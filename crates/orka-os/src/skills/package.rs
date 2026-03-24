@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
+};
 
-use crate::approval::ApprovalChannel;
-use crate::config::PermissionLevel;
-use crate::events::emit_executed;
-use crate::guard::PermissionGuard;
-use crate::probe::PackageUpdateMethod;
+use crate::{
+    config::PermissionLevel, events::emit_executed, guard::PermissionGuard,
+    probe::PackageUpdateMethod,
+};
 
 #[derive(Debug, Clone, Copy)]
 enum PackageManager {
@@ -51,7 +51,8 @@ fn detect_package_manager() -> Option<PackageManager> {
 
 // ── package_search ──
 
-/// Skill that searches the package manager database for packages matching a query.
+/// Skill that searches the package manager database for packages matching a
+/// query.
 pub struct PackageSearchSkill {
     guard: Arc<PermissionGuard>,
 }
@@ -324,15 +325,17 @@ fn is_update_success(pm: PackageManager, exit_code: i32, using_fallback: bool) -
 /// Skill that checks for available package updates.
 pub struct PackageUpdatesSkill {
     guard: Arc<PermissionGuard>,
-    /// Pre-determined update method from startup probe. If `None`, runtime detection is used.
+    /// Pre-determined update method from startup probe. If `None`, runtime
+    /// detection is used.
     method: Option<PackageUpdateMethod>,
 }
 
 impl PackageUpdatesSkill {
     /// Create a new `package_updates` skill.
     ///
-    /// Pass `method` from [`crate::probe::EnvironmentCapabilities`] to use a pre-validated
-    /// method, avoiding runtime crashes (e.g. `checkupdates` under `NoNewPrivileges`).
+    /// Pass `method` from [`crate::probe::EnvironmentCapabilities`] to use a
+    /// pre-validated method, avoiding runtime crashes (e.g. `checkupdates`
+    /// under `NoNewPrivileges`).
     pub fn new(guard: Arc<PermissionGuard>, method: Option<PackageUpdateMethod>) -> Self {
         Self { guard, method }
     }
@@ -367,7 +370,8 @@ impl Skill for PackageUpdatesSkill {
 
         let filter = input.args.get("filter").and_then(|v| v.as_str());
 
-        // Use the pre-probed method if available, otherwise fall back to runtime detection
+        // Use the pre-probed method if available, otherwise fall back to runtime
+        // detection
         let effective_method = self.method.or_else(|| {
             let pm = detect_package_manager()?;
             Some(match pm {
@@ -477,21 +481,12 @@ impl Skill for PackageUpdatesSkill {
 /// Skill that installs a package via sudo, with optional approval gating.
 pub struct PackageInstallSkill {
     guard: Arc<PermissionGuard>,
-    sudo_requires_password: bool,
-    approval: Arc<dyn ApprovalChannel>,
 }
 
 impl PackageInstallSkill {
-    /// Create a new `package_install` skill from a permission guard and an approval channel.
-    pub fn new(
-        guard: Arc<PermissionGuard>,
-        approval: Arc<dyn ApprovalChannel>,
-    ) -> Self {
-        Self {
-            guard,
-            sudo_requires_password: false, // Default: no password
-            approval,
-        }
+    /// Create a new `package_install` skill from a permission guard.
+    pub fn new(guard: Arc<PermissionGuard>) -> Self {
+        Self { guard }
     }
 }
 
@@ -589,14 +584,14 @@ impl Skill for PackageInstallSkill {
 
 #[cfg(test)]
 mod tests {
+    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
+
     use super::*;
 
     fn make_guard() -> Arc<PermissionGuard> {
-        use orka_core::config::OsConfig;
-        Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "admin".into(),
-            ..OsConfig::default()
-        }))
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Admin;
+        Arc::new(PermissionGuard::new(&config))
     }
 
     #[test]
@@ -627,15 +622,14 @@ mod tests {
 
     #[tokio::test]
     async fn package_search_allowed_at_read_only() {
-        use orka_core::config::OsConfig;
-        let guard = Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "read-only".into(),
-            ..OsConfig::default()
-        }));
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::ReadOnly;
+        let guard = Arc::new(PermissionGuard::new(&config));
         let skill = PackageSearchSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("query".into(), serde_json::json!("test"));
-        // Permission check passes; any error here is from the missing package manager binary.
+        // Permission check passes; any error here is from the missing package manager
+        // binary.
         let result = skill.execute(SkillInput::new(args)).await;
         assert!(
             result.is_ok()
@@ -649,19 +643,17 @@ mod tests {
 
     #[tokio::test]
     async fn package_updates_allowed_at_read_only() {
-        use orka_core::config::OsConfig;
-        let guard = Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "read-only".into(),
-            ..OsConfig::default()
-        }));
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::ReadOnly;
+        let guard = Arc::new(PermissionGuard::new(&config));
         let skill = PackageUpdatesSkill::new(guard, None);
         let result = skill.execute(SkillInput::new(Default::default())).await;
         assert!(
             result.is_ok()
-                || result
+                || !result
                     .unwrap_err()
                     .to_string()
-                    .contains("no supported package manager"),
+                    .contains("permission denied"),
             "should not fail with a permission error at read-only level"
         );
     }

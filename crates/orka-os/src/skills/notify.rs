@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
+};
 
-use crate::config::PermissionLevel;
-use crate::guard::PermissionGuard;
+use crate::{config::PermissionLevel, guard::PermissionGuard};
 
 /// Skill that sends a desktop notification via `notify-send`.
 pub struct NotifySendSkill {
@@ -113,14 +113,14 @@ impl Skill for NotifySendSkill {
 
 #[cfg(test)]
 mod tests {
+    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
+
     use super::*;
 
     fn make_guard() -> Arc<PermissionGuard> {
-        use orka_core::config::OsConfig;
-        Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "interact".into(),
-            ..OsConfig::default()
-        }))
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Interact;
+        Arc::new(PermissionGuard::new(&config))
     }
 
     #[test]
@@ -132,11 +132,9 @@ mod tests {
 
     #[tokio::test]
     async fn requires_write_permission() {
-        use orka_core::config::OsConfig;
-        let guard = Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "read-only".into(),
-            ..OsConfig::default()
-        }));
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::ReadOnly;
+        let guard = Arc::new(PermissionGuard::new(&config));
         let skill = NotifySendSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("title".into(), serde_json::json!("test"));

@@ -1,13 +1,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::Skill;
-use orka_core::{Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema};
+use orka_core::{
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
+};
 
-use crate::approval::ApprovalChannel;
-use crate::config::PermissionLevel;
-use crate::events::emit_executed;
-use crate::guard::PermissionGuard;
+use crate::{config::PermissionLevel, events::emit_executed, guard::PermissionGuard};
 
 fn categorize_daemon_spawn_error(daemon: &str, e: std::io::Error) -> Error {
     let category = match e.kind() {
@@ -156,7 +154,8 @@ impl Skill for ServiceListSkill {
 
 // ── journal_read ──
 
-/// Skill that reads systemd journal log entries, with optional unit and time filtering.
+/// Skill that reads systemd journal log entries, with optional unit and time
+/// filtering.
 pub struct JournalReadSkill {
     guard: Arc<PermissionGuard>,
 }
@@ -243,21 +242,12 @@ impl Skill for JournalReadSkill {
 /// Skill that starts, stops, or restarts systemd services via sudo.
 pub struct ServiceControlSkill {
     guard: Arc<PermissionGuard>,
-    sudo_requires_password: bool,
-    approval: Arc<dyn ApprovalChannel>,
 }
 
 impl ServiceControlSkill {
-    /// Create a new `service_control` skill from a permission guard and an approval channel.
-    pub fn new(
-        guard: Arc<PermissionGuard>,
-        approval: Arc<dyn ApprovalChannel>,
-    ) -> Self {
-        Self {
-            guard,
-            sudo_requires_password: false, // Default: no password
-            approval,
-        }
+    /// Create a new `service_control` skill from a permission guard.
+    pub fn new(guard: Arc<PermissionGuard>) -> Self {
+        Self { guard }
     }
 }
 
@@ -375,14 +365,14 @@ impl Skill for ServiceControlSkill {
 
 #[cfg(test)]
 mod tests {
+    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
+
     use super::*;
 
     fn make_guard() -> Arc<PermissionGuard> {
-        use orka_core::config::OsConfig;
-        Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "admin".into(),
-            ..OsConfig::default()
-        }))
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Admin;
+        Arc::new(PermissionGuard::new(&config))
     }
 
     #[test]
@@ -400,20 +390,7 @@ mod tests {
 
     #[test]
     fn service_control_schema_valid() {
-        use orka_core::config::{OsConfig, SudoConfig};
-        let config = OsConfig {
-            permission_level: "admin".into(),
-            sudo: SudoConfig {
-                enabled: true,
-                ..SudoConfig::default()
-            },
-            ..OsConfig::default()
-        };
-        let skill = ServiceControlSkill::new(
-            make_guard(),
-            &config,
-            Arc::new(crate::approval::AutoApproveChannel),
-        );
+        let skill = ServiceControlSkill::new(make_guard());
         let schema = skill.schema();
         assert_eq!(schema.parameters["required"][0], "unit");
         assert_eq!(schema.parameters["required"][1], "action");
@@ -421,22 +398,15 @@ mod tests {
 
     #[tokio::test]
     async fn service_control_requires_admin() {
-        use orka_core::config::{OsConfig, SudoConfig};
-        let config = OsConfig {
-            permission_level: "execute".into(),
-            sudo: SudoConfig {
-                enabled: true,
-                allowed_commands: vec!["systemctl restart".into()],
-                ..SudoConfig::default()
-            },
-            ..OsConfig::default()
-        };
+        use orka_core::config::SudoConfig;
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::Execute;
+        let mut sudo = SudoConfig::default();
+        sudo.allowed = true;
+        sudo.allowed_commands = vec!["systemctl restart".into()];
+        config.sudo = sudo;
         let guard = Arc::new(PermissionGuard::new(&config));
-        let skill = ServiceControlSkill::new(
-            guard,
-            &config,
-            Arc::new(crate::approval::AutoApproveChannel),
-        );
+        let skill = ServiceControlSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("unit".into(), serde_json::json!("nginx.service"));
         args.insert("action".into(), serde_json::json!("restart"));
@@ -445,11 +415,9 @@ mod tests {
 
     #[tokio::test]
     async fn service_status_allowed_at_read_only() {
-        use orka_core::config::OsConfig;
-        let guard = Arc::new(PermissionGuard::new(&OsConfig {
-            permission_level: "read-only".into(),
-            ..OsConfig::default()
-        }));
+        let mut config = OsConfig::default();
+        config.permission_level = OsPermissionLevel::ReadOnly;
+        let guard = Arc::new(PermissionGuard::new(&config));
         let skill = ServiceStatusSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("unit".into(), serde_json::json!("sshd.service"));

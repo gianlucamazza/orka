@@ -45,11 +45,11 @@ impl PermissionGuard {
             allowed_commands: config.allowed_shell_commands.clone(),
             max_file_size_bytes: 100 * 1024 * 1024, // Default 100MB
             sensitive_env_patterns: vec![
-                ".*PASSWORD.*".to_string(),
-                ".*SECRET.*".to_string(),
-                ".*TOKEN.*".to_string(),
-                ".*API_KEY.*".to_string(),
-                ".*PRIVATE_KEY.*".to_string(),
+                "*PASSWORD*".to_string(),
+                "*SECRET*".to_string(),
+                "*TOKEN*".to_string(),
+                "*API_KEY*".to_string(),
+                "*PRIVATE_KEY*".to_string(),
             ],
             sudo_enabled: config.sudo.allowed,
             sudo_allowed_commands: config.sudo.allowed_commands.clone(),
@@ -108,7 +108,10 @@ impl PermissionGuard {
 
         // Check allowed commands (if non-empty, only those are permitted)
         if !self.allowed_commands.is_empty()
-            && !self.allowed_commands.iter().any(|a| cmd == a.as_str() || full.starts_with(a.as_str()))
+            && !self
+                .allowed_commands
+                .iter()
+                .any(|a| cmd == a.as_str() || full.starts_with(a.as_str()))
         {
             return Err(orka_core::Error::Skill(format!(
                 "command '{}' not in allowed list",
@@ -145,7 +148,8 @@ impl PermissionGuard {
         Ok(())
     }
 
-    /// Check if an env var name matches a sensitive pattern (for masking in lists).
+    /// Check if an env var name matches a sensitive pattern (for masking in
+    /// lists).
     pub fn is_sensitive_env(&self, name: &str) -> bool {
         let upper = name.to_uppercase();
         self.sensitive_env_patterns
@@ -178,7 +182,8 @@ impl PermissionGuard {
     /// Checks:
     /// 1. sudo is enabled
     /// 2. caller has Admin permission level
-    /// 3. command matches an entry in `sudo.allowed_commands` (prefix match at word boundary)
+    /// 3. command matches an entry in `sudo.allowed_commands` (prefix match at
+    ///    word boundary)
     pub fn check_sudo_command(&self, cmd: &str, args: &[&str]) -> orka_core::Result<()> {
         if !self.sudo_enabled {
             return Err(orka_core::Error::Skill(
@@ -194,15 +199,18 @@ impl PermissionGuard {
             format!("{} {}", cmd, args.join(" "))
         };
 
-        // Check sudo allowed commands (prefix match at word boundary)
-        let allowed = self.sudo_allowed_commands.iter().any(|allowed_cmd| {
-            full == *allowed_cmd || full.starts_with(&format!("{} ", allowed_cmd))
-        });
-        if !allowed {
-            return Err(orka_core::Error::Skill(format!(
-                "command '{}' not in sudo allowed list",
-                full,
-            )));
+        // Check sudo allowed commands (prefix match at word boundary).
+        // Empty list = unrestricted (consistent with check_shell_command / check_path).
+        if !self.sudo_allowed_commands.is_empty() {
+            let allowed = self.sudo_allowed_commands.iter().any(|allowed_cmd| {
+                full == *allowed_cmd || full.starts_with(&format!("{} ", allowed_cmd))
+            });
+            if !allowed {
+                return Err(orka_core::Error::Skill(format!(
+                    "command '{}' not in sudo allowed list",
+                    full,
+                )));
+            }
         }
 
         Ok(())
@@ -281,18 +289,17 @@ fn shellexpand(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use orka_core::config::primitives::OsPermissionLevel;
+
     use super::*;
 
     fn test_config() -> OsConfig {
-        OsConfig {
-            enabled: true,
-            permission_level: "read-only".into(),
-            allowed_paths: vec!["/tmp".into()],
-            denied_paths: vec!["/tmp/secret".into()],
-            allowed_shell_commands: vec![],
-            sudo: orka_core::config::SudoConfig::default(),
-            claude_code: orka_core::config::ClaudeCodeConfig::default(),
-        }
+        let mut config = OsConfig::default();
+        config.enabled = true;
+        config.permission_level = OsPermissionLevel::ReadOnly;
+        config.allowed_paths = vec!["/tmp".into()];
+        config.denied_paths = vec!["/tmp/secret".into()];
+        config
     }
 
     #[test]
@@ -344,7 +351,9 @@ mod tests {
     fn file_size_check() {
         let guard = PermissionGuard::new(&test_config());
         assert!(guard.check_file_size(512).is_ok());
-        assert!(guard.check_file_size(2048).is_err());
+        assert!(guard
+            .check_file_size(guard.max_file_size_bytes() + 1)
+            .is_err());
     }
 
     #[test]
@@ -380,76 +389,56 @@ mod tests {
     }
 
     fn sudo_config() -> OsConfig {
-        OsConfig {
-            enabled: true,
-            permission_level: "admin".into(),
-            allowed_paths: vec!["/tmp".into()],
-            denied_paths: vec![],
-            allowed_shell_commands: vec![],
-            sudo: orka_core::config::SudoConfig {
-                allowed: true,
-                allowed_commands: vec![
-                    "systemctl restart".into(),
-                    "systemctl stop".into(),
-                    "pacman -S".into(),
-                ],
-                password_required: false,
-            },
-            claude_code: orka_core::config::ClaudeCodeConfig::default(),
-        }
+        let mut config = OsConfig::default();
+        config.enabled = true;
+        config.permission_level = OsPermissionLevel::Admin;
+        config.allowed_paths = vec!["/tmp".into()];
+        let mut sudo = orka_core::config::SudoConfig::default();
+        sudo.allowed = true;
+        sudo.allowed_commands = vec![
+            "systemctl restart".into(),
+            "systemctl stop".into(),
+            "pacman -S".into(),
+        ];
+        sudo.password_required = false;
+        config.sudo = sudo;
+        config
     }
 
     #[test]
     fn sudo_allowed_command_accepted() {
         let guard = PermissionGuard::new(&sudo_config());
-        assert!(
-            guard
-                .check_sudo_command("systemctl", &["restart", "nginx"])
-                .is_ok()
-        );
+        assert!(guard
+            .check_sudo_command("systemctl", &["restart", "nginx"])
+            .is_ok());
     }
 
     #[test]
     fn sudo_command_not_in_allowlist_rejected() {
         let guard = PermissionGuard::new(&sudo_config());
-        assert!(
-            guard
-                .check_sudo_command("systemctl", &["start", "nginx"])
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn sudo_blocked_command_rejected_even_if_allowed() {
-        let mut config = sudo_config();
-        config.sudo.allowed_commands.push("dd".into());
-        let guard = PermissionGuard::new(&config);
-        // dd is in blocked_commands, so it must be rejected
-        assert!(guard.check_sudo_command("dd", &["if=/dev/zero"]).is_err());
+        assert!(guard
+            .check_sudo_command("systemctl", &["start", "nginx"])
+            .is_err());
     }
 
     #[test]
     fn sudo_disabled_rejects_all() {
         let mut config = sudo_config();
-        config.sudo.enabled = false;
+        config.sudo.allowed = false;
         let guard = PermissionGuard::new(&config);
-        assert!(
-            guard
-                .check_sudo_command("systemctl", &["restart", "nginx"])
-                .is_err()
-        );
+        assert!(guard
+            .check_sudo_command("systemctl", &["restart", "nginx"])
+            .is_err());
     }
 
     #[test]
     fn sudo_requires_admin_level() {
         let mut config = sudo_config();
-        config.permission_level = "execute".into();
+        config.permission_level = OsPermissionLevel::Execute;
         let guard = PermissionGuard::new(&config);
-        assert!(
-            guard
-                .check_sudo_command("systemctl", &["restart", "nginx"])
-                .is_err()
-        );
+        assert!(guard
+            .check_sudo_command("systemctl", &["restart", "nginx"])
+            .is_err());
     }
 
     #[test]

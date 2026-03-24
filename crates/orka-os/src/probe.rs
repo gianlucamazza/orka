@@ -4,7 +4,7 @@
 //! allowing skill registration to be conditioned on what actually works in the
 //! current process environment (e.g. under `NoNewPrivileges`).
 
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 use orka_core::config::OsConfig;
 use tracing::{debug, warn};
@@ -66,11 +66,13 @@ pub struct EnvironmentCapabilities {
     pub update_method: Option<PackageUpdateMethod>,
     /// `claude` CLI availability.
     pub claude_code: ProbeResult,
+    /// `codex` CLI availability.
+    pub codex: ProbeResult,
 }
 
 impl EnvironmentCapabilities {
     /// Probe the runtime environment and return a capability snapshot.
-    pub async fn probe(_config: &OsConfig) -> Self {
+    pub async fn probe(config: &OsConfig) -> Self {
         let no_new_privileges = crate::has_no_new_privileges();
 
         if no_new_privileges {
@@ -83,7 +85,8 @@ impl EnvironmentCapabilities {
         let (package_updates, update_method) = probe_package_updates(no_new_privileges).await;
         let systemctl = probe_systemctl().await;
         let journalctl = probe_journalctl().await;
-        let claude_code = probe_claude_code().await;
+        let claude_code = probe_claude_code(config).await;
+        let codex = probe_codex(config).await;
 
         debug!(
             no_new_privileges,
@@ -92,6 +95,7 @@ impl EnvironmentCapabilities {
             systemctl = systemctl.available,
             journalctl = journalctl.available,
             claude_code = claude_code.available,
+            codex = codex.available,
             "environment capabilities probed"
         );
 
@@ -102,6 +106,7 @@ impl EnvironmentCapabilities {
             journalctl,
             update_method,
             claude_code,
+            codex,
         }
     }
 }
@@ -207,13 +212,44 @@ async fn probe_systemctl() -> ProbeResult {
     }
 }
 
-async fn probe_claude_code() -> ProbeResult {
-    let ok = run_probe("claude", &["--version"], Duration::from_secs(2)).await;
+async fn probe_claude_code(config: &OsConfig) -> ProbeResult {
+    let command = configured_command(
+        config
+            .coding
+            .providers
+            .claude_code
+            .executable_path
+            .as_deref()
+            .unwrap_or_else(|| Path::new("claude")),
+    );
+    let ok = run_probe(&command, &["--version"], Duration::from_secs(2)).await;
     if ok {
-        ProbeResult::ok("claude --version")
+        ProbeResult::ok(format!("{command} --version"))
     } else {
         ProbeResult::unavailable("claude CLI not found or not functional")
     }
+}
+
+async fn probe_codex(config: &OsConfig) -> ProbeResult {
+    let command = configured_command(
+        config
+            .coding
+            .providers
+            .codex
+            .executable_path
+            .as_deref()
+            .unwrap_or_else(|| Path::new("codex")),
+    );
+    let ok = run_probe(&command, &["--version"], Duration::from_secs(2)).await;
+    if ok {
+        ProbeResult::ok(format!("{command} --version"))
+    } else {
+        ProbeResult::unavailable("codex CLI not found or not functional")
+    }
+}
+
+fn configured_command(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 async fn probe_journalctl() -> ProbeResult {
