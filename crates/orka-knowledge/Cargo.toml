@@ -17,8 +17,8 @@ chrono.workspace = true
 reqwest.workspace = true
 qdrant-client = "1"
 fastembed = "5"
-text-splitter = { version = "0.16", features = ["tiktoken-rs"] }
-pdf-extract = "0.7"
+text-splitter = { version = "0.29", features = ["tiktoken-rs"] }
+pdf-extract = "0.10"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
