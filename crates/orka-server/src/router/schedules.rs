@@ -1,12 +1,8 @@
 //! Schedule management endpoints: CRUD for cron/one-shot tasks.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use axum::Json;
-use axum::extract::Path;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::{Json, extract::Path, http::StatusCode, response::IntoResponse};
 use orka_scheduler::ScheduleStore;
 
 pub(super) fn routes(scheduler_store: Option<Arc<dyn ScheduleStore>>) -> axum::Router {
@@ -72,10 +68,7 @@ pub(super) fn routes(scheduler_store: Option<Arc<dyn ScheduleStore>>) -> axum::R
                                 }
                             }
                             Err(e) => {
-                                return (
-                                    StatusCode::BAD_REQUEST,
-                                    format!("invalid cron: {e}"),
-                                )
+                                return (StatusCode::BAD_REQUEST, format!("invalid cron: {e}"))
                                     .into_response();
                             }
                         }
@@ -83,10 +76,7 @@ pub(super) fn routes(scheduler_store: Option<Arc<dyn ScheduleStore>>) -> axum::R
                         match chrono::DateTime::parse_from_rfc3339(run_at) {
                             Ok(dt) => dt.timestamp(),
                             Err(e) => {
-                                return (
-                                    StatusCode::BAD_REQUEST,
-                                    format!("invalid run_at: {e}"),
-                                )
+                                return (StatusCode::BAD_REQUEST, format!("invalid run_at: {e}"))
                                     .into_response();
                             }
                         }

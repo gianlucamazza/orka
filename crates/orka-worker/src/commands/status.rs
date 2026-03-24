@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::config::AgentConfig;
-use orka_core::{CommandArgs, Envelope, OutboundMessage, Result, Session};
+use orka_core::{CommandArgs, Envelope, OutboundMessage, Result, Session, config::AgentConfig};
 use orka_workspace::WorkspaceRegistry;
 
 use super::ServerCommand;
@@ -14,7 +13,8 @@ pub struct StatusCommand {
 }
 
 impl StatusCommand {
-    /// Create the command with access to the workspace registry and agent config.
+    /// Create the command with access to the workspace registry and agent
+    /// config.
     pub fn new(workspace_registry: Arc<WorkspaceRegistry>, agent_config: AgentConfig) -> Self {
         Self {
             workspace_registry,
@@ -44,7 +44,7 @@ impl ServerCommand for StatusCommand {
         let state = self.workspace_registry.default_state();
         let state = state.read().await;
 
-        let model = self.agent_config.model.as_deref().unwrap_or("(default)");
+        let model = self.agent_config.model.as_str();
 
         let name = state
             .soul

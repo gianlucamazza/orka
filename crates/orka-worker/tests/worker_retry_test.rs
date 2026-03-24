@@ -1,11 +1,17 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+    time::Duration,
+};
 
 use async_trait::async_trait;
-use orka_core::testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore};
-use orka_core::traits::{MessageBus, PriorityQueue, SessionStore};
-use orka_core::{Envelope, Error, OutboundMessage, Session};
+use orka_core::{
+    Envelope, Error, OutboundMessage, Session,
+    testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
+    traits::{MessageBus, PriorityQueue, SessionStore},
+};
 use orka_worker::{AgentHandler, WorkerPool};
 use tokio_util::sync::CancellationToken;
 

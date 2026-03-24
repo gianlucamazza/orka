@@ -1,21 +1,27 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    collections::HashSet,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use async_trait::async_trait;
-use orka_core::config::AgentConfig;
-use orka_core::testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager};
-use orka_core::traits::MemoryStore;
-use orka_core::{Envelope, Error, Payload, Session};
+use orka_core::{
+    Envelope, Error, Payload, Session,
+    config::AgentConfig,
+    testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager},
+    traits::MemoryStore,
+};
 use orka_llm::client::{ChatContent, ChatMessage, LlmClient, Role};
 use orka_skills::SkillRegistry;
 use orka_worker::{
     AgentHandler, CommandRegistry, StreamRegistry, WorkspaceHandler, WorkspaceHandlerConfig,
 };
-use orka_workspace::config::SoulFrontmatter;
-use orka_workspace::parse::Document;
-use orka_workspace::state::WorkspaceState;
-use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
+use orka_workspace::{
+    WorkspaceLoader, WorkspaceRegistry, config::SoulFrontmatter, parse::Document,
+    state::WorkspaceState,
+};
 
 struct MockLlmClient {
     response: String,

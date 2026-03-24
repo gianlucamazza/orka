@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::config::AgentConfig;
-use orka_core::{CommandArgs, Envelope, OutboundMessage, Result, Session};
+use orka_core::{CommandArgs, Envelope, OutboundMessage, Result, Session, config::AgentConfig};
 use orka_workspace::WorkspaceRegistry;
 
 use super::ServerCommand;
 
-/// Command sent automatically by Telegram when a user opens the chat for the first time (`/start`).
+/// Command sent automatically by Telegram when a user opens the chat for the
+/// first time (`/start`).
 pub struct StartCommand {
     workspace_registry: Arc<WorkspaceRegistry>,
     agent_config: AgentConfig,
@@ -56,11 +56,7 @@ impl ServerCommand for StartCommand {
             .and_then(|s| s.frontmatter.description.as_deref())
             .unwrap_or("an AI assistant");
 
-        let model = self
-            .agent_config
-            .model
-            .as_deref()
-            .unwrap_or("default model");
+        let model = self.agent_config.model.as_str();
 
         let text = format!(
             "👋 Welcome! I'm **{agent_name}** — {description}.\n\n\

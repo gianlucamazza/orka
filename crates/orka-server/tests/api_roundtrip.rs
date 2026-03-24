@@ -14,13 +14,15 @@
 //!   → WebSocket client
 //! ```
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 use orka_adapter_custom::{routes::app_router, ws::WsRegistry};
-use orka_core::testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore};
-use orka_core::{Payload, SessionId, StreamRegistry, traits::MessageBus};
+use orka_core::{
+    Payload, SessionId, StreamRegistry,
+    testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
+    traits::MessageBus,
+};
 use orka_gateway::Gateway;
 use orka_worker::{EchoHandler, WorkerPool};
 use orka_workspace::WorkspaceLoader;

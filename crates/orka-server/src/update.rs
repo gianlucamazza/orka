@@ -2,8 +2,7 @@
 
 use tracing::warn;
 
-const GITHUB_LATEST_URL: &str =
-    "https://api.github.com/repos/gianlucamazza/orka/releases/latest";
+const GITHUB_LATEST_URL: &str = "https://api.github.com/repos/gianlucamazza/orka/releases/latest";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Spawn a fire-and-forget task that checks for a newer release on GitHub
@@ -43,7 +42,8 @@ pub(crate) fn spawn_update_check() {
     });
 }
 
-/// Returns an upgrade hint string based on the server binary's install location.
+/// Returns an upgrade hint string based on the server binary's install
+/// location.
 fn upgrade_hint_for_server() -> &'static str {
     let is_docker = std::path::Path::new("/.dockerenv").exists()
         || std::fs::read_to_string("/proc/1/cgroup")

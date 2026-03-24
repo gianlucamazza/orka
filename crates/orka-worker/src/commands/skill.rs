@@ -1,10 +1,9 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use orka_core::traits::SecretManager;
 use orka_core::{
     CommandArgs, Envelope, OutboundMessage, Result, Session, SkillContext, SkillInput,
+    traits::SecretManager,
 };
 use orka_skills::SkillRegistry;
 
@@ -74,8 +73,9 @@ impl ServerCommand for SkillCommand {
             skill_args.insert(k.to_string(), v.clone());
         }
 
-        // If there are positional tokens after the skill name and no named args were provided,
-        // try to map them to a single required parameter in the skill's schema.
+        // If there are positional tokens after the skill name and no named args were
+        // provided, try to map them to a single required parameter in the
+        // skill's schema.
         let extra_positional: Vec<&str> = args
             .positional_args()
             .iter()

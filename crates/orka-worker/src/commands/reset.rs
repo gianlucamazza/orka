@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::MemoryStore;
-use orka_core::{CommandArgs, Envelope, MemoryEntry, OutboundMessage, Result, Session};
+use orka_core::{
+    CommandArgs, Envelope, MemoryEntry, OutboundMessage, Result, Session, traits::MemoryStore,
+};
 
 use super::ServerCommand;
 

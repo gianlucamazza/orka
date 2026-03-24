@@ -1,8 +1,11 @@
-//! Worker pool that consumes messages from the priority queue and dispatches to handlers.
+//! Worker pool that consumes messages from the priority queue and dispatches to
+//! handlers.
 //!
-//! - [`WorkerPool`] — concurrent worker loop with retry and dead-letter queue support
+//! - [`WorkerPool`] — concurrent worker loop with retry and dead-letter queue
+//!   support
 //! - [`AgentHandler`] — trait for message handling implementations
-//! - [`WorkspaceHandler`] — LLM-powered handler with skill execution and tool loops
+//! - [`WorkspaceHandler`] — LLM-powered handler with skill execution and tool
+//!   loops
 
 #![warn(missing_docs)]
 
@@ -18,32 +21,35 @@ pub mod stream;
 pub mod workspace_handler;
 
 // re-exports
-pub use commands::CommandRegistry;
-pub use handler::{AgentHandler, EchoHandler};
-pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
-pub use workspace_handler::{WorkspaceHandler, WorkspaceHandlerConfig};
-
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use chrono::{Duration as ChronoDuration, Utc};
+pub use commands::CommandRegistry;
+pub use handler::{AgentHandler, EchoHandler};
 use orka_agent::{AgentGraph, ExecutionContext, GraphExecutor};
-use orka_core::traits::{EventSink, MemoryStore, MessageBus, PriorityQueue, SessionStore};
-use orka_core::types::SessionId;
 use orka_core::{
     CommandArgs, DomainEvent, DomainEventKind, Envelope, OutboundMessage, Payload, Priority,
     Session,
+    traits::{EventSink, MemoryStore, MessageBus, PriorityQueue, SessionStore},
+    types::SessionId,
 };
 use orka_llm::client::ChatMessage;
+pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+pub use workspace_handler::{WorkspaceHandler, WorkspaceHandlerConfig};
 
-/// Shared map of per-session cancellation tokens.  The worker populates this before
-/// each handler invocation; the `/cancel` command uses it to abort ongoing LLM loops.
+/// Shared map of per-session cancellation tokens.  The worker populates this
+/// before each handler invocation; the `/cancel` command uses it to abort
+/// ongoing LLM loops.
 pub type SessionCancelTokens = Arc<Mutex<HashMap<SessionId, CancellationToken>>>;
 
-/// Concurrent worker pool that pops envelopes from a priority queue and dispatches them.
+/// Concurrent worker pool that pops envelopes from a priority queue and
+/// dispatches them.
 pub struct WorkerPool {
     queue: Arc<dyn PriorityQueue>,
     sessions: Arc<dyn SessionStore>,
@@ -54,7 +60,8 @@ pub struct WorkerPool {
     concurrency: usize,
     max_retries: u32,
     retry_base_delay_ms: u64,
-    /// Cancellation tokens shared between the worker loop and the cancel command.
+    /// Cancellation tokens shared between the worker loop and the cancel
+    /// command.
     session_cancel_tokens: SessionCancelTokens,
 }
 
@@ -83,8 +90,9 @@ impl WorkerPool {
         }
     }
 
-    /// Return a clone of the shared session cancellation token map so that handlers
-    /// (e.g. `WorkspaceHandler`) and commands (e.g. `CancelCommand`) can share it.
+    /// Return a clone of the shared session cancellation token map so that
+    /// handlers (e.g. `WorkspaceHandler`) and commands (e.g.
+    /// `CancelCommand`) can share it.
     pub fn session_cancel_tokens(&self) -> SessionCancelTokens {
         self.session_cancel_tokens.clone()
     }
@@ -204,14 +212,13 @@ impl WorkerPool {
                                     // immediately and reply without waiting for the ongoing operation.
                                     let is_cancel = matches!(&envelope.payload, Payload::Command(c) if c.name == "cancel");
                                     if is_cancel {
-                                        {
-                                            let mut tokens = session_cancel_tokens.lock().unwrap();
+                                        if let Ok(mut tokens) = session_cancel_tokens.lock() {
                                             if let Some(token) = tokens.get(&envelope.session_id) {
                                                 token.cancel();
-                                            } else {
-                                                // No active operation — nothing to cancel.
                                             }
                                             tokens.remove(&envelope.session_id);
+                                        } else {
+                                            error!(worker = i, "cancel tokens lock poisoned");
                                         }
                                         let mut reply = Envelope::text(
                                             &envelope.channel,
@@ -229,10 +236,11 @@ impl WorkerPool {
                                     // acquiring the lock, so `/cancel` can signal it at any time.
                                     let op_token = {
                                         let token = CancellationToken::new();
-                                        session_cancel_tokens
-                                            .lock()
-                                            .unwrap()
-                                            .insert(envelope.session_id, token.clone());
+                                        if let Ok(mut tokens) = session_cancel_tokens.lock() {
+                                            tokens.insert(envelope.session_id, token.clone());
+                                        } else {
+                                            error!(worker = i, "cancel tokens lock poisoned");
+                                        }
                                         token
                                     };
                                     let _ = op_token; // token is accessed via the map by the handler
@@ -367,10 +375,11 @@ impl WorkerPool {
                                     }
 
                                     // Clean up the cancellation token for this session.
-                                    session_cancel_tokens
-                                        .lock()
-                                        .unwrap()
-                                        .remove(&envelope.session_id);
+                                    if let Ok(mut tokens) = session_cancel_tokens.lock() {
+                                        tokens.remove(&envelope.session_id);
+                                    } else {
+                                        error!(worker = i, "cancel tokens lock poisoned");
+                                    }
                                 }
                                 Ok(None) => {
                                     // Timeout, continue loop
@@ -396,7 +405,8 @@ impl WorkerPool {
 
 /// Concurrent worker pool backed by a `GraphExecutor` + `AgentGraph`.
 ///
-/// Drop-in replacement for [`WorkerPool`] when multi-agent graph execution is desired.
+/// Drop-in replacement for [`WorkerPool`] when multi-agent graph execution is
+/// desired.
 pub struct WorkerPoolGraph {
     queue: Arc<dyn PriorityQueue>,
     sessions: Arc<dyn SessionStore>,
@@ -454,8 +464,9 @@ impl WorkerPoolGraph {
 
     /// Attach a memory store for conversation history persistence.
     ///
-    /// When set, the graph pool loads conversation history before each execution
-    /// and saves it afterward, enabling multi-turn conversations in the graph path.
+    /// When set, the graph pool loads conversation history before each
+    /// execution and saves it afterward, enabling multi-turn conversations
+    /// in the graph path.
     pub fn with_memory(mut self, memory: Arc<dyn MemoryStore>) -> Self {
         self.memory = Some(memory);
         self

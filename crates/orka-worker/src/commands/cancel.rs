@@ -3,11 +3,12 @@ use orka_core::{CommandArgs, Envelope, OutboundMessage, Result, Session};
 
 use super::ServerCommand;
 
-/// Command to request cancellation of the session's current operation (`/cancel`).
+/// Command to request cancellation of the session's current operation
+/// (`/cancel`).
 ///
-/// The actual cancellation is handled at the worker-pool level, which intercepts
-/// `/cancel` before acquiring the session lock.  This command exists so that
-/// `/cancel` appears in `/help` output.
+/// The actual cancellation is handled at the worker-pool level, which
+/// intercepts `/cancel` before acquiring the session lock.  This command exists
+/// so that `/cancel` appears in `/help` output.
 pub struct CancelCommand;
 
 impl CancelCommand {
@@ -41,7 +42,8 @@ impl ServerCommand for CancelCommand {
         envelope: &Envelope,
         _session: &Session,
     ) -> Result<Vec<OutboundMessage>> {
-        // If we reach here the worker pool did not intercept the command (no active operation).
+        // If we reach here the worker pool did not intercept the command (no active
+        // operation).
         let mut msg = OutboundMessage::text(
             envelope.channel.clone(),
             envelope.session_id,

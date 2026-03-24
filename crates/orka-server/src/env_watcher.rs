@@ -1,18 +1,15 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use orka_core::config::LlmProviderConfig;
-use orka_core::traits::SecretManager;
+use orka_core::{config::LlmProviderConfig, traits::SecretManager};
 use orka_llm::SwappableLlmClient;
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{debug, info, warn};
 
 use crate::providers::default_env_var;
 
-/// Watches an `.env` file for changes and hot-swaps LLM clients when API keys rotate.
+/// Watches an `.env` file for changes and hot-swaps LLM clients when API keys
+/// rotate.
 pub struct EnvWatcher {
     _watcher: RecommendedWatcher,
     _handle: JoinHandle<()>,
@@ -24,7 +21,6 @@ impl EnvWatcher {
         providers: Vec<LlmProviderConfig>,
         clients: HashMap<String, Arc<SwappableLlmClient>>,
         secrets: Arc<dyn SecretManager>,
-        api_version: String,
     ) -> Option<Self> {
         let env_path = resolve_env_path()?;
         info!(path = %env_path.display(), "watching env file for secret rotation");
@@ -100,11 +96,13 @@ impl EnvWatcher {
                     let new_client: Arc<dyn orka_llm::LlmClient> = match pc.provider.as_str() {
                         "anthropic" => Arc::new(orka_llm::AnthropicClient::with_options(
                             key,
-                            pc.model.clone(),
+                            pc.model
+                                .clone()
+                                .unwrap_or_else(|| "claude-3-5-sonnet-latest".into()),
                             pc.timeout_secs.unwrap_or(30),
                             pc.max_tokens.unwrap_or(8192),
                             pc.max_retries.unwrap_or(2),
-                            api_version.clone(),
+                            "2023-06-01".into(),
                             pc.base_url.clone(),
                         )),
                         "openai" => {
@@ -114,7 +112,7 @@ impl EnvWatcher {
                                 .unwrap_or_else(|| "https://api.openai.com/v1".into());
                             Arc::new(orka_llm::OpenAiClient::with_options(
                                 key,
-                                pc.model.clone(),
+                                pc.model.clone().unwrap_or_else(|| "gpt-4.1-mini".into()),
                                 pc.timeout_secs.unwrap_or(30),
                                 pc.max_tokens.unwrap_or(8192),
                                 pc.max_retries.unwrap_or(2),
@@ -137,12 +135,14 @@ impl EnvWatcher {
     }
 }
 
-/// Resolve an API key from parsed env file vars + secret store (no process env mutation).
+/// Resolve an API key from parsed env file vars + secret store (no process env
+/// mutation).
 ///
 /// Fallback order:
 ///   1. `api_key` in config (direct)
 ///   2. `api_key_env` looked up in `env_vars`
-///   3. Default env var (e.g. `ANTHROPIC_API_KEY`) looked up in `env_vars`, then process env
+///   3. Default env var (e.g. `ANTHROPIC_API_KEY`) looked up in `env_vars`,
+///      then process env
 ///   4. Secret store
 async fn resolve_key_from_env(
     env_vars: &HashMap<String, String>,

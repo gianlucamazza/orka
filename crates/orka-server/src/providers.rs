@@ -1,10 +1,11 @@
 //! LLM provider resolution: API key lookup and client construction.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use orka_core::config::{LlmProviderConfig, OrkaConfig};
-use orka_core::traits::SecretManager;
+use orka_core::{
+    config::{LlmProviderConfig, OrkaConfig},
+    traits::SecretManager,
+};
 use orka_llm::SwappableLlmClient;
 use tracing::{info, warn};
 
@@ -89,7 +90,8 @@ pub(crate) struct LlmClients {
     pub swappable: HashMap<String, Arc<SwappableLlmClient>>,
 }
 
-/// Build the LLM client(s) from the config, resolving API keys from the secret store.
+/// Build the LLM client(s) from the config, resolving API keys from the secret
+/// store.
 pub(crate) async fn build_llm_clients(
     config: &OrkaConfig,
     secrets: &dyn SecretManager,
@@ -110,13 +112,17 @@ pub(crate) async fn build_llm_clients(
             "anthropic" => {
                 let key = resolve_api_key("anthropic", pc, secrets).await;
                 key.map(|k| {
+                    let model = pc
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| config.llm.default_model.clone());
                     Arc::new(orka_llm::AnthropicClient::with_options(
                         k,
-                        pc.model.clone(),
+                        model,
                         pc.timeout_secs.unwrap_or(30),
                         pc.max_tokens.unwrap_or(8192),
                         pc.max_retries.unwrap_or(2),
-                        config.llm.api_version.clone(),
+                        "2023-06-01".into(),
                         pc.base_url.clone(),
                     )) as Arc<dyn orka_llm::LlmClient>
                 })
@@ -124,13 +130,17 @@ pub(crate) async fn build_llm_clients(
             "openai" => {
                 let key = resolve_api_key("openai", pc, secrets).await;
                 key.map(|k| {
+                    let model = pc
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| config.llm.default_model.clone());
                     let url = pc
                         .base_url
                         .clone()
                         .unwrap_or_else(|| "https://api.openai.com/v1".into());
                     Arc::new(orka_llm::OpenAiClient::with_options(
                         k,
-                        pc.model.clone(),
+                        model,
                         pc.timeout_secs.unwrap_or(30),
                         pc.max_tokens.unwrap_or(8192),
                         pc.max_retries.unwrap_or(2),
@@ -139,12 +149,16 @@ pub(crate) async fn build_llm_clients(
                 })
             }
             "ollama" => {
+                let model = pc
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| config.llm.default_model.clone());
                 let url = pc
                     .base_url
                     .clone()
                     .unwrap_or_else(|| "http://localhost:11434/v1".into());
                 Some(Arc::new(orka_llm::OllamaClient::with_options(
-                    pc.model.clone(),
+                    model,
                     pc.timeout_secs.unwrap_or(30),
                     pc.max_tokens.unwrap_or(8192),
                     pc.max_retries.unwrap_or(2),
@@ -158,13 +172,13 @@ pub(crate) async fn build_llm_clients(
         };
 
         if let Some(c) = client {
-            info!(provider = %pc.name, model = %pc.model, "LLM provider initialized");
+            info!(provider = %pc.name, model = ?pc.model, "LLM provider initialized");
             let swappable = Arc::new(SwappableLlmClient::new(c));
             swappable_clients.insert(pc.name.clone(), swappable.clone());
             clients.push((
                 pc.name.clone(),
                 swappable as Arc<dyn orka_llm::LlmClient>,
-                pc.prefixes.clone(),
+                pc.model.clone().into_iter().collect(),
             ));
         }
     }

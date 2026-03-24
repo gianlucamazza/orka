@@ -7,13 +7,12 @@ use orka_experience::ExperienceService;
 
 /// Create the experience / self-learning service from config.
 ///
-/// Reuses the knowledge config for embedding provider and vector store settings.
-/// Returns `None` if experience is disabled or initialization fails.
+/// Reuses the knowledge config for embedding provider and vector store
+/// settings. Returns `None` if experience is disabled or initialization fails.
 pub(crate) fn create_experience_service(
     config: &OrkaConfig,
 ) -> anyhow::Result<Option<Arc<ExperienceService>>> {
-    use orka_knowledge::embeddings::EmbeddingProvider;
-    use orka_knowledge::vector_store::VectorStore;
+    use orka_knowledge::{embeddings::EmbeddingProvider, vector_store::VectorStore};
 
     let first_provider = config
         .llm
@@ -42,7 +41,8 @@ pub(crate) fn create_experience_service(
         .experience
         .reflection_model
         .clone()
-        .unwrap_or_else(|| first_provider.model.clone());
+        .or_else(|| first_provider.model.clone())
+        .unwrap_or_else(|| config.llm.default_model.clone());
 
     let reflection_llm: Arc<dyn orka_llm::LlmClient> = match first_provider.provider.as_str() {
         "openai" => Arc::new(orka_llm::OpenAiClient::new(api_key, model)),
@@ -50,44 +50,56 @@ pub(crate) fn create_experience_service(
         _ => Arc::new(orka_llm::AnthropicClient::with_options(
             api_key,
             model,
+            first_provider.timeout_secs.unwrap_or(30),
             first_provider
-                .timeout_secs
-                .unwrap_or(config.llm.timeout_secs),
-            first_provider.max_tokens.unwrap_or(config.llm.max_tokens),
-            first_provider.max_retries.unwrap_or(config.llm.max_retries),
-            config.llm.api_version.clone(),
+                .max_tokens
+                .unwrap_or(config.llm.default_max_tokens),
+            first_provider.max_retries.unwrap_or(2),
+            "2023-06-01".into(),
             first_provider.base_url.clone(),
         )),
     };
 
     // Create embedding provider (reusing knowledge config)
-    let embedding_provider: Arc<dyn EmbeddingProvider> =
-        match config.knowledge.embeddings.provider.as_str() {
-            "openai" => {
-                let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
-                    anyhow::anyhow!("OPENAI_API_KEY required for openai embedding provider")
-                })?;
-                Arc::new(
-                    orka_knowledge::embeddings::openai::OpenAiEmbeddingProvider::new(
-                        api_key,
-                        config.knowledge.embeddings.model.clone(),
-                        config.knowledge.embeddings.dimensions,
-                    ),
-                )
-            }
-            _ => Arc::new(
-                orka_knowledge::embeddings::local::LocalEmbeddingProvider::new(
-                    &config.knowledge.embeddings.model,
-                    config.knowledge.embeddings.dimensions,
-                )
-                .map_err(|e| anyhow::anyhow!("failed to create local embedding provider: {e}"))?,
-            ),
-        };
+    let embedding_provider: Arc<dyn EmbeddingProvider> = match config.knowledge.embeddings.provider
+    {
+        orka_core::config::primitives::EmbeddingProvider::Openai => {
+            let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+                anyhow::anyhow!("OPENAI_API_KEY required for openai embedding provider")
+            })?;
+            Arc::new(
+                orka_knowledge::embeddings::openai::OpenAiEmbeddingProvider::new(
+                    api_key,
+                    config.knowledge.embeddings.model.clone(),
+                    1536,
+                ),
+            )
+        }
+        _ => Arc::new(
+            orka_knowledge::embeddings::local::LocalEmbeddingProvider::new(
+                &config.knowledge.embeddings.model,
+                config
+                    .knowledge
+                    .vector_store
+                    .dimension
+                    .try_into()
+                    .unwrap_or(384),
+            )
+            .map_err(|e| anyhow::anyhow!("failed to create local embedding provider: {e}"))?,
+        ),
+    };
 
     // Create vector store
     let vector_store: Arc<dyn VectorStore> = Arc::new(
-        orka_knowledge::vector_store::qdrant::QdrantStore::new(&config.knowledge.vector_store.url)
-            .map_err(|e| anyhow::anyhow!("failed to create Qdrant store: {e}"))?,
+        orka_knowledge::vector_store::qdrant::QdrantStore::new(
+            config
+                .knowledge
+                .vector_store
+                .url
+                .as_deref()
+                .unwrap_or("http://localhost:6333"),
+        )
+        .map_err(|e| anyhow::anyhow!("failed to create Qdrant store: {e}"))?,
     );
 
     let service = orka_experience::create_experience_service(

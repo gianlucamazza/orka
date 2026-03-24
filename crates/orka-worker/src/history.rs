@@ -1,8 +1,7 @@
 //! Shared conversation-history helpers used by both [`crate::WorkspaceHandler`]
 //! and the graph path in [`crate::WorkerPoolGraph`].
 
-use orka_core::MemoryEntry;
-use orka_core::traits::MemoryStore;
+use orka_core::{MemoryEntry, traits::MemoryStore};
 use orka_llm::client::{ChatContent, ChatMessage, ContentBlockInput};
 use tracing::warn;
 
@@ -38,7 +37,8 @@ pub fn compact_tool_results(messages: Vec<ChatMessage>, max_chars: usize) -> Vec
         .collect()
 }
 
-/// Persist a conversation history to the memory store with basic tool-result compaction.
+/// Persist a conversation history to the memory store with basic tool-result
+/// compaction.
 ///
 /// Used by the graph execution path, which does not run the full summarization
 /// pipeline available in [`crate::WorkspaceHandler`].
@@ -70,8 +70,9 @@ pub async fn save_history_compact(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use orka_llm::client::{ChatContent, ChatMessage, ContentBlockInput, Role};
+
+    use super::*;
 
     fn user_msg(text: &str) -> ChatMessage {
         ChatMessage::user(text)

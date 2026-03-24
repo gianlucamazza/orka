@@ -106,7 +106,8 @@ pub struct RouterParams {
     pub workspace_registry: Arc<WorkspaceRegistry>,
     /// Agent graph (for /api/v1/graph).
     pub graph: Arc<AgentGraph>,
-    /// Experience/self-learning service (for /api/v1/experience*; `None` = disabled).
+    /// Experience/self-learning service (for /api/v1/experience*; `None` =
+    /// disabled).
     pub experience_service: Option<Arc<ExperienceService>>,
     /// Server start time used in the health endpoint's `uptime_secs` field.
     pub start_time: std::time::Instant,
@@ -118,7 +119,8 @@ pub struct RouterParams {
     pub qdrant_url: Option<String>,
     /// Optional auth middleware applied to all protected API routes.
     pub auth_layer: Option<AuthLayer>,
-    /// Optional A2A protocol state (enables `/.well-known/agent.json` + `POST /a2a`).
+    /// Optional A2A protocol state (enables `/.well-known/agent.json` + `POST
+    /// /a2a`).
     pub a2a_state: Option<A2aState>,
     /// Optional Prometheus metrics handle (enables `GET /metrics`).
     pub metrics_handle: Option<PrometheusHandle>,

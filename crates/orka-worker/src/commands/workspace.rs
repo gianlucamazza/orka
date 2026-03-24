@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::traits::MemoryStore;
-use orka_core::{CommandArgs, Envelope, MemoryEntry, OutboundMessage, Result, Session};
+use orka_core::{
+    CommandArgs, Envelope, MemoryEntry, OutboundMessage, Result, Session, traits::MemoryStore,
+};
 use orka_workspace::WorkspaceRegistry;
 
 use super::ServerCommand;
@@ -14,7 +15,8 @@ pub struct WorkspaceCommand {
 }
 
 impl WorkspaceCommand {
-    /// Create the command with access to the workspace registry and memory store.
+    /// Create the command with access to the workspace registry and memory
+    /// store.
     pub fn new(workspace_registry: Arc<WorkspaceRegistry>, memory: Arc<dyn MemoryStore>) -> Self {
         Self {
             workspace_registry,

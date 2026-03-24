@@ -1,13 +1,16 @@
-/// End-to-end test: adapter → bus(inbound) → gateway → queue → worker → bus(outbound)
+/// End-to-end test: adapter → bus(inbound) → gateway → queue → worker →
+/// bus(outbound)
 ///
 /// Uses in-memory test doubles from orka-core::testing to verify the full
 /// message flow without Redis or external dependencies.
 use std::sync::Arc;
 use std::time::Duration;
 
-use orka_core::testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore};
-use orka_core::traits::{MessageBus, PriorityQueue};
-use orka_core::{DomainEventKind, Envelope, SessionId};
+use orka_core::{
+    DomainEventKind, Envelope, SessionId,
+    testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
+    traits::{MessageBus, PriorityQueue},
+};
 use orka_gateway::Gateway;
 use orka_worker::{EchoHandler, WorkerPool};
 use tokio_util::sync::CancellationToken;

@@ -71,25 +71,16 @@ pub fn test_router() -> axum::Router {
 ///
 /// Protected routes require `X-Api-Key: <key>`.
 pub fn test_router_with_auth(key: &str) -> axum::Router {
-    use orka_auth::{ApiKeyAuthenticator, AuthLayer};
-    use orka_core::config::{ApiKeyEntry, AuthConfig};
+    use orka_auth::{ApiKeyAuthenticator, AuthLayer, middleware::AuthMiddlewareConfig};
+    use orka_core::config::ApiKeyEntry;
     use sha2::{Digest, Sha256};
 
     let mut skills = SkillRegistry::new();
     skills.register(Arc::new(EchoSkill));
 
     let key_hash = format!("{:x}", Sha256::digest(key.as_bytes()));
-    let entries = vec![ApiKeyEntry {
-        name: "test-key".into(),
-        key_hash,
-        scopes: vec![],
-    }];
-    let auth_cfg = Arc::new(AuthConfig {
-        enabled: true,
-        api_key_header: "X-Api-Key".into(),
-        api_keys: entries.clone(),
-        jwt: None,
-    });
+    let entries = vec![ApiKeyEntry::new("test-key", key_hash, vec![])];
+    let auth_cfg = Arc::new(AuthMiddlewareConfig::default());
     let authenticator = Arc::new(ApiKeyAuthenticator::new(&entries));
     let auth_layer = Some(AuthLayer::new(authenticator, auth_cfg));
 

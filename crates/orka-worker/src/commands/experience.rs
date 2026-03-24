@@ -7,14 +7,16 @@ use orka_workspace::WorkspaceRegistry;
 
 use super::ServerCommand;
 
-/// Command to inspect and manage the self-learning experience system (`/experience`).
+/// Command to inspect and manage the self-learning experience system
+/// (`/experience`).
 pub struct ExperienceCommand {
     experience: Arc<ExperienceService>,
     workspace_registry: Arc<WorkspaceRegistry>,
 }
 
 impl ExperienceCommand {
-    /// Create the command.  Returns `None` when the experience system is disabled.
+    /// Create the command.  Returns `None` when the experience system is
+    /// disabled.
     pub fn new_if_enabled(
         experience: Arc<ExperienceService>,
         workspace_registry: Arc<WorkspaceRegistry>,

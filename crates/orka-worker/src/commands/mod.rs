@@ -17,13 +17,14 @@ pub mod status;
 /// `/workspace` command — list or switch workspaces.
 pub mod workspace;
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use orka_core::config::AgentConfig;
-use orka_core::traits::{MemoryStore, SecretManager};
-use orka_core::{CommandArgs, Envelope, OutboundMessage, Result, Session};
+use orka_core::{
+    CommandArgs, Envelope, OutboundMessage, Result, Session,
+    config::AgentConfig,
+    traits::{MemoryStore, SecretManager},
+};
 use orka_experience::ExperienceService;
 use orka_skills::SkillRegistry;
 use orka_workspace::WorkspaceRegistry;
@@ -69,7 +70,8 @@ impl CommandRegistry {
         self.commands.get(name)
     }
 
-    /// Return `(name, description)` pairs for all registered commands, sorted by name.
+    /// Return `(name, description)` pairs for all registered commands, sorted
+    /// by name.
     pub fn list(&self) -> Vec<(&str, &str)> {
         let mut items: Vec<_> = self
             .commands

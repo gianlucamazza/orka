@@ -1,5 +1,7 @@
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use orka_core::{CommandArgs, Envelope, OutboundMessage, Result, Session};

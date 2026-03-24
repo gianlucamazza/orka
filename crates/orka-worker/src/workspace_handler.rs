@@ -1,35 +1,38 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::time::Instant;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use async_trait::async_trait;
-use orka_core::config::AgentConfig;
-use orka_core::traits::{EventSink, Guardrail, MemoryStore, SecretManager};
 use orka_core::{
     CommandArgs, DomainEvent, DomainEventKind, Envelope, ErrorCategory, MemoryEntry, MessageId,
     OutboundMessage, Payload, Result, Session, SessionId, SkillInput,
+    config::AgentConfig,
+    traits::{EventSink, Guardrail, MemoryStore, SecretManager},
 };
-
 use orka_experience::ExperienceService;
-use orka_llm::client::{
-    ChatContent, ChatMessage, CompletionOptions, CompletionResponse, ContentBlock,
-    ContentBlockInput, LlmClient, LlmToolStream, StopReason, StreamEvent, ToolCall, ToolDefinition,
-    Usage,
-};
-use orka_llm::context::{
-    TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
-    truncate_history_with_hint,
+use orka_llm::{
+    client::{
+        ChatContent, ChatMessage, CompletionOptions, CompletionResponse, ContentBlock,
+        ContentBlockInput, LlmClient, LlmToolStream, StopReason, StreamEvent, ToolCall,
+        ToolDefinition, Usage,
+    },
+    context::{
+        TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
+        truncate_history_with_hint,
+    },
 };
 use orka_prompts::pipeline::{BuildContext, PipelineConfig, SystemPromptPipeline};
-
 use orka_skills::SkillRegistry;
 use orka_workspace::WorkspaceRegistry;
 use tracing::{Instrument, debug, info, info_span, warn};
 
-use crate::commands::CommandRegistry;
-use crate::handler::AgentHandler;
-use crate::stream::{StreamChunk, StreamChunkKind, StreamRegistry};
+use crate::{
+    commands::CommandRegistry,
+    handler::AgentHandler,
+    stream::{StreamChunk, StreamChunkKind, StreamRegistry},
+};
 
 /// Truncate a tool result string if it exceeds the configured limit.
 fn truncate_tool_result(content: &str, max_chars: usize) -> String {
@@ -44,7 +47,8 @@ fn truncate_tool_result(content: &str, max_chars: usize) -> String {
     )
 }
 
-/// Derive a category tag and human-readable input summary from the tool name and its JSON input.
+/// Derive a category tag and human-readable input summary from the tool name
+/// and its JSON input.
 fn tool_metadata(name: &str, input: &serde_json::Value) -> (Option<String>, Option<String>) {
     match name {
         "web_search" => {
@@ -105,7 +109,8 @@ fn summarize_result(name: &str, content: &str, is_error: bool) -> Option<String>
     }
 }
 
-/// Configuration parameters for [`WorkspaceHandler`], grouped to reduce constructor arguments.
+/// Configuration parameters for [`WorkspaceHandler`], grouped to reduce
+/// constructor arguments.
 pub struct WorkspaceHandlerConfig {
     /// LLM and agent tuning parameters.
     pub agent_config: AgentConfig,
@@ -115,10 +120,11 @@ pub struct WorkspaceHandlerConfig {
     pub default_context_window: u32,
 }
 
-/// Sliding-window rate limiter for slash commands, keyed by `(SessionId, command_name)`.
+/// Sliding-window rate limiter for slash commands, keyed by `(SessionId,
+/// command_name)`.
 ///
-/// Stores `(window_start, call_count)` per session+command pair and resets the count
-/// after `RATE_WINDOW_SECS` seconds.
+/// Stores `(window_start, call_count)` per session+command pair and resets the
+/// count after `RATE_WINDOW_SECS` seconds.
 struct CommandRateLimiter {
     state: Mutex<HashMap<(SessionId, String), (Instant, u32)>>,
     max_per_window: u32,
@@ -134,9 +140,16 @@ impl CommandRateLimiter {
         }
     }
 
-    /// Returns `true` if the command is allowed, `false` if the limit is exceeded.
+    /// Returns `true` if the command is allowed, `false` if the limit is
+    /// exceeded.
     fn check_and_record(&self, session_id: SessionId, command: &str) -> bool {
-        let mut guard = self.state.lock().unwrap();
+        let mut guard = match self.state.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                warn!("CommandRateLimiter mutex poisoned, allowing command to fail-open");
+                return true;
+            }
+        };
         let key = (session_id, command.to_string());
         let now = Instant::now();
         let entry = guard.entry(key).or_insert((now, 0));
@@ -153,7 +166,8 @@ impl CommandRateLimiter {
     }
 }
 
-/// LLM-powered agent handler with tool-use loops, guardrails, and experience learning.
+/// LLM-powered agent handler with tool-use loops, guardrails, and experience
+/// learning.
 pub struct WorkspaceHandler {
     workspace_registry: Arc<WorkspaceRegistry>,
     skills: Arc<SkillRegistry>,
@@ -229,8 +243,8 @@ impl WorkspaceHandler {
         msg
     }
 
-    /// Build LLM tool definitions from skill registry, excluding disabled tools.
-    /// Also appends built-in workspace management tools.
+    /// Build LLM tool definitions from skill registry, excluding disabled
+    /// tools. Also appends built-in workspace management tools.
     fn build_tool_definitions(&self) -> Vec<ToolDefinition> {
         let mut defs: Vec<ToolDefinition> = self
             .skills
@@ -275,7 +289,8 @@ impl WorkspaceHandler {
         defs
     }
 
-    /// Resolve workspace from the registry by name. Falls back to default if not found.
+    /// Resolve workspace from the registry by name. Falls back to default if
+    /// not found.
     async fn resolve_from_registry(&self, ws_name: &str) -> (String, String, String) {
         let state_lock = self.workspace_registry.state(ws_name).unwrap_or_else(|| {
             warn!(workspace = %ws_name, "workspace not found in registry, using default");
@@ -296,8 +311,8 @@ impl WorkspaceHandler {
         (soul_name, soul_body, tools_body)
     }
 
-    /// Resolve workspace from inline CLI content (raw SOUL.md/TOOLS.md strings).
-    /// Falls back to the default workspace for any missing piece.
+    /// Resolve workspace from inline CLI content (raw SOUL.md/TOOLS.md
+    /// strings). Falls back to the default workspace for any missing piece.
     async fn resolve_from_inline(
         &self,
         raw_soul: Option<&str>,
@@ -343,8 +358,9 @@ impl WorkspaceHandler {
         (name, body, tools)
     }
 
-    /// Handle a built-in workspace tool call. Returns `Some(result)` if the tool was
-    /// handled, or `None` if it should be dispatched to the skill registry.
+    /// Handle a built-in workspace tool call. Returns `Some(result)` if the
+    /// tool was handled, or `None` if it should be dispatched to the skill
+    /// registry.
     async fn handle_builtin_tool(
         &self,
         call: &ToolCall,
@@ -412,9 +428,10 @@ impl WorkspaceHandler {
         }
     }
 
-    /// Execute tool calls in parallel, emitting streaming events and domain events.
-    /// Returns content blocks with tool results in the original call order.
-    /// Built-in workspace tools are intercepted before dispatching to the skill registry.
+    /// Execute tool calls in parallel, emitting streaming events and domain
+    /// events. Returns content blocks with tool results in the original
+    /// call order. Built-in workspace tools are intercepted before
+    /// dispatching to the skill registry.
     async fn execute_tool_calls(
         &self,
         tool_calls: &[ToolCall],
@@ -637,16 +654,18 @@ impl WorkspaceHandler {
         (blocks, categories)
     }
 
-    /// Compact oversized tool results — delegates to the shared [`crate::history`] module.
+    /// Compact oversized tool results — delegates to the shared
+    /// [`crate::history`] module.
     fn compact_tool_results(messages: Vec<ChatMessage>, max_chars: usize) -> Vec<ChatMessage> {
         crate::history::compact_tool_results(messages, max_chars)
     }
 
     /// Persist conversation history and token usage to the memory store.
     ///
-    /// When the history exceeds `max_entries` the oldest messages are summarised
-    /// using incremental rolling summarisation.  The resulting summary text is stored
-    /// separately under `summary_key` and injected into the system prompt on the next
+    /// When the history exceeds `max_entries` the oldest messages are
+    /// summarised using incremental rolling summarisation.  The resulting
+    /// summary text is stored separately under `summary_key` and injected
+    /// into the system prompt on the next
     /// turn via [`Self::build_system_prompt`].
     #[allow(clippy::too_many_arguments)]
     async fn save_conversation_history(
@@ -747,7 +766,8 @@ impl WorkspaceHandler {
         transcript
     }
 
-    /// Build a minimal summary from user-text messages when LLM summarisation is unavailable.
+    /// Build a minimal summary from user-text messages when LLM summarisation
+    /// is unavailable.
     fn fallback_summary(messages: &[ChatMessage]) -> String {
         use orka_llm::client::Role;
         let bullets: Vec<String> = messages
@@ -789,10 +809,12 @@ impl WorkspaceHandler {
         }
     }
 
-    /// Summarise a slice of messages, optionally updating an existing rolling summary.
+    /// Summarise a slice of messages, optionally updating an existing rolling
+    /// summary.
     ///
-    /// When `existing_summary` is provided the LLM is asked to update it with the new
-    /// turns, preserving user goals and unresolved tasks (incremental rolling pattern).
+    /// When `existing_summary` is provided the LLM is asked to update it with
+    /// the new turns, preserving user goals and unresolved tasks
+    /// (incremental rolling pattern).
     async fn summarize_messages(
         llm: &Arc<dyn LlmClient>,
         messages: &[ChatMessage],
@@ -838,8 +860,8 @@ impl WorkspaceHandler {
         }
     }
 
-    /// Consume a streaming LLM response, emitting `StreamChunk`s to the registry
-    /// and reconstructing a `CompletionResponse` from the events.
+    /// Consume a streaming LLM response, emitting `StreamChunk`s to the
+    /// registry and reconstructing a `CompletionResponse` from the events.
     async fn consume_stream(
         mut stream: LlmToolStream,
         stream_registry: &StreamRegistry,
@@ -990,8 +1012,9 @@ impl AgentHandler for WorkspaceHandler {
             }
         };
 
-        // Dispatch ALL slash commands before the guardrail.  Commands are trusted internal
-        // handlers — there is no reason to run a guardrail check on them.
+        // Dispatch ALL slash commands before the guardrail.  Commands are trusted
+        // internal handlers — there is no reason to run a guardrail check on
+        // them.
         if let Some(parsed) = orka_core::parse_slash_command(&text) {
             if !self
                 .command_rate_limiter
@@ -1018,7 +1041,8 @@ impl AgentHandler for WorkspaceHandler {
         }
 
         // 3-tier workspace resolution:
-        //   1. Per-session override from MemoryStore (CLI inline content or named workspace)
+        //   1. Per-session override from MemoryStore (CLI inline content or named
+        //      workspace)
         //   2. Adapter-level workspace binding (workspace:name in envelope metadata)
         //   3. Default workspace from registry
         let override_key = format!("workspace_override:{}", session.id);
@@ -1230,7 +1254,7 @@ impl AgentHandler for WorkspaceHandler {
             // Build system prompt using the configurable pipeline
             let pipeline_config = PipelineConfig::default();
             let pipeline = SystemPromptPipeline::from_config(&pipeline_config);
-            
+
             // Parse principles from JSON string if available
             let principles = if !principles_section.is_empty() {
                 // Simple parsing: extract principle items from the formatted section
@@ -1239,7 +1263,11 @@ impl AgentHandler for WorkspaceHandler {
                     .filter(|line| line.contains(". [") && line.contains("] "))
                     .enumerate()
                     .map(|(i, line)| {
-                        let kind = if line.contains("[AVOID]") { "avoid" } else { "do" };
+                        let kind = if line.contains("[AVOID]") {
+                            "avoid"
+                        } else {
+                            "do"
+                        };
                         let text = line.split("] ").nth(1).unwrap_or("").to_string();
                         serde_json::json!({
                             "index": i + 1,
@@ -1251,28 +1279,28 @@ impl AgentHandler for WorkspaceHandler {
             } else {
                 vec![]
             };
-            
+
             // Build context
             let available_workspaces: Vec<String> = available_ws_refs
                 .into_iter()
                 .map(|s| s.to_string())
                 .collect();
-            
+
             let mut ctx = BuildContext::new(&soul_name)
                 .with_persona(&soul_body)
                 .with_tool_instructions(&tools_body)
                 .with_workspace(&resolved_workspace, available_workspaces)
                 .with_principles(principles)
                 .with_config(pipeline_config);
-            
+
             if let Some(cwd) = user_cwd {
                 ctx = ctx.with_cwd(cwd);
             }
-            
+
             if let Some(summary) = conversation_summary.as_deref() {
                 ctx = ctx.with_summary(summary);
             }
-            
+
             // Add shell commands as dynamic section if present
             if let Some(shell_ctx) = envelope
                 .metadata
@@ -1282,14 +1310,14 @@ impl AgentHandler for WorkspaceHandler {
             {
                 ctx = ctx.with_dynamic_section(
                     "shell_commands",
-                    format!("## Recent local shell commands\n{shell_ctx}")
+                    format!("## Recent local shell commands\n{shell_ctx}"),
                 );
             }
-            
+
             if let Some(registry) = template_registry {
                 ctx = ctx.with_templates(registry);
             }
-            
+
             let system_prompt = match pipeline.build(&ctx).await {
                 Ok(prompt) => prompt,
                 Err(e) => {
@@ -1300,8 +1328,8 @@ impl AgentHandler for WorkspaceHandler {
             };
 
             let mut options = CompletionOptions::default();
-            options.model = soul_model.clone();
-            options.max_tokens = soul_max_tokens;
+            options.model = Some(soul_model.clone());
+            options.max_tokens = Some(soul_max_tokens);
 
             // Agent loop: call LLM, execute tool calls, feed results back
             let mut final_text = String::new();
@@ -1312,12 +1340,16 @@ impl AgentHandler for WorkspaceHandler {
             for iteration in 0..max_iterations {
                 // Check for cancellation between iterations.
                 if let Some(ref tokens) = self.session_cancel_tokens {
-                    let cancelled = tokens
-                        .lock()
-                        .unwrap()
-                        .get(&envelope.session_id)
-                        .map(|t| t.is_cancelled())
-                        .unwrap_or(false);
+                    let cancelled = match tokens.lock() {
+                        Ok(t) => t
+                            .get(&envelope.session_id)
+                            .map(|t| t.is_cancelled())
+                            .unwrap_or(false),
+                        Err(_) => {
+                            warn!("session_cancel_tokens lock poisoned, assuming not cancelled");
+                            false
+                        }
+                    };
                     if cancelled {
                         info!(session_id = %envelope.session_id, "operation cancelled by user");
                         final_text = "Operation cancelled.".to_string();
@@ -1328,8 +1360,8 @@ impl AgentHandler for WorkspaceHandler {
                 let iteration_start = std::time::Instant::now();
 
                 // Pre-flight truncation: ensure messages fit context window
-                let output_budget = soul_max_tokens.unwrap_or(4096);
-                let hint = TokenizerHint::from_model(soul_model.as_deref());
+                let output_budget = soul_max_tokens;
+                let hint = TokenizerHint::from_model(Some(soul_model.as_str()));
                 let budget = available_history_budget_with_hint(
                     context_window,
                     output_budget,
@@ -1673,7 +1705,8 @@ impl AgentHandler for WorkspaceHandler {
                         }
                         match exp.maybe_reflect(&trajectory).await {
                             Ok(result) => {
-                                // Apply structural actions (disable skills with environmental failures)
+                                // Apply structural actions (disable skills with environmental
+                                // failures)
                                 for action in &result.actions {
                                     match action {
                                         orka_experience::StructuralAction::DisableSkill {
@@ -1750,14 +1783,15 @@ impl AgentHandler for WorkspaceHandler {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use orka_core::SessionId;
-    use orka_core::testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager};
+    use orka_core::{
+        SessionId,
+        testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager},
+    };
+    use orka_workspace::{
+        WorkspaceLoader, config::SoulFrontmatter, parse::Document, state::WorkspaceState,
+    };
 
-    use orka_workspace::WorkspaceLoader;
-    use orka_workspace::config::SoulFrontmatter;
-    use orka_workspace::parse::Document;
-    use orka_workspace::state::WorkspaceState;
+    use super::*;
 
     async fn test_workspace_registry(name: Option<&str>, body: &str) -> Arc<WorkspaceRegistry> {
         let loader = Arc::new(WorkspaceLoader::new("."));
@@ -1959,9 +1993,7 @@ mod tests {
     // dove vengono testati con la pipeline template-based
 
     async fn multi_workspace_registry() -> Arc<WorkspaceRegistry> {
-        use orka_workspace::config::SoulFrontmatter;
-        use orka_workspace::parse::Document;
-        use orka_workspace::state::WorkspaceState;
+        use orka_workspace::{config::SoulFrontmatter, parse::Document, state::WorkspaceState};
 
         let mut registry = WorkspaceRegistry::new("main".into());
 

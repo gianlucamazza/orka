@@ -1,18 +1,21 @@
 //! Integration tests for slash commands end-to-end through the worker pipeline.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use orka_core::config::AgentConfig;
-use orka_core::testing::{
-    InMemoryBus, InMemoryEventSink, InMemoryMemoryStore, InMemoryQueue, InMemorySecretManager,
-    InMemorySessionStore,
+use orka_core::{
+    config::AgentConfig,
+    testing::{
+        InMemoryBus, InMemoryEventSink, InMemoryMemoryStore, InMemoryQueue, InMemorySecretManager,
+        InMemorySessionStore,
+    },
+    traits::{MessageBus, PriorityQueue, SessionStore},
+    types::{CommandPayload, Envelope, Payload, Session},
 };
-use orka_core::traits::{MessageBus, PriorityQueue, SessionStore};
-use orka_core::types::{CommandPayload, Envelope, Payload, Session};
 use orka_skills::SkillRegistry;
-use orka_worker::commands::{CommandRegistry, register_all};
-use orka_worker::{EchoHandler, WorkerPool};
+use orka_worker::{
+    EchoHandler, WorkerPool,
+    commands::{CommandRegistry, register_all},
+};
 use tokio_util::sync::CancellationToken;
 
 fn make_command_envelope(session: &Session, cmd_name: &str) -> Envelope {
@@ -28,7 +31,8 @@ fn make_text_envelope(session: &Session, text: &str) -> Envelope {
     Envelope::text(&session.channel, session.id, text)
 }
 
-// ── CommandRegistry unit tests ────────────────────────────────────────────────
+// ── CommandRegistry unit tests
+// ────────────────────────────────────────────────
 
 #[test]
 fn command_registry_help_lists_all_commands() {
@@ -127,7 +131,8 @@ async fn echo_handler_processes_text_payload() {
     }
 }
 
-// ── Cancel command: bypasses session lock ─────────────────────────────────────
+// ── Cancel command: bypasses session lock
+// ─────────────────────────────────────
 
 #[tokio::test]
 async fn cancel_command_responds_when_no_active_operation() {
@@ -181,12 +186,14 @@ async fn cancel_command_responds_when_no_active_operation() {
     cancel.cancel();
 }
 
-// ── Rate limiter ──────────────────────────────────────────────────────────────
+// ── Rate limiter
+// ──────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn rate_limiter_allows_commands_under_limit() {
-    // Just verifies the command registry is callable; rate limiter is tested indirectly
-    // through the WorkspaceHandler, which is not wired up in this test.
+    // Just verifies the command registry is callable; rate limiter is tested
+    // indirectly through the WorkspaceHandler, which is not wired up in this
+    // test.
     let skills = Arc::new(SkillRegistry::default());
     let memory = Arc::new(InMemoryMemoryStore::new());
     let secrets = Arc::new(InMemorySecretManager::new());
@@ -209,7 +216,8 @@ async fn rate_limiter_allows_commands_under_limit() {
     assert!(registry.get("status").is_some());
 }
 
-// ── Command dispatch: unknown command ─────────────────────────────────────────
+// ── Command dispatch: unknown command
+// ─────────────────────────────────────────
 
 #[tokio::test]
 async fn unknown_command_payload_does_not_panic() {

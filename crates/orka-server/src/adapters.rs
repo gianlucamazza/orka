@@ -2,8 +2,10 @@
 
 use std::sync::Arc;
 
-use orka_core::traits::{ChannelAdapter, MessageBus, SecretManager};
-use orka_core::{Envelope, StreamRegistry};
+use orka_core::{
+    Envelope, StreamRegistry,
+    traits::{ChannelAdapter, MessageBus, SecretManager},
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -62,7 +64,8 @@ pub(crate) struct AdapterStartArgs {
 /// Start the custom adapter and all optional platform adapters.
 ///
 /// Returns the custom adapter separately (needed for routing) plus a vec of
-/// all adapters (including custom) for outbound routing and command registration.
+/// all adapters (including custom) for outbound routing and command
+/// registration.
 pub(crate) async fn start_all_adapters(
     args: AdapterStartArgs,
 ) -> anyhow::Result<(Arc<dyn ChannelAdapter>, Vec<Arc<dyn ChannelAdapter>>)> {
@@ -80,11 +83,9 @@ pub(crate) async fn start_all_adapters(
 
     // Custom adapter (always started)
     let adapter_config = config.adapters.custom.clone().unwrap_or_default();
-    let custom_adapter: Arc<dyn ChannelAdapter> = Arc::new(orka_adapter_custom::CustomAdapter::new(
-        adapter_config,
-        auth_layer,
-        stream_registry,
-    ));
+    let custom_adapter: Arc<dyn ChannelAdapter> = Arc::new(
+        orka_adapter_custom::CustomAdapter::new(adapter_config, auth_layer, stream_registry),
+    );
     let custom_ws = config
         .adapters
         .custom
@@ -164,10 +165,7 @@ pub(crate) async fn start_all_adapters(
                         return None;
                     }
                     let dc: Arc<dyn ChannelAdapter> =
-                        Arc::new(orka_adapter_discord::DiscordAdapter::new(
-                            token,
-                            dc_config.application_id.clone(),
-                        ));
+                        Arc::new(orka_adapter_discord::DiscordAdapter::new(token, None));
                     if let Err(e) =
                         start_adapter(dc.clone(), bus, shutdown, dc_config.workspace.clone()).await
                     {
@@ -207,20 +205,16 @@ pub(crate) async fn start_all_adapters(
                         return None;
                     }
                     let slack: Arc<dyn ChannelAdapter> = Arc::new(
-                        orka_adapter_slack::SlackAdapter::new(token, slack_config.listen_port),
+                        orka_adapter_slack::SlackAdapter::new(token, slack_config.port),
                     );
-                    if let Err(e) = start_adapter(
-                        slack.clone(),
-                        bus,
-                        shutdown,
-                        slack_config.workspace.clone(),
-                    )
-                    .await
+                    if let Err(e) =
+                        start_adapter(slack.clone(), bus, shutdown, slack_config.workspace.clone())
+                            .await
                     {
                         warn!(%e, "failed to start slack adapter");
                         return None;
                     }
-                    info!(port = slack_config.listen_port, "slack adapter started");
+                    info!(port = slack_config.port, "slack adapter started");
                     Some(slack)
                 }
                 Err(e) => {
@@ -245,18 +239,12 @@ pub(crate) async fn start_all_adapters(
                 .access_token_secret
                 .as_deref()
                 .unwrap_or("whatsapp_access_token");
-            let verify_secret = wa_config
-                .verify_token_secret
-                .as_deref()
-                .unwrap_or("whatsapp_verify_token");
+            let verify_secret = wa_config.verify_token.clone().unwrap_or_default();
             let phone_id = wa_config.phone_number_id.clone().unwrap_or_default();
-            match (
-                secrets.get_secret(access_secret).await,
-                secrets.get_secret(verify_secret).await,
-            ) {
-                (Ok(access), Ok(verify)) => {
+            match secrets.get_secret(access_secret).await {
+                Ok(access) => {
                     let access_token = access.expose_str().unwrap_or("").to_string();
-                    let verify_token = verify.expose_str().unwrap_or("").to_string();
+                    let verify_token = verify_secret;
                     if access_token.is_empty() || phone_id.is_empty() {
                         warn!(
                             "whatsapp access token or phone_number_id is empty, adapter disabled"
@@ -268,7 +256,7 @@ pub(crate) async fn start_all_adapters(
                             access_token,
                             phone_id,
                             verify_token,
-                            wa_config.listen_port,
+                            wa_config.port,
                         ));
                     if let Err(e) =
                         start_adapter(wa.clone(), bus, shutdown, wa_config.workspace.clone()).await
@@ -276,11 +264,11 @@ pub(crate) async fn start_all_adapters(
                         warn!(%e, "failed to start whatsapp adapter");
                         return None;
                     }
-                    info!(port = wa_config.listen_port, "whatsapp adapter started");
+                    info!(port = wa_config.port, "whatsapp adapter started");
                     Some(wa)
                 }
-                _ => {
-                    warn!("failed to load whatsapp secrets, adapter disabled");
+                Err(e) => {
+                    warn!(%e, "failed to load whatsapp secrets, adapter disabled");
                     None
                 }
             }

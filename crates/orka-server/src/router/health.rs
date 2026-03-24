@@ -49,37 +49,30 @@ pub(super) fn routes(
                         let mut all_ok = true;
 
                         match redis::Client::open(redis_url.as_str()) {
-                            Ok(client) => {
-                                match client.get_multiplexed_async_connection().await {
-                                    Ok(mut conn) => {
-                                        match redis::cmd("PING")
-                                            .query_async::<String>(&mut conn)
-                                            .await
-                                        {
-                                            Ok(_) => {
-                                                checks.insert(
-                                                    "redis".into(),
-                                                    serde_json::json!("ok"),
-                                                );
-                                            }
-                                            Err(e) => {
-                                                checks.insert(
-                                                    "redis".into(),
-                                                    serde_json::json!(format!("error: {e}")),
-                                                );
-                                                all_ok = false;
-                                            }
+                            Ok(client) => match client.get_multiplexed_async_connection().await {
+                                Ok(mut conn) => {
+                                    match redis::cmd("PING").query_async::<String>(&mut conn).await
+                                    {
+                                        Ok(_) => {
+                                            checks.insert("redis".into(), serde_json::json!("ok"));
+                                        }
+                                        Err(e) => {
+                                            checks.insert(
+                                                "redis".into(),
+                                                serde_json::json!(format!("error: {e}")),
+                                            );
+                                            all_ok = false;
                                         }
                                     }
-                                    Err(e) => {
-                                        checks.insert(
-                                            "redis".into(),
-                                            serde_json::json!(format!("error: {e}")),
-                                        );
-                                        all_ok = false;
-                                    }
                                 }
-                            }
+                                Err(e) => {
+                                    checks.insert(
+                                        "redis".into(),
+                                        serde_json::json!(format!("error: {e}")),
+                                    );
+                                    all_ok = false;
+                                }
+                            },
                             Err(e) => {
                                 checks.insert(
                                     "redis".into(),
@@ -115,8 +108,7 @@ pub(super) fn routes(
                                     .await
                                     {
                                         Ok(Ok(_)) => {
-                                            checks
-                                                .insert("qdrant".into(), serde_json::json!("ok"));
+                                            checks.insert("qdrant".into(), serde_json::json!("ok"));
                                         }
                                         Ok(Err(e)) => {
                                             checks.insert(
@@ -128,9 +120,7 @@ pub(super) fn routes(
                                         Err(_) => {
                                             checks.insert(
                                                 "qdrant".into(),
-                                                serde_json::json!(
-                                                    "error: health check timed out"
-                                                ),
+                                                serde_json::json!("error: health check timed out"),
                                             );
                                             all_ok = false;
                                         }

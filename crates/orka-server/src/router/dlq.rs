@@ -2,8 +2,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::Path;
-use axum::response::IntoResponse;
+use axum::{extract::Path, response::IntoResponse};
 use orka_core::traits::PriorityQueue;
 
 pub(super) fn routes(queue: Arc<dyn PriorityQueue>) -> axum::Router {
@@ -73,10 +72,7 @@ pub(super) fn routes(queue: Arc<dyn PriorityQueue>) -> axum::Router {
                         let msg_id = match uuid::Uuid::parse_str(&id) {
                             Ok(uuid) => orka_core::MessageId(uuid),
                             Err(_) => {
-                                return (
-                                    axum::http::StatusCode::BAD_REQUEST,
-                                    "invalid message ID",
-                                )
+                                return (axum::http::StatusCode::BAD_REQUEST, "invalid message ID")
                                     .into_response();
                             }
                         };

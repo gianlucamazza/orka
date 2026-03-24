@@ -1,12 +1,14 @@
-//! Management API endpoints: skills, workspaces, sessions, graph, experience, eval.
+//! Management API endpoints: skills, workspaces, sessions, graph, experience,
+//! eval.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use axum::Json;
-use axum::extract::{Path, Query};
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::{
+    Json,
+    extract::{Path, Query},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use orka_agent::AgentGraph;
 use orka_core::traits::SessionStore;
 use orka_experience::ExperienceService;

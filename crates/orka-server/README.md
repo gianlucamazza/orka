@@ -51,4 +51,4 @@ orka-worker           ← WorkspaceHandler (LLM agentic loop)
 ChannelAdapter        ← delivers OutboundMessage back to user
 ```
 
-See `docs/architecture.md` for a detailed end-to-end description.
+See `docs/reference/architecture.md` for a detailed end-to-end description.
