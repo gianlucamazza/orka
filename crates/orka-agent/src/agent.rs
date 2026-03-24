@@ -1,11 +1,15 @@
 //! Agent definition and related identifier, scope, and LLM-config types.
 
-use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 use orka_llm::ThinkingConfig;
-use orka_prompts::pipeline::{BuildContext, PipelineConfig, SystemPromptPipeline};
-use orka_prompts::template::TemplateRegistry;
+use orka_prompts::{
+    pipeline::{BuildContext, PipelineConfig, SystemPromptPipeline},
+    template::TemplateRegistry,
+};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Opaque, cheaply-cloneable agent identifier.
@@ -87,6 +91,7 @@ impl SystemPrompt {
     /// Build the full prompt using the configurable pipeline.
     ///
     /// This method uses the template-based pipeline for maximum flexibility.
+    #[allow(clippy::too_many_arguments)]
     pub async fn build(
         &self,
         agent_name: &str,
@@ -178,7 +183,8 @@ pub struct Agent {
     pub skill_max_output_bytes: Option<usize>,
     /// Maximum duration in milliseconds per skill invocation (None = no limit).
     pub skill_max_duration_ms: Option<u64>,
-    /// Enable progressive tool disclosure (start with synthetic discovery tools only).
+    /// Enable progressive tool disclosure (start with synthetic discovery tools
+    /// only).
     pub progressive_disclosure: bool,
 }
 
@@ -237,7 +243,10 @@ mod tests {
     async fn system_prompt_build_uses_display_name() {
         let sp = SystemPrompt::default();
         let config = PipelineConfig::default();
-        let built = sp.build("Aria", "default", vec![], None, vec![], None, None, &config).await.unwrap();
+        let built = sp
+            .build("Aria", "default", vec![], None, vec![], None, None, &config)
+            .await
+            .unwrap();
         assert!(built.contains("Aria"));
     }
 
@@ -269,7 +278,10 @@ mod tests {
             sections: vec!["persona".to_string()],
             ..Default::default()
         };
-        let built = sp.build("Bot", "default", vec![], None, vec![], None, None, &config).await.unwrap();
+        let built = sp
+            .build("Bot", "default", vec![], None, vec![], None, None, &config)
+            .await
+            .unwrap();
         assert_eq!(built, "You are Bot.");
     }
 
@@ -283,7 +295,10 @@ mod tests {
             sections: vec!["persona".to_string()],
             ..Default::default()
         };
-        let built = sp.build("Bot", "default", vec![], None, vec![], None, None, &config).await.unwrap();
+        let built = sp
+            .build("Bot", "default", vec![], None, vec![], None, None, &config)
+            .await
+            .unwrap();
         assert!(built.contains("You are Bot."));
         assert!(built.contains("I am helpful."));
     }
@@ -299,7 +314,10 @@ mod tests {
             sections: vec!["persona".to_string(), "tools".to_string()],
             ..Default::default()
         };
-        let built = sp.build("Bot", "default", vec![], None, vec![], None, None, &config).await.unwrap();
+        let built = sp
+            .build("Bot", "default", vec![], None, vec![], None, None, &config)
+            .await
+            .unwrap();
         assert!(built.contains("I am helpful."));
         assert!(built.contains("Use tools wisely."));
     }

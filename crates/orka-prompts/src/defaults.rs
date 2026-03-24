@@ -49,6 +49,9 @@ pub const SECTION_PERSONA: &str = "persona";
 /// Tools section identifier.
 pub const SECTION_TOOLS: &str = "tools";
 
+/// Dynamic runtime/context sections identifier.
+pub const SECTION_DYNAMIC: &str = "dynamic";
+
 /// Workspace context section identifier.
 pub const SECTION_WORKSPACE: &str = "workspace";
 
@@ -67,6 +70,7 @@ pub const DEFAULT_SECTION_ORDER: &[&str] = &[
     SECTION_DATETIME,
     SECTION_WORKSPACE,
     SECTION_TOOLS,
+    SECTION_DYNAMIC,
     SECTION_PRINCIPLES,
     SECTION_SUMMARY,
 ];

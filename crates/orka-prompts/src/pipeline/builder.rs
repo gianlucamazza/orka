@@ -1,14 +1,15 @@
-use super::config::PipelineConfig;
-use super::section::PromptSection;
-use crate::template::TemplateRegistry;
+use std::{collections::HashMap, sync::Arc};
+
 use orka_core::{Error, Result};
-use std::collections::HashMap;
-use std::sync::Arc;
+
+use super::{config::PipelineConfig, section::PromptSection};
+use crate::template::TemplateRegistry;
 
 /// Context passed during prompt building.
 ///
 /// Contains all data needed to render prompt sections.
-/// This is the unified BuildContext used by both the pipeline and context providers.
+/// This is the unified BuildContext used by both the pipeline and context
+/// providers.
 #[derive(Clone, Default)]
 pub struct BuildContext {
     /// Agent display name.
@@ -140,15 +141,14 @@ impl BuildContext {
 /// # Example
 ///
 /// ```rust
-/// use orka_prompts::pipeline::{SystemPromptPipeline, PipelineConfig, BuildContext};
+/// use orka_prompts::pipeline::{BuildContext, PipelineConfig, SystemPromptPipeline};
 ///
 /// async fn example() {
 ///     let config = PipelineConfig::default();
 ///     let pipeline = SystemPromptPipeline::from_config(&config);
-///     
-///     let ctx = BuildContext::new("MyAgent")
-///         .with_persona("I am a helpful assistant.");
-///     
+///
+///     let ctx = BuildContext::new("MyAgent").with_persona("I am a helpful assistant.");
+///
 ///     let prompt = pipeline.build(&ctx).await.unwrap();
 ///     println!("{}", prompt);
 /// }
@@ -223,6 +223,7 @@ impl SystemPromptPipeline {
             })),
             SECTION_WORKSPACE => Some(Box::new(WorkspaceSection)),
             SECTION_TOOLS => Some(Box::new(ToolsSection)),
+            SECTION_DYNAMIC => Some(Box::new(DynamicSectionsSection)),
             SECTION_PRINCIPLES => Some(Box::new(PrinciplesSection {
                 max_principles: config.max_principles,
             })),
@@ -273,25 +274,25 @@ impl PromptSection for DateTimeSection {
     }
 
     async fn render(&self, ctx: &BuildContext) -> Result<Option<String>> {
-        if let Some(registry) = &ctx.template_registry {
-            if registry.has_template("sections/datetime").await {
-                let now = chrono::Utc::now();
-                let tz: chrono_tz::Tz = self.timezone.parse().unwrap_or(chrono_tz::UTC);
-                let local_time = now.with_timezone(&tz);
+        if let Some(registry) = &ctx.template_registry
+            && registry.has_template("sections/datetime").await
+        {
+            let now = chrono::Utc::now();
+            let tz: chrono_tz::Tz = self.timezone.parse().unwrap_or(chrono_tz::UTC);
+            let local_time = now.with_timezone(&tz);
 
-                let data = serde_json::json!({
-                    "date": local_time.format("%Y-%m-%d").to_string(),
-                    "time": local_time.format("%H:%M:%S").to_string(),
-                    "timezone": self.timezone,
-                    "datetime": local_time.to_rfc3339(),
-                });
+            let data = serde_json::json!({
+                "date": local_time.format("%Y-%m-%d").to_string(),
+                "time": local_time.format("%H:%M:%S").to_string(),
+                "timezone": self.timezone,
+                "datetime": local_time.to_rfc3339(),
+            });
 
-                return registry
-                    .render("sections/datetime", &data)
-                    .await
-                    .map(Some)
-                    .map_err(|e| Error::Other(format!("template error: {}", e)));
-            }
+            return registry
+                .render("sections/datetime", &data)
+                .await
+                .map(Some)
+                .map_err(|e| Error::Other(format!("template error: {}", e)));
         }
 
         // Fallback
@@ -323,20 +324,20 @@ impl PromptSection for WorkspaceSection {
             return Ok(None);
         }
 
-        if let Some(registry) = &ctx.template_registry {
-            if registry.has_template("sections/workspace").await {
-                let data = serde_json::json!({
-                    "workspace_name": ctx.workspace_name,
-                    "available_workspaces": ctx.available_workspaces,
-                    "cwd": ctx.cwd,
-                });
+        if let Some(registry) = &ctx.template_registry
+            && registry.has_template("sections/workspace").await
+        {
+            let data = serde_json::json!({
+                "workspace_name": ctx.workspace_name,
+                "available_workspaces": ctx.available_workspaces,
+                "cwd": ctx.cwd,
+            });
 
-                return registry
-                    .render("sections/workspace", &data)
-                    .await
-                    .map(Some)
-                    .map_err(|e| Error::Other(format!("template error: {}", e)));
-            }
+            return registry
+                .render("sections/workspace", &data)
+                .await
+                .map(Some)
+                .map_err(|e| Error::Other(format!("template error: {}", e)));
         }
 
         // Fallback
@@ -381,18 +382,18 @@ impl PromptSection for ToolsSection {
             return Ok(None);
         }
 
-        if let Some(registry) = &ctx.template_registry {
-            if registry.has_template("sections/tools").await {
-                let data = serde_json::json!({
-                    "instructions": ctx.tool_instructions,
-                });
+        if let Some(registry) = &ctx.template_registry
+            && registry.has_template("sections/tools").await
+        {
+            let data = serde_json::json!({
+                "instructions": ctx.tool_instructions,
+            });
 
-                return registry
-                    .render("sections/tools", &data)
-                    .await
-                    .map(Some)
-                    .map_err(|e| Error::Other(format!("template error: {}", e)));
-            }
+            return registry
+                .render("sections/tools", &data)
+                .await
+                .map(Some)
+                .map_err(|e| Error::Other(format!("template error: {}", e)));
         }
 
         Ok(Some(ctx.tool_instructions.clone()))
@@ -401,6 +402,44 @@ impl PromptSection for ToolsSection {
 
 struct PrinciplesSection {
     max_principles: usize,
+}
+
+struct DynamicSectionsSection;
+
+#[async_trait]
+impl PromptSection for DynamicSectionsSection {
+    fn name(&self) -> &str {
+        "dynamic"
+    }
+
+    fn is_required(&self) -> bool {
+        false
+    }
+
+    async fn render(&self, ctx: &BuildContext) -> Result<Option<String>> {
+        if ctx.dynamic_sections.is_empty() {
+            return Ok(None);
+        }
+
+        let mut keys: Vec<_> = ctx.dynamic_sections.keys().cloned().collect();
+        keys.sort();
+
+        let sections: Vec<String> = keys
+            .into_iter()
+            .filter_map(|key| {
+                ctx.dynamic_sections
+                    .get(&key)
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            })
+            .collect();
+
+        if sections.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(sections.join("\n\n")))
+        }
+    }
 }
 
 #[async_trait]
@@ -432,16 +471,16 @@ impl PromptSection for PrinciplesSection {
             })
             .collect();
 
-        if let Some(registry) = &ctx.template_registry {
-            if registry.has_template("sections/principles").await {
-                let data = serde_json::json!({ "principles": principles });
+        if let Some(registry) = &ctx.template_registry
+            && registry.has_template("sections/principles").await
+        {
+            let data = serde_json::json!({ "principles": principles });
 
-                return registry
-                    .render("sections/principles", &data)
-                    .await
-                    .map(Some)
-                    .map_err(|e| Error::Other(format!("template error: {}", e)));
-            }
+            return registry
+                .render("sections/principles", &data)
+                .await
+                .map(Some)
+                .map_err(|e| Error::Other(format!("template error: {}", e)));
         }
 
         // Fallback
@@ -488,16 +527,16 @@ impl PromptSection for SummarySection {
             _ => return Ok(None),
         };
 
-        if let Some(registry) = &ctx.template_registry {
-            if registry.has_template("sections/summary").await {
-                let data = serde_json::json!({ "summary": summary });
+        if let Some(registry) = &ctx.template_registry
+            && registry.has_template("sections/summary").await
+        {
+            let data = serde_json::json!({ "summary": summary });
 
-                return registry
-                    .render("sections/summary", &data)
-                    .await
-                    .map(Some)
-                    .map_err(|e| Error::Other(format!("template error: {}", e)));
-            }
+            return registry
+                .render("sections/summary", &data)
+                .await
+                .map(Some)
+                .map_err(|e| Error::Other(format!("template error: {}", e)));
         }
 
         // Fallback
@@ -552,5 +591,19 @@ mod tests {
         let prompt = pipeline.build(&ctx).await.unwrap();
         assert!(prompt.contains("You are TestAgent."));
         assert!(!prompt.contains("You are TestAgent.\n\n")); // No extra newline after empty persona
+    }
+
+    #[tokio::test]
+    async fn test_build_renders_dynamic_sections() {
+        let config = PipelineConfig::default();
+        let pipeline = SystemPromptPipeline::from_config(&config);
+
+        let ctx = BuildContext::new("TestAgent")
+            .with_dynamic_section("coding_runtime", "## Coding Runtime\n\nstatus")
+            .with_dynamic_section("soft_skills", "## Soft Skills\n\nrules");
+
+        let prompt = pipeline.build(&ctx).await.unwrap();
+        assert!(prompt.contains("## Coding Runtime"));
+        assert!(prompt.contains("## Soft Skills"));
     }
 }

@@ -1,9 +1,13 @@
-use super::registry::TemplateRegistry;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::debug;
+
+use super::registry::TemplateRegistry;
 
 /// Events emitted by the template loader.
 #[derive(Debug, Clone)]
@@ -24,19 +28,20 @@ pub enum TemplateLoaderEvent {
 /// # Example
 ///
 /// ```rust
-/// use orka_prompts::template::{TemplateLoader, TemplateRegistry};
 /// use std::path::PathBuf;
+///
+/// use orka_prompts::template::{TemplateLoader, TemplateRegistry};
 ///
 /// async fn example() {
 ///     let registry = TemplateRegistry::new();
 ///     let mut loader = TemplateLoader::new(registry, PathBuf::from("./templates"));
-///     
+///
 ///     // Initial load
 ///     loader.load_all().await.unwrap();
-///     
+///
 ///     // Start watching for changes
 ///     let mut events = loader.watch().await.unwrap();
-///     
+///
 ///     // Process events
 ///     while let Some(event) = events.recv().await {
 ///         println!("Template event: {:?}", event);
@@ -222,8 +227,9 @@ impl TemplateLoader {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_load_all_empty_dir() {

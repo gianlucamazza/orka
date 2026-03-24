@@ -1,9 +1,13 @@
 //! Shared execution context that flows through the agent graph during a run.
 
-use std::collections::VecDeque;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
+use std::{
+    collections::VecDeque,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Instant,
+};
 
 use orka_core::{Envelope, SessionId};
 use orka_llm::client::ChatMessage;
@@ -190,8 +194,9 @@ impl ExecutionContext {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use orka_core::{Envelope, SessionId};
+
+    use super::*;
 
     fn make_context() -> ExecutionContext {
         let env = Envelope::text("test-channel", SessionId::new(), "hello");

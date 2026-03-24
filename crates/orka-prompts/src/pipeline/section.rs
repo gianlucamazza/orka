@@ -1,6 +1,7 @@
-use super::builder::BuildContext;
 use async_trait::async_trait;
 use orka_core::Result;
+
+use super::builder::BuildContext;
 
 /// Trait for a section of a system prompt.
 ///
@@ -16,7 +17,8 @@ pub trait PromptSection: Send + Sync {
 
     /// Renders the section content.
     ///
-    /// Returns `Ok(None)` if the section should be skipped (e.g., no content available).
+    /// Returns `Ok(None)` if the section should be skipped (e.g., no content
+    /// available).
     async fn render(&self, ctx: &BuildContext) -> Result<Option<String>>;
 }
 

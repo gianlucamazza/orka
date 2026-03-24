@@ -1,6 +1,7 @@
+use std::fmt;
+
 use handlebars::{Handlebars, RenderError, TemplateError as HandlebarsError};
 use serde::Serialize;
-use std::fmt;
 
 /// Error type for template operations.
 #[derive(Debug)]
@@ -75,7 +76,10 @@ pub struct TemplateEngine {
 impl std::fmt::Debug for TemplateEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TemplateEngine")
-            .field("templates", &self.handlebars.get_templates().keys().collect::<Vec<_>>())
+            .field(
+                "templates",
+                &self.handlebars.get_templates().keys().collect::<Vec<_>>(),
+            )
             .finish()
     }
 }

@@ -1,10 +1,14 @@
-use super::engine::{TemplateEngine, TemplateError};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
 use serde::Serialize;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+
+use super::engine::{TemplateEngine, TemplateError};
 
 /// Source of a template.
 #[derive(Debug, Clone)]
@@ -140,33 +144,30 @@ impl TemplateRegistry {
     pub async fn load_from_dir(&self, dir: &Path) -> Result<usize, TemplateError> {
         let mut count = 0;
 
-        match walkdir::WalkDir::new(dir).follow_links(true).into_iter() {
-            walker => {
-                for entry in walker.flatten() {
-                    let path = entry.path();
+        let walker = walkdir::WalkDir::new(dir).follow_links(true).into_iter();
+        for entry in walker.flatten() {
+            let path = entry.path();
 
-                    if !path.is_file() {
-                        continue;
-                    }
-
-                    if path.extension().and_then(|e| e.to_str()) != Some("hbs") {
-                        continue;
-                    }
-
-                    // Calculate template name from relative path
-                    let name = match path.strip_prefix(dir).ok().and_then(|p| p.to_str()) {
-                        Some(n) => n.trim_end_matches(".hbs").replace('\\', "/"),
-                        None => continue,
-                    };
-
-                    if let Err(e) = self.register_file(&name, path).await {
-                        warn!(path = %path.display(), error = %e, "failed to load template");
-                    } else {
-                        count += 1;
-                    }
-                }
+            if !path.is_file() {
+                continue;
             }
-        };
+
+            if path.extension().and_then(|e| e.to_str()) != Some("hbs") {
+                continue;
+            }
+
+            // Calculate template name from relative path
+            let name = match path.strip_prefix(dir).ok().and_then(|p| p.to_str()) {
+                Some(n) => n.trim_end_matches(".hbs").replace('\\', "/"),
+                None => continue,
+            };
+
+            if let Err(e) = self.register_file(&name, path).await {
+                warn!(path = %path.display(), error = %e, "failed to load template");
+            } else {
+                count += 1;
+            }
+        }
 
         info!(directory = %dir.display(), count, "loaded templates from directory");
         Ok(count)
@@ -252,9 +253,11 @@ impl Clone for TemplateRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
     use tempfile::NamedTempFile;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_register_and_render() {

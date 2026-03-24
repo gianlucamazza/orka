@@ -1,7 +1,6 @@
 use orka_llm::client::ToolDefinition;
 
-use crate::agent::Agent;
-use crate::graph::AgentGraph;
+use crate::{agent::Agent, graph::AgentGraph};
 
 /// Build the `transfer_to_agent` and `delegate_to_agent` tool definitions
 /// based on the agent's `handoff_targets` list.
@@ -85,8 +84,10 @@ pub fn build_handoff_tools(agent: &Agent, graph: &AgentGraph) -> Vec<ToolDefinit
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::AgentId;
-    use crate::graph::{GraphNode, NodeKind};
+    use crate::{
+        agent::AgentId,
+        graph::{GraphNode, NodeKind},
+    };
 
     fn make_agent_with_targets(targets: Vec<&str>) -> Agent {
         let mut agent = Agent::new("orchestrator", "Orchestrator");

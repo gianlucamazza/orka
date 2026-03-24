@@ -3,27 +3,34 @@
 use orka_core::config::{AgentDef, OrkaConfig};
 use orka_workspace::WorkspaceRegistry;
 
-use crate::agent::{Agent, AgentId, AgentLlmConfig, SystemPrompt, ToolScope};
-use crate::context::SlotKey;
-use crate::graph::{AgentGraph, Edge, EdgeCondition, GraphNode, NodeKind, TerminationPolicy};
+use crate::{
+    agent::{Agent, AgentId, AgentLlmConfig, SystemPrompt, ToolScope},
+    context::SlotKey,
+    graph::{AgentGraph, Edge, EdgeCondition, GraphNode, NodeKind},
+};
 
 /// Build an `AgentGraph` from the `[[agents]]` + `[graph]` config sections.
+///
+/// Requires `OrkaConfig::validate()` to have run first, which ensures:
+/// - `config.agents` is non-empty (default single-agent entry applied if
+///   needed)
+/// - `config.graph` is `Some` (auto-created for single-agent, required for
+///   multi-agent)
+/// - Legacy `[agent]` has been promoted by the v4→v5 TOML migration
 pub async fn build_graph_from_config(
     config: &OrkaConfig,
     workspace_registry: &WorkspaceRegistry,
 ) -> orka_core::Result<AgentGraph> {
-    if config.agents.is_empty() {
-        return build_single_agent_graph(config, workspace_registry).await;
-    }
-
     let graph_def = config.graph.as_ref().ok_or_else(|| {
         orka_core::Error::Config(
-            "[[agents]] is set but [graph] is missing — add [graph] section to config".into(),
+            "[[agents]] is set but [graph] is missing — call OrkaConfig::validate() first".into(),
         )
     })?;
 
     // Use first agent as entry point (new simplified model)
-    let entry_id = config.agents.first()
+    let entry_id = config
+        .agents
+        .first()
         .map(|a| AgentId::from(a.id.as_str()))
         .unwrap_or_else(|| AgentId::from("default"));
 
@@ -53,7 +60,11 @@ pub async fn build_graph_from_config(
                 EdgeCondition::OutputContains(pattern)
             } else if c.starts_with("state_match:") {
                 // Format: "state_match:key=value"
-                let parts: Vec<&str> = c.strip_prefix("state_match:").unwrap_or(c).split('=').collect();
+                let parts: Vec<&str> = c
+                    .strip_prefix("state_match:")
+                    .unwrap_or(c)
+                    .split('=')
+                    .collect();
                 if parts.len() == 2 {
                     EdgeCondition::StateMatch {
                         key: SlotKey::shared(parts[0].to_string()),
@@ -80,60 +91,20 @@ pub async fn build_graph_from_config(
     Ok(graph)
 }
 
-/// Build a single-node graph from the `[agent]` config section.
-pub async fn build_single_agent_graph(
-    config: &OrkaConfig,
-    workspace_registry: &WorkspaceRegistry,
-) -> orka_core::Result<AgentGraph> {
-    let agent_cfg = &config.agent;
-    let agent_id = AgentId::from(agent_cfg.id.as_str());
-
-    let mut system_prompt = SystemPrompt::default();
-
-    // Load from workspace registry
-    let state_lock = workspace_registry.default_state();
-    let state = state_lock.read().await;
-    if let Some(soul) = &state.soul {
-        system_prompt.persona = soul.body.clone();
-    }
-    if let Some(tools_body) = &state.tools_body {
-        system_prompt.tool_instructions = tools_body.clone();
-    }
-    drop(state);
-
-    let mut agent = Agent::new(agent_id.clone(), &agent_cfg.name);
-    agent.system_prompt = system_prompt;
-    agent.max_iterations = agent_cfg.max_iterations;
-    
-    // Use default LLM config with simplified fields
-    agent.llm_config = AgentLlmConfig {
-        model: Some(agent_cfg.model.clone()),
-        max_tokens: Some(agent_cfg.max_tokens),
-        temperature: Some(agent_cfg.temperature),
-        ..Default::default()
-    };
-
-    let policy = TerminationPolicy::default();
-
-    let mut graph = AgentGraph::new("single", agent_id).with_termination(policy);
-    graph.add_node(GraphNode {
-        agent,
-        kind: NodeKind::Agent,
-    });
-
-    Ok(graph)
-}
-
 async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegistry) -> Agent {
     let agent_id = AgentId::from(def.id.as_str());
     let cfg = &def.config;
-    
+
     let mut agent = Agent::new(agent_id.clone(), &cfg.name);
 
-    // Load system prompt from workspace registry
+    // Load system prompt from the named workspace, falling back to the default
+    // workspace (covers agents promoted from the legacy [agent] single-entry).
     let mut system_prompt = SystemPrompt::default();
     let ws_name = def.id.as_str();
-    if let Some(state_lock) = workspace_registry.state(ws_name) {
+    let state_lock = workspace_registry
+        .state(ws_name)
+        .unwrap_or_else(|| workspace_registry.default_state());
+    {
         let state = state_lock.read().await;
         if let Some(soul) = &state.soul {
             system_prompt.persona = soul.body.clone();
@@ -145,7 +116,7 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
 
     agent.system_prompt = system_prompt;
     agent.max_iterations = cfg.max_iterations;
-    
+
     // Use simplified LLM config
     agent.llm_config = AgentLlmConfig {
         model: Some(cfg.model.clone()),
@@ -170,7 +141,7 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
 mod tests {
     use std::sync::Arc;
 
-    use orka_core::config::{AgentConfig, AgentDef, EdgeDef, GraphDef, OrkaConfig, ServerConfig};
+    use orka_core::config::{AgentDef, EdgeDef, GraphDef, OrkaConfig, ServerConfig};
     use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 
     fn base_config() -> OrkaConfig {
@@ -194,7 +165,6 @@ mod tests {
             session: Default::default(),
             queue: Default::default(),
             llm: Default::default(),
-            agent: AgentConfig::default(),
             tools: Default::default(),
             observe: Default::default(),
             audit: Default::default(),
@@ -225,14 +195,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn single_agent_fallback_builds_one_node_graph() {
-        let config = base_config();
+    async fn single_agent_config_builds_one_node_graph() {
+        let mut config = base_config();
+        config.agents = vec![agent_def("orka")];
+        config.graph = Some(GraphDef::default());
         let registry = make_registry();
         let graph = super::build_graph_from_config(&config, &registry)
             .await
             .expect("build_graph_from_config failed");
 
-        assert_eq!(graph.id, "single");
         let entry = &graph.entry;
         assert!(graph.get_node(entry).is_some());
         assert!(graph.outgoing_edges(entry).is_empty());
@@ -242,17 +213,11 @@ mod tests {
     async fn multi_agent_config_builds_correct_topology() {
         let mut config = base_config();
         config.agents = vec![agent_def("router"), agent_def("worker")];
-        let mut edge = EdgeDef {
-            from: "router".to_string(),
-            to: "worker".to_string(),
-            condition: Some("always".to_string()),
-            weight: 1.0,
-        };
-        let graph = GraphDef {
-            execution_mode: orka_core::config::primitives::GraphExecutionMode::default(),
-            max_hops: 20,
-            edges: vec![edge],
-        };
+        let mut edge = EdgeDef::new("router", "worker");
+        edge.condition = Some("always".to_string());
+        let mut graph = GraphDef::default();
+        graph.max_hops = 20;
+        graph.edges = vec![edge];
         config.graph = Some(graph);
 
         let registry = make_registry();

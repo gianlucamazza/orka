@@ -1,16 +1,17 @@
 //! Integration tests for `GraphExecutor` covering linear, fan-out, handoff,
 //! and termination-policy scenarios using an in-memory mock LLM.
 
-use std::collections::VecDeque;
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use async_trait::async_trait;
 use orka_agent::{
     Agent, AgentGraph, AgentId, Edge, EdgeCondition, ExecutionContext, ExecutorDeps, GraphExecutor,
     GraphNode, NodeKind, TerminationPolicy,
 };
-use orka_core::testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager};
-use orka_core::{Envelope, SessionId, StreamRegistry};
+use orka_core::{
+    Envelope, SessionId, StreamRegistry,
+    testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager},
+};
 use orka_llm::client::{
     ChatMessage, CompletionOptions, CompletionResponse, ContentBlock, LlmClient, StopReason,
     ToolCall, ToolDefinition, Usage,
@@ -33,13 +34,19 @@ enum MockResp {
 
 struct MockLlm {
     queue: Mutex<VecDeque<MockResp>>,
+    systems: Mutex<Vec<String>>,
 }
 
 impl MockLlm {
     fn new(resps: Vec<MockResp>) -> Self {
         Self {
             queue: Mutex::new(resps.into()),
+            systems: Mutex::new(Vec::new()),
         }
+    }
+
+    async fn last_system_prompt(&self) -> Option<String> {
+        self.systems.lock().await.last().cloned()
     }
 }
 
@@ -59,10 +66,11 @@ impl LlmClient for MockLlm {
     async fn complete_with_tools(
         &self,
         _messages: &[orka_llm::client::ChatMessage],
-        _system: &str,
+        system: &str,
         _tools: &[ToolDefinition],
         _options: CompletionOptions,
     ) -> orka_core::Result<CompletionResponse> {
+        self.systems.lock().await.push(system.to_string());
         match self.queue.lock().await.pop_front() {
             Some(MockResp::Text(t)) => Ok(CompletionResponse::new(
                 vec![ContentBlock::Text(t)],
@@ -102,6 +110,7 @@ fn make_deps(llm: Arc<dyn LlmClient>) -> ExecutorDeps {
         experience: None,
         soft_skills: None,
         templates: None,
+        coding_runtime: None,
     }
 }
 
@@ -116,7 +125,54 @@ fn make_deps_no_llm() -> ExecutorDeps {
         experience: None,
         soft_skills: None,
         templates: None,
+        coding_runtime: None,
     }
+}
+
+#[tokio::test]
+async fn system_prompt_includes_coding_runtime_status() {
+    let llm_impl = Arc::new(MockLlm::new(vec![MockResp::Text("ok".into())]));
+    let llm: Arc<dyn LlmClient> = llm_impl.clone();
+    let mut deps = make_deps(llm);
+    deps.coding_runtime = Some(orka_agent::executor::CodingRuntimeStatus {
+        tool_available: true,
+        default_provider: "auto".into(),
+        selection_policy: "availability".into(),
+        claude_code_available: true,
+        codex_available: true,
+        selected_backend: Some("claude_code".into()),
+        file_modifications_allowed: true,
+        command_execution_allowed: true,
+        allowed_paths: vec!["/home".into(), "/tmp".into()],
+        denied_paths: vec!["/home/gianluca/.ssh".into()],
+    });
+
+    let executor = GraphExecutor::new(deps);
+    let agent = Agent::new("a", "Agent");
+    let mut graph = AgentGraph::new("g", AgentId::from("a"));
+    graph.add_node(GraphNode {
+        agent,
+        kind: NodeKind::Agent,
+    });
+    graph = graph.with_termination(TerminationPolicy::default());
+    let session_id = SessionId::new();
+    let mut envelope = Envelope::text("custom", session_id, "hai tools di coding?");
+    envelope.insert_meta("workspace:cwd", "/home/gianluca");
+    let ctx = ExecutionContext::new(envelope);
+
+    let _ = executor.execute(&graph, &ctx).await.unwrap();
+    let prompt = llm_impl.last_system_prompt().await.unwrap();
+    assert!(prompt.contains("## Coding Runtime"));
+    assert!(prompt.contains("coding_delegate"));
+    assert!(prompt.contains("claude_code, codex"));
+    assert!(prompt.contains("Selected backend for a delegated run right now: `claude_code`."));
+    assert!(prompt.contains("Selected backend file modifications: allowed."));
+    assert!(prompt.contains("Current user working directory from the client: `/home/gianluca`."));
+    assert!(
+        prompt.contains(
+            "OS policy for the current working directory: allowed by `os.allowed_paths`."
+        )
+    );
 }
 
 fn make_ctx() -> ExecutionContext {
@@ -153,7 +209,8 @@ async fn no_llm_returns_default_message() {
     assert_eq!(result.agents_executed, vec!["solo"]);
 }
 
-/// Single terminal agent (no outgoing edges): executor returns the LLM response.
+/// Single terminal agent (no outgoing edges): executor returns the LLM
+/// response.
 #[tokio::test]
 async fn single_terminal_agent() {
     let entry = AgentId::new("a");
@@ -266,7 +323,8 @@ async fn output_contains_edge_no_match_terminates() {
     assert_eq!(result.agents_executed, vec!["a"]);
 }
 
-/// `StateMatch` edge matches: routing proceeds when state slot equals expected value.
+/// `StateMatch` edge matches: routing proceeds when state slot equals expected
+/// value.
 #[tokio::test]
 async fn state_match_edge_routes_correctly() {
     let a = AgentId::new("a");
@@ -305,8 +363,8 @@ async fn state_match_edge_routes_correctly() {
     assert_eq!(result.agents_executed, vec!["a", "b"]);
 }
 
-/// `max_total_iterations = 1`: the second graph loop iteration triggers the guard
-/// before agent B can run.
+/// `max_total_iterations = 1`: the second graph loop iteration triggers the
+/// guard before agent B can run.
 #[tokio::test]
 async fn termination_max_total_iterations() {
     let a = AgentId::new("a");
@@ -342,7 +400,8 @@ async fn termination_max_total_iterations() {
     assert_eq!(result.agents_executed, vec!["a"]);
 }
 
-/// `terminal_agents` policy: execution ends after A without following the edge to B.
+/// `terminal_agents` policy: execution ends after A without following the edge
+/// to B.
 #[tokio::test]
 async fn termination_terminal_agent_policy() {
     let a = AgentId::new("a");
@@ -375,7 +434,8 @@ async fn termination_terminal_agent_policy() {
     assert_eq!(result.agents_executed, vec!["a"]);
 }
 
-/// FanOut node dispatches all successors; all three agent IDs appear in `agents_executed`.
+/// FanOut node dispatches all successors; all three agent IDs appear in
+/// `agents_executed`.
 #[tokio::test]
 async fn fan_out_runs_all_successors() {
     let fanout = AgentId::new("fanout");
@@ -418,11 +478,13 @@ async fn fan_out_runs_all_successors() {
 
     // fanout itself + both successors
     assert_eq!(result.agents_executed.len(), 1); // only "fanout" in agents_executed (successors run inside fanout handling)
-    // The final response is whichever branch finished last (non-deterministic), so just assert non-empty
-    // (response could be "b response" or "c response")
+    // The final response is whichever branch finished last (non-deterministic),
+    // so just assert non-empty (response could be "b response" or "c
+    // response")
 }
 
-/// Handoff transfer: A transfers control to B; B's response becomes the final result.
+/// Handoff transfer: A transfers control to B; B's response becomes the final
+/// result.
 #[tokio::test]
 async fn handoff_transfer_routes_to_target() {
     let a = AgentId::new("a");
@@ -501,7 +563,8 @@ async fn edge_priority_lower_wins() {
     graph.add_node(agent_node("a"));
     graph.add_node(agent_node("first"));
     graph.add_node(agent_node("second"));
-    // Add high-priority edge first in insertion order but lower priority number wins
+    // Add high-priority edge first in insertion order but lower priority number
+    // wins
     graph.add_edge(
         a.clone(),
         Edge {

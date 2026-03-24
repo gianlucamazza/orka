@@ -1,5 +1,6 @@
-use crate::defaults::*;
 use serde::{Deserialize, Serialize};
+
+use crate::defaults::*;
 
 /// Configuration for the system prompt pipeline.
 ///

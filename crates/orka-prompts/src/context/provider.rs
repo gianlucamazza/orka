@@ -1,12 +1,13 @@
-use super::types::{PrincipleContext, SessionContext, WorkspaceContext};
 use async_trait::async_trait;
 use orka_core::Result;
 use serde_json::Value;
 
+use super::types::{PrincipleContext, SessionContext, WorkspaceContext};
+
 /// Trait for context providers that supply data for prompt building.
 ///
-/// Implementors can fetch data from various sources (memory, external APIs, etc.)
-/// and provide it to the prompt building pipeline.
+/// Implementors can fetch data from various sources (memory, external APIs,
+/// etc.) and provide it to the prompt building pipeline.
 #[async_trait]
 pub trait ContextProvider: Send + Sync {
     /// Returns the provider identifier.

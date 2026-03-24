@@ -1,21 +1,135 @@
 //! Graph execution engine.
 
-use std::sync::Arc;
-use std::time::Instant;
+use std::{path::Path, sync::Arc, time::Instant};
 
-use orka_core::traits::{EventSink, MemoryStore, SecretManager};
-use orka_core::{DomainEvent, DomainEventKind, OutboundMessage, Payload};
+use orka_core::{
+    DomainEvent, DomainEventKind, OutboundMessage, Payload,
+    traits::{EventSink, MemoryStore, SecretManager},
+};
 use orka_experience::ExperienceService;
 use orka_llm::client::LlmClient;
 use orka_prompts::template::TemplateRegistry;
 use orka_skills::SkillRegistry;
 use tracing::{Instrument, info, info_span, warn};
 
-use crate::agent::AgentId;
-use crate::context::ExecutionContext;
-use crate::graph::{AgentGraph, EdgeCondition, NodeKind};
-use crate::handoff::HandoffMode;
-use crate::node_runner::run_agent_node;
+use crate::{
+    agent::AgentId,
+    context::ExecutionContext,
+    graph::{AgentGraph, EdgeCondition, NodeKind},
+    handoff::HandoffMode,
+    node_runner::run_agent_node,
+};
+
+/// Runtime status for Orka's coding delegation layer.
+#[derive(Debug, Clone, Default)]
+pub struct CodingRuntimeStatus {
+    /// Whether the public `coding_delegate` tool is currently usable.
+    pub tool_available: bool,
+    /// Configured default provider selection value.
+    pub default_provider: String,
+    /// Configured backend selection policy.
+    pub selection_policy: String,
+    /// Whether Claude Code is available for routing right now.
+    pub claude_code_available: bool,
+    /// Whether Codex is available for routing right now.
+    pub codex_available: bool,
+    /// The backend that the router will select for a delegated run, if any.
+    pub selected_backend: Option<String>,
+    /// Whether the selected backend is configured to modify files.
+    pub file_modifications_allowed: bool,
+    /// Whether the selected backend is configured to execute commands.
+    pub command_execution_allowed: bool,
+    /// OS-level allowed filesystem roots from runtime config.
+    pub allowed_paths: Vec<String>,
+    /// OS-level denied filesystem roots from runtime config.
+    pub denied_paths: Vec<String>,
+}
+
+impl CodingRuntimeStatus {
+    /// Render a deterministic prompt section for runtime tool introspection.
+    pub fn render_prompt_section(&self, user_cwd: Option<&str>) -> String {
+        let mut available_backends = Vec::new();
+        if self.claude_code_available {
+            available_backends.push("claude_code");
+        }
+        if self.codex_available {
+            available_backends.push("codex");
+        }
+
+        let backend_text = if available_backends.is_empty() {
+            "none".to_string()
+        } else {
+            available_backends.join(", ")
+        };
+
+        let availability = if self.tool_available {
+            "available"
+        } else {
+            "unavailable"
+        };
+
+        let selected_backend = self.selected_backend.as_deref().unwrap_or("none");
+        let file_modifications = if self.file_modifications_allowed {
+            "allowed"
+        } else {
+            "not allowed"
+        };
+        let command_execution = if self.command_execution_allowed {
+            "allowed"
+        } else {
+            "not allowed"
+        };
+        let cwd_text = user_cwd.unwrap_or("unknown");
+        let cwd_policy = self
+            .cwd_policy(user_cwd)
+            .unwrap_or_else(|| "unknown".to_string());
+
+        format!(
+            "## Coding Runtime\n\n\
+`coding_delegate` is currently {availability}.\n\
+Configured default provider: `{}`.\n\
+Selection policy: `{}`.\n\
+Available coding backends in this runtime: {}.\n\
+Selected backend for a delegated run right now: `{selected_backend}`.\n\
+Selected backend file modifications: {file_modifications}.\n\
+Selected backend command execution: {command_execution}.\n\
+Current user working directory from the client: `{cwd_text}`.\n\
+OS policy for the current working directory: {cwd_policy}.\n\n\
+If file modifications are allowed, do not claim that the coding backend lacks write permission unless a delegated run actually failed with a concrete write error.\n\
+For questions about Orka coding capabilities, answer from this runtime status instead of reading config files or probing the filesystem.",
+            self.default_provider, self.selection_policy, backend_text
+        )
+    }
+
+    fn cwd_policy(&self, user_cwd: Option<&str>) -> Option<String> {
+        let cwd = user_cwd?;
+        let path = Path::new(cwd);
+
+        if self
+            .denied_paths
+            .iter()
+            .map(Path::new)
+            .any(|denied| path.starts_with(denied))
+        {
+            return Some("denied by `os.denied_paths`".to_string());
+        }
+
+        if self.allowed_paths.is_empty() {
+            return Some("allowed (no `os.allowed_paths` restriction configured)".to_string());
+        }
+
+        if self
+            .allowed_paths
+            .iter()
+            .map(Path::new)
+            .any(|allowed| path.starts_with(allowed))
+        {
+            Some("allowed by `os.allowed_paths`".to_string())
+        } else {
+            Some("outside `os.allowed_paths`".to_string())
+        }
+    }
+}
 
 /// External dependencies injected into the executor.
 pub struct ExecutorDeps {
@@ -25,7 +139,8 @@ pub struct ExecutorDeps {
     pub memory: Arc<dyn MemoryStore>,
     /// Secret manager for resolving credentials.
     pub secrets: Arc<dyn SecretManager>,
-    /// Optional LLM client override; falls back to the global default if `None`.
+    /// Optional LLM client override; falls back to the global default if
+    /// `None`.
     pub llm: Option<Arc<dyn LlmClient>>,
     /// Sink for emitting domain events.
     pub event_sink: Arc<dyn EventSink>,
@@ -37,6 +152,8 @@ pub struct ExecutorDeps {
     pub soft_skills: Option<std::sync::Arc<orka_skills::SoftSkillRegistry>>,
     /// Optional template registry for prompt rendering.
     pub templates: Option<Arc<TemplateRegistry>>,
+    /// Runtime status for Orka's coding delegation layer.
+    pub coding_runtime: Option<CodingRuntimeStatus>,
 }
 
 /// Result of a complete graph execution.
@@ -159,11 +276,11 @@ impl GraphExecutor {
                 warn!("graph max duration exceeded");
                 break;
             }
-            if let Some(max_tokens) = policy.max_total_tokens {
-                if ctx.total_tokens() > max_tokens {
-                    warn!(max_tokens, "graph max token budget exceeded");
-                    break;
-                }
+            if let Some(max_tokens) = policy.max_total_tokens
+                && ctx.total_tokens() > max_tokens
+            {
+                warn!(max_tokens, "graph max token budget exceeded");
+                break;
             }
 
             let node = match graph.get_node(&current_id) {

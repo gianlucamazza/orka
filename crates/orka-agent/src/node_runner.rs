@@ -1,26 +1,29 @@
 //! Single-agent LLM tool loop, extracted from `workspace_handler.rs`.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use orka_core::{DomainEvent, DomainEventKind, SkillInput};
-use orka_llm::client::{
-    ChatContent, ChatMessage, CompletionOptions, ContentBlock, ContentBlockInput, LlmToolStream,
-    StreamEvent, ToolCall, ToolDefinition, Usage,
-};
-use orka_llm::context::{
-    TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
-    truncate_history_with_hint,
+use orka_llm::{
+    client::{
+        ChatContent, ChatMessage, CompletionOptions, ContentBlock, ContentBlockInput,
+        LlmToolStream, StreamEvent, ToolCall, ToolDefinition, Usage,
+    },
+    context::{
+        TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
+        truncate_history_with_hint,
+    },
 };
 use orka_prompts::pipeline::PipelineConfig;
 use tracing::{Instrument, debug, info, info_span, warn};
 
-use crate::agent::Agent;
-use crate::context::ExecutionContext;
-use crate::executor::ExecutorDeps;
-use crate::graph::AgentGraph;
-use crate::handoff::{Handoff, HandoffMode};
-use crate::tools::build_handoff_tools;
+use crate::{
+    agent::Agent,
+    context::ExecutionContext,
+    executor::ExecutorDeps,
+    graph::AgentGraph,
+    handoff::{Handoff, HandoffMode},
+    tools::build_handoff_tools,
+};
 
 /// The result of running a single agent node.
 #[derive(Debug)]
@@ -269,27 +272,44 @@ pub async fn run_agent_node(
     let envelope = &ctx.trigger;
     let message_id = envelope.id;
 
-    // Extract trigger text once — used for principle retrieval and soft skill selection.
+    // Extract trigger text once — used for principle retrieval and soft skill
+    // selection.
     let trigger_text = match &ctx.trigger.payload {
         orka_core::Payload::Text(t) => t.clone(),
         _ => String::new(),
     };
 
     // Get workspace info
-    let workspace_name = ctx.trigger.metadata.get("workspace:name")
+    let workspace_name = ctx
+        .trigger
+        .metadata
+        .get("workspace:name")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
-    let available_workspaces = ctx.trigger.metadata.get("workspace:available")
+    let available_workspaces = ctx
+        .trigger
+        .metadata
+        .get("workspace:available")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_else(|| vec![workspace_name.to_string()]);
-    let cwd = ctx.trigger.metadata.get("workspace:cwd")
+    let cwd = ctx
+        .trigger
+        .metadata
+        .get("workspace:cwd")
         .and_then(|v| v.as_str())
         .map(String::from);
 
     // Retrieve principles if experience is available
     let principles = if let Some(ref exp) = deps.experience {
-        match exp.retrieve_principles(&trigger_text, agent.id.0.as_ref()).await {
+        match exp
+            .retrieve_principles(&trigger_text, agent.id.0.as_ref())
+            .await
+        {
             Ok(principles) if !principles.is_empty() => {
                 // Emit events for principles injection
                 deps.event_sink
@@ -308,13 +328,18 @@ pub async fn run_agent_node(
                         },
                     ));
                 // Convert principles to JSON for the pipeline
-                principles.into_iter().map(|p| serde_json::json!({
-                    "text": p.text,
-                    "kind": match p.kind {
-                        orka_experience::types::PrincipleKind::Do => "do",
-                        orka_experience::types::PrincipleKind::Avoid => "avoid",
-                    },
-                })).collect()
+                principles
+                    .into_iter()
+                    .map(|p| {
+                        serde_json::json!({
+                            "text": p.text,
+                            "kind": match p.kind {
+                                orka_experience::types::PrincipleKind::Do => "do",
+                                orka_experience::types::PrincipleKind::Avoid => "avoid",
+                            },
+                        })
+                    })
+                    .collect()
             }
             Err(e) => {
                 warn!(%e, "failed to retrieve principles");
@@ -344,7 +369,10 @@ pub async fn run_agent_node(
     };
 
     // Get shell commands context
-    let shell_commands = ctx.trigger.metadata.get("shell:recent_commands")
+    let shell_commands = ctx
+        .trigger
+        .metadata
+        .get("shell:recent_commands")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| format!("## Recent local shell commands\n{s}"))
@@ -352,20 +380,21 @@ pub async fn run_agent_node(
 
     // Build system prompt using context providers and pipeline
     let system_prompt = {
-        use orka_prompts::context::{
-            ContextCoordinator, ExperienceContextProvider, SectionsContextProvider,
-            SessionContext, ShellContextProvider,
-            SoftSkillsContextProvider, WorkspaceProvider,
+        use orka_prompts::{
+            context::{
+                ContextCoordinator, ExperienceContextProvider, SectionsContextProvider,
+                SessionContext, ShellContextProvider, SoftSkillsContextProvider, WorkspaceProvider,
+            },
+            pipeline::BuildContext,
         };
-        use orka_prompts::pipeline::BuildContext;
-        
+
         // 1. Create base context using the unified BuildContext
         let mut base_context = BuildContext::new(&agent.display_name)
             .with_persona(&agent.system_prompt.persona)
             .with_tool_instructions(&agent.system_prompt.tool_instructions)
             .with_workspace(workspace_name, available_workspaces.clone())
             .with_config(PipelineConfig::default());
-        
+
         if let Some(cwd_val) = cwd.clone() {
             base_context = base_context.with_cwd(cwd_val);
         }
@@ -375,7 +404,7 @@ pub async fn run_agent_node(
         if let Some(ref registry) = deps.templates {
             base_context = base_context.with_templates(Arc::clone(registry));
         }
-        
+
         // 2. Create session context
         let session_ctx = SessionContext {
             session_id: ctx.session_id.to_string(),
@@ -385,35 +414,37 @@ pub async fn run_agent_node(
             recent_commands: vec![],
             metadata: ctx.trigger.metadata.clone(),
         };
-        
+
         // 3. Configure coordinator with providers
         let mut coordinator = ContextCoordinator::new(base_context);
-        
+
         // Add experience provider if available
         if let Some(ref exp) = deps.experience {
             let adapter = crate::context_adapters::ExperienceServiceAdapter::new(Arc::clone(exp));
-            coordinator = coordinator.with_provider(Box::new(
-                ExperienceContextProvider::new(
-                    Arc::new(adapter),
-                    workspace_name.to_string(),
-                )
-            ));
+            coordinator = coordinator.with_provider(Box::new(ExperienceContextProvider::new(
+                Arc::new(adapter),
+                workspace_name.to_string(),
+            )));
         }
-        
+
         // Add soft skills provider if available
         if let Some(ref soft_reg) = deps.soft_skills {
-            let adapter = crate::context_adapters::SoftSkillRegistryAdapter::new(Arc::clone(soft_reg));
+            let adapter =
+                crate::context_adapters::SoftSkillRegistryAdapter::new(Arc::clone(soft_reg));
             let mode = crate::context_adapters::get_soft_skill_selection_mode(soft_reg);
-            coordinator = coordinator.with_provider(Box::new(
-                SoftSkillsContextProvider::new(Arc::new(adapter), mode)
-            ));
+            coordinator = coordinator.with_provider(Box::new(SoftSkillsContextProvider::new(
+                Arc::new(adapter),
+                mode,
+            )));
         }
-        
+
         // Add workspace and shell providers
         coordinator = coordinator
-            .with_provider(Box::new(WorkspaceProvider::new(available_workspaces.clone())))
+            .with_provider(Box::new(WorkspaceProvider::new(
+                available_workspaces.clone(),
+            )))
             .with_provider(Box::new(ShellContextProvider::new()));
-        
+
         // Add dynamic sections provider for soft skills and shell commands
         let mut sections = std::collections::HashMap::new();
         if !soft_skill_section.is_empty() {
@@ -422,25 +453,44 @@ pub async fn run_agent_node(
         if !shell_commands.is_empty() {
             sections.insert("shell_commands".to_string(), shell_commands);
         }
-        if !sections.is_empty() {
-            coordinator = coordinator.with_provider(Box::new(SectionsContextProvider::new(sections)));
+        if let Some(coding_runtime) = &deps.coding_runtime {
+            let user_cwd = ctx
+                .trigger
+                .metadata
+                .get("workspace:cwd")
+                .and_then(|value| value.as_str());
+            sections.insert(
+                "coding_runtime".to_string(),
+                coding_runtime.render_prompt_section(user_cwd),
+            );
         }
-        
+        if !sections.is_empty() {
+            coordinator =
+                coordinator.with_provider(Box::new(SectionsContextProvider::new(sections)));
+        }
+
         // 4. Build context and render prompt
         match coordinator.build(&session_ctx).await {
             Ok(build_ctx) => {
-                let pipeline = orka_prompts::pipeline::SystemPromptPipeline::from_config(&build_ctx.config);
+                let pipeline =
+                    orka_prompts::pipeline::SystemPromptPipeline::from_config(&build_ctx.config);
                 match pipeline.build(&build_ctx).await {
                     Ok(prompt) => prompt,
                     Err(e) => {
                         warn!(%e, "failed to build system prompt with pipeline, using fallback");
-                        format!("You are {}.\n\n{}", agent.display_name, agent.system_prompt.persona)
+                        format!(
+                            "You are {}.\n\n{}",
+                            agent.display_name, agent.system_prompt.persona
+                        )
                     }
                 }
             }
             Err(e) => {
                 warn!(%e, "failed to build context with providers, using fallback");
-                format!("You are {}.\n\n{}", agent.display_name, agent.system_prompt.persona)
+                format!(
+                    "You are {}.\n\n{}",
+                    agent.display_name, agent.system_prompt.persona
+                )
             }
         }
     };
@@ -732,7 +782,8 @@ pub async fn run_agent_node(
             ));
         }
 
-        // B1: Intercept synthetic progressive-disclosure tool calls before skill dispatch
+        // B1: Intercept synthetic progressive-disclosure tool calls before skill
+        // dispatch
         let mut results_map: HashMap<String, (String, bool)> = HashMap::new();
         let mut skill_calls: Vec<&ToolCall> = Vec::new();
 

@@ -4,9 +4,10 @@
 //! (ExperienceService, SoftSkillRegistry) to the trait interfaces expected by
 //! the context provider system in orka-prompts.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use orka_core::Result;
-use std::sync::Arc;
 
 /// Adapter for ExperienceService from orka-experience to orka-prompts trait.
 pub struct ExperienceServiceAdapter {

@@ -1,19 +1,24 @@
 //! Agent graph topology: nodes, edges, conditions, and termination policy.
 
-use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use serde_json::Value;
 
-use crate::agent::{Agent, AgentId};
-use crate::context::SlotKey;
+use crate::{
+    agent::{Agent, AgentId},
+    context::SlotKey,
+};
 
 /// How an agent node behaves in the graph.
 #[derive(Debug, Clone)]
 pub enum NodeKind {
     /// Standard: executes LLM tool loop, can hand off to other agents.
     Agent,
-    /// Evaluates edge conditions without calling the LLM, routing to a successor.
+    /// Evaluates edge conditions without calling the LLM, routing to a
+    /// successor.
     Router,
     /// Dispatches to all successors in parallel (fan-out).
     FanOut,
@@ -106,7 +111,8 @@ impl AgentGraph {
         }
     }
 
-    /// Add a node to the graph, replacing any existing node with the same agent id.
+    /// Add a node to the graph, replacing any existing node with the same agent
+    /// id.
     pub fn add_node(&mut self, node: GraphNode) {
         self.nodes.insert(node.agent.id.clone(), node);
     }

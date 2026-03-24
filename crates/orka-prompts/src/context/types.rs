@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// Context data for a session.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

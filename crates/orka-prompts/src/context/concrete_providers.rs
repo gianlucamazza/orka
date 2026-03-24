@@ -4,12 +4,14 @@
 //! shell history, workspace registry) and make it available to the
 //! prompt building pipeline.
 
-use super::types::{SessionContext, WorkspaceContext};
-use crate::pipeline::BuildContext;
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use orka_core::Result;
 use serde_json::Value;
-use std::sync::Arc;
+
+use super::types::{SessionContext, WorkspaceContext};
+use crate::pipeline::BuildContext;
 
 /// Provider that fetches learned principles from experience service.
 pub struct ExperienceContextProvider {
@@ -149,7 +151,10 @@ pub enum SoftSkillSelectionMode {
 
 impl SoftSkillsContextProvider {
     /// Create a new soft skills context provider.
-    pub fn new(registry: Arc<dyn SoftSkillRegistry>, selection_mode: SoftSkillSelectionMode) -> Self {
+    pub fn new(
+        registry: Arc<dyn SoftSkillRegistry>,
+        selection_mode: SoftSkillSelectionMode,
+    ) -> Self {
         Self {
             registry,
             selection_mode,
@@ -165,9 +170,7 @@ impl super::provider::ContextProvider for SoftSkillsContextProvider {
 
     async fn provide(&self, ctx: &SessionContext) -> Result<Value> {
         let selected: Vec<&str> = match self.selection_mode {
-            SoftSkillSelectionMode::Keyword => {
-                self.registry.filter_by_message(&ctx.user_message)
-            }
+            SoftSkillSelectionMode::Keyword => self.registry.filter_by_message(&ctx.user_message),
             SoftSkillSelectionMode::All => self.registry.list(),
         };
 
@@ -273,7 +276,9 @@ impl ContextCoordinator {
     fn merge_single(&mut self, key: &str, value: &Value) {
         match key {
             "principles" => {
-                if let Ok(principles) = serde_json::from_value::<Vec<serde_json::Value>>(value.clone()) {
+                if let Ok(principles) =
+                    serde_json::from_value::<Vec<serde_json::Value>>(value.clone())
+                {
                     self.base_context.principles = principles;
                 }
             }
@@ -301,7 +306,9 @@ impl ContextCoordinator {
             // Any other key goes to dynamic_sections
             _ => {
                 if let Some(s) = value.as_str() {
-                    self.base_context.dynamic_sections.insert(key.to_string(), s.to_string());
+                    self.base_context
+                        .dynamic_sections
+                        .insert(key.to_string(), s.to_string());
                 }
             }
         }
