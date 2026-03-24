@@ -9,15 +9,14 @@ use orka_mcp::{
 fn config_stdio_fields() {
     let config = McpServerConfig {
         name: "test-server".into(),
-        transport: McpTransportConfig::Stdio {
-            command: "echo".into(),
-            args: vec!["hello".into(), "world".into()],
-            env: HashMap::from([("KEY".into(), "VALUE".into())]),
-        },
+        transport: McpTransportConfig::stdio("echo")
+            .args(["hello", "world"])
+            .env("KEY", "VALUE")
+            .build(),
     };
     assert_eq!(config.name, "test-server");
     match &config.transport {
-        McpTransportConfig::Stdio { command, args, env } => {
+        McpTransportConfig::Stdio { command, args, env, .. } => {
             assert_eq!(command, "echo");
             assert_eq!(args, &vec!["hello", "world"]);
             assert_eq!(env.get("KEY").unwrap(), "VALUE");
@@ -28,17 +27,17 @@ fn config_stdio_fields() {
 
 #[test]
 fn config_http_fields() {
+    let auth = McpOAuthConfig {
+        token_url: "https://auth.example.com/token".into(),
+        client_id: "orka-agent".into(),
+        client_secret_env: "MCP_CLIENT_SECRET".into(),
+        scopes: vec!["tools:read".into()],
+    };
     let config = McpServerConfig {
         name: "remote-server".into(),
-        transport: McpTransportConfig::StreamableHttp {
-            url: "https://tools.example.com/mcp".into(),
-            auth: Some(McpOAuthConfig {
-                token_url: "https://auth.example.com/token".into(),
-                client_id: "orka-agent".into(),
-                client_secret_env: "MCP_CLIENT_SECRET".into(),
-                scopes: vec!["tools:read".into()],
-            }),
-        },
+        transport: McpTransportConfig::http("https://tools.example.com/mcp")
+            .auth(auth)
+            .build(),
     };
     assert_eq!(config.name, "remote-server");
     match &config.transport {
@@ -55,11 +54,8 @@ fn config_http_fields() {
 async fn connect_nonexistent_command_fails() {
     let config = McpServerConfig {
         name: "bad".into(),
-        transport: McpTransportConfig::Stdio {
-            command: "/nonexistent/binary/that/does/not/exist".into(),
-            args: vec![],
-            env: HashMap::new(),
-        },
+        transport: McpTransportConfig::stdio("/nonexistent/binary/that/does/not/exist")
+            .build(),
     };
     let result = McpClient::connect(config).await;
     assert!(

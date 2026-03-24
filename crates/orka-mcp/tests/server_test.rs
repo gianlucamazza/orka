@@ -22,7 +22,7 @@ async fn initialize_returns_protocol_version_and_capabilities() {
         "id": 1,
         "method": "initialize",
         "params": {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": "2025-03-26",
             "capabilities": {},
             "clientInfo": { "name": "test", "version": "0.1.0" }
         }
@@ -31,7 +31,7 @@ async fn initialize_returns_protocol_version_and_capabilities() {
     let response = server.handle_request(request).await.unwrap();
     assert_eq!(response["jsonrpc"], "2.0");
     assert_eq!(response["id"], 1);
-    assert_eq!(response["result"]["protocolVersion"], "2024-11-05");
+    assert_eq!(response["result"]["protocolVersion"], "2025-03-26");
     assert!(response["result"]["capabilities"]["tools"].is_object());
     assert_eq!(response["result"]["serverInfo"]["name"], "orka");
 }
