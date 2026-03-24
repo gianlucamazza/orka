@@ -6,8 +6,9 @@
 //! # Example
 //!
 //! ```
-//! use orka_core::container::ServiceContainer;
 //! use std::sync::Arc;
+//!
+//! use orka_core::container::ServiceContainer;
 //!
 //! trait Database: Send + Sync {
 //!     fn query(&self, sql: &str) -> Vec<String>;
@@ -28,11 +29,13 @@
 //! # }
 //! ```
 
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::future::Future;
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 
 /// Type-safe service container for dependency injection.
 ///
@@ -55,14 +58,15 @@ impl ServiceContainer {
     ///
     /// # Type Parameters
     ///
-    /// * `T`: The type under which the service will be registered and retrieved.
-    ///        Typically `Arc<dyn Trait>` for trait objects.
+    /// * `T`: The type under which the service will be registered and
+    ///   retrieved. Typically `Arc<dyn Trait>` for trait objects.
     ///
     /// # Example
     ///
     /// ```
-    /// use orka_core::container::ServiceContainer;
     /// use std::sync::Arc;
+    ///
+    /// use orka_core::container::ServiceContainer;
     ///
     /// let mut container = ServiceContainer::new();
     /// container.register::<Arc<str>>(Arc::from("config"));
@@ -169,25 +173,26 @@ impl LazyContainer {
         factory: impl Fn() -> T + Send + Sync + 'static,
     ) {
         let type_id = TypeId::of::<T>();
-        self.factories.insert(type_id, Box::new(move || Arc::new(factory())));
+        self.factories
+            .insert(type_id, Box::new(move || Arc::new(factory())));
     }
 
     /// Get or create a service.
     pub fn get<T: Send + Sync + 'static>(&mut self) -> Option<Arc<T>> {
         let type_id = TypeId::of::<T>();
-        
+
         // Check if already instantiated
         if let Some(svc) = self.services.get(&type_id) {
             return svc.clone().downcast::<T>().ok();
         }
-        
+
         // Try to instantiate from factory
         if let Some(factory) = self.factories.remove(&type_id) {
             let instance = factory();
             self.services.insert(type_id, instance.clone());
             return instance.downcast::<T>().ok();
         }
-        
+
         None
     }
 }
@@ -199,15 +204,17 @@ impl Default for LazyContainer {
 }
 
 /// Async factory function type for async lazy initialization.
-pub type AsyncServiceFactory<T> = 
+pub type AsyncServiceFactory<T> =
     Box<dyn Fn() -> Pin<Box<dyn Future<Output = T> + Send>> + Send + Sync>;
+
+/// Erased factory type used inside [`AsyncServiceEntry`].
+type ErasedAsyncFactory =
+    Box<dyn Fn() -> Pin<Box<dyn Future<Output = Arc<dyn Any + Send + Sync>> + Send>> + Send + Sync>;
 
 /// Internal representation of a pending or initialized async service.
 enum AsyncServiceEntry {
     /// Service is pending initialization. Contains the factory.
-    Pending(
-        Box<dyn Fn() -> Pin<Box<dyn Future<Output = Arc<dyn Any + Send + Sync>> + Send>> + Send + Sync>,
-    ),
+    Pending(ErasedAsyncFactory),
     /// Service is currently being initialized by another task.
     /// Tasks should wait on this notify.
     Initializing(Arc<tokio::sync::Notify>),
@@ -217,8 +224,8 @@ enum AsyncServiceEntry {
 
 /// Async container with lazy initialization support.
 ///
-/// Services can be registered as async factories that are called on first retrieval.
-/// Thread-safe and suitable for async applications.
+/// Services can be registered as async factories that are called on first
+/// retrieval. Thread-safe and suitable for async applications.
 ///
 /// # Concurrency
 ///
@@ -250,15 +257,14 @@ impl AsyncServiceContainer {
     /// # Example
     ///
     /// ```rust
+    /// use std::{future::Future, pin::Pin, sync::Arc};
+    ///
     /// use orka_core::container::AsyncServiceContainer;
-    /// use std::sync::Arc;
-    /// use std::future::Future;
-    /// use std::pin::Pin;
     ///
     /// # async fn example() {
     /// let container = Arc::new(AsyncServiceContainer::new());
-    /// 
-    /// let factory: Box<dyn Fn() -> Pin<Box<dyn Future<Output = Arc<str>> + Send>> + Send + Sync> = 
+    ///
+    /// let factory: Box<dyn Fn() -> Pin<Box<dyn Future<Output = Arc<str>> + Send>> + Send + Sync> =
     ///     Box::new(|| {
     ///         Box::pin(async {
     ///             // Async initialization
@@ -274,7 +280,7 @@ impl AsyncServiceContainer {
     ) {
         let type_id = TypeId::of::<T>();
         let mut services = self.services.write().await;
-        
+
         let wrapped_factory = Box::new(move || {
             let fut = factory();
             Box::pin(async move {
@@ -282,7 +288,7 @@ impl AsyncServiceContainer {
                 result
             }) as Pin<Box<dyn Future<Output = Arc<dyn Any + Send + Sync>> + Send>>
         });
-        
+
         services.insert(type_id, AsyncServiceEntry::Pending(wrapped_factory));
     }
 
@@ -298,97 +304,117 @@ impl AsyncServiceContainer {
     /// 2. All receive the same `Arc<T>` instance
     pub async fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         let type_id = TypeId::of::<T>();
-        
-        // Fast path: check if already initialized
+
+        // Fast path: check if already initialized.
+        // Each match uses a short-lived borrow so we can drop(services) when needed.
         {
             let services = self.services.read().await;
-            if let Some(entry) = services.get(&type_id) {
-                match entry {
-                    AsyncServiceEntry::Initialized(arc) => {
-                        return arc.clone().downcast::<T>().ok();
-                    }
-                    AsyncServiceEntry::Initializing(notify) => {
-                        // Someone else is initializing, wait for them
-                        let notify = notify.clone();
-                        drop(services);
-                        notify.notified().await;
-                        
-                        // Try again - should be initialized now
-                        let services = self.services.read().await;
-                        if let Some(AsyncServiceEntry::Initialized(arc)) = services.get(&type_id) {
-                            return arc.clone().downcast::<T>().ok();
-                        }
-                        return None;
-                    }
-                    AsyncServiceEntry::Pending(_) => {
-                        // Need to initialize - fall through
-                    }
-                }
+
+            // Already initialized?
+            let initialized = match services.get(&type_id) {
+                Some(AsyncServiceEntry::Initialized(arc)) => Some(arc.clone()),
+                _ => None,
+            };
+            if let Some(arc) = initialized {
+                return arc.downcast::<T>().ok();
             }
-        }
-        
-        // Slow path: we need to initialize
-        let notify = Arc::new(tokio::sync::Notify::new());
-        
-        let factory = {
-            let mut services = self.services.write().await;
-            
-            // Double-check after acquiring write lock
-            match services.get(&type_id) {
-                Some(AsyncServiceEntry::Initialized(arc)) => {
+
+            // Someone else is initializing? Subscribe to their Notify BEFORE releasing the
+            // read lock so we cannot miss the notify_waiters() call.
+            let wait_notify: Option<Arc<tokio::sync::Notify>> = match services.get(&type_id) {
+                Some(AsyncServiceEntry::Initializing(n)) => Some(n.clone()),
+                _ => None,
+            };
+            if let Some(n) = wait_notify {
+                let notified = n.notified(); // Subscribe while still holding the read lock
+                drop(services); // Release lock — safe, notified is already subscribed
+                notified.await;
+
+                // Try again - should be initialized now
+                let services = self.services.read().await;
+                if let Some(AsyncServiceEntry::Initialized(arc)) = services.get(&type_id) {
                     return arc.clone().downcast::<T>().ok();
                 }
-                Some(AsyncServiceEntry::Initializing(n)) => {
-                    // Someone else started while we were waiting
-                    let notify = n.clone();
-                    drop(services);
-                    notify.notified().await;
-                    
-                    let services = self.services.read().await;
-                    if let Some(AsyncServiceEntry::Initialized(arc)) = services.get(&type_id) {
-                        return arc.clone().downcast::<T>().ok();
-                    }
-                    return None;
-                }
-                Some(AsyncServiceEntry::Pending(_)) => {
-                    // We take ownership of initialization
-                    if let Some(AsyncServiceEntry::Pending(factory)) = services.remove(&type_id) {
-                        services.insert(type_id, AsyncServiceEntry::Initializing(notify.clone()));
-                        Some(factory)
-                    } else {
-                        None
-                    }
-                }
-                None => None,
+                return None;
+            }
+
+            // Pending or missing — fall through to slow path
+        }
+
+        // Slow path: we need to initialize
+        let notify = Arc::new(tokio::sync::Notify::new());
+
+        let factory = {
+            let mut services = self.services.write().await;
+
+            // Double-check after acquiring write lock.
+            // Each check uses a short-lived borrow that ends before the next statement,
+            // so we can safely drop(services) when needed.
+
+            // Already initialized?
+            let initialized = match services.get(&type_id) {
+                Some(AsyncServiceEntry::Initialized(arc)) => Some(arc.clone()),
+                _ => None,
+            };
+            if let Some(arc) = initialized {
+                return arc.downcast::<T>().ok();
+            }
+
+            // Someone else is initializing? Subscribe to their Notify BEFORE releasing the
+            // write lock so we cannot miss the notify_waiters() call.
+            let wait_notify: Option<Arc<tokio::sync::Notify>> = match services.get(&type_id) {
+                Some(AsyncServiceEntry::Initializing(n)) => Some(n.clone()),
+                _ => None,
+            };
+            if let Some(n) = wait_notify {
+                let notified = n.notified(); // Subscribe while we still hold the write lock
+                drop(services); // Release lock — safe, notified is already subscribed
+                notified.await;
+
+                let services = self.services.read().await;
+                return if let Some(AsyncServiceEntry::Initialized(arc)) = services.get(&type_id) {
+                    arc.clone().downcast::<T>().ok()
+                } else {
+                    None
+                };
+            }
+
+            // Must be Pending — take ownership of initialization
+            if let Some(AsyncServiceEntry::Pending(factory)) = services.remove(&type_id) {
+                services.insert(type_id, AsyncServiceEntry::Initializing(notify.clone()));
+                Some(factory)
+            } else {
+                None
             }
         };
-        
+
         if let Some(factory) = factory {
             // Initialize the service
             let instance = factory().await;
-            
+
             // Store the initialized service
             {
                 let mut services = self.services.write().await;
                 services.insert(type_id, AsyncServiceEntry::Initialized(instance));
             }
-            
+
             // Notify waiters
             notify.notify_waiters();
-            
+
             // Return the service
             let services = self.services.read().await;
             if let Some(AsyncServiceEntry::Initialized(arc)) = services.get(&type_id) {
                 return arc.clone().downcast::<T>().ok();
             }
         }
-        
+
         None
     }
 
     /// Resolve a service, panicking if not found.
     pub async fn resolve<T: Send + Sync + 'static>(&self) -> Arc<T> {
-        self.get::<T>().await
+        self.get::<T>()
+            .await
             .unwrap_or_else(|| panic!("Service {} not registered", std::any::type_name::<T>()))
     }
 
@@ -402,13 +428,19 @@ impl AsyncServiceContainer {
     /// Get the number of initialized services.
     pub async fn initialized_count(&self) -> usize {
         let services = self.services.read().await;
-        services.values().filter(|e| matches!(e, AsyncServiceEntry::Initialized(_))).count()
+        services
+            .values()
+            .filter(|e| matches!(e, AsyncServiceEntry::Initialized(_)))
+            .count()
     }
 
     /// Get the number of pending factories.
     pub async fn pending_count(&self) -> usize {
         let services = self.services.read().await;
-        services.values().filter(|e| matches!(e, AsyncServiceEntry::Pending(_))).count()
+        services
+            .values()
+            .filter(|e| matches!(e, AsyncServiceEntry::Pending(_)))
+            .count()
     }
 }
 
@@ -445,9 +477,9 @@ mod tests {
     fn container_register_and_get() {
         let mut container = ServiceContainer::new();
         let db: Arc<dyn Database> = Arc::new(MockDb);
-        
+
         container.register::<Arc<dyn Database>>(db.clone());
-        
+
         let retrieved = container.get::<Arc<dyn Database>>().unwrap();
         assert_eq!(retrieved.query("SELECT 1"), "Mock: SELECT 1");
     }
@@ -462,7 +494,7 @@ mod tests {
     fn container_contains_check() {
         let mut container = ServiceContainer::new();
         assert!(!container.contains::<Arc<dyn Database>>());
-        
+
         container.register::<Arc<dyn Database>>(Arc::new(MockDb));
         assert!(container.contains::<Arc<dyn Database>>());
     }
@@ -471,7 +503,7 @@ mod tests {
     fn container_remove() {
         let mut container = ServiceContainer::new();
         container.register::<Arc<dyn Database>>(Arc::new(MockDb));
-        
+
         assert!(container.remove::<Arc<dyn Database>>());
         assert!(!container.contains::<Arc<dyn Database>>());
         assert!(!container.remove::<Arc<dyn Database>>());
@@ -482,7 +514,7 @@ mod tests {
         let mut container = ServiceContainer::new();
         container.register::<i32>(42);
         container.register::<String>("test".into());
-        
+
         assert_eq!(container.len(), 2);
         container.clear();
         assert!(container.is_empty());
@@ -492,7 +524,7 @@ mod tests {
     fn container_debug() {
         let mut container = ServiceContainer::new();
         container.register::<i32>(42);
-        
+
         let debug = format!("{:?}", container);
         assert!(debug.contains("ServiceContainer"));
         assert!(debug.contains("1"));
@@ -502,7 +534,7 @@ mod tests {
     fn container_resolve_success() {
         let mut container = ServiceContainer::new();
         container.register::<i32>(42);
-        
+
         let value = container.resolve::<i32>();
         assert_eq!(*value, 42);
     }
@@ -517,24 +549,24 @@ mod tests {
     #[test]
     fn lazy_container_factory() {
         use std::sync::atomic::{AtomicUsize, Ordering};
-        
+
         let mut container = LazyContainer::new();
         static CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
-        
+
         // Reset counter
         CALL_COUNT.store(0, Ordering::SeqCst);
-        
+
         container.register_lazy::<i32>(|| {
             CALL_COUNT.fetch_add(1, Ordering::SeqCst);
             42
         });
-        
+
         assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 0);
-        
+
         let val1 = container.get::<i32>().unwrap();
         assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(*val1, 42);
-        
+
         // Second get should not call factory again
         let val2 = container.get::<i32>().unwrap();
         assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1);
@@ -544,9 +576,11 @@ mod tests {
     #[tokio::test]
     async fn async_container_register_and_get() {
         let container = AsyncServiceContainer::new();
-        
-        container.register::<Arc<dyn Database>>(Arc::new(MockDb)).await;
-        
+
+        container
+            .register::<Arc<dyn Database>>(Arc::new(MockDb))
+            .await;
+
         let retrieved = container.get::<Arc<dyn Database>>().await.unwrap();
         assert_eq!(retrieved.query("SELECT 1"), "Mock: SELECT 1");
     }
@@ -593,15 +627,14 @@ mod tests {
         let container = Arc::new(AsyncServiceContainer::new());
 
         // Factory function with explicit type
-        let factory: Box<
-            dyn Fn() -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
-        > = Box::new(|| {
-            Box::pin(async move {
-                // Simulate async work
-                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-                "initialized".to_string()
-            })
-        });
+        let factory: Box<dyn Fn() -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync> =
+            Box::new(|| {
+                Box::pin(async move {
+                    // Simulate async work
+                    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                    "initialized".to_string()
+                })
+            });
         container.register_async::<String>(factory).await;
 
         // First get triggers factory
@@ -616,13 +649,14 @@ mod tests {
     #[tokio::test]
     async fn async_container_concurrent_get() {
         use std::sync::atomic::{AtomicUsize, Ordering};
-        
+
         let container = Arc::new(AsyncServiceContainer::new());
         static CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
-        
+
         CALL_COUNT.store(0, Ordering::SeqCst);
 
         // Factory that tracks how many times it's called
+        #[allow(clippy::type_complexity)]
         let factory: Box<
             dyn Fn() -> Pin<Box<dyn Future<Output = Arc<String>> + Send>> + Send + Sync,
         > = Box::new(|| {
@@ -644,7 +678,7 @@ mod tests {
 
         // All should complete successfully
         let results: Vec<_> = futures_util::future::join_all(handles).await;
-        
+
         // All should succeed
         for result in &results {
             assert!(result.is_ok(), "Task panicked");
@@ -654,7 +688,11 @@ mod tests {
         }
 
         // Factory should only be called once
-        assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1, "Factory should be called exactly once");
+        assert_eq!(
+            CALL_COUNT.load(Ordering::SeqCst),
+            1,
+            "Factory should be called exactly once"
+        );
 
         // All should point to the same Arc
         let first = results[0].as_ref().unwrap().as_ref().unwrap();
@@ -668,7 +706,7 @@ mod tests {
     async fn async_container_resolve() {
         let container = AsyncServiceContainer::new();
         container.register::<i32>(42).await;
-        
+
         let value = container.resolve::<i32>().await;
         assert_eq!(*value, 42);
     }

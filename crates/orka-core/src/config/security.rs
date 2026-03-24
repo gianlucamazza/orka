@@ -1,11 +1,13 @@
 //! Security configuration (Authentication, Secrets, Sandbox).
 
-use crate::config::defaults;
-use serde::Deserialize;
 use std::collections::HashMap;
 
+use serde::Deserialize;
+
+use crate::config::defaults;
+
 /// HTTP authentication configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[non_exhaustive]
 pub struct AuthConfig {
     /// JWT authentication configuration.
@@ -17,17 +19,6 @@ pub struct AuthConfig {
     pub token_url: Option<String>,
     /// Authorization URL for OAuth flows.
     pub auth_url: Option<String>,
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            jwt: None,
-            api_keys: Vec::new(),
-            token_url: None,
-            auth_url: None,
-        }
-    }
 }
 
 /// JWT authentication configuration.
@@ -57,8 +48,19 @@ pub struct ApiKeyEntry {
     pub scopes: Vec<String>,
 }
 
+impl ApiKeyEntry {
+    /// Create a new API key entry.
+    pub fn new(name: impl Into<String>, key_hash: impl Into<String>, scopes: Vec<String>) -> Self {
+        Self {
+            name: name.into(),
+            key_hash: key_hash.into(),
+            scopes,
+        }
+    }
+}
+
 /// Secret storage configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[non_exhaustive]
 pub struct SecretConfig {
     /// Path to the master encryption key (hex-encoded, 32 bytes).
@@ -68,16 +70,6 @@ pub struct SecretConfig {
     /// Redis configuration for secret storage.
     #[serde(flatten)]
     pub redis: super::infrastructure::RedisConfig,
-}
-
-impl Default for SecretConfig {
-    fn default() -> Self {
-        Self {
-            encryption_key_path: None,
-            encryption_key_env: None,
-            redis: super::infrastructure::RedisConfig::default(),
-        }
-    }
 }
 
 /// Code sandbox configuration.
@@ -147,7 +139,7 @@ const fn default_max_pids() -> usize {
 }
 
 /// WASM plugin configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[non_exhaustive]
 pub struct PluginConfig {
     /// Directory containing WASM plugins.
@@ -158,16 +150,6 @@ pub struct PluginConfig {
     /// Per-plugin configuration.
     #[serde(default)]
     pub plugins: HashMap<String, PluginInstanceConfig>,
-}
-
-impl Default for PluginConfig {
-    fn default() -> Self {
-        Self {
-            dir: None,
-            capabilities: PluginCapabilities::default(),
-            plugins: HashMap::new(),
-        }
-    }
 }
 
 /// Plugin capabilities.

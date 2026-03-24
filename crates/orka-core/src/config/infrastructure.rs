@@ -1,8 +1,11 @@
 //! Infrastructure configuration (Redis, Bus, Queue, Session, Memory).
 
-use crate::config::defaults;
-use crate::config::primitives::{BusBackend, MemoryBackend};
 use serde::Deserialize;
+
+use crate::config::{
+    defaults,
+    primitives::{BusBackend, MemoryBackend},
+};
 
 /// Redis connection configuration.
 #[derive(Clone, Deserialize)]
@@ -24,7 +27,8 @@ impl RedisConfig {
     ///
     /// # Errors
     ///
-    /// Returns an error if the URL doesn't start with `redis://` or `rediss://`.
+    /// Returns an error if the URL doesn't start with `redis://` or
+    /// `rediss://`.
     pub fn validate(&self) -> crate::Result<()> {
         if !self.url.starts_with("redis://") && !self.url.starts_with("rediss://") {
             return Err(crate::Error::Config(format!(

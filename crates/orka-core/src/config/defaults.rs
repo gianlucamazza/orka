@@ -170,7 +170,7 @@ pub fn default_agent_name() -> String {
 
 /// Default agent model.
 pub fn default_model() -> String {
-    "claude-3-5-sonnet-20241022".to_string()
+    "claude-sonnet-4-6".to_string()
 }
 
 /// Default max iterations for agent.
@@ -196,6 +196,41 @@ pub fn default_os_permission_level() -> String {
 /// Default Claude Code enabled state.
 pub const fn default_claude_code_enabled() -> bool {
     false
+}
+
+/// Default Codex enabled state.
+pub const fn default_codex_enabled() -> bool {
+    false
+}
+
+/// Default coding delegate tool.
+pub fn default_coding_default_tool() -> String {
+    "auto".to_string()
+}
+
+/// Default coding delegate routing policy.
+pub fn default_coding_selection_policy() -> String {
+    "availability".to_string()
+}
+
+/// Default coding delegate context injection.
+pub const fn default_coding_inject_workspace_context() -> bool {
+    true
+}
+
+/// Default coding delegate verification requirement.
+pub const fn default_coding_require_verification() -> bool {
+    false
+}
+
+/// Default coding delegate working directory override policy.
+pub const fn default_coding_allow_working_dir_override() -> bool {
+    true
+}
+
+/// Default coding delegate timeout in seconds.
+pub const fn default_coding_timeout_secs() -> u64 {
+    300
 }
 
 /// Default sudo allowed state.
@@ -345,7 +380,7 @@ pub const fn default_max_hops() -> usize {
 
 /// Default config version.
 pub const fn default_config_version() -> u32 {
-    3
+    5
 }
 
 /// Default guardrails enabled state.

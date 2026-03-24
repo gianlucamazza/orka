@@ -1,12 +1,17 @@
-//! Core types, traits, and error handling for the Orka agent orchestration framework.
+//! Core types, traits, and error handling for the Orka agent orchestration
+//! framework.
 //!
-//! This crate defines the foundational abstractions that all other Orka crates depend on:
+//! This crate defines the foundational abstractions that all other Orka crates
+//! depend on:
 //!
-//! - **Traits** ([`traits`]): `ChannelAdapter`, `MessageBus`, `SessionStore`, `MemoryStore`,
-//!   `PriorityQueue`, `EventSink`, `Skill`, `SecretManager`, `Guardrail`
-//! - **Types** ([`types`]): `Envelope`, `OutboundMessage`, `Session`, `Payload`, `DomainEvent`, etc.
+//! - **Traits** ([`traits`]): `ChannelAdapter`, `MessageBus`, `SessionStore`,
+//!   `MemoryStore`, `PriorityQueue`, `EventSink`, `Skill`, `SecretManager`,
+//!   `Guardrail`
+//! - **Types** ([`types`]): `Envelope`, `OutboundMessage`, `Session`,
+//!   `Payload`, `DomainEvent`, etc.
 //! - **Error** ([`Error`]): unified error type for the entire platform
-//! - **Config** ([`config`]): configuration structs loaded from TOML / environment
+//! - **Config** ([`config`]): configuration structs loaded from TOML /
+//!   environment
 //! - **Container** ([`container`]): lightweight dependency injection container
 //! - **Testing** ([`testing`]): in-memory test doubles for all core traits
 //!
@@ -56,7 +61,11 @@ pub mod migrate;
 #[cfg(feature = "testing")]
 pub mod testing;
 
+#[cfg(feature = "config")]
+pub use config::OrkaConfig;
 pub use error::{Error, Result};
+#[cfg(feature = "migrate")]
+pub use migrate::{MigrationError, MigrationResult, inspect_config_issues, migrate_if_needed};
 pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 pub use types::{
@@ -65,9 +74,3 @@ pub use types::{
     OutboundMessage, Payload, Priority, RunId, SecretValue, Session, SessionId, SkillBudget,
     SkillContext, SkillInput, SkillOutput, SkillSchema, TraceContext, backoff_delay,
 };
-
-#[cfg(feature = "config")]
-pub use config::OrkaConfig;
-
-#[cfg(feature = "migrate")]
-pub use migrate::{MigrationError, MigrationResult, migrate_if_needed};

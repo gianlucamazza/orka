@@ -1,7 +1,8 @@
 //! HTTP server configuration.
 
-use crate::config::defaults;
 use serde::Deserialize;
+
+use crate::config::defaults;
 
 /// HTTP server bind configuration.
 #[derive(Debug, Clone, Deserialize)]
@@ -40,9 +41,7 @@ impl ServerConfig {
             ));
         }
         if self.host.is_empty() {
-            return Err(crate::Error::Config(
-                "server.host must not be empty".into(),
-            ));
+            return Err(crate::Error::Config("server.host must not be empty".into()));
         }
         Ok(())
     }

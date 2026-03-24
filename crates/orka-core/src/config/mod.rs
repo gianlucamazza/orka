@@ -1,7 +1,8 @@
 //! Configuration module for Orka.
 //!
-//! This module provides type-safe configuration structures with serde deserialization support.
-//! It is divided into several submodules based on domain:
+//! This module provides type-safe configuration structures with serde
+//! deserialization support. It is divided into several submodules based on
+//! domain:
 //!
 //! - [`server`]: HTTP server bind configuration.
 //! - [`infrastructure`]: Redis, message bus, queue, session, and memory stores.
@@ -13,9 +14,10 @@
 //! - [`observability`]: Metrics, tracing, and audit logging.
 //! - [`system`]: Worker, logging, and scheduler configuration.
 
+use std::path::Path;
+
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
-use std::path::Path;
 
 pub mod adapters;
 pub mod agent;
@@ -36,29 +38,17 @@ pub mod tools;
 pub mod web;
 
 // Re-export all configuration types for backward compatibility
-pub use self::adapters::*;
-pub use self::agent::*;
-pub use self::experience::*;
-pub use self::http::*;
-pub use self::infrastructure::*;
-pub use self::knowledge::*;
-pub use self::llm::*;
-pub use self::observability::*;
-pub use self::primitives::*;
-pub use self::prompts::*;
-pub use self::protocols::*;
-pub use self::security::*;
-pub use self::server::*;
-pub use self::system::*;
-pub use self::tools::*;
-pub use self::web::*;
-
+pub use self::{
+    adapters::*, agent::*, experience::*, http::*, infrastructure::*, knowledge::*, llm::*,
+    observability::*, primitives::*, prompts::*, protocols::*, security::*, server::*, system::*,
+    tools::*, web::*,
+};
 use crate::migrate;
 
 /// Top-level Orka configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct OrkaConfig {
-    /// Config schema version. `0` = legacy/absent; current version = `3`.
+    /// Config schema version. `0` = legacy/absent; current version = `5`.
     #[serde(default = "defaults::default_config_version")]
     pub config_version: u32,
     /// HTTP server bind configuration.
@@ -82,7 +72,8 @@ pub struct OrkaConfig {
     /// Name of the workspace to use when no explicit workspace is requested.
     #[serde(default)]
     pub default_workspace: Option<String>,
-    /// Channel adapter configuration (Telegram, Discord, Slack, WhatsApp, custom).
+    /// Channel adapter configuration (Telegram, Discord, Slack, WhatsApp,
+    /// custom).
     #[serde(default)]
     pub adapters: AdapterConfig,
     /// Worker pool configuration.
@@ -115,9 +106,6 @@ pub struct OrkaConfig {
     /// LLM provider configuration.
     #[serde(default)]
     pub llm: LlmConfig,
-    /// Per-agent runtime configuration.
-    #[serde(default)]
-    pub agent: AgentConfig,
     /// Tool enable/disable configuration.
     #[serde(default)]
     pub tools: ToolsConfig,
@@ -160,7 +148,8 @@ pub struct OrkaConfig {
     /// Self-learning experience configuration.
     #[serde(default)]
     pub experience: ExperienceConfig,
-    /// Multi-agent definitions (replaces single `[agent]` for multi-agent deployments).
+    /// Multi-agent definitions (replaces single `[agent]` for multi-agent
+    /// deployments).
     #[serde(default)]
     pub agents: Vec<AgentDef>,
     /// Graph topology for multi-agent execution.
@@ -190,7 +179,6 @@ impl Default for OrkaConfig {
             session: SessionConfig::default(),
             queue: QueueConfig::default(),
             llm: LlmConfig::default(),
-            agent: AgentConfig::default(),
             tools: ToolsConfig::default(),
             observe: ObserveConfig::default(),
             audit: AuditConfig::default(),
@@ -244,6 +232,14 @@ impl OrkaConfig {
                     );
                 }
             }
+            let schema_issues = migrate::inspect_config_issues(&migrated)
+                .map_err(|e| ConfigError::Foreign(Box::new(e)))?;
+            if !schema_issues.is_empty() {
+                return Err(ConfigError::Message(format!(
+                    "failed to load orka.toml: configuration schema drift detected:\n- {}",
+                    schema_issues.join("\n- ")
+                )));
+            }
             builder = builder.add_source(File::from_str(&migrated, config::FileFormat::Toml));
         }
 
@@ -268,7 +264,7 @@ impl OrkaConfig {
     /// Validate the loaded configuration.
     pub fn validate(&mut self) -> crate::Result<()> {
         self.llm.apply_defaults();
-        
+
         self.server.validate()?;
         self.redis.validate()?;
         self.worker.validate()?;
@@ -276,6 +272,7 @@ impl OrkaConfig {
         self.llm.validate()?;
         self.knowledge.validate()?;
         self.http.validate()?;
+        self.os.validate()?;
         self.experience.validate()?;
 
         if !Path::new(&self.workspace_dir).is_dir() {
@@ -285,12 +282,29 @@ impl OrkaConfig {
             )));
         }
 
-        // --- Empty strings ---
-        if self.agent.id.is_empty() {
-            return Err(crate::Error::Config("agent.id must not be empty".into()));
+        // --- Agent defaults + validation ---
+        // When no config file is present (programmatic/test default), agents is empty.
+        // Apply a single default agent so the graph builder always has at least one
+        // entry.
+        if self.agents.is_empty() {
+            self.agents.push(AgentDef {
+                id: defaults::default_agent_id(),
+                config: AgentConfig::default(),
+            });
+            self.graph.get_or_insert_with(GraphDef::default);
+        } else if self.graph.is_none() {
+            return Err(crate::Error::Config(
+                "[[agents]] is set but [graph] is missing — add [graph] section to config".into(),
+            ));
+        }
+        for agent_def in &self.agents {
+            if agent_def.id.is_empty() {
+                return Err(crate::Error::Config("agent id must not be empty".into()));
+            }
         }
 
-        // --- Enum-like validation (redundant if using enums in sub-configs, but safe) ---
+        // --- Enum-like validation (redundant if using enums in sub-configs, but safe)
+        // ---
         if !matches!(
             self.logging.level.to_ascii_lowercase().as_str(),
             "trace" | "debug" | "info" | "warn" | "error"
@@ -330,13 +344,13 @@ impl OrkaConfig {
                     )));
                 }
             }
-            if let Some(ref default) = self.default_workspace {
-                if !self.workspaces.iter().any(|w| &w.name == default) {
-                    return Err(crate::Error::Config(format!(
-                        "default_workspace '{}' not found in [[workspaces]]",
-                        default
-                    )));
-                }
+            if let Some(ref default) = self.default_workspace
+                && !self.workspaces.iter().any(|w| &w.name == default)
+            {
+                return Err(crate::Error::Config(format!(
+                    "default_workspace '{}' not found in [[workspaces]]",
+                    default
+                )));
             }
         }
 

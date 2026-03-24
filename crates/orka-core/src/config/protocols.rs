@@ -1,8 +1,10 @@
 //! Protocol configurations (MCP, A2A, Guardrails).
 
-use crate::config::defaults;
-use serde::Deserialize;
 use std::collections::HashMap;
+
+use serde::Deserialize;
+
+use crate::config::defaults;
 
 /// MCP (Model Context Protocol) server and client configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -296,4 +298,19 @@ pub struct RedactPattern {
 
 fn default_redact_replacement() -> String {
     "[REDACTED]".to_string()
+}
+
+impl RedactPattern {
+    /// Create a new redact pattern with the given name, regex, and replacement.
+    pub fn new(
+        name: impl Into<String>,
+        pattern: impl Into<String>,
+        replacement: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            pattern: pattern.into(),
+            replacement: replacement.into(),
+        }
+    }
 }

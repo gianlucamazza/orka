@@ -1,8 +1,10 @@
 //! Channel adapter configurations (Telegram, Discord, Slack, WhatsApp, Custom).
 
-use crate::config::defaults;
-use serde::Deserialize;
 use std::collections::HashMap;
+
+use serde::Deserialize;
+
+use crate::config::defaults;
 
 /// Channel adapter configuration (Telegram, Discord, Slack, WhatsApp, custom).
 #[derive(Debug, Clone, Default, Deserialize)]

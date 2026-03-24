@@ -1,9 +1,9 @@
 //! Generic retry-with-backoff executor.
 //!
-//! Replaces duplicated retry loops in LLM providers and adapter reconnect logic.
+//! Replaces duplicated retry loops in LLM providers and adapter reconnect
+//! logic.
 
-use std::future::Future;
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
 /// Retry an async operation with exponential backoff.
 ///
@@ -50,8 +50,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
 
     #[tokio::test]
     async fn succeeds_immediately() {

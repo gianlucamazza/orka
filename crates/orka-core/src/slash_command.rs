@@ -11,8 +11,8 @@ pub struct ParsedCommand {
 
 /// Parse a slash command from user input.
 ///
-/// Returns `Some(ParsedCommand)` if the input starts with `/` followed by a command name.
-/// Returns `None` if the input is not a slash command.
+/// Returns `Some(ParsedCommand)` if the input starts with `/` followed by a
+/// command name. Returns `None` if the input is not a slash command.
 pub fn parse_slash_command(input: &str) -> Option<ParsedCommand> {
     let trimmed = input.trim();
     let rest = trimmed.strip_prefix('/')?;
@@ -33,7 +33,8 @@ pub fn parse_slash_command(input: &str) -> Option<ParsedCommand> {
 }
 
 /// Simple tokenizer supporting quoted arguments.
-/// `key=val` stays as one token; `"hello world"` is a single token with quotes stripped.
+/// `key=val` stays as one token; `"hello world"` is a single token with quotes
+/// stripped.
 pub(crate) fn tokenize(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();

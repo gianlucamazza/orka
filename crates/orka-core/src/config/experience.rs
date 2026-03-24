@@ -1,7 +1,8 @@
 //! Self-learning experience configuration.
 
-use crate::config::defaults;
 use serde::Deserialize;
+
+use crate::config::defaults;
 
 /// Experience & self-learning configuration.
 #[derive(Debug, Clone, Deserialize)]

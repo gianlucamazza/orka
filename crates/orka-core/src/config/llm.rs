@@ -1,7 +1,8 @@
 //! LLM (Large Language Model) configuration.
 
-use crate::config::defaults;
 use serde::Deserialize;
+
+use crate::config::defaults;
 
 /// LLM provider configuration.
 #[derive(Debug, Clone, Deserialize)]

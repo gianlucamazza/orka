@@ -1,7 +1,8 @@
 //! Web search and read configuration.
 
-use crate::config::defaults;
 use serde::Deserialize;
+
+use crate::config::defaults;
 
 /// Web search and read configuration.
 #[derive(Debug, Clone, Deserialize)]
@@ -10,13 +11,15 @@ pub struct WebConfig {
     /// Search backend to use (`"tavily"`, `"brave"`, `"searxng"`, or `"none"`).
     #[serde(default = "defaults::default_web_search_provider")]
     pub search_provider: String,
-    /// Direct API key for the search provider (prefer `api_key_env` in production).
+    /// Direct API key for the search provider (prefer `api_key_env` in
+    /// production).
     #[serde(default)]
     pub api_key: Option<String>,
     /// Environment variable name containing the search provider API key.
     #[serde(default)]
     pub api_key_env: Option<String>,
-    /// Base URL for a SearXNG instance (required when `search_provider = "searxng"`).
+    /// Base URL for a SearXNG instance (required when `search_provider =
+    /// "searxng"`).
     #[serde(default)]
     pub searxng_base_url: Option<String>,
     /// Maximum number of search results to return per query.

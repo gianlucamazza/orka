@@ -1,16 +1,18 @@
+use std::{collections::HashMap, sync::Arc};
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::traits::{EventSink, SecretManager};
 
-/// Category of error for skill invocations, used by the circuit breaker and self-learning system.
+/// Category of error for skill invocations, used by the circuit breaker and
+/// self-learning system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCategory {
-    /// Permanent environment error: permissions, missing binary, sandbox, blocked syscall.
+    /// Permanent environment error: permissions, missing binary, sandbox,
+    /// blocked syscall.
     Environmental,
     /// Invalid input provided by the caller (LLM).
     Input,
@@ -18,9 +20,11 @@ pub enum ErrorCategory {
     Timeout,
     /// Transient error: network, service temporarily unavailable.
     Transient,
-    /// Skill output failed semantic validation (hallucinated or schema-invalid result).
+    /// Skill output failed semantic validation (hallucinated or schema-invalid
+    /// result).
     Semantic,
-    /// Skill invocation was blocked by a budget constraint (cost or duration ceiling).
+    /// Skill invocation was blocked by a budget constraint (cost or duration
+    /// ceiling).
     Budget,
     /// Category cannot be determined.
     Unknown,
@@ -218,13 +222,15 @@ pub enum DomainEventKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error_message: Option<String>,
     },
-    /// Emitted when a skill is structurally disabled (circuit open or experience feedback).
+    /// Emitted when a skill is structurally disabled (circuit open or
+    /// experience feedback).
     SkillDisabled {
         /// Name of the skill that was disabled.
         skill_name: String,
         /// Human-readable reason for disabling.
         reason: String,
-        /// Source of the disable action: "circuit_breaker" or "experience_feedback".
+        /// Source of the disable action: "circuit_breaker" or
+        /// "experience_feedback".
         source: String,
     },
     /// Emitted before each LLM call with request parameters.
@@ -429,9 +435,10 @@ pub struct SkillContext {
     pub event_sink: Option<Arc<dyn EventSink>>,
     /// Optional per-invocation budget constraints.
     pub budget: Option<SkillBudget>,
-    /// The user's working directory on the client machine, sent via `workspace:cwd` metadata.
-    /// OS skills (e.g. `shell_exec`) should use this as their default CWD when the LLM does
-    /// not explicitly supply one, so that commands run in the user's directory rather than the
+    /// The user's working directory on the client machine, sent via
+    /// `workspace:cwd` metadata. OS skills (e.g. `shell_exec`) should use
+    /// this as their default CWD when the LLM does not explicitly supply
+    /// one, so that commands run in the user's directory rather than the
     /// server process's working directory.
     pub user_cwd: Option<String>,
 }
@@ -455,7 +462,8 @@ pub struct SkillInput {
 }
 
 impl SkillInput {
-    /// Get a required string argument, returning a `Skill` error if missing or not a string.
+    /// Get a required string argument, returning a `Skill` error if missing or
+    /// not a string.
     pub fn get_string(&self, key: &str) -> crate::Result<&str> {
         self.args
             .get(key)
@@ -622,7 +630,8 @@ impl CommandArgs {
         self.positional.get(i).map(String::as_str)
     }
 
-    /// The raw text following the command name, or `None` if there were no arguments.
+    /// The raw text following the command name, or `None` if there were no
+    /// arguments.
     ///
     /// Equivalent to all positional tokens joined by a single space when no raw
     /// string was preserved.
@@ -722,7 +731,8 @@ impl SkillContext {
         self
     }
 
-    /// Set the user's working directory (from `workspace:cwd` envelope metadata).
+    /// Set the user's working directory (from `workspace:cwd` envelope
+    /// metadata).
     pub fn with_user_cwd(mut self, cwd: Option<String>) -> Self {
         self.user_cwd = cwd;
         self
@@ -1034,7 +1044,8 @@ fn split_args(tokens: Vec<String>) -> (Vec<String>, HashMap<String, serde_json::
     let mut named = HashMap::new();
     for token in tokens {
         if let Some((k, v)) = token.split_once('=') {
-            // Try to parse as JSON first (handles numbers, booleans, null); fall back to string.
+            // Try to parse as JSON first (handles numbers, booleans, null); fall back to
+            // string.
             let value = serde_json::from_str(v)
                 .unwrap_or_else(|_| serde_json::Value::String(v.to_string()));
             named.insert(k.to_string(), value);
@@ -1047,9 +1058,9 @@ fn split_args(tokens: Vec<String>) -> (Vec<String>, HashMap<String, serde_json::
 
 impl From<CommandPayload> for CommandArgs {
     fn from(cmd: CommandPayload) -> Self {
-        // Telegram (and similar text-based adapters) puts the raw trailing text in args["text"].
-        // Discord and structured adapters put typed values directly into the args map under
-        // their parameter names.
+        // Telegram (and similar text-based adapters) puts the raw trailing text in
+        // args["text"]. Discord and structured adapters put typed values
+        // directly into the args map under their parameter names.
         if let Some(raw_text) = cmd.args.get("text").and_then(|v| v.as_str()) {
             let raw = raw_text.to_string();
             let tokens = crate::slash_command::tokenize(raw_text);
@@ -1095,10 +1106,11 @@ impl From<crate::ParsedCommand> for CommandArgs {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{collections::HashMap, time::Duration};
+
     use serde_json::json;
-    use std::collections::HashMap;
-    use std::time::Duration;
+
+    use super::*;
 
     // --- SkillInput accessors ---
 
@@ -1271,8 +1283,7 @@ mod tests {
     // --- resolve_path ---
 
     fn input_with_cwd(cwd: &str) -> SkillInput {
-        use crate::traits::SecretManager;
-        use crate::types::SecretValue;
+        use crate::{traits::SecretManager, types::SecretValue};
         struct NoopSecrets;
         #[async_trait::async_trait]
         impl SecretManager for NoopSecrets {

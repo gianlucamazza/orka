@@ -1,8 +1,10 @@
 //! Observability, audit, and gateway configuration.
 
-use crate::config::defaults;
-use serde::Deserialize;
 use std::path::PathBuf;
+
+use serde::Deserialize;
+
+use crate::config::defaults;
 
 /// Observability (metrics/tracing) configuration.
 #[derive(Debug, Clone, Deserialize)]

@@ -1,5 +1,6 @@
-use async_trait::async_trait;
 use std::time::Duration;
+
+use async_trait::async_trait;
 
 use crate::{
     DomainEvent, Envelope, MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage,
@@ -9,7 +10,8 @@ use crate::{
 /// Adapter for an external messaging channel (Telegram, Discord, etc.).
 #[async_trait]
 pub trait ChannelAdapter: Send + Sync + 'static {
-    /// Returns the unique identifier for this channel (e.g. "telegram", "discord").
+    /// Returns the unique identifier for this channel (e.g. "telegram",
+    /// "discord").
     fn channel_id(&self) -> &str;
 
     /// Start receiving messages, forwarding them into the provided sink.
@@ -71,20 +73,25 @@ pub trait MemoryStore: Send + Sync + 'static {
     /// Search entries by query string.
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<MemoryEntry>>;
 
-    /// Compact expired or low-priority entries. Returns number of entries removed.
+    /// Compact expired or low-priority entries. Returns number of entries
+    /// removed.
     async fn compact(&self) -> Result<usize>;
 
-    /// Try to acquire a distributed session lock using an atomic SET NX operation.
+    /// Try to acquire a distributed session lock using an atomic SET NX
+    /// operation.
     ///
-    /// Returns `true` if the lock was acquired, `false` if another worker already holds it.
-    /// The lock expires automatically after `ttl_ms` milliseconds.
+    /// Returns `true` if the lock was acquired, `false` if another worker
+    /// already holds it. The lock expires automatically after `ttl_ms`
+    /// milliseconds.
     ///
-    /// Default implementation always returns `true` (no-op; safe for single-worker or in-memory use).
+    /// Default implementation always returns `true` (no-op; safe for
+    /// single-worker or in-memory use).
     async fn try_acquire_session_lock(&self, _session_id: &str, _ttl_ms: u64) -> bool {
         true
     }
 
-    /// Release a session lock previously acquired with [`Self::try_acquire_session_lock`].
+    /// Release a session lock previously acquired with
+    /// [`Self::try_acquire_session_lock`].
     ///
     /// Default implementation is a no-op.
     async fn release_session_lock(&self, _session_id: &str) {}
@@ -113,7 +120,8 @@ pub trait PriorityQueue: Send + Sync + 'static {
     /// List all envelopes in the dead-letter queue.
     async fn list_dlq(&self) -> Result<Vec<Envelope>>;
 
-    /// Remove all envelopes from the dead-letter queue. Returns the number removed.
+    /// Remove all envelopes from the dead-letter queue. Returns the number
+    /// removed.
     async fn purge_dlq(&self) -> Result<usize>;
 
     /// Remove a single envelope from the DLQ by ID and re-enqueue it.
@@ -159,9 +167,10 @@ pub trait Skill: Send + Sync + 'static {
 
     /// Validate the output produced by [`execute`].
     ///
-    /// Called automatically by [`SkillRegistry::invoke`] after a successful execution.
-    /// Return `Err` if the output is semantically invalid (hallucinated, wrong schema, etc.).
-    /// A Semantic failure increments the quality circuit-breaker counter.
+    /// Called automatically by [`SkillRegistry::invoke`] after a successful
+    /// execution. Return `Err` if the output is semantically invalid
+    /// (hallucinated, wrong schema, etc.). A Semantic failure increments
+    /// the quality circuit-breaker counter.
     ///
     /// Default implementation accepts all outputs.
     fn validate_output(&self, _output: &crate::SkillOutput) -> Result<()> {

@@ -1,7 +1,8 @@
 //! Streaming infrastructure for real-time LLM response delivery.
 //!
-//! [`StreamRegistry`] routes [`StreamChunk`]s to WebSocket subscribers keyed by session ID.
-//! The worker emits chunks as the LLM streams tokens; adapters subscribe to forward them.
+//! [`StreamRegistry`] routes [`StreamChunk`]s to WebSocket subscribers keyed by
+//! session ID. The worker emits chunks as the LLM streams tokens; adapters
+//! subscribe to forward them.
 
 use std::sync::Arc;
 
@@ -55,7 +56,8 @@ pub enum StreamChunkKind {
         /// Human-readable argument summary (e.g. `"query: 'Iran war 2026'"`).
         #[serde(skip_serializing_if = "Option::is_none")]
         input_summary: Option<String>,
-        /// Tool category tag (`"search"`, `"code"`, `"http"`, `"memory"`, `"schedule"`).
+        /// Tool category tag (`"search"`, `"code"`, `"http"`, `"memory"`,
+        /// `"schedule"`).
         #[serde(skip_serializing_if = "Option::is_none")]
         category: Option<String>,
     },
@@ -157,18 +159,20 @@ impl StreamRegistry {
         Self::default()
     }
 
-    /// Subscribe to stream chunks for a session. Returns a receiver that yields chunks.
+    /// Subscribe to stream chunks for a session. Returns a receiver that yields
+    /// chunks.
     pub fn subscribe(&self, session_id: SessionId) -> mpsc::UnboundedReceiver<Arc<StreamChunk>> {
         let (tx, rx) = mpsc::unbounded_channel();
         self.inner.entry(session_id).or_default().push(tx);
         rx
     }
 
-    /// Send a chunk to all subscribers of the chunk's session. Returns the number of
-    /// subscribers that received the chunk. Disconnected senders are pruned automatically.
+    /// Send a chunk to all subscribers of the chunk's session. Returns the
+    /// number of subscribers that received the chunk. Disconnected senders
+    /// are pruned automatically.
     ///
-    /// The chunk is wrapped in `Arc` once before broadcasting, so cloning is O(1)
-    /// regardless of subscriber count.
+    /// The chunk is wrapped in `Arc` once before broadcasting, so cloning is
+    /// O(1) regardless of subscriber count.
     pub fn send(&self, chunk: StreamChunk) -> usize {
         let mut entry = match self.inner.get_mut(&chunk.session_id) {
             Some(e) => e,

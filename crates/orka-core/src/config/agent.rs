@@ -1,16 +1,13 @@
 //! Agent and multi-agent graph configuration.
 
-use crate::config::defaults;
-use crate::config::primitives::GraphExecutionMode;
 use serde::Deserialize;
+
+use crate::config::{defaults, primitives::GraphExecutionMode};
 
 /// Per-agent runtime configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
 pub struct AgentConfig {
-    /// Agent identifier (must be unique within workspace).
-    #[serde(default = "defaults::default_agent_id")]
-    pub id: String,
     /// Human-readable agent name.
     #[serde(default = "defaults::default_agent_name")]
     pub name: String,
@@ -43,7 +40,6 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            id: defaults::default_agent_id(),
             name: defaults::default_agent_name(),
             system_prompt: String::new(),
             model: defaults::default_model().to_string(),
@@ -54,18 +50,6 @@ impl Default for AgentConfig {
             allowed_tools: Vec::new(),
             denied_tools: Vec::new(),
         }
-    }
-}
-
-impl AgentConfig {
-    /// Validate the agent configuration.
-    pub fn validate(&self) -> crate::Result<()> {
-        if self.id.is_empty() {
-            return Err(crate::Error::Config(
-                "agent.id must not be empty".into(),
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -122,4 +106,27 @@ pub struct EdgeDef {
 
 const fn default_edge_weight() -> f32 {
     1.0
+}
+
+impl AgentDef {
+    /// Create a new agent definition with the given ID and default config.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            config: AgentConfig::default(),
+        }
+    }
+}
+
+impl EdgeDef {
+    /// Create a new edge from `from` to `to` with default weight and no
+    /// condition.
+    pub fn new(from: impl Into<String>, to: impl Into<String>) -> Self {
+        Self {
+            from: from.into(),
+            to: to.into(),
+            condition: None,
+            weight: default_edge_weight(),
+        }
+    }
 }

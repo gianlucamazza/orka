@@ -6,7 +6,8 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
 pub struct PromptsConfig {
-    /// Directory containing custom templates (relative to workspace or absolute).
+    /// Directory containing custom templates (relative to workspace or
+    /// absolute).
     #[serde(default = "default_prompts_dir")]
     pub templates_dir: String,
     /// Enable hot-reload of templates.

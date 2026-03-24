@@ -1,11 +1,14 @@
 //! Knowledge base and RAG configuration.
 
-use crate::config::defaults;
-use crate::config::primitives::{EmbeddingProvider, VectorStoreBackend};
 use serde::Deserialize;
 
+use crate::config::{
+    defaults,
+    primitives::{EmbeddingProvider, VectorStoreBackend},
+};
+
 /// Knowledge base and RAG configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[non_exhaustive]
 pub struct KnowledgeConfig {
     /// Enable knowledge base.
@@ -23,18 +26,6 @@ pub struct KnowledgeConfig {
     /// Retrieval configuration.
     #[serde(default)]
     pub retrieval: RetrievalConfig,
-}
-
-impl Default for KnowledgeConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            vector_store: VectorStoreConfig::default(),
-            embeddings: EmbeddingsConfig::default(),
-            chunking: ChunkingConfig::default(),
-            retrieval: RetrievalConfig::default(),
-        }
-    }
 }
 
 impl KnowledgeConfig {

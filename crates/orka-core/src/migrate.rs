@@ -4,10 +4,12 @@
 //! using `toml_edit` to preserve comments and formatting. The server migrates
 //! in-memory at boot; only the CLI writes the file.
 
-use toml_edit::{Array, DocumentMut, Item, Table, value};
+use std::collections::BTreeSet;
+
+use toml_edit::{Array, ArrayOfTables, DocumentMut, Item, Table, value};
 
 /// The config version that this build of Orka expects.
-pub const CURRENT_CONFIG_VERSION: u32 = 3;
+pub const CURRENT_CONFIG_VERSION: u32 = 5;
 
 /// Result of a successful migration.
 #[derive(Debug, Clone)]
@@ -63,6 +65,8 @@ const MIGRATIONS: &[(u32, MigrateFn)] = &[
     (1, migrate_v0_to_v1),
     (2, migrate_v1_to_v2),
     (3, migrate_v2_to_v3),
+    (4, migrate_v3_to_v4),
+    (5, migrate_v4_to_v5),
 ];
 
 /// Read `config_version` from a parsed TOML document. Returns 0 if absent.
@@ -120,6 +124,30 @@ pub fn migrate_if_needed(raw: &str) -> Result<(String, Option<MigrationResult>),
     Ok((doc.to_string(), Some(result)))
 }
 
+/// Inspect the config for schema drift that would otherwise be ignored
+/// silently by serde's permissive deserialization.
+///
+/// This returns schema issues for legacy aliases and active keys that are not
+/// part of the current schema in selected high-risk sections.
+pub fn inspect_config_issues(raw: &str) -> Result<Vec<String>, MigrationError> {
+    let doc: DocumentMut = raw.parse()?;
+    let mut warnings = Vec::new();
+
+    inspect_agents_warnings(&doc, &mut warnings);
+    inspect_auth_warnings(&doc, &mut warnings);
+    inspect_llm_warnings(&doc, &mut warnings);
+    inspect_tools_warnings(&doc, &mut warnings);
+    inspect_observe_warnings(&doc, &mut warnings);
+    inspect_adapter_warnings(&doc, &mut warnings);
+    inspect_mcp_warnings(&doc, &mut warnings);
+    inspect_a2a_warnings(&doc, &mut warnings);
+    inspect_os_warnings(&doc, &mut warnings);
+    inspect_http_warnings(&doc, &mut warnings);
+    inspect_scheduler_warnings(&doc, &mut warnings);
+
+    Ok(warnings)
+}
+
 // ---------------------------------------------------------------------------
 // Migration steps
 // ---------------------------------------------------------------------------
@@ -146,15 +174,17 @@ fn migrate_v0_to_v1(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
 
 /// v1 → v2: add `[agent]`, `[tools]`, and `[os.sudo]` sections with defaults
 /// if they are absent. Also bumps `config_version` to 2.
+///
+/// The inserted defaults follow the current config schema so migrations do not
+/// reintroduce stale keys that are ignored by deserialization.
 fn migrate_v1_to_v2(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
     let mut added = Vec::new();
 
     if doc.get("agent").is_none() {
         let mut agent = Table::new();
         agent.insert("id", value("orka-default"));
-        agent.insert("display_name", value("Orka"));
+        agent.insert("name", value("Orka"));
         agent.insert("max_iterations", value(15i64));
-        agent.insert("heartbeat_interval_secs", value(30i64));
         doc.insert("agent", Item::Table(agent));
         added.push("[agent]");
     }
@@ -163,7 +193,7 @@ fn migrate_v1_to_v2(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
         let mut tools = Table::new();
         let mut disabled = Array::new();
         disabled.push("echo");
-        tools.insert("disabled", value(disabled));
+        tools.insert("deny", value(disabled));
         doc.insert("tools", Item::Table(tools));
         added.push("[tools]");
     }
@@ -175,15 +205,13 @@ fn migrate_v1_to_v2(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
     {
         let mut sudo = Table::new();
         sudo.set_implicit(false);
-        sudo.insert("enabled", value(false));
+        sudo.insert("allowed", value(false));
         let mut allowed = Array::new();
         allowed.push("systemctl restart");
         allowed.push("systemctl stop");
         allowed.push("systemctl start");
         sudo.insert("allowed_commands", value(allowed));
-        sudo.insert("require_confirmation", value(true));
-        sudo.insert("confirmation_timeout_secs", value(120i64));
-        sudo.insert("sudo_path", value("/usr/bin/sudo"));
+        sudo.insert("password_required", value(true));
         os_table.insert("sudo", Item::Table(sudo));
         added.push("[os.sudo]");
     }
@@ -200,29 +228,801 @@ fn migrate_v1_to_v2(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
     Ok(())
 }
 
-/// v2 → v3: convert `os.claude_code.enabled` from bool to string tri-state.
+/// v2 → v3: schema version bump only.
 ///
-/// In v2 the field was `bool`; in v3 it is `"auto" | "true" | "false"`.
-/// If the field is already a string or absent, this is a no-op (beyond the
-/// version bump).
+/// Earlier migration logic converted `os.claude_code.enabled` to a string
+/// tri-state, but the current config schema uses a plain boolean. Keep the
+/// value unchanged and only update the version marker.
 fn migrate_v2_to_v3(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
-    if let Some(os_item) = doc.get_mut("os")
-        && let Some(os_table) = os_item.as_table_mut()
-        && let Some(cc_item) = os_table.get_mut("claude_code")
-        && let Some(cc_table) = cc_item.as_table_mut()
-        && let Some(enabled_item) = cc_table.get("enabled")
-        && let Some(b) = enabled_item.as_bool()
-    {
-        let replacement = if b { "true" } else { "false" };
-        cc_table.insert("enabled", value(replacement));
-        warnings.push(format!(
-            "Converted os.claude_code.enabled from boolean to \"{replacement}\". \
-             Use \"auto\" to auto-detect claude CLI on PATH."
-        ));
-    }
-
+    let _ = warnings;
     doc.insert("config_version", value(3i64));
     Ok(())
+}
+
+/// v3 -> v4: normalize renamed keys and remove obsolete active settings so the
+/// document matches the current strict schema.
+fn migrate_v3_to_v4(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
+    if let Some(agent) = doc.get_mut("agent").and_then(Item::as_table_mut) {
+        rename_key(
+            agent,
+            "display_name",
+            "name",
+            "[agent].display_name",
+            "[agent].name",
+            warnings,
+        );
+        rename_key(
+            agent,
+            "max_tool_result_chars",
+            "tool_result_max_chars",
+            "[agent].max_tool_result_chars",
+            "[agent].tool_result_max_chars",
+            warnings,
+        );
+        remove_keys(
+            agent,
+            &[
+                ("timezone", "[agent].timezone"),
+                ("heartbeat_interval_secs", "[agent].heartbeat_interval_secs"),
+                ("thinking_budget_tokens", "[agent].thinking_budget_tokens"),
+                ("reasoning_effort", "[agent].reasoning_effort"),
+            ],
+            warnings,
+        );
+    }
+
+    if let Some(auth) = doc.get_mut("auth").and_then(Item::as_table_mut) {
+        remove_keys(
+            auth,
+            &[
+                ("enabled", "[auth].enabled"),
+                ("api_key_header", "[auth].api_key_header"),
+            ],
+            warnings,
+        );
+    }
+
+    if let Some(tools) = doc.get_mut("tools").and_then(Item::as_table_mut) {
+        rename_key(
+            tools,
+            "disabled",
+            "deny",
+            "[tools].disabled",
+            "[tools].deny",
+            warnings,
+        );
+    }
+
+    if let Some(llm) = doc.get_mut("llm").and_then(Item::as_table_mut) {
+        rename_key(
+            llm,
+            "model",
+            "default_model",
+            "[llm].model",
+            "[llm].default_model",
+            warnings,
+        );
+        rename_key(
+            llm,
+            "max_tokens",
+            "default_max_tokens",
+            "[llm].max_tokens",
+            "[llm].default_max_tokens",
+            warnings,
+        );
+        rename_key(
+            llm,
+            "temperature",
+            "default_temperature",
+            "[llm].temperature",
+            "[llm].default_temperature",
+            warnings,
+        );
+        remove_keys(llm, &[("timeout_secs", "[llm].timeout_secs")], warnings);
+    }
+
+    if let Some(observe) = doc.get_mut("observe").and_then(Item::as_table_mut)
+        && let Some(item) = observe.get_mut("backend")
+        && let Some(backend) = item.as_str()
+    {
+        match backend {
+            "log" => {
+                *item = value("stdout");
+                warnings.push(
+                    "Migrated [observe].backend from legacy value \"log\" to \"stdout\".".into(),
+                );
+            }
+            "otel" => {
+                *item = value("otlp");
+                warnings.push(
+                    "Migrated [observe].backend from legacy value \"otel\" to \"otlp\".".into(),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(os) = doc.get_mut("os").and_then(Item::as_table_mut) {
+        rename_key(
+            os,
+            "blocked_paths",
+            "denied_paths",
+            "[os].blocked_paths",
+            "[os].denied_paths",
+            warnings,
+        );
+        rename_key(
+            os,
+            "allowed_commands",
+            "allowed_shell_commands",
+            "[os].allowed_commands",
+            "[os].allowed_shell_commands",
+            warnings,
+        );
+        remove_keys(
+            os,
+            &[
+                ("shell_timeout_secs", "[os].shell_timeout_secs"),
+                ("max_output_bytes", "[os].max_output_bytes"),
+                ("max_file_size_bytes", "[os].max_file_size_bytes"),
+                ("max_list_entries", "[os].max_list_entries"),
+                ("blocked_commands", "[os].blocked_commands"),
+                ("sensitive_env_patterns", "[os].sensitive_env_patterns"),
+            ],
+            warnings,
+        );
+
+        if let Some(sudo) = os.get_mut("sudo").and_then(Item::as_table_mut) {
+            rename_key(
+                sudo,
+                "enabled",
+                "allowed",
+                "[os.sudo].enabled",
+                "[os.sudo].allowed",
+                warnings,
+            );
+            remove_keys(
+                sudo,
+                &[
+                    ("require_confirmation", "[os.sudo].require_confirmation"),
+                    (
+                        "confirmation_timeout_secs",
+                        "[os.sudo].confirmation_timeout_secs",
+                    ),
+                    ("sudo_path", "[os.sudo].sudo_path"),
+                ],
+                warnings,
+            );
+        }
+    }
+
+    if let Some(http) = doc.get_mut("http").and_then(Item::as_table_mut) {
+        remove_keys(
+            http,
+            &[
+                ("enabled", "[http].enabled"),
+                ("max_response_bytes", "[http].max_response_bytes"),
+                ("default_timeout_secs", "[http].default_timeout_secs"),
+                ("blocked_domains", "[http].blocked_domains"),
+            ],
+            warnings,
+        );
+    }
+
+    if let Some(scheduler) = doc.get_mut("scheduler").and_then(Item::as_table_mut) {
+        remove_keys(
+            scheduler,
+            &[
+                ("poll_interval_secs", "[scheduler].poll_interval_secs"),
+                ("max_concurrent", "[scheduler].max_concurrent"),
+            ],
+            warnings,
+        );
+    }
+
+    doc.insert("config_version", value(4i64));
+    Ok(())
+}
+
+/// v4 → v5: promote `[agent]` to `[[agents]]` + `[graph]`.
+///
+/// The single-agent shorthand `[agent]` is now sugar for a one-entry
+/// `[[agents]]` array. This migration converts any existing `[agent]` table
+/// to the canonical form so the rest of the system always works through the
+/// unified multi-agent graph path.
+fn migrate_v4_to_v5(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
+    let has_agent = doc.get("agent").and_then(Item::as_table).is_some();
+    let has_agents = doc
+        .get("agents")
+        .and_then(Item::as_array_of_tables)
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
+
+    if has_agent && !has_agents {
+        // Collect all fields from [agent] so we can rebuild them in [[agents]].
+        let agent_fields: Vec<(String, Item)> = doc
+            .get("agent")
+            .and_then(Item::as_table)
+            .into_iter()
+            .flat_map(|t| t.iter().map(|(k, v)| (k.to_string(), v.clone())))
+            .collect();
+
+        let mut entry = Table::new();
+        for (key, item) in &agent_fields {
+            entry.insert(key, item.clone());
+        }
+        // `id` is required on every [[agents]] entry.
+        if !entry.contains_key("id") {
+            entry.insert("id", value("orka-default"));
+        }
+
+        let mut aot = ArrayOfTables::new();
+        aot.push(entry);
+        doc.insert("agents", Item::ArrayOfTables(aot));
+
+        // Auto-generate an empty [graph] (no edges = single-node, standalone).
+        if doc.get("graph").is_none() {
+            doc.insert("graph", Item::Table(Table::new()));
+        }
+
+        doc.remove("agent");
+
+        warnings.push(
+            "Migrated [agent] to [[agents]] + [graph] (unified graph path). \
+             Run `orka config migrate` to persist this change."
+                .into(),
+        );
+    }
+    // If [[agents]] already present (with or without a stale [agent]): keep as-is.
+
+    doc.insert("config_version", value(5i64));
+    Ok(())
+}
+
+/// Inspect `[[agents]]` entries for unknown or legacy keys.
+/// Also warns if the legacy `[agent]` table is still present (should have been
+/// promoted by the v4→v5 migration).
+fn inspect_agents_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    // Warn if the legacy [agent] single-table is still present (migration missed
+    // it).
+    if doc.get("agent").and_then(Item::as_table).is_some() {
+        warnings.push(
+            "config key [agent] is legacy as of v5; it should have been promoted to [[agents]] \
+             by the migration. Run `orka config migrate` to fix this."
+                .into(),
+        );
+    }
+
+    let entry_allowed = [
+        "id",
+        "name",
+        "system_prompt",
+        "model",
+        "temperature",
+        "max_tokens",
+        "max_iterations",
+        "tool_result_max_chars",
+        "allowed_tools",
+        "denied_tools",
+    ];
+    let known: BTreeSet<&str> = entry_allowed.iter().copied().collect();
+
+    let Some(agents) = doc.get("agents").and_then(Item::as_array_of_tables) else {
+        return;
+    };
+
+    for (idx, table) in agents.iter().enumerate() {
+        for (key, _) in table.iter() {
+            if !known.contains(key) {
+                warnings.push(format!(
+                    "config key [[agents]][{idx}].{key} is unknown to the current schema and may be ignored"
+                ));
+            }
+        }
+    }
+}
+
+fn inspect_auth_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    let allowed = ["jwt", "api_keys", "token_url", "auth_url"];
+    let aliases: [(&str, &str); 0] = [];
+    let removed = [
+        (
+            "enabled",
+            "config key [auth].enabled is not part of the current schema and may be ignored",
+        ),
+        (
+            "api_key_header",
+            "config key [auth].api_key_header is not part of the current schema and may be ignored",
+        ),
+    ];
+
+    inspect_table_keys(doc, &["auth"], &allowed, &aliases, &removed, warnings);
+}
+
+fn inspect_llm_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    let allowed = [
+        "default_model",
+        "default_temperature",
+        "default_max_tokens",
+        "providers",
+    ];
+    let aliases = [
+        (
+            "model",
+            "config key [llm].model is legacy; use [llm].default_model",
+        ),
+        (
+            "max_tokens",
+            "config key [llm].max_tokens is legacy; use [llm].default_max_tokens",
+        ),
+        (
+            "temperature",
+            "config key [llm].temperature is legacy; use [llm].default_temperature",
+        ),
+    ];
+    let removed = [(
+        "timeout_secs",
+        "config key [llm].timeout_secs is not part of the current schema and may be ignored",
+    )];
+
+    inspect_table_keys(doc, &["llm"], &allowed, &aliases, &removed, warnings);
+
+    if let Some(providers) = doc
+        .get("llm")
+        .and_then(|item| item.get("providers"))
+        .and_then(Item::as_array_of_tables)
+    {
+        let provider_allowed = [
+            "name",
+            "provider",
+            "base_url",
+            "model",
+            "api_key",
+            "api_key_env",
+            "api_key_secret",
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "timeout_secs",
+            "max_retries",
+        ];
+        for (idx, table) in providers.iter().enumerate() {
+            if table.contains_key("prefixes") {
+                warnings.push(format!(
+                    "config key [[llm.providers]][{idx}].prefixes is not part of the current schema and may be ignored"
+                ));
+            }
+            let known: BTreeSet<&str> = provider_allowed.iter().copied().collect();
+            for (key, _) in table.iter() {
+                if !known.contains(key) && key != "prefixes" {
+                    warnings.push(format!(
+                        "config key [[llm.providers]][{idx}].{key} is unknown to the current schema and may be ignored"
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn inspect_tools_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    let allowed = ["allow", "deny", "config"];
+    let aliases = [(
+        "disabled",
+        "config key [tools].disabled is legacy; use [tools].deny",
+    )];
+    let removed: [(&str, &str); 0] = [];
+
+    inspect_table_keys(doc, &["tools"], &allowed, &aliases, &removed, warnings);
+}
+
+fn inspect_observe_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    let allowed = [
+        "enabled",
+        "backend",
+        "otlp_endpoint",
+        "batch_size",
+        "flush_interval_ms",
+        "service_name",
+        "service_version",
+    ];
+    let aliases: [(&str, &str); 0] = [];
+    let removed: [(&str, &str); 0] = [];
+    inspect_table_keys(doc, &["observe"], &allowed, &aliases, &removed, warnings);
+
+    if let Some(observe) = get_table(doc, &["observe"])
+        && let Some(backend) = observe.get("backend").and_then(Item::as_str)
+        && !matches!(backend, "stdout" | "prometheus" | "otlp")
+    {
+        warnings.push(format!(
+            "config value [observe].backend = {:?} is not part of the current schema; use one of \"stdout\", \"prometheus\", or \"otlp\"",
+            backend
+        ));
+    }
+}
+
+fn inspect_adapter_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    let telegram_allowed = [
+        "bot_token_secret",
+        "workspace",
+        "mode",
+        "webhook_url",
+        "webhook_port",
+        "parse_mode",
+        "streaming",
+    ];
+    let telegram_removed = [
+        (
+            "owner_id",
+            "config key [adapters.telegram].owner_id is not part of the current schema and may be ignored",
+        ),
+        (
+            "allowed_users",
+            "config key [adapters.telegram].allowed_users is not part of the current schema and may be ignored",
+        ),
+    ];
+    inspect_table_keys(
+        doc,
+        &["adapters", "telegram"],
+        &telegram_allowed,
+        &[],
+        &telegram_removed,
+        warnings,
+    );
+
+    let discord_allowed = ["bot_token_secret", "workspace"];
+    let discord_removed = [(
+        "application_id",
+        "config key [adapters.discord].application_id is not part of the current schema and may be ignored",
+    )];
+    inspect_table_keys(
+        doc,
+        &["adapters", "discord"],
+        &discord_allowed,
+        &[],
+        &discord_removed,
+        warnings,
+    );
+
+    let slack_allowed = [
+        "bot_token_secret",
+        "signing_secret_path",
+        "workspace",
+        "port",
+    ];
+    let slack_removed = [(
+        "listen_port",
+        "config key [adapters.slack].listen_port is not part of the current schema and may be ignored; use [adapters.slack].port",
+    )];
+    inspect_table_keys(
+        doc,
+        &["adapters", "slack"],
+        &slack_allowed,
+        &[],
+        &slack_removed,
+        warnings,
+    );
+
+    let whatsapp_allowed = [
+        "access_token_secret",
+        "app_secret_path",
+        "phone_number_id",
+        "business_account_id",
+        "workspace",
+        "port",
+        "verify_token",
+    ];
+    let whatsapp_removed = [
+        (
+            "verify_token_secret",
+            "config key [adapters.whatsapp].verify_token_secret is not part of the current schema and may be ignored; use [adapters.whatsapp].verify_token",
+        ),
+        (
+            "listen_port",
+            "config key [adapters.whatsapp].listen_port is not part of the current schema and may be ignored; use [adapters.whatsapp].port",
+        ),
+    ];
+    inspect_table_keys(
+        doc,
+        &["adapters", "whatsapp"],
+        &whatsapp_allowed,
+        &[],
+        &whatsapp_removed,
+        warnings,
+    );
+}
+
+fn inspect_mcp_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    let allowed = ["servers", "client"];
+    let removed = [(
+        "serve",
+        "config key [mcp].serve is not part of the current schema and may be ignored",
+    )];
+    inspect_table_keys(doc, &["mcp"], &allowed, &[], &removed, warnings);
+}
+
+fn inspect_a2a_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    let allowed = [
+        "discovery_enabled",
+        "discovery_interval_secs",
+        "known_agents",
+    ];
+    let removed = [
+        (
+            "enabled",
+            "config key [a2a].enabled is not part of the current schema and may be ignored; use [a2a].discovery_enabled",
+        ),
+        (
+            "url",
+            "config key [a2a].url is not part of the current schema and may be ignored",
+        ),
+    ];
+    inspect_table_keys(doc, &["a2a"], &allowed, &[], &removed, warnings);
+}
+
+fn inspect_os_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    let allowed = [
+        "enabled",
+        "permission_level",
+        "allowed_paths",
+        "denied_paths",
+        "allowed_shell_commands",
+        "coding",
+        "sudo",
+    ];
+    let aliases = [(
+        "blocked_paths",
+        "config key [os].blocked_paths is legacy; use [os].denied_paths",
+    )];
+    let removed = [
+        (
+            "shell_timeout_secs",
+            "config key [os].shell_timeout_secs is not part of the current schema and may be ignored",
+        ),
+        (
+            "max_output_bytes",
+            "config key [os].max_output_bytes is not part of the current schema and may be ignored",
+        ),
+        (
+            "max_file_size_bytes",
+            "config key [os].max_file_size_bytes is not part of the current schema and may be ignored",
+        ),
+        (
+            "max_list_entries",
+            "config key [os].max_list_entries is not part of the current schema and may be ignored",
+        ),
+        (
+            "allowed_commands",
+            "config key [os].allowed_commands is not part of the current schema and may be ignored; use [os].allowed_shell_commands when applicable",
+        ),
+        (
+            "blocked_commands",
+            "config key [os].blocked_commands is not part of the current schema and may be ignored",
+        ),
+        (
+            "sensitive_env_patterns",
+            "config key [os].sensitive_env_patterns is not part of the current schema and may be ignored",
+        ),
+    ];
+    inspect_table_keys(doc, &["os"], &allowed, &aliases, &removed, warnings);
+
+    let coding_allowed = [
+        "enabled",
+        "default_provider",
+        "selection_policy",
+        "inject_workspace_context",
+        "require_verification",
+        "allow_working_dir_override",
+        "providers",
+    ];
+    inspect_table_keys(doc, &["os", "coding"], &coding_allowed, &[], &[], warnings);
+
+    let providers_allowed = ["claude_code", "codex"];
+    inspect_table_keys(
+        doc,
+        &["os", "coding", "providers"],
+        &providers_allowed,
+        &[],
+        &[],
+        warnings,
+    );
+
+    let claude_allowed = [
+        "enabled",
+        "executable_path",
+        "model",
+        "max_turns",
+        "timeout_secs",
+        "append_system_prompt",
+        "allowed_tools",
+        "allow_file_modifications",
+        "allow_command_execution",
+    ];
+    inspect_table_keys(
+        doc,
+        &["os", "coding", "providers", "claude_code"],
+        &claude_allowed,
+        &[],
+        &[],
+        warnings,
+    );
+
+    let codex_allowed = [
+        "enabled",
+        "executable_path",
+        "model",
+        "timeout_secs",
+        "sandbox_mode",
+        "approval_policy",
+        "allow_file_modifications",
+        "allow_command_execution",
+    ];
+    inspect_table_keys(
+        doc,
+        &["os", "coding", "providers", "codex"],
+        &codex_allowed,
+        &[],
+        &[],
+        warnings,
+    );
+
+    let sudo_allowed = ["allowed", "allowed_commands", "password_required"];
+    let sudo_aliases = [(
+        "enabled",
+        "config key [os.sudo].enabled is legacy; use [os.sudo].allowed",
+    )];
+    let sudo_removed = [
+        (
+            "require_confirmation",
+            "config key [os.sudo].require_confirmation is not part of the current schema and may be ignored",
+        ),
+        (
+            "confirmation_timeout_secs",
+            "config key [os.sudo].confirmation_timeout_secs is not part of the current schema and may be ignored",
+        ),
+        (
+            "sudo_path",
+            "config key [os.sudo].sudo_path is not part of the current schema and may be ignored",
+        ),
+    ];
+    inspect_table_keys(
+        doc,
+        &["os", "sudo"],
+        &sudo_allowed,
+        &sudo_aliases,
+        &sudo_removed,
+        warnings,
+    );
+}
+
+fn inspect_http_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    let allowed = [
+        "timeout_secs",
+        "max_redirects",
+        "user_agent",
+        "default_headers",
+        "webhooks",
+    ];
+    let aliases: [(&str, &str); 0] = [];
+    let removed = [
+        (
+            "enabled",
+            "config key [http].enabled is not part of the current schema and may be ignored",
+        ),
+        (
+            "max_response_bytes",
+            "config key [http].max_response_bytes is not part of the current schema and may be ignored",
+        ),
+        (
+            "default_timeout_secs",
+            "config key [http].default_timeout_secs is not part of the current schema and may be ignored; use [http].timeout_secs",
+        ),
+        (
+            "blocked_domains",
+            "config key [http].blocked_domains is not part of the current schema and may be ignored",
+        ),
+    ];
+    inspect_table_keys(doc, &["http"], &allowed, &aliases, &removed, warnings);
+}
+
+fn inspect_scheduler_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    let allowed = ["enabled", "jobs"];
+    let aliases: [(&str, &str); 0] = [];
+    let removed = [
+        (
+            "poll_interval_secs",
+            "config key [scheduler].poll_interval_secs is not part of the current schema and may be ignored",
+        ),
+        (
+            "max_concurrent",
+            "config key [scheduler].max_concurrent is not part of the current schema and may be ignored",
+        ),
+    ];
+    inspect_table_keys(doc, &["scheduler"], &allowed, &aliases, &removed, warnings);
+}
+
+fn rename_key(
+    table: &mut Table,
+    legacy_key: &str,
+    current_key: &str,
+    legacy_label: &str,
+    current_label: &str,
+    warnings: &mut Vec<String>,
+) {
+    if !table.contains_key(legacy_key) {
+        return;
+    }
+
+    if table.contains_key(current_key) {
+        table.remove(legacy_key);
+        warnings.push(format!(
+            "Removed legacy key {} because {} is already set.",
+            legacy_label, current_label
+        ));
+        return;
+    }
+
+    if let Some(item) = table.remove(legacy_key) {
+        table.insert(current_key, item);
+        warnings.push(format!("Migrated {} to {}.", legacy_label, current_label));
+    }
+}
+
+fn remove_keys(table: &mut Table, keys: &[(&str, &str)], warnings: &mut Vec<String>) {
+    for (key, label) in keys {
+        if table.remove(key).is_some() {
+            warnings.push(format!("Removed obsolete config key {}.", label));
+        }
+    }
+}
+
+fn inspect_table_keys(
+    doc: &DocumentMut,
+    path: &[&str],
+    allowed: &[&str],
+    aliases: &[(&str, &str)],
+    removed: &[(&str, &str)],
+    warnings: &mut Vec<String>,
+) {
+    let Some(table) = get_table(doc, path) else {
+        return;
+    };
+
+    let allowed: BTreeSet<&str> = allowed.iter().copied().collect();
+    for (legacy_key, message) in aliases {
+        if table.contains_key(legacy_key) {
+            warnings.push((*message).to_string());
+        }
+    }
+    for (removed_key, message) in removed {
+        if table.contains_key(removed_key) {
+            warnings.push((*message).to_string());
+        }
+    }
+
+    let known: BTreeSet<&str> = allowed
+        .iter()
+        .copied()
+        .chain(aliases.iter().map(|(key, _)| *key))
+        .chain(removed.iter().map(|(key, _)| *key))
+        .collect();
+
+    let path_label = format!("[{}]", path.join("."));
+    for (key, _) in table.iter() {
+        if !known.contains(key) {
+            warnings.push(format!(
+                "config key {}.{} is unknown to the current schema and may be ignored",
+                path_label, key
+            ));
+        }
+    }
+}
+
+fn get_table<'a>(doc: &'a DocumentMut, path: &[&str]) -> Option<&'a Table> {
+    let mut current = doc.as_item();
+    for segment in path {
+        current = current.get(segment)?;
+    }
+    current.as_table()
 }
 
 #[cfg(test)]
@@ -239,17 +1039,17 @@ port = 8080
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 0);
-        assert_eq!(result.to_version, 3);
+        assert_eq!(result.to_version, 5);
         assert!(!result.warnings.is_empty());
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 3);
+        assert_eq!(read_version(&doc), 5);
     }
 
     #[test]
     fn current_version_is_noop() {
         let raw = r#"
-config_version = 3
+config_version = 5
 
 [server]
 host = "127.0.0.1"
@@ -265,7 +1065,7 @@ host = "127.0.0.1"
         let err = migrate_if_needed(raw).unwrap_err();
         assert!(matches!(
             err,
-            MigrationError::FutureVersion { found: 999, max: 3 }
+            MigrationError::FutureVersion { found: 999, max: 5 }
         ));
         let msg = err.to_string();
         assert!(msg.contains("999"));
@@ -286,27 +1086,29 @@ permission_level = "read-only"
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 1);
-        assert_eq!(result.to_version, 3);
-        assert_eq!(result.warnings.len(), 1);
+        assert_eq!(result.to_version, 5);
+        // v1→v2 emits 1 warning (added [agent]+[tools]+[os.sudo]); v4→v5 adds 1 more
+        assert!(!result.warnings.is_empty());
         assert!(result.warnings[0].contains("[agent]"));
         assert!(result.warnings[0].contains("[tools]"));
         assert!(result.warnings[0].contains("[os.sudo]"));
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 3);
+        assert_eq!(read_version(&doc), 5);
 
-        // [agent] defaults
-        let agent = doc["agent"].as_table().expect("[agent] missing");
+        // [[agents]] promoted from legacy [agent]
+        let agents = doc
+            .get("agents")
+            .and_then(Item::as_array_of_tables)
+            .expect("[[agents]] missing");
+        let agent = agents.iter().next().expect("at least one agent");
         assert_eq!(agent["id"].as_str(), Some("orka-default"));
-        assert_eq!(agent["display_name"].as_str(), Some("Orka"));
+        assert_eq!(agent["name"].as_str(), Some("Orka"));
         assert_eq!(agent["max_iterations"].as_integer(), Some(15));
-        assert_eq!(agent["heartbeat_interval_secs"].as_integer(), Some(30));
 
         // [tools] defaults
         let tools = doc["tools"].as_table().expect("[tools] missing");
-        let disabled = tools["disabled"]
-            .as_array()
-            .expect("disabled array missing");
+        let disabled = tools["deny"].as_array().expect("disabled array missing");
         assert_eq!(
             disabled.iter().next().and_then(|v| v.as_str()),
             Some("echo")
@@ -315,10 +1117,8 @@ permission_level = "read-only"
         // [os.sudo] defaults
         let os = doc["os"].as_table().expect("[os] missing");
         let sudo = os["sudo"].as_table().expect("[os.sudo] missing");
-        assert_eq!(sudo["enabled"].as_bool(), Some(false));
-        assert_eq!(sudo["require_confirmation"].as_bool(), Some(true));
-        assert_eq!(sudo["confirmation_timeout_secs"].as_integer(), Some(120));
-        assert_eq!(sudo["sudo_path"].as_str(), Some("/usr/bin/sudo"));
+        assert_eq!(sudo["allowed"].as_bool(), Some(false));
+        assert_eq!(sudo["password_required"].as_bool(), Some(true));
     }
 
     #[test]
@@ -327,41 +1127,46 @@ permission_level = "read-only"
 
 [agent]
 id = "my-agent"
-display_name = "MyBot"
+name = "MyBot"
 max_iterations = 5
-heartbeat_interval_secs = 60
 
 [tools]
-disabled = []
+deny = []
 
 [os]
 enabled = true
 
 [os.sudo]
-enabled = true
+allowed = true
 allowed_commands = ["apt-get install"]
-require_confirmation = false
-confirmation_timeout_secs = 60
-sudo_path = "/usr/bin/sudo"
+password_required = false
 "#;
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 1);
-        assert_eq!(result.to_version, 3);
-        // No sections were added or converted, so no warnings
+        assert_eq!(result.to_version, 5);
+        // v4→v5 emits one migration warning (promoting [agent] → [[agents]])
         assert!(
-            result.warnings.is_empty(),
+            result
+                .warnings
+                .iter()
+                .all(|w| w.contains("Migrated [agent]")),
             "unexpected warnings: {:?}",
             result.warnings
         );
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        // Existing values preserved
-        assert_eq!(doc["agent"]["id"].as_str(), Some("my-agent"));
-        assert_eq!(doc["agent"]["max_iterations"].as_integer(), Some(5));
+        // Existing values preserved in promoted [[agents]]
+        let agents = doc
+            .get("agents")
+            .and_then(Item::as_array_of_tables)
+            .expect("[[agents]] missing");
+        let first = agents.iter().next().expect("at least one agent");
+        assert_eq!(first["id"].as_str(), Some("my-agent"));
+        assert_eq!(first["max_iterations"].as_integer(), Some(5));
         let os = doc["os"].as_table().unwrap();
         let sudo = os["sudo"].as_table().unwrap();
-        assert_eq!(sudo["enabled"].as_bool(), Some(true));
+        assert_eq!(sudo["allowed"].as_bool(), Some(true));
     }
 
     #[test]
@@ -401,13 +1206,12 @@ enabled = true
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 2);
-        assert_eq!(result.to_version, 3);
-        assert_eq!(result.warnings.len(), 1);
-        assert!(result.warnings[0].contains("\"true\""));
+        assert_eq!(result.to_version, 5);
+        assert!(result.warnings.is_empty());
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 3);
-        assert_eq!(doc["os"]["claude_code"]["enabled"].as_str(), Some("true"));
+        assert_eq!(read_version(&doc), 5);
+        assert_eq!(doc["os"]["claude_code"]["enabled"].as_bool(), Some(true));
     }
 
     #[test]
@@ -420,12 +1224,12 @@ enabled = false
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 2);
-        assert_eq!(result.to_version, 3);
-        assert_eq!(result.warnings.len(), 1);
-        assert!(result.warnings[0].contains("\"false\""));
+        assert_eq!(result.to_version, 5);
+        assert!(result.warnings.is_empty());
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(doc["os"]["claude_code"]["enabled"].as_str(), Some("false"));
+        assert_eq!(read_version(&doc), 5);
+        assert_eq!(doc["os"]["claude_code"]["enabled"].as_bool(), Some(false));
     }
 
     #[test]
@@ -438,7 +1242,7 @@ host = "127.0.0.1"
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 2);
-        assert_eq!(result.to_version, 3);
+        assert_eq!(result.to_version, 5);
         assert!(
             result.warnings.is_empty(),
             "unexpected warnings: {:?}",
@@ -446,7 +1250,7 @@ host = "127.0.0.1"
         );
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 3);
+        assert_eq!(read_version(&doc), 5);
     }
 
     #[test]
@@ -479,12 +1283,221 @@ port = 8080
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 0);
-        assert_eq!(result.to_version, 3);
+        assert_eq!(result.to_version, 5);
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 3);
-        // v1→v2 sections should be present
-        assert!(doc.get("agent").is_some());
+        assert_eq!(read_version(&doc), 5);
+        // v1→v2 adds [tools]; v4→v5 promotes [agent] → [[agents]]
+        assert!(doc.get("agents").is_some());
         assert!(doc.get("tools").is_some());
+    }
+
+    #[test]
+    fn inspect_config_issues_reports_legacy_and_unknown_keys() {
+        // config_version = 5, [[agents]] with unknown fields (display_name,
+        // thinking_budget_tokens)
+        let raw = r#"
+config_version = 5
+
+[[agents]]
+id = "orka-default"
+display_name = "Orka"
+thinking_budget_tokens = 10000
+
+[graph]
+
+[auth]
+enabled = false
+api_key_header = "X-Api-Key"
+
+[adapters.telegram]
+bot_token_secret = "telegram"
+owner_id = 123
+
+[tools]
+disabled = ["echo"]
+
+[llm]
+max_tokens = 8192
+
+[[llm.providers]]
+name = "anthropic"
+provider = "anthropic"
+prefixes = ["claude"]
+
+[os]
+enabled = true
+permission_level = "admin"
+shell_timeout_secs = 120
+
+[os.sudo]
+enabled = true
+require_confirmation = true
+"#;
+        let warnings = inspect_config_issues(raw).unwrap();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[[agents]][0].display_name")),
+            "missing [[agents]][0].display_name warning; got: {warnings:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[[agents]][0].thinking_budget_tokens")),
+            "missing [[agents]][0].thinking_budget_tokens warning; got: {warnings:?}"
+        );
+        assert!(warnings.iter().any(|w| w.contains("[auth].enabled")));
+        assert!(warnings.iter().any(|w| w.contains("[auth].api_key_header")));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[adapters.telegram].owner_id"))
+        );
+        assert!(warnings.iter().any(|w| w.contains("[tools].disabled")));
+        assert!(warnings.iter().any(|w| w.contains("[llm].max_tokens")));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[[llm.providers]][0].prefixes"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[os].shell_timeout_secs"))
+        );
+        assert!(warnings.iter().any(|w| w.contains("[os.sudo].enabled")));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("[os.sudo].require_confirmation"))
+        );
+    }
+
+    #[test]
+    fn inspect_config_issues_is_empty_for_current_keys() {
+        let raw = r#"
+config_version = 5
+
+[[agents]]
+id = "orka-default"
+name = "Orka"
+model = "claude-sonnet-4-6"
+max_tokens = 8192
+max_iterations = 10
+tool_result_max_chars = 1000
+
+[graph]
+
+[tools]
+deny = ["echo"]
+
+[llm]
+default_model = "claude-sonnet-4-6"
+default_temperature = 0.7
+default_max_tokens = 8192
+
+[os]
+enabled = true
+permission_level = "admin"
+allowed_paths = ["/var/lib/orka"]
+
+[os.sudo]
+allowed = true
+allowed_commands = ["systemctl restart"]
+password_required = true
+"#;
+        let warnings = inspect_config_issues(raw).unwrap();
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn v3_to_v4_renames_and_removes_legacy_keys() {
+        let raw = r#"config_version = 3
+
+[agent]
+id = "orka-default"
+display_name = "Orka"
+thinking_budget_tokens = 10000
+
+[auth]
+enabled = false
+api_key_header = "X-Api-Key"
+
+[tools]
+disabled = ["echo"]
+
+[llm]
+model = "claude-sonnet-4-6"
+max_tokens = 8192
+temperature = 0.7
+timeout_secs = 120
+
+[observe]
+backend = "log"
+
+[os]
+enabled = true
+permission_level = "admin"
+allowed_commands = ["git status"]
+shell_timeout_secs = 120
+
+[os.sudo]
+enabled = true
+require_confirmation = true
+
+[http]
+enabled = true
+max_response_bytes = 1048576
+
+[scheduler]
+enabled = true
+poll_interval_secs = 5
+max_concurrent = 4
+"#;
+        let (migrated, result) = migrate_if_needed(raw).unwrap();
+        let result = result.expect("should have migration result");
+        assert_eq!(result.from_version, 3);
+        assert_eq!(result.to_version, 5);
+
+        let doc: DocumentMut = migrated.parse().unwrap();
+        assert_eq!(read_version(&doc), 5);
+        // v3→v4 cleaned [agent] fields; v4→v5 promoted [agent] → [[agents]]
+        let agents = doc
+            .get("agents")
+            .and_then(Item::as_array_of_tables)
+            .expect("[[agents]] missing");
+        let agent = agents.iter().next().expect("at least one agent");
+        assert_eq!(agent["name"].as_str(), Some("Orka"));
+        assert!(agent.get("display_name").is_none());
+        assert!(agent.get("thinking_budget_tokens").is_none());
+        assert!(doc["auth"].get("enabled").is_none());
+        assert!(doc["auth"].get("api_key_header").is_none());
+        assert!(doc["tools"].get("disabled").is_none());
+        assert!(doc["tools"]["deny"].as_array().is_some());
+        assert_eq!(
+            doc["llm"]["default_model"].as_str(),
+            Some("claude-sonnet-4-6")
+        );
+        assert_eq!(doc["llm"]["default_max_tokens"].as_integer(), Some(8192));
+        assert_eq!(doc["llm"]["default_temperature"].as_float(), Some(0.7));
+        assert!(doc["llm"].get("timeout_secs").is_none());
+        assert_eq!(doc["observe"]["backend"].as_str(), Some("stdout"));
+        assert_eq!(
+            doc["os"]["allowed_shell_commands"]
+                .as_array()
+                .and_then(|arr| arr.iter().next())
+                .and_then(|v| v.as_str()),
+            Some("git status")
+        );
+        assert!(doc["os"].get("allowed_commands").is_none());
+        assert!(doc["os"].get("shell_timeout_secs").is_none());
+        assert_eq!(doc["os"]["sudo"]["allowed"].as_bool(), Some(true));
+        assert!(doc["os"]["sudo"].get("enabled").is_none());
+        assert!(doc["os"]["sudo"].get("require_confirmation").is_none());
+        assert!(doc["http"].get("enabled").is_none());
+        assert!(doc["http"].get("max_response_bytes").is_none());
+        assert!(doc["scheduler"].get("poll_interval_secs").is_none());
+        assert!(doc["scheduler"].get("max_concurrent").is_none());
     }
 }

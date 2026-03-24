@@ -3,7 +3,7 @@
 use serde::Deserialize;
 
 /// Configuration schema version.
-pub const CURRENT_CONFIG_VERSION: u32 = 3;
+pub const CURRENT_CONFIG_VERSION: u32 = 4;
 
 /// A named workspace entry for multi-workspace support.
 #[derive(Debug, Clone, Deserialize)]
