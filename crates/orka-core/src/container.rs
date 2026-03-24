@@ -202,13 +202,32 @@ impl Default for LazyContainer {
 pub type AsyncServiceFactory<T> = 
     Box<dyn Fn() -> Pin<Box<dyn Future<Output = T> + Send>> + Send + Sync>;
 
+/// Internal representation of a pending or initialized async service.
+enum AsyncServiceEntry {
+    /// Service is pending initialization. Contains the factory.
+    Pending(
+        Box<dyn Fn() -> Pin<Box<dyn Future<Output = Arc<dyn Any + Send + Sync>> + Send>> + Send + Sync>,
+    ),
+    /// Service is currently being initialized by another task.
+    /// Tasks should wait on this notify.
+    Initializing(Arc<tokio::sync::Notify>),
+    /// Service is initialized.
+    Initialized(Arc<dyn Any + Send + Sync>),
+}
+
 /// Async container with lazy initialization support.
 ///
 /// Services can be registered as async factories that are called on first retrieval.
 /// Thread-safe and suitable for async applications.
+///
+/// # Concurrency
+///
+/// When multiple tasks request the same service concurrently:
+/// - The first task triggers the factory
+/// - Other tasks wait for completion
+/// - All tasks receive the same `Arc<T>` instance
 pub struct AsyncServiceContainer {
-    services: tokio::sync::RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
-    factories: tokio::sync::Mutex<HashMap<TypeId, AsyncServiceFactory<Arc<dyn Any + Send + Sync>>>>,
+    services: tokio::sync::RwLock<HashMap<TypeId, AsyncServiceEntry>>,
 }
 
 impl AsyncServiceContainer {
@@ -216,7 +235,6 @@ impl AsyncServiceContainer {
     pub fn new() -> Self {
         Self {
             services: tokio::sync::RwLock::new(HashMap::new()),
-            factories: tokio::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -224,7 +242,7 @@ impl AsyncServiceContainer {
     pub async fn register<T: Send + Sync + 'static>(&self, service: T) {
         let type_id = TypeId::of::<T>();
         let mut services = self.services.write().await;
-        services.insert(type_id, Arc::new(service));
+        services.insert(type_id, AsyncServiceEntry::Initialized(Arc::new(service)));
     }
 
     /// Register an async service factory for lazy initialization.
@@ -234,16 +252,20 @@ impl AsyncServiceContainer {
     /// ```rust
     /// use orka_core::container::AsyncServiceContainer;
     /// use std::sync::Arc;
+    /// use std::future::Future;
+    /// use std::pin::Pin;
     ///
     /// # async fn example() {
     /// let container = Arc::new(AsyncServiceContainer::new());
     /// 
-    /// container.register_async::<Arc<str>>(Box::new(|| {
-    ///     Box::pin(async {
-    ///         // Async initialization
-    ///         Arc::from("configured") as Arc<str>
-    ///     })
-    /// })).await;
+    /// let factory: Box<dyn Fn() -> Pin<Box<dyn Future<Output = Arc<str>> + Send>> + Send + Sync> = 
+    ///     Box::new(|| {
+    ///         Box::pin(async {
+    ///             // Async initialization
+    ///             Arc::from("configured")
+    ///         })
+    ///     });
+    /// container.register_async::<Arc<str>>(factory).await;
     /// # }
     /// ```
     pub async fn register_async<T: Send + Sync + 'static>(
@@ -251,7 +273,7 @@ impl AsyncServiceContainer {
         factory: impl Fn() -> Pin<Box<dyn Future<Output = T> + Send>> + Send + Sync + 'static,
     ) {
         let type_id = TypeId::of::<T>();
-        let mut factories = self.factories.lock().await;
+        let mut services = self.services.write().await;
         
         let wrapped_factory = Box::new(move || {
             let fut = factory();
@@ -261,43 +283,107 @@ impl AsyncServiceContainer {
             }) as Pin<Box<dyn Future<Output = Arc<dyn Any + Send + Sync>> + Send>>
         });
         
-        factories.insert(type_id, wrapped_factory);
+        services.insert(type_id, AsyncServiceEntry::Pending(wrapped_factory));
     }
 
     /// Get or create a service asynchronously.
     ///
     /// If the service is already initialized, returns immediately.
     /// Otherwise, calls the async factory and caches the result.
+    ///
+    /// # Concurrency
+    ///
+    /// Multiple concurrent calls to `get` for the same service will:
+    /// 1. Wait for the service to be initialized by the first caller
+    /// 2. All receive the same `Arc<T>` instance
     pub async fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         let type_id = TypeId::of::<T>();
         
-        // First check with read lock
+        // Fast path: check if already initialized
         {
             let services = self.services.read().await;
-            if let Some(svc) = services.get(&type_id) {
-                return svc.clone().downcast::<T>().ok();
+            if let Some(entry) = services.get(&type_id) {
+                match entry {
+                    AsyncServiceEntry::Initialized(arc) => {
+                        return arc.clone().downcast::<T>().ok();
+                    }
+                    AsyncServiceEntry::Initializing(notify) => {
+                        // Someone else is initializing, wait for them
+                        let notify = notify.clone();
+                        drop(services);
+                        notify.notified().await;
+                        
+                        // Try again - should be initialized now
+                        let services = self.services.read().await;
+                        if let Some(AsyncServiceEntry::Initialized(arc)) = services.get(&type_id) {
+                            return arc.clone().downcast::<T>().ok();
+                        }
+                        return None;
+                    }
+                    AsyncServiceEntry::Pending(_) => {
+                        // Need to initialize - fall through
+                    }
+                }
             }
         }
         
-        // Need to create - acquire factory lock
-        let factory_opt = {
-            let mut factories = self.factories.lock().await;
-            factories.remove(&type_id)
+        // Slow path: we need to initialize
+        let notify = Arc::new(tokio::sync::Notify::new());
+        
+        let factory = {
+            let mut services = self.services.write().await;
+            
+            // Double-check after acquiring write lock
+            match services.get(&type_id) {
+                Some(AsyncServiceEntry::Initialized(arc)) => {
+                    return arc.clone().downcast::<T>().ok();
+                }
+                Some(AsyncServiceEntry::Initializing(n)) => {
+                    // Someone else started while we were waiting
+                    let notify = n.clone();
+                    drop(services);
+                    notify.notified().await;
+                    
+                    let services = self.services.read().await;
+                    if let Some(AsyncServiceEntry::Initialized(arc)) = services.get(&type_id) {
+                        return arc.clone().downcast::<T>().ok();
+                    }
+                    return None;
+                }
+                Some(AsyncServiceEntry::Pending(_)) => {
+                    // We take ownership of initialization
+                    if let Some(AsyncServiceEntry::Pending(factory)) = services.remove(&type_id) {
+                        services.insert(type_id, AsyncServiceEntry::Initializing(notify.clone()));
+                        Some(factory)
+                    } else {
+                        None
+                    }
+                }
+                None => None,
+            }
         };
         
-        if let Some(factory) = factory_opt {
+        if let Some(factory) = factory {
+            // Initialize the service
             let instance = factory().await;
             
-            // Store in services
-            let mut services = self.services.write().await;
-            services.insert(type_id, instance.clone());
+            // Store the initialized service
+            {
+                let mut services = self.services.write().await;
+                services.insert(type_id, AsyncServiceEntry::Initialized(instance));
+            }
             
-            return instance.downcast::<T>().ok();
+            // Notify waiters
+            notify.notify_waiters();
+            
+            // Return the service
+            let services = self.services.read().await;
+            if let Some(AsyncServiceEntry::Initialized(arc)) = services.get(&type_id) {
+                return arc.clone().downcast::<T>().ok();
+            }
         }
         
-        // Check again in case another thread created it
-        let services = self.services.read().await;
-        services.get(&type_id)?.clone().downcast::<T>().ok()
+        None
     }
 
     /// Resolve a service, panicking if not found.
@@ -309,26 +395,20 @@ impl AsyncServiceContainer {
     /// Check if a service is registered or has a pending factory.
     pub async fn contains<T: Send + Sync + 'static>(&self) -> bool {
         let type_id = TypeId::of::<T>();
-        
         let services = self.services.read().await;
-        if services.contains_key(&type_id) {
-            return true;
-        }
-        
-        let factories = self.factories.lock().await;
-        factories.contains_key(&type_id)
+        services.contains_key(&type_id)
     }
 
     /// Get the number of initialized services.
     pub async fn initialized_count(&self) -> usize {
         let services = self.services.read().await;
-        services.len()
+        services.values().filter(|e| matches!(e, AsyncServiceEntry::Initialized(_))).count()
     }
 
     /// Get the number of pending factories.
     pub async fn pending_count(&self) -> usize {
-        let factories = self.factories.lock().await;
-        factories.len()
+        let services = self.services.read().await;
+        services.values().filter(|e| matches!(e, AsyncServiceEntry::Pending(_))).count()
     }
 }
 
@@ -474,69 +554,113 @@ mod tests {
     #[tokio::test]
     async fn async_container_lazy_factory() {
         use std::sync::atomic::{AtomicUsize, Ordering};
-        
+
         let container = Arc::new(AsyncServiceContainer::new());
         static CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
-        
+
         CALL_COUNT.store(0, Ordering::SeqCst);
-        
-        container.register_async::<Arc<i32>>(Box::new(|| {
-            Box::pin(async move {
-                CALL_COUNT.fetch_add(1, Ordering::SeqCst);
-                Arc::new(42)
-            })
-        })).await;
-        
+
+        // Factory function with explicit type
+        let factory: Box<dyn Fn() -> Pin<Box<dyn Future<Output = i32> + Send>> + Send + Sync> =
+            Box::new(|| {
+                Box::pin(async move {
+                    CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+                    42
+                })
+            });
+        container.register_async::<i32>(factory).await;
+
         // Factory not called yet
         assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 0);
         assert_eq!(container.initialized_count().await, 0);
         assert_eq!(container.pending_count().await, 1);
-        
+
         // First get triggers factory
-        let val1 = container.get::<Arc<i32>>().await.unwrap();
+        let val1 = container.get::<i32>().await.unwrap();
         assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(*val1, 42);
         assert_eq!(container.initialized_count().await, 1);
         assert_eq!(container.pending_count().await, 0);
-        
+
         // Second get returns cached
-        let val2 = container.get::<Arc<i32>>().await.unwrap();
+        let val2 = container.get::<i32>().await.unwrap();
         assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(*val2, 42);
     }
 
     #[tokio::test]
-    async fn async_container_concurrent_get() {
+    async fn async_container_lazy_get() {
         let container = Arc::new(AsyncServiceContainer::new());
-        
-        container.register_async::<Arc<String>>(Box::new(|| {
+
+        // Factory function with explicit type
+        let factory: Box<
+            dyn Fn() -> Pin<Box<dyn Future<Output = String> + Send>> + Send + Sync,
+        > = Box::new(|| {
             Box::pin(async move {
                 // Simulate async work
                 tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-                Arc::new("initialized".to_string())
+                "initialized".to_string()
             })
-        })).await;
+        });
+        container.register_async::<String>(factory).await;
+
+        // First get triggers factory
+        let val1 = container.get::<String>().await.unwrap();
+        assert_eq!(*val1, "initialized");
+
+        // Second get returns cached
+        let val2 = container.get::<String>().await.unwrap();
+        assert!(Arc::ptr_eq(&val1, &val2));
+    }
+
+    #[tokio::test]
+    async fn async_container_concurrent_get() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
         
+        let container = Arc::new(AsyncServiceContainer::new());
+        static CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+        
+        CALL_COUNT.store(0, Ordering::SeqCst);
+
+        // Factory that tracks how many times it's called
+        let factory: Box<
+            dyn Fn() -> Pin<Box<dyn Future<Output = Arc<String>> + Send>> + Send + Sync,
+        > = Box::new(|| {
+            Box::pin(async move {
+                CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                Arc::new("concurrent_test".to_string())
+            })
+        });
+        container.register_async::<Arc<String>>(factory).await;
+
         // Spawn multiple concurrent gets
         let handles: Vec<_> = (0..5)
             .map(|_| {
                 let container = container.clone();
-                tokio::spawn(async move {
-                    container.get::<Arc<String>>().await.unwrap()
-                })
+                tokio::spawn(async move { container.get::<Arc<String>>().await })
             })
             .collect();
+
+        // All should complete successfully
+        let results: Vec<_> = futures_util::future::join_all(handles).await;
         
-        // All should get the same instance
-        let results: Vec<_> = futures_util::future::join_all(handles)
-            .await
-            .into_iter()
-            .map(|r| r.unwrap())
-            .collect();
-        
-        let first = &results[0];
+        // All should succeed
         for result in &results {
-            assert!(Arc::ptr_eq(first, result));
+            assert!(result.is_ok(), "Task panicked");
+            let value = result.as_ref().unwrap();
+            assert!(value.is_some(), "Service should be available");
+            assert_eq!(value.as_ref().unwrap().as_str(), "concurrent_test");
+        }
+
+        // Factory should only be called once
+        assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1, "Factory should be called exactly once");
+
+        // All should point to the same Arc
+        let first = results[0].as_ref().unwrap().as_ref().unwrap();
+        for result in &results {
+            let value = result.as_ref().unwrap().as_ref().unwrap();
+            assert!(Arc::ptr_eq(first, value), "All should share the same Arc");
         }
     }
 
