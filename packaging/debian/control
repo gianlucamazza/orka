@@ -1,0 +1,24 @@
+Source: orka
+Section: admin
+Priority: optional
+Maintainer: Orka Maintainers <maintainers@example.invalid>
+Rules-Requires-Root: no
+Build-Depends:
+ debhelper-compat (= 13),
+ cargo,
+ rustc,
+ pkg-config,
+ libssl-dev
+Standards-Version: 4.7.0
+Homepage: https://github.com/gianlucamazza/orka
+
+Package: orka
+Architecture: any
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends}
+Recommends:
+ redis-server
+Description: AI agent orchestration server and CLI
+ Orka is a Rust-based AI agent orchestration platform with queueing,
+ multi-channel adapters, workspace prompts, skills, and observability.

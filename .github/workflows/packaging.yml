@@ -1,0 +1,24 @@
+name: Packaging
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  debian:
+    name: Packaging lint (Debian)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and lint Debian package
+        run: ./scripts/lint-debian-package.sh
+
+  fedora:
+    name: Packaging lint (Fedora)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and lint Fedora package
+        run: ./scripts/lint-fedora-package.sh

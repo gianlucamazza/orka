@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export DEB_CARGO_CRATE_INCLUDES = crates/* sdk/*
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --locked --bin orka-server --bin orka
+
+override_dh_auto_test:
+	cargo test --release --locked
+
+override_dh_auto_install:
+	install -Dm755 target/release/orka-server debian/orka/usr/bin/orka-server
+	install -Dm755 target/release/orka debian/orka/usr/bin/orka
+	install -Dm644 deploy/orka-server.service debian/orka/lib/systemd/system/orka-server.service
+	sed -i 's|@BINDIR@|/usr/bin|' debian/orka/lib/systemd/system/orka-server.service
+	install -Dm644 deploy/orka-server.sysusers debian/orka/usr/lib/sysusers.d/orka-server.conf
+	install -Dm644 deploy/orka-server.tmpfiles debian/orka/usr/lib/tmpfiles.d/orka-server.conf
+	install -Dm644 orka.toml debian/orka/etc/orka/orka.toml
+	install -Dm644 LICENSE-MIT debian/orka/usr/share/doc/orka/LICENSE-MIT
+	install -Dm644 LICENSE-APACHE debian/orka/usr/share/doc/orka/LICENSE-APACHE
+
+override_dh_installsystemd:
+	dh_installsystemd --name=orka-server
