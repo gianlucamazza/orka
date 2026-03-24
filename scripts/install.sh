@@ -87,12 +87,27 @@ detect_pkg_manager() {
 
 detect_pkg_manager
 
+detect_systemd_dirs() {
+	local unit_dir=""
+	local sysusers_dir=""
+	local tmpfiles_dir=""
+
+	if command -v pkg-config &>/dev/null && pkg-config --exists systemd; then
+		unit_dir="$(pkg-config --variable=systemdsystemunitdir systemd 2>/dev/null || true)"
+		sysusers_dir="$(pkg-config --variable=sysusersdir systemd 2>/dev/null || true)"
+		tmpfiles_dir="$(pkg-config --variable=tmpfilesdir systemd 2>/dev/null || true)"
+	fi
+
+	UNIT_DIR="${unit_dir:-/usr/lib/systemd/system}"
+	SYSUSERS_DIR="${sysusers_dir:-/usr/lib/sysusers.d}"
+	TMPFILES_DIR="${tmpfiles_dir:-/usr/lib/tmpfiles.d}"
+}
+
+detect_systemd_dirs
+
 # Fixed FHS paths — do not change with --prefix
 CONFIG_DIR="/etc/orka"
 DATA_DIR="/var/lib/orka"
-UNIT_DIR="/usr/lib/systemd/system"
-SYSUSERS_DIR="/usr/lib/sysusers.d"
-TMPFILES_DIR="/usr/lib/tmpfiles.d"
 
 SERVICE_NAME="orka-server"
 DROPIN_DIR="/etc/systemd/system/${SERVICE_NAME}.service.d"
@@ -109,17 +124,130 @@ check_home_access_needed() {
 }
 
 # ── Check if sudo is enabled in config ──────────────────────────────
-# Parses the TOML config for [os.sudo] enabled = true.
+# Parses the TOML config for [os.sudo] allowed = true.
 check_sudo_enabled() {
 	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
 	[[ -f "$cfg" ]] || return 1
-	# Look for enabled = true under [os.sudo]
+	# Look for allowed = true under [os.sudo]
 	awk '
 		/^\[os\.sudo\]/ { in_section=1; next }
 		/^\[/           { in_section=0 }
-		in_section && /^enabled\s*=\s*true/ { found=1; exit }
+		in_section && /^allowed\s*=\s*true/ { found=1; exit }
 		END { exit !found }
 	' "$cfg"
+}
+
+get_config_value() {
+	local cfg="$1"
+	local section="$2"
+	local key="$3"
+
+	awk -v target_section="$section" -v target_key="$key" '
+		$0 == "[" target_section "]" { in_section=1; next }
+		/^\[/                    { in_section=0 }
+		in_section && $0 ~ "^[[:space:]]*" target_key "[[:space:]]*=" {
+			line=$0
+			sub(/^[^=]*=[[:space:]]*/, "", line)
+			gsub(/^"/, "", line)
+			gsub(/"$/, "", line)
+			print line
+			exit
+		}
+	' "$cfg"
+}
+
+config_section_enabled() {
+	local cfg="$1"
+	local section="$2"
+	[[ -f "$cfg" ]] || return 1
+
+	awk -v target_section="$section" '
+		$0 == "[" target_section "]" { in_section=1; next }
+		/^\[/                    { in_section=0 }
+		in_section && /^[[:space:]]*enabled[[:space:]]*=[[:space:]]*true/ { found=1; exit }
+		END { exit !found }
+	' "$cfg"
+}
+
+service_user_home() {
+	getent passwd orka | awk -F: '{ print $6 }'
+}
+
+sudo_user_home() {
+	[[ -n "${SUDO_USER:-}" ]] || return 1
+	getent passwd "${SUDO_USER}" | awk -F: '{ print $6 }'
+}
+
+append_pkg_sudo_commands() {
+	local cfg="$1"
+	local tmp
+	tmp=$(mktemp)
+
+	awk -v pkg_cmds="$PKG_ALLOWED_CMDS" '
+		function trim(s) {
+			sub(/^[[:space:]]+/, "", s)
+			sub(/[[:space:]]+$/, "", s)
+			return s
+		}
+		function ensure_section_defaults() {
+			if (!seen_allowed_commands) {
+				print "allowed_commands = [" pkg_cmds "]"
+				seen_allowed_commands=1
+			}
+		}
+		BEGIN {
+			in_sudo=0
+			seen_sudo=0
+			seen_allowed_commands=0
+		}
+		/^\[os\.sudo\]/ {
+			seen_sudo=1
+			in_sudo=1
+			print
+			next
+		}
+		/^\[/ {
+			if (in_sudo) {
+				ensure_section_defaults()
+			}
+			in_sudo=0
+			print
+			next
+		}
+		in_sudo && /^allowed_commands[[:space:]]*=/ {
+			seen_allowed_commands=1
+			line=$0
+			start=index(line, "[")
+			end=index(line, "]")
+			if (start == 0 || end == 0 || end <= start) {
+				print $0
+				next
+			}
+			body=substr(line, start + 1, end - start - 1)
+			if (trim(body) == "") {
+				print "allowed_commands = [" pkg_cmds "]"
+			} else {
+				print substr(line, 1, start) body ", " pkg_cmds "]"
+			}
+			next
+		}
+		{
+			print
+		}
+		END {
+			if (!seen_sudo) {
+				print ""
+				print "[os.sudo]"
+				print "allowed = false"
+				print "allowed_commands = [" pkg_cmds "]"
+				print "password_required = true"
+			} else if (in_sudo) {
+				ensure_section_defaults()
+			}
+		}
+	' "$cfg" >"$tmp"
+
+	mv "$tmp" "$cfg"
 }
 
 # ── Arg defaults ─────────────────────────────────────────────────────
@@ -192,8 +320,7 @@ DESKTOP_DIR="${INSTALL_PREFIX}/share/applications"
 # ── Warn if non-standard prefix ──────────────────────────────────────
 if [[ "$INSTALL_PREFIX" != "/usr/local" ]]; then
 	warn "Non-standard prefix: ${INSTALL_PREFIX}"
-	warn "The systemd service file hardcodes ExecStart=/usr/local/bin/orka-server"
-	warn "You will need to update it manually after installation."
+	warn "The installed systemd unit will be patched to use ${INSTALL_PREFIX}/bin/orka-server."
 fi
 
 # ── Uninstall ────────────────────────────────────────────────────────
@@ -308,59 +435,191 @@ uninstall() {
 	fi
 }
 
-# ── Set ACLs for MCP binaries under /home ────────────────────────────
-setup_mcp_acls() {
+# ── Shared helpers for binaries under /home ──────────────────────────
+grant_home_binary_acls() {
+	local label="$1"
+	local cmd_path="$2"
+
+	command -v setfacl &>/dev/null || {
+		warn "setfacl not found — install acl package for ${label} binary access"
+		return 0
+	}
+
+	local real_path
+	real_path=$(readlink -f "$cmd_path" 2>/dev/null) || return 0
+
+	info "Setting ACLs for ${label} binary: ${cmd_path}"
+
+	setfacl -m u:orka:rx "$real_path" 2>/dev/null &&
+		ok "  u:orka:rx → ${real_path}"
+
+	local dir
+	dir=$(dirname "$real_path")
+	while [[ "$dir" != "/" && "$dir" == /home* ]]; do
+		setfacl -m u:orka:x "$dir" 2>/dev/null
+		dir=$(dirname "$dir")
+	done
+
+	if [[ "$cmd_path" != "$real_path" ]]; then
+		dir=$(dirname "$cmd_path")
+		while [[ "$dir" != "/" && "$dir" == /home* ]]; do
+			setfacl -m u:orka:x "$dir" 2>/dev/null
+			dir=$(dirname "$dir")
+		done
+	fi
+
+	ok "  Traversal ACLs set on path chain"
+}
+
+extract_home_mcp_commands() {
 	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
 	[[ -f "$cfg" ]] || return 0
 
-	# Extract command paths from [[mcp.servers]] that start with /home
-	local cmds
-	cmds=$(awk '
+	awk '
 		/^\[\[mcp\.servers\]\]/ { in_mcp=1; next }
 		/^\[/                   { in_mcp=0 }
 		in_mcp && /^command\s*=/ {
 			gsub(/.*=\s*"/, ""); gsub(/".*/, "");
 			if (/^\/home/) print
 		}
-	' "$cfg")
+	' "$cfg"
+}
 
+extract_home_coding_provider_commands() {
+	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
+	[[ -f "$cfg" ]] || return 0
+
+	awk '
+		/^\[os\.coding\.providers\.(claude_code|codex)\]/ {
+			section=$0
+			gsub(/^\[|\]$/, "", section)
+			next
+		}
+		/^\[/ { section="" }
+		section != "" && /^executable_path\s*=/ {
+			path=$0
+			gsub(/.*=\s*"/, "", path)
+			gsub(/".*/, "", path)
+			if (path ~ /^\/home/) {
+				print section "|" path
+			}
+		}
+	' "$cfg"
+}
+
+# ── Set ACLs for MCP binaries under /home ────────────────────────────
+setup_mcp_acls() {
+	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
+	local cmds
+	cmds=$(extract_home_mcp_commands "$cfg")
 	[[ -z "$cmds" ]] && return 0
 
-	command -v setfacl &>/dev/null || {
-		warn "setfacl not found — install acl package for MCP binary access"
+	while IFS= read -r cmd_path; do
+		grant_home_binary_acls "MCP" "$cmd_path"
+	done <<<"$cmds"
+}
+
+setup_coding_provider_acls() {
+	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
+	local cmds
+	cmds=$(extract_home_coding_provider_commands "$cfg")
+	[[ -z "$cmds" ]] && return 0
+
+	while IFS='|' read -r section cmd_path; do
+		[[ -n "$cmd_path" ]] || continue
+		grant_home_binary_acls "${section}" "$cmd_path"
+	done <<<"$cmds"
+}
+
+detect_user_codex_installation() {
+	local user_home
+	user_home=$(sudo_user_home) || return 1
+
+	local codex_path=""
+	if [[ -n "${SUDO_USER:-}" ]]; then
+		codex_path=$(runuser -u "${SUDO_USER}" -- bash -lc 'command -v codex 2>/dev/null || true' 2>/dev/null || true)
+	fi
+
+	if [[ -z "$codex_path" && -d "${user_home}/.local/share/fnm/node-versions" ]]; then
+		codex_path=$(find "${user_home}/.local/share/fnm/node-versions" -path '*/installation/bin/codex' 2>/dev/null | sort | tail -n1 || true)
+	fi
+
+	[[ -n "$codex_path" ]] || return 1
+
+	local resolved_codex node_path js_path
+	resolved_codex=$(readlink -f "$codex_path" 2>/dev/null) || return 1
+	node_path=$(readlink -f "$(dirname "$codex_path")/node" 2>/dev/null) || return 1
+	js_path="$resolved_codex"
+
+	[[ -x "$node_path" ]] || return 1
+	[[ -f "$js_path" ]] || return 1
+
+	printf '%s|%s\n' "$node_path" "$js_path"
+}
+
+install_codex_wrapper() {
+	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
+	local codex_target
+	codex_target=$(get_config_value "$cfg" "os.coding.providers.codex" "executable_path")
+	[[ -n "$codex_target" ]] || codex_target="/usr/local/bin/codex"
+
+	if ! config_section_enabled "$cfg" "os.coding.providers.codex"; then
+		return 0
+	fi
+
+	local runtime
+	runtime=$(detect_user_codex_installation) || {
+		warn "Codex provider enabled but no user installation was found for ${SUDO_USER:-current user}"
 		return 0
 	}
 
-	while IFS= read -r cmd_path; do
-		# Resolve symlinks to get the real binary path
-		local real_path
-		real_path=$(readlink -f "$cmd_path" 2>/dev/null) || continue
+	local node_path js_path
+	node_path=${runtime%%|*}
+	js_path=${runtime#*|}
 
-		info "Setting ACLs for MCP binary: ${cmd_path}"
+	info "Installing Codex wrapper → ${codex_target}"
+	install -d "$(dirname "$codex_target")"
+	cat >"${codex_target}" <<EOF
+#!/usr/bin/env bash
+exec "${node_path}" "${js_path}" "\$@"
+EOF
+	chmod 0755 "${codex_target}"
 
-		# Set rx on the binary (Bun SEA needs to read itself)
-		setfacl -m u:orka:rx "$real_path" 2>/dev/null &&
-			ok "  u:orka:rx → ${real_path}"
+	grant_home_binary_acls "Codex runtime" "$node_path"
+	grant_home_binary_acls "Codex launcher" "$js_path"
+}
 
-		# Set x (traverse) on each parent directory up to /home
-		local dir
-		dir=$(dirname "$real_path")
-		while [[ "$dir" != "/" && "$dir" == /home* ]]; do
-			setfacl -m u:orka:x "$dir" 2>/dev/null
-			dir=$(dirname "$dir")
-		done
+provision_codex_service_home() {
+	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
+	config_section_enabled "$cfg" "os.coding.providers.codex" || return 0
 
-		# Also set x on symlink source path directories (if different)
-		if [[ "$cmd_path" != "$real_path" ]]; then
-			dir=$(dirname "$cmd_path")
-			while [[ "$dir" != "/" && "$dir" == /home* ]]; do
-				setfacl -m u:orka:x "$dir" 2>/dev/null
-				dir=$(dirname "$dir")
-			done
-		fi
+	local user_home service_home
+	user_home=$(sudo_user_home) || {
+		warn "Codex provider enabled but SUDO_USER is unavailable; skipping Codex credential bootstrap"
+		return 0
+	}
+	service_home=$(service_user_home)
+	[[ -n "$service_home" ]] || return 0
 
-		ok "  Traversal ACLs set on path chain"
-	done <<<"$cmds"
+	local src_dir="${user_home}/.codex"
+	local dst_dir="${service_home}/.codex"
+	[[ -f "${src_dir}/auth.json" ]] || {
+		warn "Codex provider enabled but ${src_dir}/auth.json was not found"
+		return 0
+	}
+
+	info "Provisioning Codex state for service user → ${dst_dir}"
+	install -d -o orka -g orka -m 0700 "${dst_dir}"
+
+	if [[ -f "${src_dir}/auth.json" ]]; then
+		install -o orka -g orka -m 0600 "${src_dir}/auth.json" "${dst_dir}/auth.json"
+	fi
+	if [[ -f "${src_dir}/config.toml" ]]; then
+		install -o orka -g orka -m 0600 "${src_dir}/config.toml" "${dst_dir}/config.toml"
+	fi
+	if [[ -f "${src_dir}/version.json" ]]; then
+		install -o orka -g orka -m 0644 "${src_dir}/version.json" "${dst_dir}/version.json"
+	fi
 }
 
 # ── Install ───────────────────────────────────────────────────────────
@@ -399,9 +658,9 @@ do_install() {
 			done
 			find "$REPO_ROOT" -maxdepth 1 \( -name 'Cargo.toml' -o -name 'Cargo.lock' \) \
 				-printf '%T@\n' 2>/dev/null
-		} | sort -rn | head -1
+		} | awk 'BEGIN { max = "" } { if (max == "" || $1 > max) max = $1 } END { if (max != "") print max }'
 	)
-	NEWEST_BIN=$(stat -c '%Y' "$SERVER_BIN" "$CLI_BIN" | sort -rn | head -1)
+	NEWEST_BIN=$(stat -c '%Y' "$SERVER_BIN" "$CLI_BIN" | awk 'NR == 1 || $1 > max { max = $1 } END { print max }')
 
 	if [[ -n "$NEWEST_SRC" ]] && ((${NEWEST_BIN%%.*} < ${NEWEST_SRC%%.*})); then
 		warn "${PROFILE^} binaries are older than source files!"
@@ -446,6 +705,7 @@ do_install() {
 	# ── Install systemd files ─────────────────────────────────────────
 	info "Installing systemd unit → ${UNIT_DIR}/${SERVICE_NAME}.service"
 	install -Dm644 "$REPO_ROOT/deploy/${SERVICE_NAME}.service" "${UNIT_DIR}/${SERVICE_NAME}.service"
+	sed -i "s|@BINDIR@|${INSTALL_PREFIX}/bin|g" "${UNIT_DIR}/${SERVICE_NAME}.service"
 
 	info "Installing sysusers config → ${SYSUSERS_DIR}/${SERVICE_NAME}.conf"
 	install -Dm644 "$REPO_ROOT/deploy/${SERVICE_NAME}.sysusers" "${SYSUSERS_DIR}/${SERVICE_NAME}.conf"
@@ -457,6 +717,9 @@ do_install() {
 	info "Creating system user and directories..."
 	systemd-sysusers "${SYSUSERS_DIR}/${SERVICE_NAME}.conf"
 	systemd-tmpfiles --create "${TMPFILES_DIR}/${SERVICE_NAME}.conf"
+	# Ensure orka can read journal logs via journalctl (needed by journal_read skill).
+	run_cmd usermod -aG systemd-journal orka 2>/dev/null || true
+	info "Added orka to systemd-journal group for journal access."
 
 	# ── Config files ──────────────────────────────────────────────────
 	if [[ ! -f "${CONFIG_DIR}/orka.toml" ]]; then
@@ -478,16 +741,9 @@ do_install() {
 		else
 			sed -i 's|^#.*allowed_paths = \[.*\]|allowed_paths = ["/home", "/tmp", "/var/lib/orka"]|' "${CONFIG_DIR}/orka.toml"
 		fi
-		# Inject detected package manager commands into allowed_commands.
-		# Uses a flexible regex so it works regardless of what entries are already in the array.
+		# Inject detected package manager commands into os.sudo.allowed_commands.
 		if [[ -n "$PKG_ALLOWED_CMDS" ]]; then
-			if grep -q '^allowed_commands = \[\]' "${CONFIG_DIR}/orka.toml"; then
-				# Empty array — replace whole value
-				sed -i "s|^allowed_commands = \[\]|allowed_commands = [${PKG_ALLOWED_CMDS}]|" "${CONFIG_DIR}/orka.toml"
-			else
-				# Non-empty array — append before closing bracket
-				sed -i "s|^\(allowed_commands = \[.*\)\]|\1, ${PKG_ALLOWED_CMDS}]|" "${CONFIG_DIR}/orka.toml"
-			fi
+			append_pkg_sudo_commands "${CONFIG_DIR}/orka.toml"
 			info "Added ${PKG_MGR} commands to sudo allowed_commands."
 		fi
 	else
@@ -495,6 +751,11 @@ do_install() {
 		info "Checking config migration..."
 		if "${CLI_BIN_PATH}" config migrate --config "${CONFIG_DIR}/orka.toml"; then
 			ok "Config up to date."
+			if "${CLI_BIN_PATH}" config check --config "${CONFIG_DIR}/orka.toml"; then
+				ok "Config validation passed."
+			else
+				warn "Config validation failed. Check manually: orka config check --config ${CONFIG_DIR}/orka.toml"
+			fi
 		else
 			warn "Config migration failed. Check manually: orka config check --config ${CONFIG_DIR}/orka.toml"
 		fi
@@ -599,7 +860,10 @@ do_install() {
 	fi
 
 	# ── Set ACLs for MCP binaries under /home ────────────────────────
+	install_codex_wrapper "${CONFIG_DIR}/orka.toml"
+	provision_codex_service_home "${CONFIG_DIR}/orka.toml"
 	setup_mcp_acls "${CONFIG_DIR}/orka.toml"
+	setup_coding_provider_acls "${CONFIG_DIR}/orka.toml"
 
 	# ── Install shell completions ─────────────────────────────────────
 	info "Generating shell completions..."

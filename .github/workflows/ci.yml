@@ -80,14 +80,14 @@ jobs:
           REDIS_URL: redis://127.0.0.1:6379
 
   msrv:
-    name: MSRV (1.85)
+    name: MSRV (1.91)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.85
+      - uses: dtolnay/rust-toolchain@1.91.0
       - uses: Swatinem/rust-cache@v2
       - name: cargo check on MSRV
-        run: cargo check --workspace
+        run: RUSTC_WRAPPER= cargo +1.91.0 check --workspace
 
   coverage:
     name: Code coverage

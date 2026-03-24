@@ -78,9 +78,24 @@ dev:
 dev-rebuild:
     docker compose build --no-cache orka-server
 
-# Bootstrap dev environment (Arch Linux)
+# Bootstrap dev environment (pacman, apt, or dnf)
 setup:
     ./scripts/setup-dev.sh
+
+# Validate MSRV policy using the official minimum toolchain
+msrv:
+    RUSTC_WRAPPER= cargo +1.91.0 check --workspace
+
+# Build and lint Debian packaging in a dedicated container
+package-lint-debian:
+    ./scripts/lint-debian-package.sh
+
+# Build and lint Fedora packaging in a dedicated container
+package-lint-fedora:
+    ./scripts/lint-fedora-package.sh
+
+# Validate native packaging in dedicated distro containers
+package-lint: package-lint-debian package-lint-fedora
 
 # Build release binaries, then install as systemd service (requires sudo)
 install: build-release

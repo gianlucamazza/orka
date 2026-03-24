@@ -5,7 +5,7 @@ pkgrel=1
 pkgdesc="AI agent orchestration server and CLI"
 arch=('x86_64')
 url="https://github.com/gianlucamazza/orka"
-license=('MIT')
+license=('MIT' 'Apache-2.0')
 depends=('gcc-libs')
 makedepends=('cargo' 'git')
 provides=('orka' 'orka-server')
@@ -48,7 +48,7 @@ package() {
 
 	# systemd unit — patch ExecStart for /usr/bin
 	install -Dm644 deploy/orka-server.service "$pkgdir/usr/lib/systemd/system/orka-server.service"
-	sed -i 's|/usr/local/bin/orka-server|/usr/bin/orka-server|' "$pkgdir/usr/lib/systemd/system/orka-server.service"
+	sed -i 's|@BINDIR@|/usr/bin|' "$pkgdir/usr/lib/systemd/system/orka-server.service"
 
 	# sysusers / tmpfiles
 	install -Dm644 deploy/orka-server.sysusers "$pkgdir/usr/lib/sysusers.d/orka-server.conf"
@@ -60,6 +60,7 @@ package() {
 	# Arch always uses pacman — append pacman commands to allowed_commands
 	sed -i 's|^\(allowed_commands = \[.*\)\]|\1, "pacman -S", "pacman -Syu"]|' "$pkgdir/etc/orka/orka.toml"
 
-	# License
-	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	# Licenses
+	install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+	install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
 }

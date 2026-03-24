@@ -1,1 +1,2 @@
 u orka - "Orka Server" /var/lib/orka /usr/sbin/nologin
+m orka systemd-journal

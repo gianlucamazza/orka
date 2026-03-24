@@ -1,20 +1,20 @@
 [Unit]
 Description=Orka AI Agent Orchestration Server
 Documentation=https://github.com/gianlucamazza/orka
-After=network-online.target valkey.service
+After=network-online.target
 Wants=network-online.target
-# Assumes local Valkey/Redis; adjust service name if using a different package
-Requires=valkey.service
+# Redis/Valkey lifecycle is managed separately by the host package, installer, or orchestrator.
 
 [Service]
 Type=notify
 User=orka
 Group=orka
+SupplementaryGroups=systemd-journal
 
 Environment=ORKA_CONFIG=/etc/orka/orka.toml
 EnvironmentFile=-/etc/orka/orka.env
 
-ExecStart=/usr/local/bin/orka-server
+ExecStart=@BINDIR@/orka-server
 
 Restart=on-failure
 RestartSec=5s
@@ -59,7 +59,7 @@ MemoryDenyWriteExecute=no
 # ^ fastembed/ONNX may need JIT; set to yes if knowledge/RAG is disabled
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources
+SystemCallFilter=~@privileged
 CapabilityBoundingSet=
 ReadWritePaths=/var/lib/orka
 
