@@ -1,4 +1,5 @@
-//! Channel adapter configurations (Telegram, Discord, Slack, WhatsApp, Custom).
+//! Channel adapter configurations (Telegram, Discord, Slack, `WhatsApp`,
+//! Custom).
 
 use std::collections::HashMap;
 
@@ -6,7 +7,8 @@ use serde::Deserialize;
 
 use crate::config::defaults;
 
-/// Channel adapter configuration (Telegram, Discord, Slack, WhatsApp, custom).
+/// Channel adapter configuration (Telegram, Discord, Slack, `WhatsApp`,
+/// custom).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[non_exhaustive]
 pub struct AdapterConfig {
@@ -18,7 +20,7 @@ pub struct AdapterConfig {
     pub discord: Option<DiscordAdapterConfig>,
     /// Slack bot adapter configuration.
     pub slack: Option<SlackAdapterConfig>,
-    /// WhatsApp Cloud API adapter configuration.
+    /// `WhatsApp` Cloud API adapter configuration.
     pub whatsapp: Option<WhatsAppAdapterConfig>,
 }
 
@@ -40,7 +42,7 @@ pub struct TelegramAdapterConfig {
     /// Local port to listen on in webhook mode (default 8443).
     #[serde(default)]
     pub webhook_port: Option<u16>,
-    /// Outbound text parse mode: "HTML" (default), "MarkdownV2", or "none".
+    /// Outbound text parse mode: "HTML" (default), "`MarkdownV2`", or "none".
     #[serde(default)]
     pub parse_mode: Option<String>,
     /// Enable streaming via editMessageText (default false).
@@ -55,7 +57,7 @@ impl std::fmt::Debug for TelegramAdapterConfig {
             .field("mode", &self.mode)
             .field("streaming", &self.streaming)
             .field("bot_token_secret", &"<redacted>")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -89,7 +91,7 @@ impl std::fmt::Debug for DiscordAdapterConfig {
         f.debug_struct("DiscordAdapterConfig")
             .field("workspace", &self.workspace)
             .field("bot_token_secret", &"<redacted>")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -127,21 +129,21 @@ impl std::fmt::Debug for SlackAdapterConfig {
             .field("port", &self.port)
             .field("bot_token_secret", &"<redacted>")
             .field("signing_secret_path", &"<redacted>")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
-/// WhatsApp Cloud API adapter configuration.
+/// `WhatsApp` Cloud API adapter configuration.
 #[derive(Clone, Deserialize)]
 #[non_exhaustive]
 pub struct WhatsAppAdapterConfig {
-    /// Secret store path for the WhatsApp access token.
+    /// Secret store path for the `WhatsApp` access token.
     pub access_token_secret: Option<String>,
-    /// Secret store path for the WhatsApp app secret.
+    /// Secret store path for the `WhatsApp` app secret.
     pub app_secret_path: Option<String>,
-    /// WhatsApp phone number ID.
+    /// `WhatsApp` phone number ID.
     pub phone_number_id: Option<String>,
-    /// WhatsApp business account ID.
+    /// `WhatsApp` business account ID.
     pub business_account_id: Option<String>,
     /// Workspace name to route messages to.
     #[serde(default)]
@@ -174,7 +176,7 @@ impl std::fmt::Debug for WhatsAppAdapterConfig {
             .field("port", &self.port)
             .field("access_token_secret", &"<redacted>")
             .field("app_secret_path", &"<redacted>")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -204,7 +206,7 @@ pub struct CustomAdapterConfig {
 impl Default for CustomAdapterConfig {
     fn default() -> Self {
         Self {
-            host: defaults::default_custom_host().to_string(),
+            host: defaults::default_custom_host(),
             port: defaults::default_custom_port(),
             webhook_path: None,
             bearer_token_secret: None,
@@ -222,7 +224,7 @@ impl std::fmt::Debug for CustomAdapterConfig {
             .field("webhook_path", &self.webhook_path)
             .field("workspace", &self.workspace)
             .field("bearer_token_secret", &"<redacted>")
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

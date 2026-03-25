@@ -1,5 +1,7 @@
 //! Agent and multi-agent graph configuration.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 use crate::config::{
@@ -29,7 +31,7 @@ pub struct AgentConfig {
     /// Thinking/reasoning effort level: `"low"`, `"medium"`, `"high"`, or
     /// `"max"`.
     ///
-    /// Enables Anthropic adaptive thinking (Claude 4.6+) or maps to OpenAI
+    /// Enables Anthropic adaptive thinking (Claude 4.6+) or maps to `OpenAI`
     /// `reasoning_effort` depending on the provider. `"max"` is only available
     /// on Claude Opus 4.6+. Omit to disable thinking entirely.
     #[serde(default)]
@@ -56,6 +58,24 @@ pub struct AgentConfig {
     /// Number of messages to keep when `history_filter = "last_n"`.
     #[serde(default)]
     pub history_filter_n: Option<usize>,
+    /// Planning mode: `"none"` (default), `"adaptive"`, or `"always"`.
+    ///
+    /// - `"adaptive"`: inject `create_plan` / `update_plan_step` tools; model
+    ///   decides when to plan.
+    /// - `"always"`: generate a plan automatically before the first iteration.
+    #[serde(default)]
+    pub planning_mode: Option<String>,
+    /// History strategy: `"truncate"` (default), `"summarize"`, or
+    /// `"rolling_window:<n>"` where `<n>` is the number of turns to retain.
+    #[serde(default)]
+    pub history_strategy: Option<String>,
+    /// List of tool names that require human approval before execution.
+    ///
+    /// When the LLM requests a tool in this list the executor pauses and saves
+    /// an `Interrupted` checkpoint instead of running the tool. Resume the run
+    /// via `POST /api/v1/runs/{run_id}/approve`.
+    #[serde(default)]
+    pub interrupt_before_tools: Vec<String>,
 }
 
 impl Default for AgentConfig {
@@ -63,7 +83,7 @@ impl Default for AgentConfig {
         Self {
             name: defaults::default_agent_name(),
             system_prompt: String::new(),
-            model: defaults::default_model().to_string(),
+            model: defaults::default_model(),
             temperature: defaults::default_temperature(),
             max_tokens: defaults::default_max_tokens(),
             max_iterations: defaults::default_max_iterations(),
@@ -73,6 +93,9 @@ impl Default for AgentConfig {
             thinking: None,
             history_filter: HistoryFilter::default(),
             history_filter_n: None,
+            planning_mode: None,
+            history_strategy: None,
+            interrupt_before_tools: Vec::new(),
         }
     }
 }
@@ -112,6 +135,18 @@ pub struct GraphDef {
     /// Edges connecting agents.
     #[serde(default)]
     pub edges: Vec<EdgeDef>,
+    /// State-slot reducer strategies, keyed by `"namespace::slot"`.
+    ///
+    /// Valid values: `"last_write_wins"` (default), `"append"`,
+    /// `"merge_object"`, `"sum"`, `"max"`, `"min"`.
+    ///
+    /// ```toml
+    /// [graph.reducers]
+    /// "__shared::results" = "append"
+    /// "__shared::score"   = "sum"
+    /// ```
+    #[serde(default)]
+    pub reducers: HashMap<String, String>,
 }
 
 impl Default for GraphDef {
@@ -121,6 +156,7 @@ impl Default for GraphDef {
             execution_mode: GraphExecutionMode::default(),
             max_hops: defaults::default_max_hops(),
             edges: Vec::new(),
+            reducers: HashMap::new(),
         }
     }
 }

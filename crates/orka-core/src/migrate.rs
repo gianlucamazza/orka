@@ -40,24 +40,13 @@ pub enum MigrationError {
     /// Failed to parse the TOML document.
     #[error("failed to parse config TOML: {0}")]
     Parse(#[from] toml_edit::TomlError),
-
-    /// A migration step failed.
-    #[error("migration from v{from} to v{to} failed: {reason}")]
-    StepFailed {
-        /// Source version of the failing step.
-        from: u32,
-        /// Target version of the failing step.
-        to: u32,
-        /// Human-readable reason.
-        reason: String,
-    },
 }
 
 /// Signature for a single migration step.
 ///
 /// Receives a mutable TOML document and a warnings collector.
 /// Must update `config_version` in the document to `target_version`.
-type MigrateFn = fn(&mut DocumentMut, &mut Vec<String>) -> Result<(), String>;
+type MigrateFn = fn(&mut DocumentMut, &mut Vec<String>);
 
 /// Registry of migrations. Each entry is `(target_version, migrate_fn)`.
 /// The function migrates from `target_version - 1` to `target_version`.
@@ -73,9 +62,8 @@ const MIGRATIONS: &[(u32, MigrateFn)] = &[
 /// Read `config_version` from a parsed TOML document. Returns 0 if absent.
 fn read_version(doc: &DocumentMut) -> u32 {
     doc.get("config_version")
-        .and_then(|v| v.as_integer())
-        .map(|v| v as u32)
-        .unwrap_or(0)
+        .and_then(toml_edit::Item::as_integer)
+        .map_or(0, |v| v as u32)
 }
 
 /// Migrate raw TOML config text if needed.
@@ -109,11 +97,7 @@ pub fn migrate_if_needed(raw: &str) -> Result<(String, Option<MigrationResult>),
         if target > CURRENT_CONFIG_VERSION {
             break;
         }
-        migrate_fn(&mut doc, &mut warnings).map_err(|reason| MigrationError::StepFailed {
-            from: target - 1,
-            to: target,
-            reason,
-        })?;
+        migrate_fn(&mut doc, &mut warnings);
     }
 
     let result = MigrationResult {
@@ -155,7 +139,7 @@ pub fn inspect_config_issues(raw: &str) -> Result<Vec<String>, MigrationError> {
 // ---------------------------------------------------------------------------
 
 /// v0 → v1: insert `config_version = 1` at the top of the document.
-fn migrate_v0_to_v1(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
+fn migrate_v0_to_v1(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
     // Insert config_version as the first key by using toml_edit's decor API.
     // We set it and then move it to position 0 so it appears before other keys.
     doc.insert("config_version", toml_edit::value(1i64));
@@ -170,8 +154,6 @@ fn migrate_v0_to_v1(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
          Run `orka config migrate` to persist this change."
             .into(),
     );
-
-    Ok(())
 }
 
 /// v1 → v2: add `[agent]`, `[tools]`, and `[os.sudo]` sections with defaults
@@ -179,7 +161,7 @@ fn migrate_v0_to_v1(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
 ///
 /// The inserted defaults follow the current config schema so migrations do not
 /// reintroduce stale keys that are ignored by deserialization.
-fn migrate_v1_to_v2(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
+fn migrate_v1_to_v2(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
     let mut added = Vec::new();
 
     if doc.get("agent").is_none() {
@@ -226,8 +208,6 @@ fn migrate_v1_to_v2(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
             added.join(", ")
         ));
     }
-
-    Ok(())
 }
 
 /// v2 → v3: schema version bump only.
@@ -235,193 +215,223 @@ fn migrate_v1_to_v2(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
 /// Earlier migration logic converted `os.claude_code.enabled` to a string
 /// tri-state, but the current config schema uses a plain boolean. Keep the
 /// value unchanged and only update the version marker.
-fn migrate_v2_to_v3(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
+fn migrate_v2_to_v3(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
     let _ = warnings;
     doc.insert("config_version", value(3i64));
-    Ok(())
 }
 
 /// v3 -> v4: normalize renamed keys and remove obsolete active settings so the
 /// document matches the current strict schema.
-fn migrate_v3_to_v4(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
-    if let Some(agent) = doc.get_mut("agent").and_then(Item::as_table_mut) {
-        rename_key(
-            agent,
-            "display_name",
-            "name",
-            "[agent].display_name",
-            "[agent].name",
-            warnings,
-        );
-        rename_key(
-            agent,
-            "max_tool_result_chars",
-            "tool_result_max_chars",
-            "[agent].max_tool_result_chars",
-            "[agent].tool_result_max_chars",
-            warnings,
-        );
-        remove_keys(
-            agent,
-            &[
-                ("timezone", "[agent].timezone"),
-                ("heartbeat_interval_secs", "[agent].heartbeat_interval_secs"),
-            ],
-            warnings,
-        );
-    }
-
-    if let Some(auth) = doc.get_mut("auth").and_then(Item::as_table_mut) {
-        remove_keys(
-            auth,
-            &[
-                ("enabled", "[auth].enabled"),
-                ("api_key_header", "[auth].api_key_header"),
-            ],
-            warnings,
-        );
-    }
-
-    if let Some(tools) = doc.get_mut("tools").and_then(Item::as_table_mut) {
-        rename_key(
-            tools,
-            "disabled",
-            "deny",
-            "[tools].disabled",
-            "[tools].deny",
-            warnings,
-        );
-    }
-
-    if let Some(llm) = doc.get_mut("llm").and_then(Item::as_table_mut) {
-        rename_key(
-            llm,
-            "model",
-            "default_model",
-            "[llm].model",
-            "[llm].default_model",
-            warnings,
-        );
-        rename_key(
-            llm,
-            "max_tokens",
-            "default_max_tokens",
-            "[llm].max_tokens",
-            "[llm].default_max_tokens",
-            warnings,
-        );
-        rename_key(
-            llm,
-            "temperature",
-            "default_temperature",
-            "[llm].temperature",
-            "[llm].default_temperature",
-            warnings,
-        );
-        remove_keys(llm, &[("timeout_secs", "[llm].timeout_secs")], warnings);
-    }
-
-    if let Some(observe) = doc.get_mut("observe").and_then(Item::as_table_mut)
-        && let Some(item) = observe.get_mut("backend")
-        && let Some(backend) = item.as_str()
-    {
-        match backend {
-            "log" => {
-                *item = value("stdout");
-                warnings.push(
-                    "Migrated [observe].backend from legacy value \"log\" to \"stdout\".".into(),
-                );
-            }
-            "otel" => {
-                *item = value("otlp");
-                warnings.push(
-                    "Migrated [observe].backend from legacy value \"otel\" to \"otlp\".".into(),
-                );
-            }
-            _ => {}
-        }
-    }
-
-    if let Some(os) = doc.get_mut("os").and_then(Item::as_table_mut) {
-        rename_key(
-            os,
-            "blocked_paths",
-            "denied_paths",
-            "[os].blocked_paths",
-            "[os].denied_paths",
-            warnings,
-        );
-        rename_key(
-            os,
-            "allowed_commands",
-            "allowed_shell_commands",
-            "[os].allowed_commands",
-            "[os].allowed_shell_commands",
-            warnings,
-        );
-        remove_keys(
-            os,
-            &[
-                ("shell_timeout_secs", "[os].shell_timeout_secs"),
-                ("max_output_bytes", "[os].max_output_bytes"),
-                ("max_file_size_bytes", "[os].max_file_size_bytes"),
-                ("max_list_entries", "[os].max_list_entries"),
-                ("blocked_commands", "[os].blocked_commands"),
-                ("sensitive_env_patterns", "[os].sensitive_env_patterns"),
-            ],
-            warnings,
-        );
-
-        if let Some(sudo) = os.get_mut("sudo").and_then(Item::as_table_mut) {
-            rename_key(
-                sudo,
-                "enabled",
-                "allowed",
-                "[os.sudo].enabled",
-                "[os.sudo].allowed",
-                warnings,
-            );
-            remove_keys(
-                sudo,
-                &[
-                    ("require_confirmation", "[os.sudo].require_confirmation"),
-                    (
-                        "confirmation_timeout_secs",
-                        "[os.sudo].confirmation_timeout_secs",
-                    ),
-                    ("sudo_path", "[os.sudo].sudo_path"),
-                ],
-                warnings,
-            );
-        }
-    }
-
-    if let Some(http) = doc.get_mut("http").and_then(Item::as_table_mut) {
-        remove_keys(
-            http,
-            &[
-                ("enabled", "[http].enabled"),
-                ("max_response_bytes", "[http].max_response_bytes"),
-                ("default_timeout_secs", "[http].default_timeout_secs"),
-                ("blocked_domains", "[http].blocked_domains"),
-            ],
-            warnings,
-        );
-    }
-
-    if let Some(scheduler) = doc.get_mut("scheduler").and_then(Item::as_table_mut) {
-        remove_keys(
-            scheduler,
-            &[
-                ("poll_interval_secs", "[scheduler].poll_interval_secs"),
-                ("max_concurrent", "[scheduler].max_concurrent"),
-            ],
-            warnings,
-        );
-    }
-
+fn migrate_v3_to_v4(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    migrate_v3_agent_keys(doc, warnings);
+    migrate_v3_auth_keys(doc, warnings);
+    migrate_v3_tools_keys(doc, warnings);
+    migrate_v3_llm_keys(doc, warnings);
+    migrate_v3_observe_keys(doc, warnings);
+    migrate_v3_os_keys(doc, warnings);
+    migrate_v3_http_keys(doc, warnings);
+    migrate_v3_scheduler_keys(doc, warnings);
     doc.insert("config_version", value(4i64));
-    Ok(())
+}
+
+fn migrate_v3_agent_keys(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    let Some(agent) = doc.get_mut("agent").and_then(Item::as_table_mut) else {
+        return;
+    };
+    rename_key(
+        agent,
+        "display_name",
+        "name",
+        "[agent].display_name",
+        "[agent].name",
+        warnings,
+    );
+    rename_key(
+        agent,
+        "max_tool_result_chars",
+        "tool_result_max_chars",
+        "[agent].max_tool_result_chars",
+        "[agent].tool_result_max_chars",
+        warnings,
+    );
+    remove_keys(
+        agent,
+        &[
+            ("timezone", "[agent].timezone"),
+            ("heartbeat_interval_secs", "[agent].heartbeat_interval_secs"),
+        ],
+        warnings,
+    );
+}
+
+fn migrate_v3_auth_keys(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    let Some(auth) = doc.get_mut("auth").and_then(Item::as_table_mut) else {
+        return;
+    };
+    remove_keys(
+        auth,
+        &[
+            ("enabled", "[auth].enabled"),
+            ("api_key_header", "[auth].api_key_header"),
+        ],
+        warnings,
+    );
+}
+
+fn migrate_v3_tools_keys(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    let Some(tools) = doc.get_mut("tools").and_then(Item::as_table_mut) else {
+        return;
+    };
+    rename_key(
+        tools,
+        "disabled",
+        "deny",
+        "[tools].disabled",
+        "[tools].deny",
+        warnings,
+    );
+}
+
+fn migrate_v3_llm_keys(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    let Some(llm) = doc.get_mut("llm").and_then(Item::as_table_mut) else {
+        return;
+    };
+    rename_key(
+        llm,
+        "model",
+        "default_model",
+        "[llm].model",
+        "[llm].default_model",
+        warnings,
+    );
+    rename_key(
+        llm,
+        "max_tokens",
+        "default_max_tokens",
+        "[llm].max_tokens",
+        "[llm].default_max_tokens",
+        warnings,
+    );
+    rename_key(
+        llm,
+        "temperature",
+        "default_temperature",
+        "[llm].temperature",
+        "[llm].default_temperature",
+        warnings,
+    );
+    remove_keys(llm, &[("timeout_secs", "[llm].timeout_secs")], warnings);
+}
+
+fn migrate_v3_observe_keys(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    let Some(observe) = doc.get_mut("observe").and_then(Item::as_table_mut) else {
+        return;
+    };
+    let Some(item) = observe.get_mut("backend") else {
+        return;
+    };
+    let Some(backend) = item.as_str() else {
+        return;
+    };
+    match backend {
+        "log" => {
+            *item = value("stdout");
+            warnings
+                .push("Migrated [observe].backend from legacy value \"log\" to \"stdout\".".into());
+        }
+        "otel" => {
+            *item = value("otlp");
+            warnings
+                .push("Migrated [observe].backend from legacy value \"otel\" to \"otlp\".".into());
+        }
+        _ => {}
+    }
+}
+
+fn migrate_v3_os_keys(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    let Some(os) = doc.get_mut("os").and_then(Item::as_table_mut) else {
+        return;
+    };
+    rename_key(
+        os,
+        "blocked_paths",
+        "denied_paths",
+        "[os].blocked_paths",
+        "[os].denied_paths",
+        warnings,
+    );
+    rename_key(
+        os,
+        "allowed_commands",
+        "allowed_shell_commands",
+        "[os].allowed_commands",
+        "[os].allowed_shell_commands",
+        warnings,
+    );
+    remove_keys(
+        os,
+        &[
+            ("shell_timeout_secs", "[os].shell_timeout_secs"),
+            ("max_output_bytes", "[os].max_output_bytes"),
+            ("max_file_size_bytes", "[os].max_file_size_bytes"),
+            ("max_list_entries", "[os].max_list_entries"),
+            ("blocked_commands", "[os].blocked_commands"),
+            ("sensitive_env_patterns", "[os].sensitive_env_patterns"),
+        ],
+        warnings,
+    );
+    if let Some(sudo) = os.get_mut("sudo").and_then(Item::as_table_mut) {
+        rename_key(
+            sudo,
+            "enabled",
+            "allowed",
+            "[os.sudo].enabled",
+            "[os.sudo].allowed",
+            warnings,
+        );
+        remove_keys(
+            sudo,
+            &[
+                ("require_confirmation", "[os.sudo].require_confirmation"),
+                (
+                    "confirmation_timeout_secs",
+                    "[os.sudo].confirmation_timeout_secs",
+                ),
+                ("sudo_path", "[os.sudo].sudo_path"),
+            ],
+            warnings,
+        );
+    }
+}
+
+fn migrate_v3_http_keys(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    let Some(http) = doc.get_mut("http").and_then(Item::as_table_mut) else {
+        return;
+    };
+    remove_keys(
+        http,
+        &[
+            ("enabled", "[http].enabled"),
+            ("max_response_bytes", "[http].max_response_bytes"),
+            ("default_timeout_secs", "[http].default_timeout_secs"),
+            ("blocked_domains", "[http].blocked_domains"),
+        ],
+        warnings,
+    );
+}
+
+fn migrate_v3_scheduler_keys(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    let Some(scheduler) = doc.get_mut("scheduler").and_then(Item::as_table_mut) else {
+        return;
+    };
+    remove_keys(
+        scheduler,
+        &[
+            ("poll_interval_secs", "[scheduler].poll_interval_secs"),
+            ("max_concurrent", "[scheduler].max_concurrent"),
+        ],
+        warnings,
+    );
 }
 
 /// v4 → v5: promote `[agent]` to `[[agents]]` + `[graph]`.
@@ -430,13 +440,12 @@ fn migrate_v3_to_v4(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
 /// `[[agents]]` array. This migration converts any existing `[agent]` table
 /// to the canonical form so the rest of the system always works through the
 /// unified multi-agent graph path.
-fn migrate_v4_to_v5(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
+fn migrate_v4_to_v5(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
     let has_agent = doc.get("agent").and_then(Item::as_table).is_some();
     let has_agents = doc
         .get("agents")
         .and_then(Item::as_array_of_tables)
-        .map(|a| !a.is_empty())
-        .unwrap_or(false);
+        .is_some_and(|a| !a.is_empty());
 
     if has_agent && !has_agents {
         // Collect all fields from [agent] so we can rebuild them in [[agents]].
@@ -476,13 +485,12 @@ fn migrate_v4_to_v5(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
     // If [[agents]] already present (with or without a stale [agent]): keep as-is.
 
     doc.insert("config_version", value(5i64));
-    Ok(())
 }
 
 /// v5 → v6: remove the `subprocess` capability from `[plugins.capabilities]`
 /// (WASI Component Model does not support subprocess spawning) and normalize
 /// `filesystem = true/false` to an array for clarity.
-fn migrate_v5_to_v6(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
+fn migrate_v5_to_v6(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
     // Navigate to [plugins.capabilities] if it exists.
     let has_subprocess = doc
         .get("plugins")
@@ -507,7 +515,6 @@ fn migrate_v5_to_v6(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
     }
 
     doc.insert("config_version", value(6i64));
-    Ok(())
 }
 
 /// Inspect `[[agents]]` entries for unknown or legacy keys.
@@ -540,6 +547,10 @@ fn inspect_agents_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
         "kind",
         "history_filter",
         "history_filter_n",
+        // Added in Phase 2
+        "planning_mode",
+        "history_strategy",
+        "interrupt_before_tools",
     ];
     let known: BTreeSet<&str> = entry_allowed.iter().copied().collect();
 
@@ -548,7 +559,7 @@ fn inspect_agents_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
     };
 
     for (idx, table) in agents.iter().enumerate() {
-        for (key, _) in table.iter() {
+        for (key, _) in table {
             if !known.contains(key) {
                 warnings.push(format!(
                     "config key [[agents]][{idx}].{key} is unknown to the current schema and may be ignored"
@@ -629,7 +640,7 @@ fn inspect_llm_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
                 ));
             }
             let known: BTreeSet<&str> = provider_allowed.iter().copied().collect();
-            for (key, _) in table.iter() {
+            for (key, _) in table {
                 if !known.contains(key) && key != "prefixes" {
                     warnings.push(format!(
                         "config key [[llm.providers]][{idx}].{key} is unknown to the current schema and may be ignored"
@@ -670,8 +681,7 @@ fn inspect_observe_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
         && !matches!(backend, "stdout" | "prometheus" | "otlp")
     {
         warnings.push(format!(
-            "config value [observe].backend = {:?} is not part of the current schema; use one of \"stdout\", \"prometheus\", or \"otlp\"",
-            backend
+            "config value [observe].backend = {backend:?} is not part of the current schema; use one of \"stdout\", \"prometheus\", or \"otlp\""
         ));
     }
 }
@@ -796,6 +806,12 @@ fn inspect_a2a_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
 }
 
 fn inspect_os_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    inspect_os_base_keys(doc, warnings);
+    inspect_os_coding_keys(doc, warnings);
+    inspect_os_sudo_keys(doc, warnings);
+}
+
+fn inspect_os_base_keys(doc: &DocumentMut, warnings: &mut Vec<String>) {
     let allowed = [
         "enabled",
         "permission_level",
@@ -840,7 +856,9 @@ fn inspect_os_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
         ),
     ];
     inspect_table_keys(doc, &["os"], &allowed, &aliases, &removed, warnings);
+}
 
+fn inspect_os_coding_keys(doc: &DocumentMut, warnings: &mut Vec<String>) {
     let coding_allowed = [
         "enabled",
         "default_provider",
@@ -851,12 +869,10 @@ fn inspect_os_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
         "providers",
     ];
     inspect_table_keys(doc, &["os", "coding"], &coding_allowed, &[], &[], warnings);
-
-    let providers_allowed = ["claude_code", "codex"];
     inspect_table_keys(
         doc,
         &["os", "coding", "providers"],
-        &providers_allowed,
+        &["claude_code", "codex"],
         &[],
         &[],
         warnings,
@@ -900,7 +916,9 @@ fn inspect_os_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
         &[],
         warnings,
     );
+}
 
+fn inspect_os_sudo_keys(doc: &DocumentMut, warnings: &mut Vec<String>) {
     let sudo_allowed = ["allowed", "allowed_commands", "password_required"];
     let sudo_aliases = [(
         "enabled",
@@ -1018,22 +1036,21 @@ fn rename_key(
     if table.contains_key(current_key) {
         table.remove(legacy_key);
         warnings.push(format!(
-            "Removed legacy key {} because {} is already set.",
-            legacy_label, current_label
+            "Removed legacy key {legacy_label} because {current_label} is already set."
         ));
         return;
     }
 
     if let Some(item) = table.remove(legacy_key) {
         table.insert(current_key, item);
-        warnings.push(format!("Migrated {} to {}.", legacy_label, current_label));
+        warnings.push(format!("Migrated {legacy_label} to {current_label}."));
     }
 }
 
 fn remove_keys(table: &mut Table, keys: &[(&str, &str)], warnings: &mut Vec<String>) {
     for (key, label) in keys {
         if table.remove(key).is_some() {
-            warnings.push(format!("Removed obsolete config key {}.", label));
+            warnings.push(format!("Removed obsolete config key {label}."));
         }
     }
 }
@@ -1070,11 +1087,10 @@ fn inspect_table_keys(
         .collect();
 
     let path_label = format!("[{}]", path.join("."));
-    for (key, _) in table.iter() {
+    for (key, _) in table {
         if !known.contains(key) {
             warnings.push(format!(
-                "config key {}.{} is unknown to the current schema and may be ignored",
-                path_label, key
+                "config key {path_label}.{key} is unknown to the current schema and may be ignored"
             ));
         }
     }

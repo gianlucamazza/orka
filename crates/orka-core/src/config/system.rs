@@ -152,6 +152,7 @@ impl OsConfig {
 }
 
 /// Coding delegation orchestration configuration.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
 pub struct CodingConfig {

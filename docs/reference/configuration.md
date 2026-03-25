@@ -131,6 +131,9 @@ Each `[[agents]]` entry defines one agent in the execution graph.
 | `denied_tools` | `string[]` | `[]` | Optional denylist (takes precedence) |
 | `history_filter` | `string` | `"full"` | Handoff history strategy: `"full"`, `"last_n"`, `"none"` |
 | `history_filter_n` | `usize?` | none | Messages to keep when `history_filter = "last_n"` |
+| `planning_mode` | `string` | `"none"` | `"none"`, `"adaptive"` (LLM-driven plan tools), `"always"` (eager plan before first iteration) |
+| `history_strategy` | `string` | `"truncate"` | `"truncate"`, `"summarize"` (LLM summary of dropped turns), `"rolling_window:<n>"` (keep last *n* turns) |
+| `interrupt_before_tools` | `string[]` | `[]` | Tool names that pause execution for human approval (HITL); resume via `POST /api/v1/runs/{run_id}/approve` |
 
 **Node kinds:**
 - `agent` — full LLM tool loop; can hand off to other agents via `transfer_to_agent` / `delegate_to_agent` (auto-injected)
@@ -148,6 +151,7 @@ The legacy `[agent]` single-table form is automatically promoted to `[[agents]]`
 | `execution_mode` | `string` | `"sequential"` | Graph execution mode |
 | `max_hops` | `usize` | `10` | Max agent transitions per run |
 | `edges` | `EdgeDef[]` | `[]` | Edge list connecting agents |
+| `reducers` | `map<string,string>` | `{}` | State-slot merge strategies for fan-out aggregation; values: `"append"`, `"sum"`, `"max"`, `"min"`, `"merge_object"`, `"last_write_wins"` |
 
 Each `[[graph.edges]]` entry: `from` (string), `to` (string), `condition` (string, optional), `weight` (f32, default `1.0`).
 

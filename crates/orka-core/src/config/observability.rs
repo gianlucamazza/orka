@@ -36,7 +36,7 @@ impl Default for ObserveConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            backend: defaults::default_observe_backend().to_string(),
+            backend: defaults::default_observe_backend(),
             otlp_endpoint: None,
             batch_size: defaults::default_observe_batch_size(),
             flush_interval_ms: defaults::default_observe_flush_interval_ms(),
@@ -66,7 +66,7 @@ impl Default for AuditConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            output: defaults::default_audit_output().to_string(),
+            output: defaults::default_audit_output(),
             path: None,
             redis_key: None,
         }

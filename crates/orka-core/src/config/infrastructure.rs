@@ -17,7 +17,7 @@ pub struct RedisConfig {
 }
 
 impl RedisConfig {
-    /// Create a new RedisConfig with default values.
+    /// Create a new `RedisConfig` with default values.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -43,7 +43,7 @@ impl RedisConfig {
 impl Default for RedisConfig {
     fn default() -> Self {
         Self {
-            url: defaults::default_redis_url().to_string(),
+            url: defaults::default_redis_url(),
         }
     }
 }
@@ -59,7 +59,7 @@ impl std::fmt::Debug for RedisConfig {
 /// Mask the password in a Redis URL so it is safe to log.
 fn redact_url(url: &str) -> String {
     if let Some(at_pos) = url.find('@') {
-        let scheme_end = url.find("://").map(|i| i + 3).unwrap_or(0);
+        let scheme_end = url.find("://").map_or(0, |i| i + 3);
         let credentials = &url[scheme_end..at_pos];
         if credentials.contains(':') {
             let scheme = &url[..scheme_end];
@@ -215,7 +215,7 @@ pub struct LoggingConfig {
 impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
-            level: defaults::default_log_level().to_string(),
+            level: defaults::default_log_level(),
             json: false,
         }
     }

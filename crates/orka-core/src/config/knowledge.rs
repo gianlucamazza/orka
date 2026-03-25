@@ -67,7 +67,7 @@ impl Default for VectorStoreConfig {
         Self {
             backend: VectorStoreBackend::default(),
             url: None,
-            collection_name: defaults::default_collection_name().to_string(),
+            collection_name: defaults::default_collection_name(),
             dimension: defaults::default_vector_dimension(),
             distance_metric: default_distance_metric(),
         }

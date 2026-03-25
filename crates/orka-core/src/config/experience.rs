@@ -20,7 +20,7 @@ pub struct ExperienceConfig {
     /// When to trigger reflection: "failures", "all", or "sampled".
     #[serde(default = "default_experience_reflect_on")]
     pub reflect_on: String,
-    /// Sampling rate for reflection when reflect_on = "sampled" (0.0–1.0).
+    /// Sampling rate for reflection when `reflect_on` = "sampled" (0.0–1.0).
     #[serde(default = "default_experience_sample_rate")]
     pub sample_rate: f64,
     /// Qdrant collection name for principles.

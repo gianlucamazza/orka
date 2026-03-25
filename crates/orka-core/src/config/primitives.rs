@@ -135,7 +135,7 @@ pub enum SandboxBackend {
 pub enum LlmProviderType {
     /// Anthropic Claude.
     Anthropic,
-    /// OpenAI GPT.
+    /// `OpenAI` GPT.
     Openai,
     /// Google Gemini.
     Google,
@@ -184,7 +184,7 @@ pub enum WebSearchProvider {
     Tavily,
     /// Brave search API.
     Brave,
-    /// SearXNG self-hosted.
+    /// `SearXNG` self-hosted.
     Searxng,
 }
 
@@ -263,7 +263,7 @@ pub enum EmbeddingProvider {
     /// Local embeddings with fastembed.
     #[default]
     Local,
-    /// OpenAI embeddings API.
+    /// `OpenAI` embeddings API.
     Openai,
     /// Anthropic embeddings API.
     Anthropic,

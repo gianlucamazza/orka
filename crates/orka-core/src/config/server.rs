@@ -17,7 +17,7 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {
-    /// Create a new ServerConfig with default values.
+    /// Create a new `ServerConfig` with default values.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -50,7 +50,7 @@ impl ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            host: defaults::default_host().to_string(),
+            host: defaults::default_host(),
             port: defaults::default_port(),
         }
     }

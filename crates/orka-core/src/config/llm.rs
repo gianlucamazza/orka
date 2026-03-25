@@ -59,7 +59,7 @@ impl LlmConfig {
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
-            default_model: defaults::default_model().to_string(),
+            default_model: defaults::default_model(),
             default_temperature: defaults::default_temperature(),
             default_max_tokens: defaults::default_max_tokens(),
             providers: Vec::new(),

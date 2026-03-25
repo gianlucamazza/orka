@@ -85,7 +85,7 @@ pub struct SandboxConfig {
     /// Allowed paths for filesystem access.
     #[serde(default)]
     pub allowed_paths: Vec<String>,
-    /// Denied paths (takes precedence over allowed_paths).
+    /// Denied paths (takes precedence over `allowed_paths`).
     #[serde(default)]
     pub denied_paths: Vec<String>,
 }
@@ -93,7 +93,7 @@ pub struct SandboxConfig {
 impl Default for SandboxConfig {
     fn default() -> Self {
         Self {
-            backend: defaults::default_sandbox_backend().to_string(),
+            backend: defaults::default_sandbox_backend(),
             limits: SandboxLimitsConfig::default(),
             allowed_paths: Vec::new(),
             denied_paths: Vec::new(),

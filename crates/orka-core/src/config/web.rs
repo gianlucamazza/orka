@@ -18,7 +18,7 @@ pub struct WebConfig {
     /// Environment variable name containing the search provider API key.
     #[serde(default)]
     pub api_key_env: Option<String>,
-    /// Base URL for a SearXNG instance (required when `search_provider =
+    /// Base URL for a `SearXNG` instance (required when `search_provider =
     /// "searxng"`).
     #[serde(default)]
     pub searxng_base_url: Option<String>,

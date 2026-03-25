@@ -161,7 +161,7 @@ pub const fn default_max_tokens() -> u32 {
     4096
 }
 
-/// Default LLM top_p.
+/// Default LLM `top_p`.
 pub const fn default_top_p() -> f32 {
     1.0
 }
@@ -321,7 +321,7 @@ pub const fn default_chunk_overlap() -> usize {
     50
 }
 
-/// Default knowledge top_k.
+/// Default knowledge `top_k`.
 pub const fn default_top_k() -> usize {
     5
 }
@@ -361,7 +361,7 @@ pub const fn default_slack_port() -> u16 {
     3000
 }
 
-/// Default WhatsApp port.
+/// Default `WhatsApp` port.
 pub const fn default_whatsapp_port() -> u16 {
     3000
 }
@@ -414,6 +414,11 @@ pub const fn default_guardrails_enabled() -> bool {
 /// Default A2A discovery enabled state.
 pub const fn default_a2a_discovery_enabled() -> bool {
     false
+}
+
+/// Default A2A store backend: in-memory (no persistence).
+pub fn default_a2a_store_backend() -> String {
+    "memory".to_string()
 }
 
 /// Default web user agent.

@@ -83,6 +83,19 @@ pub struct A2aConfig {
     /// Known agent endpoints.
     #[serde(default)]
     pub known_agents: Vec<String>,
+    /// Require authentication on the `POST /a2a` endpoint.
+    ///
+    /// When `true`, the A2A JSON-RPC endpoint is mounted inside the
+    /// authenticated route group (behind `AuthLayer`). The agent-card
+    /// discovery endpoint (`GET /.well-known/agent.json`) is always public.
+    #[serde(default)]
+    pub auth_enabled: bool,
+    /// Storage backend for A2A task and push-notification state.
+    ///
+    /// - `"memory"` (default): in-memory stores, state lost on restart.
+    /// - `"redis"`: Redis-backed stores using `redis.url`; survives restarts.
+    #[serde(default = "defaults::default_a2a_store_backend")]
+    pub store_backend: String,
 }
 
 impl Default for A2aConfig {
@@ -91,6 +104,8 @@ impl Default for A2aConfig {
             discovery_enabled: defaults::default_a2a_discovery_enabled(),
             discovery_interval_secs: default_discovery_interval_secs(),
             known_agents: Vec::new(),
+            auth_enabled: false,
+            store_backend: defaults::default_a2a_store_backend(),
         }
     }
 }
@@ -126,18 +141,21 @@ impl Default for GuardrailsConfig {
 
 impl GuardrailsConfig {
     /// Set enabled flag (builder pattern).
+    #[must_use]
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
     /// Set input rules (builder pattern).
+    #[must_use]
     pub fn with_input(mut self, rules: GuardrailRules) -> Self {
         self.input = rules;
         self
     }
 
     /// Set output rules (builder pattern).
+    #[must_use]
     pub fn with_output(mut self, rules: GuardrailRules) -> Self {
         self.output = rules;
         self
@@ -166,30 +184,35 @@ pub struct GuardrailRules {
 
 impl GuardrailRules {
     /// Add a blocked keyword (builder pattern).
+    #[must_use]
     pub fn with_blocked_keyword(mut self, keyword: impl Into<String>) -> Self {
         self.blocked_keywords.push(keyword.into());
         self
     }
 
     /// Set blocked keywords (builder pattern).
+    #[must_use]
     pub fn with_blocked_keywords(mut self, keywords: Vec<String>) -> Self {
         self.blocked_keywords = keywords;
         self
     }
 
     /// Add a blocked pattern (builder pattern).
+    #[must_use]
     pub fn with_blocked_pattern(mut self, pattern: impl Into<String>) -> Self {
         self.blocked_patterns.push(pattern.into());
         self
     }
 
     /// Add a redact pattern (builder pattern).
+    #[must_use]
     pub fn with_redact_pattern(mut self, pattern: RedactPattern) -> Self {
         self.redact_patterns.push(pattern);
         self
     }
 
     /// Set LLM moderation config (builder pattern).
+    #[must_use]
     pub fn with_llm_moderation(mut self, config: LlmModerationConfig) -> Self {
         self.llm_moderation = config;
         self
@@ -223,30 +246,35 @@ impl LlmModerationConfig {
     }
 
     /// Set enabled flag (builder pattern).
+    #[must_use]
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
     /// Set model (builder pattern).
+    #[must_use]
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
         self
     }
 
     /// Set threshold (builder pattern).
+    #[must_use]
     pub fn with_threshold(mut self, threshold: f32) -> Self {
         self.threshold = threshold;
         self
     }
 
     /// Set categories (builder pattern).
+    #[must_use]
     pub fn with_categories(mut self, categories: Vec<ModerationCategory>) -> Self {
         self.categories = categories;
         self
     }
 
     /// Set system prompt (builder pattern).
+    #[must_use]
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
         self

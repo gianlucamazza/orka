@@ -59,17 +59,18 @@ port = 8081
 # port = 3001
 # workspace = "default"
 
-# [a2a]
-# discovery_enabled = false
+[a2a]
+discovery_enabled = true
 # discovery_interval_secs = 300
 # known_agents = ["https://peer.example.com"]
 
 [gateway]
 rate_limit = 60       # max messages per 60s window per session
 dedup_ttl_secs = 3600 # duplicate message detection window
+dedup_enabled = true
 
 [observe]
-enabled = false
+enabled = true
 backend = "stdout" # "stdout" | "prometheus" | "otlp"
 # otlp_endpoint = "http://127.0.0.1:4317"
 # batch_size = 50
@@ -89,7 +90,7 @@ backend = "stdout" # "stdout" | "prometheus" | "otlp"
 # args = ["mcp", "serve"]
 
 [worker]
-concurrency = 4
+concurrency = 8
 # retry_base_delay_ms = 5000
 
 [memory]
@@ -97,7 +98,7 @@ max_entries = 10000
 # backend = "auto"                      # "redis", "memory", or "auto" (follows bus.backend)
 
 [secrets]
-# encryption_key_env = "ORKA_ENCRYPTION_KEY"
+encryption_key_env = "ORKA_ENCRYPTION_KEY"
 
 [auth]
 api_keys = []
@@ -116,9 +117,9 @@ api_keys = []
 backend = "process"
 
 [sandbox.limits]
-timeout_secs = 30
-max_memory_bytes = 67108864
-max_output_bytes = 1048576
+timeout_secs = 120
+max_memory_bytes = 268435456 # 256 MB
+max_output_bytes = 4194304   # 4 MB
 
 [session]
 ttl_secs = 86400
@@ -131,25 +132,30 @@ max_retries = 3
 [[agents]]
 id = "orka-default"
 name = "Orka"
+model = "claude-sonnet-4-6"
 max_iterations = 15
+max_tokens = 16000
+thinking = "high"
+tool_result_max_chars = 16000
+planning_mode = "adaptive"
+history_strategy = "summarize"
 # kind = "agent"                   # "agent" (default), "router", "fan_out", "fan_in"
 # system_prompt = ""
-# model = "claude-sonnet-4-6"
 # temperature = 0.7
-# max_tokens = 4096
-# thinking = "high"                # effort: "low", "medium", "high", "max" (Opus 4.6+ only)
-# tool_result_max_chars = 50000
 # allowed_tools = []
 # denied_tools = []
 # history_filter = "full"          # "full" (default), "last_n", "none"
 # history_filter_n = 10            # number of messages to keep when history_filter = "last_n"
+# interrupt_before_tools = []      # tools requiring human approval before execution (HITL)
 
 [graph]
 # execution_mode = "sequential"
 # max_hops = 10
+# [graph.reducers]                 # state-slot merge strategies for fan-out aggregation
+# "__shared::results" = "append"   # "append", "sum", "max", "min", "merge_object", "last_write_wins"
 
 [tools]
-deny = ["echo"]
+deny = []
 
 [llm]
 default_model = "claude-sonnet-4-6"
@@ -209,7 +215,7 @@ permission_level = "admin"
 
 # Delegate complete coding tasks through Orka's coding router.
 [os.coding]
-enabled = false
+enabled = true
 default_provider = "auto"         # "auto" | "claude_code" | "codex"
 selection_policy = "availability" # "availability" | "prefer_claude" | "prefer_codex"
 inject_workspace_context = true
@@ -291,27 +297,39 @@ enabled = true
 # [plugins.plugins.my-plugin.config]
 # custom_key = "value"        # arbitrary plugin-specific config (passed to the plugin)
 
-# [guardrails]
-# blocked_keywords = ["password", "secret"]
-# block_patterns = ["(?i)password\\s*[:=]"]
-# pii_filter = true
-# [[guardrails.redact_patterns]]
-# pattern = "\\b[A-Z]{2}\\d{6,}\\b"
-# replacement = "[REDACTED_ID]"
+[guardrails]
+enabled = true
 
-# [experience]
-# enabled = false
-# max_principles = 5                    # max principles injected into system prompt
-# min_relevance_score = 0.6             # minimum similarity for principle retrieval
-# reflect_on = "failures"               # "failures", "all", or "sampled"
-# sample_rate = 0.1                     # sampling rate when reflect_on = "sampled"
-# principles_collection = "orka_principles"
-# trajectories_collection = "orka_trajectories"
-# reflection_model = "claude-haiku-4-5-20251001"
-# reflection_max_tokens = 1024
-# distillation_batch_size = 20
-# dedup_threshold = 0.85                # cosine similarity for principle dedup
-# distillation_interval_secs = 3600     # offline distillation cycle (seconds)
+[guardrails.input]
+max_length = 50000
+blocked_patterns = ['(?i)(api[_-]?key|password|secret)\s*[:=]\s*\S+']
+
+[[guardrails.input.redact_patterns]]
+name = "email"
+pattern = '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+replacement = "[REDACTED_EMAIL]"
+
+[guardrails.output]
+blocked_patterns = ['(?i)(api[_-]?key|password|secret)\s*[:=]\s*\S+']
+
+[audit]
+enabled = true
+output = "file"
+path = "audit.log"
+
+[experience]
+enabled = true
+max_principles = 8
+min_relevance_score = 0.6
+reflect_on = "sampled"
+sample_rate = 0.3
+principles_collection = "orka_principles"
+trajectories_collection = "orka_trajectories"
+reflection_model = "claude-haiku-4-5-20251001"
+reflection_max_tokens = 1024
+distillation_batch_size = 20
+dedup_threshold = 0.85                         # cosine similarity for principle dedup
+distillation_interval_secs = 3600              # offline distillation cycle (seconds)
 
 # --- Multi-agent graph example ---
 # Node kinds: "agent" (default), "router", "fan_out", "fan_in"

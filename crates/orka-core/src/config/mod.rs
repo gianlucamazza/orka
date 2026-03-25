@@ -23,6 +23,7 @@ pub mod adapters;
 pub mod agent;
 pub mod defaults;
 pub mod experience;
+pub mod git;
 pub mod http;
 pub mod infrastructure;
 pub mod knowledge;
@@ -39,7 +40,7 @@ pub mod web;
 
 // Re-export all configuration types for backward compatibility
 pub use self::{
-    adapters::*, agent::*, experience::*, http::*, infrastructure::*, knowledge::*, llm::*,
+    adapters::*, agent::*, experience::*, git::*, http::*, infrastructure::*, knowledge::*, llm::*,
     observability::*, primitives::*, prompts::*, protocols::*, security::*, server::*, system::*,
     tools::*, web::*,
 };
@@ -72,7 +73,7 @@ pub struct OrkaConfig {
     /// Name of the workspace to use when no explicit workspace is requested.
     #[serde(default)]
     pub default_workspace: Option<String>,
-    /// Channel adapter configuration (Telegram, Discord, Slack, WhatsApp,
+    /// Channel adapter configuration (Telegram, Discord, Slack, `WhatsApp`,
     /// custom).
     #[serde(default)]
     pub adapters: AdapterConfig,
@@ -148,6 +149,9 @@ pub struct OrkaConfig {
     /// Self-learning experience configuration.
     #[serde(default)]
     pub experience: ExperienceConfig,
+    /// Git integration configuration.
+    #[serde(default)]
+    pub git: GitConfig,
     /// Multi-agent definitions (replaces single `[agent]` for multi-agent
     /// deployments).
     #[serde(default)]
@@ -165,7 +169,7 @@ impl Default for OrkaConfig {
             bus: BusConfig::default(),
             redis: RedisConfig::default(),
             logging: LoggingConfig::default(),
-            workspace_dir: defaults::default_workspace_dir().to_string(),
+            workspace_dir: defaults::default_workspace_dir(),
             workspaces: Vec::new(),
             default_workspace: None,
             adapters: AdapterConfig::default(),
@@ -193,6 +197,7 @@ impl Default for OrkaConfig {
             http: HttpClientConfig::default(),
             prompts: PromptsConfig::default(),
             experience: ExperienceConfig::default(),
+            git: GitConfig::default(),
             agents: Vec::new(),
             graph: None,
         }
@@ -266,7 +271,7 @@ impl OrkaConfig {
 
         builder
             .build()
-            .and_then(|c| c.try_deserialize())
+            .and_then(config::Config::try_deserialize)
             .map_err(|e| {
                 ConfigError::Message(format!(
                     "failed to load orka.toml: {e}\n\
@@ -279,7 +284,16 @@ impl OrkaConfig {
     /// Validate the loaded configuration.
     pub fn validate(&mut self) -> crate::Result<()> {
         self.llm.apply_defaults();
+        self.validate_sub_configs()?;
+        self.validate_agents()?;
+        self.validate_enum_fields()?;
+        self.validate_graph()?;
+        self.validate_workspaces()?;
+        self.warn_deprecations();
+        Ok(())
+    }
 
+    fn validate_sub_configs(&self) -> crate::Result<()> {
         self.server.validate()?;
         self.redis.validate()?;
         self.worker.validate()?;
@@ -289,15 +303,16 @@ impl OrkaConfig {
         self.http.validate()?;
         self.os.validate()?;
         self.experience.validate()?;
-
         if !Path::new(&self.workspace_dir).is_dir() {
             return Err(crate::Error::Config(format!(
                 "workspace_dir '{}' does not exist or is not a directory",
                 self.workspace_dir
             )));
         }
+        Ok(())
+    }
 
-        // --- Agent defaults + validation ---
+    fn validate_agents(&mut self) -> crate::Result<()> {
         // When no config file is present (programmatic/test default), agents is empty.
         // Apply a single default agent so the graph builder always has at least one
         // entry.
@@ -318,9 +333,10 @@ impl OrkaConfig {
                 return Err(crate::Error::Config("agent id must not be empty".into()));
             }
         }
+        Ok(())
+    }
 
-        // --- Enum-like validation (redundant if using enums in sub-configs, but safe)
-        // ---
+    fn validate_enum_fields(&self) -> crate::Result<()> {
         if !matches!(
             self.logging.level.to_ascii_lowercase().as_str(),
             "trace" | "debug" | "info" | "warn" | "error"
@@ -330,7 +346,6 @@ impl OrkaConfig {
                 self.logging.level
             )));
         }
-
         if self.os.enabled
             && !matches!(
                 self.os.permission_level.as_str(),
@@ -342,7 +357,6 @@ impl OrkaConfig {
                 self.os.permission_level
             )));
         }
-
         for agent_def in &self.agents {
             if let Some(ref thinking) = agent_def.config.thinking
                 && !matches!(
@@ -356,79 +370,82 @@ impl OrkaConfig {
                 )));
             }
         }
+        Ok(())
+    }
 
-        // --- Graph topology validation ---
-        if let Some(ref graph_def) = self.graph {
-            // entry must reference an existing agent
-            if let Some(ref entry) = graph_def.entry
-                && !self.agents.iter().any(|a| &a.id == entry)
-            {
-                return Err(crate::Error::Config(format!(
-                    "graph.entry '{entry}' does not match any [[agents]] id"
-                )));
-            }
-
-            // Entry node cannot be fan_in (nothing to aggregate on first hop)
-            let entry_id = graph_def
-                .entry
-                .as_deref()
-                .or_else(|| self.agents.first().map(|a| a.id.as_str()));
-            if let Some(eid) = entry_id
-                && let Some(entry_def) = self.agents.iter().find(|a| a.id == eid)
-                && entry_def.kind == NodeKindDef::FanIn
-            {
-                return Err(crate::Error::Config(format!(
-                    "entry node '{eid}' cannot be `fan_in` — nothing to aggregate"
-                )));
-            }
-
-            for agent_def in &self.agents {
-                let id = &agent_def.id;
-                let outgoing_count = graph_def.edges.iter().filter(|e| &e.from == id).count();
-                match agent_def.kind {
-                    NodeKindDef::Router if outgoing_count == 0 => {
-                        return Err(crate::Error::Config(format!(
-                            "[[agents]] id={id}: `router` node must have at least one outgoing edge"
-                        )));
-                    }
-                    NodeKindDef::FanOut if outgoing_count < 2 => {
-                        return Err(crate::Error::Config(format!(
-                            "[[agents]] id={id}: `fan_out` node must have at least 2 outgoing edges (has {outgoing_count})"
-                        )));
-                    }
-                    _ => {}
+    fn validate_graph(&self) -> crate::Result<()> {
+        let Some(ref graph_def) = self.graph else {
+            return Ok(());
+        };
+        if let Some(ref entry) = graph_def.entry
+            && !self.agents.iter().any(|a| &a.id == entry)
+        {
+            return Err(crate::Error::Config(format!(
+                "graph.entry '{entry}' does not match any [[agents]] id"
+            )));
+        }
+        let entry_id = graph_def
+            .entry
+            .as_deref()
+            .or_else(|| self.agents.first().map(|a| a.id.as_str()));
+        if let Some(eid) = entry_id
+            && let Some(entry_def) = self.agents.iter().find(|a| a.id == eid)
+            && entry_def.kind == NodeKindDef::FanIn
+        {
+            return Err(crate::Error::Config(format!(
+                "entry node '{eid}' cannot be `fan_in` — nothing to aggregate"
+            )));
+        }
+        for agent_def in &self.agents {
+            let id = &agent_def.id;
+            let outgoing_count = graph_def.edges.iter().filter(|e| &e.from == id).count();
+            match agent_def.kind {
+                NodeKindDef::Router if outgoing_count == 0 => {
+                    return Err(crate::Error::Config(format!(
+                        "[[agents]] id={id}: `router` node must have at least one outgoing edge"
+                    )));
                 }
+                NodeKindDef::FanOut if outgoing_count < 2 => {
+                    return Err(crate::Error::Config(format!(
+                        "[[agents]] id={id}: `fan_out` node must have at least 2 outgoing edges (has {outgoing_count})"
+                    )));
+                }
+                _ => {}
             }
         }
+        Ok(())
+    }
 
-        // Validate multi-workspace entries
-        if !self.workspaces.is_empty() {
-            let mut seen_names = std::collections::HashSet::new();
-            for ws in &self.workspaces {
-                if !seen_names.insert(&ws.name) {
-                    return Err(crate::Error::Config(format!(
-                        "duplicate workspace name: '{}'",
-                        ws.name
-                    )));
-                }
-                if !Path::new(&ws.dir).is_dir() {
-                    return Err(crate::Error::Config(format!(
-                        "workspace '{}' dir '{}' does not exist or is not a directory",
-                        ws.name, ws.dir
-                    )));
-                }
-            }
-            if let Some(ref default) = self.default_workspace
-                && !self.workspaces.iter().any(|w| &w.name == default)
-            {
+    fn validate_workspaces(&self) -> crate::Result<()> {
+        if self.workspaces.is_empty() {
+            return Ok(());
+        }
+        let mut seen_names = std::collections::HashSet::new();
+        for ws in &self.workspaces {
+            if !seen_names.insert(&ws.name) {
                 return Err(crate::Error::Config(format!(
-                    "default_workspace '{}' not found in [[workspaces]]",
-                    default
+                    "duplicate workspace name: '{}'",
+                    ws.name
+                )));
+            }
+            if !Path::new(&ws.dir).is_dir() {
+                return Err(crate::Error::Config(format!(
+                    "workspace '{}' dir '{}' does not exist or is not a directory",
+                    ws.name, ws.dir
                 )));
             }
         }
+        if let Some(ref default) = self.default_workspace
+            && !self.workspaces.iter().any(|w| &w.name == default)
+        {
+            return Err(crate::Error::Config(format!(
+                "default_workspace '{default}' not found in [[workspaces]]"
+            )));
+        }
+        Ok(())
+    }
 
-        // --- Deprecation warnings ---
+    fn warn_deprecations(&self) {
         if self.web.api_key.is_some() {
             tracing::warn!(
                 "web.api_key is deprecated; use web.api_key_env to avoid leaking credentials in the config file"
@@ -449,7 +466,5 @@ impl OrkaConfig {
                 );
             }
         }
-
-        Ok(())
     }
 }
