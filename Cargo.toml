@@ -41,6 +41,10 @@ members = [
   "crates/orka-adapter-slack",
   "crates/orka-adapter-custom",
 
+  # ── Developer Tools ───────────────────────────────────────────────────────
+  # First-class git skills with guardrails and worktree isolation
+  "crates/orka-git",
+
   # ── Networking / OS ───────────────────────────────────────────────────────
   # HTTP client, web search, auth, Linux OS integration
   "crates/orka-http",
@@ -50,6 +54,7 @@ members = [
 
   # ── Orchestration ─────────────────────────────────────────────────────────
   # High-level: agent loop, workspace loader, gateway, worker pool, CLI, server
+  "crates/orka-checkpoint",
   "crates/orka-agent",
   "crates/orka-workspace",
   "crates/orka-gateway",
@@ -149,6 +154,9 @@ shell-words = "1"
 redis = { version = "0.27", features = ["tokio-comp", "streams"] }
 deadpool-redis = "0.18"
 
+# Streams
+tokio-stream = { version = "0.1", features = ["sync"] }
+
 # Testing
 testcontainers = "0.23"
 testcontainers-modules = { version = "0.11", features = ["redis"] }
@@ -201,6 +209,7 @@ jsonwebtoken = "9"
 
 # Regex
 regex = "1"
+base64 = "0.22"
 
 # OpenAPI
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
@@ -263,7 +272,9 @@ orka-knowledge = { path = "crates/orka-knowledge" }
 orka-scheduler = { path = "crates/orka-scheduler" }
 orka-experience = { path = "crates/orka-experience" }
 orka-eval = { path = "crates/orka-eval" }
+orka-checkpoint = { path = "crates/orka-checkpoint" }
 orka-agent = { path = "crates/orka-agent" }
+orka-git = { path = "crates/orka-git" }
 orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
 orka-prompts = { path = "crates/orka-prompts" }
 handlebars = { version = "6", default-features = false, features = [

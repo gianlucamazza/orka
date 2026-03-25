@@ -1,0 +1,36 @@
+[package]
+name = "orka-git"
+description = "Git integration skills for Orka agents (gix read + CLI write)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orka-core.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+chrono.workspace = true
+glob.workspace = true
+
+# Pure-Rust git library for read operations (branch list, log, object read).
+# CLI is used for write operations (push, commit signing, worktree management).
+gix = { version = "0.81", default-features = false, features = [
+  "revision",
+  "sha1",
+] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = [
+  "test-util",
+  "macros",
+  "rt-multi-thread",
+] }
+tempfile.workspace = true
+
+[lints]
+workspace = true
