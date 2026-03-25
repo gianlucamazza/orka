@@ -146,16 +146,53 @@ pub type LlmStream = Pin<Box<dyn futures_util::Stream<Item = Result<String>> + S
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum ThinkingConfig {
-    /// Anthropic extended thinking with a token budget.
+    /// Anthropic adaptive thinking (recommended for Claude 4.x).
+    ///
+    /// Claude dynamically decides when and how much to think based on the
+    /// requested effort level. Requires `thinking.type: "adaptive"` API support
+    /// (Claude Sonnet 4.6 and Opus 4.6+).
+    Adaptive {
+        /// How deeply Claude should reason.
+        effort: ThinkingEffort,
+    },
+    /// Anthropic legacy extended thinking with a fixed token budget.
+    ///
+    /// Deprecated on Claude 4.6 models — use [`ThinkingConfig::Adaptive`]
+    /// instead. Still valid for older Claude models (3.7, 4.0, 4.5).
     Enabled {
         /// Maximum tokens the model may spend on thinking.
         budget_tokens: u32,
     },
-    /// OpenAI o-series reasoning effort.
+    /// OpenAI o-series / GPT-5.x reasoning effort.
     ReasoningEffort(ReasoningEffort),
 }
 
-/// OpenAI o-series reasoning effort level.
+/// Effort level for Anthropic adaptive thinking.
+#[derive(Debug, Clone, Copy)]
+pub enum ThinkingEffort {
+    /// Minimal thinking — fastest, for simple queries.
+    Low,
+    /// Moderate thinking — balanced default.
+    Medium,
+    /// Deep thinking — for complex tasks.
+    High,
+    /// Maximum depth — only available on Claude Opus 4.6+.
+    Max,
+}
+
+impl ThinkingEffort {
+    /// Return the string value expected by the Anthropic API.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ThinkingEffort::Low => "low",
+            ThinkingEffort::Medium => "medium",
+            ThinkingEffort::High => "high",
+            ThinkingEffort::Max => "max",
+        }
+    }
+}
+
+/// OpenAI o-series / GPT-5.x reasoning effort level.
 #[derive(Debug, Clone, Copy)]
 pub enum ReasoningEffort {
     /// Low effort — fastest, least thorough.

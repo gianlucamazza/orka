@@ -62,8 +62,8 @@ impl From<LlmError> for orka_core::Error {
     /// assert!(core_err.to_string().contains("llm error"));
     /// ```
     fn from(e: LlmError) -> Self {
-        let msg = e.to_string();
-        orka_core::Error::llm_msg(msg)
+        let context = e.to_string();
+        orka_core::Error::llm(e, context)
     }
 }
 

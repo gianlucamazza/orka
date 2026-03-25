@@ -281,8 +281,20 @@ impl LlmClient for OpenAiClient {
         if let Some(temp) = options.temperature {
             body["temperature"] = json!(temp);
         }
-        if let Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) = options.thinking {
-            body["reasoning_effort"] = json!(effort.as_str());
+        match options.thinking {
+            Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) => {
+                body["reasoning_effort"] = json!(effort.as_str());
+            }
+            Some(crate::client::ThinkingConfig::Adaptive { effort }) => {
+                let openai_effort = match effort {
+                    crate::client::ThinkingEffort::Low => "low",
+                    crate::client::ThinkingEffort::Medium => "medium",
+                    crate::client::ThinkingEffort::High => "high",
+                    crate::client::ThinkingEffort::Max => "high",
+                };
+                body["reasoning_effort"] = json!(openai_effort);
+            }
+            _ => {}
         }
 
         debug!(model, messages = messages.len(), "calling OpenAI API");
@@ -401,8 +413,20 @@ impl LlmClient for OpenAiClient {
         if let Some(temp) = options.temperature {
             body["temperature"] = json!(temp);
         }
-        if let Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) = options.thinking {
-            body["reasoning_effort"] = json!(effort.as_str());
+        match options.thinking {
+            Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) => {
+                body["reasoning_effort"] = json!(effort.as_str());
+            }
+            Some(crate::client::ThinkingConfig::Adaptive { effort }) => {
+                let openai_effort = match effort {
+                    crate::client::ThinkingEffort::Low => "low",
+                    crate::client::ThinkingEffort::Medium => "medium",
+                    crate::client::ThinkingEffort::High => "high",
+                    crate::client::ThinkingEffort::Max => "high",
+                };
+                body["reasoning_effort"] = json!(openai_effort);
+            }
+            _ => {}
         }
 
         debug!(
@@ -448,8 +472,20 @@ impl LlmClient for OpenAiClient {
         if let Some(temp) = options.temperature {
             body["temperature"] = json!(temp);
         }
-        if let Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) = options.thinking {
-            body["reasoning_effort"] = json!(effort.as_str());
+        match options.thinking {
+            Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) => {
+                body["reasoning_effort"] = json!(effort.as_str());
+            }
+            Some(crate::client::ThinkingConfig::Adaptive { effort }) => {
+                let openai_effort = match effort {
+                    crate::client::ThinkingEffort::Low => "low",
+                    crate::client::ThinkingEffort::Medium => "medium",
+                    crate::client::ThinkingEffort::High => "high",
+                    crate::client::ThinkingEffort::Max => "high",
+                };
+                body["reasoning_effort"] = json!(openai_effort);
+            }
+            _ => {}
         }
 
         debug!(

@@ -204,9 +204,11 @@ impl AnthropicClient {
             .collect()
     }
 
-    /// Clamp `budget_tokens` to `max_tokens - 1` if it would equal or exceed
-    /// `max_tokens`. The Anthropic API returns a 400 error when
-    /// `budget_tokens >= max_tokens`.
+    /// Validate thinking config before sending to the Anthropic API.
+    ///
+    /// For `Enabled { budget_tokens }`: clamps to `max_tokens - 1` when the
+    /// budget equals or exceeds `max_tokens` (Anthropic returns 400 otherwise).
+    /// For `Adaptive`: no transformation needed — no token budget to clamp.
     fn validated_thinking(
         thinking: &Option<crate::client::ThinkingConfig>,
         max_tokens: u32,
@@ -227,6 +229,37 @@ impl AnthropicClient {
                 })
             }
             other => other.clone(),
+        }
+    }
+
+    /// Inject thinking parameters into the request body and set temperature.
+    ///
+    /// Both `Adaptive` and `Enabled` require `temperature=1` per Anthropic
+    /// requirements. When thinking is absent the caller-supplied temperature
+    /// is applied unchanged.
+    fn apply_thinking_to_body(
+        body: &mut serde_json::Value,
+        thinking: &Option<crate::client::ThinkingConfig>,
+        temperature: Option<f32>,
+    ) {
+        match thinking {
+            Some(crate::client::ThinkingConfig::Adaptive { effort }) => {
+                body["thinking"] = json!({ "type": "adaptive" });
+                body["output_config"] = json!({ "effort": effort.as_str() });
+                body["temperature"] = json!(1);
+            }
+            Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
+                body["thinking"] = json!({
+                    "type": "enabled",
+                    "budget_tokens": budget_tokens,
+                });
+                body["temperature"] = json!(1);
+            }
+            _ => {
+                if let Some(temp) = temperature {
+                    body["temperature"] = json!(temp);
+                }
+            }
         }
     }
 
@@ -270,20 +303,7 @@ impl LlmClient for AnthropicClient {
             "messages": api_messages,
         });
 
-        match &thinking {
-            Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
-                body["thinking"] = json!({
-                    "type": "enabled",
-                    "budget_tokens": budget_tokens,
-                });
-                body["temperature"] = json!(1);
-            }
-            _ => {
-                if let Some(temp) = options.temperature {
-                    body["temperature"] = json!(temp);
-                }
-            }
-        }
+        Self::apply_thinking_to_body(&mut body, &thinking, options.temperature);
 
         debug!(model, messages = messages.len(), "calling Anthropic API");
 
@@ -332,23 +352,7 @@ impl LlmClient for AnthropicClient {
             body["tools"] = json!(api_tools);
         }
 
-        // Extended thinking: inject thinking param and force temperature=1 (Anthropic
-        // requirement)
-        match &thinking {
-            Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
-                body["thinking"] = json!({
-                    "type": "enabled",
-                    "budget_tokens": budget_tokens,
-                });
-                // Anthropic requires temperature=1 when thinking is enabled
-                body["temperature"] = json!(1);
-            }
-            _ => {
-                if let Some(temp) = options.temperature {
-                    body["temperature"] = json!(temp);
-                }
-            }
-        }
+        Self::apply_thinking_to_body(&mut body, &thinking, options.temperature);
 
         // Structured output support (not all providers support this)
         // Anthropic doesn't have native response_format, but we can add it to system
@@ -489,20 +493,7 @@ impl LlmClient for AnthropicClient {
             body["tools"] = json!(api_tools);
         }
 
-        match &thinking {
-            Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) => {
-                body["thinking"] = json!({
-                    "type": "enabled",
-                    "budget_tokens": budget_tokens,
-                });
-                body["temperature"] = json!(1);
-            }
-            _ => {
-                if let Some(temp) = options.temperature {
-                    body["temperature"] = json!(temp);
-                }
-            }
-        }
+        Self::apply_thinking_to_body(&mut body, &thinking, options.temperature);
 
         debug!(
             model,
@@ -882,6 +873,52 @@ mod tests {
     fn validated_thinking_none_passthrough() {
         let result = AnthropicClient::validated_thinking(&None, 8192);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn validated_thinking_adaptive_passthrough() {
+        let thinking = Some(crate::client::ThinkingConfig::Adaptive {
+            effort: crate::client::ThinkingEffort::High,
+        });
+        let result = AnthropicClient::validated_thinking(&thinking, 8192);
+        assert!(matches!(
+            result,
+            Some(crate::client::ThinkingConfig::Adaptive {
+                effort: crate::client::ThinkingEffort::High
+            })
+        ));
+    }
+
+    #[test]
+    fn apply_thinking_body_adaptive_sets_adaptive_type() {
+        let thinking = Some(crate::client::ThinkingConfig::Adaptive {
+            effort: crate::client::ThinkingEffort::Medium,
+        });
+        let mut body = serde_json::json!({});
+        AnthropicClient::apply_thinking_to_body(&mut body, &thinking, None);
+        assert_eq!(body["thinking"]["type"], "adaptive");
+        assert_eq!(body["output_config"]["effort"], "medium");
+        assert_eq!(body["temperature"], 1);
+    }
+
+    #[test]
+    fn apply_thinking_body_enabled_sets_enabled_type() {
+        let thinking = Some(crate::client::ThinkingConfig::Enabled {
+            budget_tokens: 5000,
+        });
+        let mut body = serde_json::json!({});
+        AnthropicClient::apply_thinking_to_body(&mut body, &thinking, None);
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["thinking"]["budget_tokens"], 5000);
+        assert_eq!(body["temperature"], 1);
+    }
+
+    #[test]
+    fn apply_thinking_body_none_applies_temperature() {
+        let mut body = serde_json::json!({});
+        AnthropicClient::apply_thinking_to_body(&mut body, &None, Some(0.5));
+        assert!(body.get("thinking").is_none());
+        assert_eq!(body["temperature"], 0.5);
     }
 
     #[test]
