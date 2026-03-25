@@ -145,6 +145,35 @@ enum Commands {
         #[arg(long)]
         config: Option<String>,
     },
+    /// Comprehensive system diagnostics
+    Doctor {
+        #[command(subcommand)]
+        action: Option<cmd::doctor::DoctorAction>,
+        /// Output format
+        #[arg(long, default_value = "text", value_enum)]
+        format: cmd::doctor::OutputFormat,
+        /// Filter by category
+        #[arg(long, value_enum)]
+        category: Option<cmd::doctor::Category>,
+        /// Run a specific check by ID (e.g., CFG-001)
+        #[arg(long)]
+        check: Option<String>,
+        /// Minimum severity to report
+        #[arg(long, default_value = "info", value_enum)]
+        min_severity: cmd::doctor::Severity,
+        /// Show verbose details (also enables provider reachability probe)
+        #[arg(long, short)]
+        verbose: bool,
+        /// Attempt auto-remediation with interactive confirmation
+        #[arg(long)]
+        fix: bool,
+        /// Path to orka.toml config file
+        #[arg(long)]
+        config: Option<String>,
+        /// Per-check timeout in seconds
+        #[arg(long, default_value = "5")]
+        timeout: u64,
+    },
     /// Generate shell completions
     Completions {
         /// Shell to generate completions for
@@ -470,6 +499,33 @@ async fn main() {
             ConfigAction::Check { config } => cmd::config::check(config.as_deref()).await,
             ConfigAction::Migrate { config, dry_run } => {
                 cmd::config::migrate_cmd(config.as_deref(), dry_run).await
+            }
+        },
+        Commands::Doctor {
+            action,
+            format,
+            category,
+            check,
+            min_severity,
+            verbose,
+            fix,
+            config,
+            timeout,
+        } => match action {
+            Some(cmd::doctor::DoctorAction::List) => cmd::doctor::list_checks(),
+            Some(cmd::doctor::DoctorAction::Explain { id }) => cmd::doctor::explain_check(&id),
+            None => {
+                cmd::doctor::run(
+                    config.as_deref(),
+                    format,
+                    category,
+                    check.as_deref(),
+                    min_severity,
+                    verbose,
+                    fix,
+                    timeout,
+                )
+                .await
             }
         },
         Commands::Sudo { config } => cmd::sudo::check(config.as_deref()).await,

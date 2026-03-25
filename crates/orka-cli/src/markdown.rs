@@ -683,14 +683,20 @@ mod tests {
 
     #[test]
     fn block_boundary_paragraph() {
-        let r = MarkdownRenderer { buffer: "Hello world\n\nSecond paragraph".to_string(), ..Default::default() };
+        let r = MarkdownRenderer {
+            buffer: "Hello world\n\nSecond paragraph".to_string(),
+            ..Default::default()
+        };
         let boundary = r.find_block_boundary();
         assert_eq!(boundary, Some(11)); // "Hello world" ends at 11
     }
 
     #[test]
     fn block_boundary_code_fence() {
-        let r = MarkdownRenderer { buffer: "```rust\nfn main() {}\n```\nmore text".to_string(), ..Default::default() };
+        let r = MarkdownRenderer {
+            buffer: "```rust\nfn main() {}\n```\nmore text".to_string(),
+            ..Default::default()
+        };
         let boundary = r.find_block_boundary();
         assert!(boundary.is_some());
         let end = boundary.unwrap();
@@ -701,7 +707,10 @@ mod tests {
 
     #[test]
     fn block_boundary_no_closing_fence() {
-        let r = MarkdownRenderer { buffer: "```rust\nfn main() {}".to_string(), ..Default::default() };
+        let r = MarkdownRenderer {
+            buffer: "```rust\nfn main() {}".to_string(),
+            ..Default::default()
+        };
         let boundary = r.find_block_boundary();
         assert_eq!(boundary, None); // No closing fence yet
     }
@@ -731,7 +740,10 @@ mod tests {
 
     #[test]
     fn reset_clears_state() {
-        let mut r = MarkdownRenderer { buffer: "leftover".to_string(), ..Default::default() };
+        let mut r = MarkdownRenderer {
+            buffer: "leftover".to_string(),
+            ..Default::default()
+        };
         r.reset();
         assert!(r.buffer.is_empty());
     }
