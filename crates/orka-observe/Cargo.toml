@@ -21,3 +21,7 @@ opentelemetry-otlp.workspace = true
 tracing-opentelemetry.workspace = true
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

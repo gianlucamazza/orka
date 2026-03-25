@@ -261,59 +261,17 @@ impl EventSink for FanoutSink {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_helpers {
     use orka_core::{
-        config::*,
+        DomainEvent, DomainEventKind,
         types::{MessageId, SessionId},
     };
 
-    use super::*;
-
-    fn test_config() -> OrkaConfig {
-        OrkaConfig {
-            config_version: 1,
-            server: ServerConfig::default(),
-            bus: BusConfig::default(),
-            redis: RedisConfig::default(),
-            logging: LoggingConfig::default(),
-            workspace_dir: ".".into(),
-            workspaces: Vec::new(),
-            default_workspace: None,
-            adapters: AdapterConfig::default(),
-            worker: WorkerConfig::default(),
-            memory: MemoryConfig::default(),
-            secrets: SecretConfig::default(),
-            auth: AuthConfig::default(),
-            sandbox: SandboxConfig::default(),
-            plugins: PluginConfig::default(),
-            soft_skills: SoftSkillConfig::default(),
-            session: SessionConfig::default(),
-            queue: QueueConfig::default(),
-            llm: LlmConfig::default(),
-            tools: ToolsConfig::default(),
-            observe: ObserveConfig::default(),
-            audit: AuditConfig::default(),
-            gateway: GatewayConfig::default(),
-            prompts: PromptsConfig::default(),
-            mcp: McpConfig::default(),
-            guardrails: GuardrailsConfig::default(),
-            web: WebConfig::default(),
-            os: OsConfig::default(),
-            a2a: A2aConfig::default(),
-            knowledge: KnowledgeConfig::default(),
-            scheduler: SchedulerConfig::default(),
-            http: HttpClientConfig::default(),
-            experience: ExperienceConfig::default(),
-            agents: Vec::new(),
-            graph: None,
-        }
-    }
-
-    fn make_event(kind: DomainEventKind) -> DomainEvent {
+    pub fn make_event(kind: DomainEventKind) -> DomainEvent {
         DomainEvent::new(kind)
     }
 
-    fn all_event_kinds() -> Vec<DomainEventKind> {
+    pub fn all_event_kinds() -> Vec<DomainEventKind> {
         let mid = MessageId::new();
         let sid = SessionId::new();
         vec![
@@ -426,6 +384,79 @@ mod tests {
             DomainEventKind::Heartbeat,
         ]
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use orka_core::{DomainEvent, config::*};
+
+    use super::{test_helpers::*, *};
+
+    fn test_config() -> OrkaConfig {
+        OrkaConfig {
+            config_version: 1,
+            server: ServerConfig::default(),
+            bus: BusConfig::default(),
+            redis: RedisConfig::default(),
+            logging: LoggingConfig::default(),
+            workspace_dir: ".".into(),
+            workspaces: Vec::new(),
+            default_workspace: None,
+            adapters: AdapterConfig::default(),
+            worker: WorkerConfig::default(),
+            memory: MemoryConfig::default(),
+            secrets: SecretConfig::default(),
+            auth: AuthConfig::default(),
+            sandbox: SandboxConfig::default(),
+            plugins: PluginConfig::default(),
+            soft_skills: SoftSkillConfig::default(),
+            session: SessionConfig::default(),
+            queue: QueueConfig::default(),
+            llm: LlmConfig::default(),
+            tools: ToolsConfig::default(),
+            observe: ObserveConfig::default(),
+            audit: AuditConfig::default(),
+            gateway: GatewayConfig::default(),
+            prompts: PromptsConfig::default(),
+            mcp: McpConfig::default(),
+            guardrails: GuardrailsConfig::default(),
+            web: WebConfig::default(),
+            os: OsConfig::default(),
+            a2a: A2aConfig::default(),
+            knowledge: KnowledgeConfig::default(),
+            scheduler: SchedulerConfig::default(),
+            http: HttpClientConfig::default(),
+            experience: ExperienceConfig::default(),
+            agents: Vec::new(),
+            graph: None,
+        }
+    }
+
+    /// Recording sink that collects emitted events for assertions.
+    struct RecordingEventSink {
+        events: Arc<Mutex<Vec<DomainEvent>>>,
+    }
+
+    impl RecordingEventSink {
+        fn new() -> (Self, Arc<Mutex<Vec<DomainEvent>>>) {
+            let store = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    events: store.clone(),
+                },
+                store,
+            )
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl orka_core::traits::EventSink for RecordingEventSink {
+        async fn emit(&self, event: DomainEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
 
     #[tokio::test]
     async fn log_event_sink_emits_all_variants_without_panic() {
@@ -439,7 +470,6 @@ mod tests {
     fn create_event_sink_returns_log_for_unknown_backend() {
         let mut config = test_config();
         config.observe.backend = "unknown".into();
-        // Should return a sink (the log fallback) without error.
         let _sink = create_event_sink(&config);
     }
 
@@ -448,7 +478,56 @@ mod tests {
         let mut config = test_config();
         config.observe.backend = "redis".into();
         config.redis.url = "not-a-valid-url".into();
-        // Should fall back to log sink instead of panicking.
         let _sink = create_event_sink(&config);
+    }
+
+    #[tokio::test]
+    async fn fanout_broadcasts_to_all_sinks() {
+        let (sink_a, store_a) = RecordingEventSink::new();
+        let (sink_b, store_b) = RecordingEventSink::new();
+        let fanout = FanoutSink(vec![Arc::new(sink_a), Arc::new(sink_b)]);
+
+        fanout
+            .emit(make_event(orka_core::DomainEventKind::Heartbeat))
+            .await;
+        fanout
+            .emit(make_event(orka_core::DomainEventKind::Heartbeat))
+            .await;
+
+        assert_eq!(store_a.lock().unwrap().len(), 2);
+        assert_eq!(store_b.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn create_event_sink_with_audit_writes_to_file() {
+        use orka_core::{DomainEventKind, types::MessageId};
+        use tempfile::NamedTempFile;
+
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_path_buf();
+
+        let mut config = test_config();
+        config.audit.enabled = true;
+        config.audit.path = Some(path.clone());
+
+        let sink = create_event_sink(&config);
+
+        // Emit a SkillInvoked event — the audit sink only writes skill events
+        sink.emit(DomainEvent::new(DomainEventKind::SkillInvoked {
+            skill_name: "test_skill".into(),
+            message_id: MessageId::new(),
+            input_args: Default::default(),
+            caller_id: None,
+        }))
+        .await;
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !content.is_empty(),
+            "audit file should contain a JSONL record"
+        );
+        let record: serde_json::Value =
+            serde_json::from_str(content.lines().next().unwrap()).unwrap();
+        assert_eq!(record["skill"], "test_skill");
     }
 }

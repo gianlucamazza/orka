@@ -141,3 +141,110 @@ fn sha256_hex(data: &[u8]) -> String {
     });
     format!("len{}:chk{:016x}", data.len(), checksum)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use orka_core::{DomainEvent, DomainEventKind, traits::EventSink, types::MessageId};
+    use tempfile::NamedTempFile;
+
+    use super::*;
+
+    fn skill_invoked(skill: &str) -> DomainEvent {
+        DomainEvent::new(DomainEventKind::SkillInvoked {
+            skill_name: skill.to_string(),
+            message_id: MessageId::new(),
+            input_args: HashMap::from([("query".to_string(), serde_json::json!("test"))]),
+            caller_id: Some("agent-1".to_string()),
+        })
+    }
+
+    fn skill_completed(skill: &str, success: bool) -> DomainEvent {
+        DomainEvent::new(DomainEventKind::SkillCompleted {
+            skill_name: skill.to_string(),
+            message_id: MessageId::new(),
+            duration_ms: 42,
+            success,
+            error_category: None,
+            output_preview: Some("result".to_string()),
+            error_message: if success {
+                None
+            } else {
+                Some("oops".to_string())
+            },
+        })
+    }
+
+    fn read_lines(path: &str) -> Vec<serde_json::Value> {
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+        content
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn skill_invoked_writes_jsonl_record() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        let sink = AuditSink::new(&path).unwrap();
+
+        sink.emit(skill_invoked("web_search")).await;
+
+        let lines = read_lines(&path);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0]["event"], "skill_invoked");
+        assert_eq!(lines[0]["skill"], "web_search");
+        assert_eq!(lines[0]["caller_id"], "agent-1");
+        assert!(lines[0]["args_hash"].as_str().is_some());
+        assert!(lines[0]["duration_ms"].is_null());
+    }
+
+    #[tokio::test]
+    async fn skill_completed_writes_jsonl_record() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        let sink = AuditSink::new(&path).unwrap();
+
+        sink.emit(skill_completed("summarize", true)).await;
+
+        let lines = read_lines(&path);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0]["event"], "skill_completed");
+        assert_eq!(lines[0]["skill"], "summarize");
+        assert_eq!(lines[0]["duration_ms"], 42);
+        assert_eq!(lines[0]["success"], true);
+        assert_eq!(lines[0]["output_preview"], "result");
+    }
+
+    #[tokio::test]
+    async fn non_skill_events_are_ignored() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        let sink = AuditSink::new(&path).unwrap();
+
+        sink.emit(DomainEvent::new(DomainEventKind::Heartbeat))
+            .await;
+
+        assert!(read_lines(&path).is_empty());
+    }
+
+    #[tokio::test]
+    async fn multiple_events_append_separate_lines() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        let sink = AuditSink::new(&path).unwrap();
+
+        sink.emit(skill_invoked("skill_a")).await;
+        sink.emit(skill_completed("skill_b", false)).await;
+
+        let lines = read_lines(&path);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0]["skill"], "skill_a");
+        assert_eq!(lines[1]["skill"], "skill_b");
+        assert_eq!(lines[1]["success"], false);
+        assert_eq!(lines[1]["error_message"], "oops");
+    }
+}

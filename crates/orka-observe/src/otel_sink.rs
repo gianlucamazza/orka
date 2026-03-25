@@ -373,3 +373,193 @@ pub fn init_otel_tracer(
 
     Ok(tracer)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use opentelemetry::trace::{SpanKind, TracerProvider as _};
+    use opentelemetry_sdk::{
+        error::OTelSdkResult,
+        trace::{SdkTracerProvider, SpanData, SpanExporter},
+    };
+    use orka_core::traits::EventSink;
+
+    use super::*;
+    use crate::test_helpers::{all_event_kinds, make_event};
+
+    /// Collecting exporter for use in tests — gathers exported spans into a
+    /// Vec.
+    #[derive(Debug, Clone)]
+    struct CollectingExporter(Arc<Mutex<Vec<SpanData>>>);
+
+    impl CollectingExporter {
+        fn new() -> (Self, Arc<Mutex<Vec<SpanData>>>) {
+            let store = Arc::new(Mutex::new(Vec::new()));
+            (Self(store.clone()), store)
+        }
+    }
+
+    impl SpanExporter for CollectingExporter {
+        fn export(
+            &mut self,
+            batch: Vec<SpanData>,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = OTelSdkResult> + Send + 'static>>
+        {
+            self.0.lock().unwrap().extend(batch);
+            Box::pin(std::future::ready(Ok(())))
+        }
+
+        fn shutdown(&mut self) -> OTelSdkResult {
+            Ok(())
+        }
+
+        fn force_flush(&mut self) -> OTelSdkResult {
+            Ok(())
+        }
+    }
+
+    fn make_sink() -> (OtelEventSink, Arc<Mutex<Vec<SpanData>>>) {
+        let (exporter, store) = CollectingExporter::new();
+        let provider = SdkTracerProvider::builder()
+            .with_simple_exporter(exporter)
+            .build();
+        let tracer = provider.tracer("test");
+        (OtelEventSink::new(tracer), store)
+    }
+
+    fn span_names(store: &Arc<Mutex<Vec<SpanData>>>) -> Vec<String> {
+        store
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|s| s.name.to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn all_event_variants_emit_without_panic() {
+        let (sink, _) = make_sink();
+        for kind in all_event_kinds() {
+            sink.emit(make_event(kind)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn skill_completed_creates_client_span() {
+        let (sink, store) = make_sink();
+        sink.emit(make_event(orka_core::DomainEventKind::SkillCompleted {
+            skill_name: "web_search".into(),
+            message_id: orka_core::types::MessageId::new(),
+            duration_ms: 100,
+            success: true,
+            error_category: None,
+            output_preview: None,
+            error_message: None,
+        }))
+        .await;
+
+        let spans = store.lock().unwrap();
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].name.as_ref(), "execute_tool web_search");
+        assert_eq!(spans[0].span_kind, SpanKind::Client);
+    }
+
+    #[tokio::test]
+    async fn skill_completed_with_error_sets_error_status() {
+        let (sink, store) = make_sink();
+        sink.emit(make_event(orka_core::DomainEventKind::SkillCompleted {
+            skill_name: "web_search".into(),
+            message_id: orka_core::types::MessageId::new(),
+            duration_ms: 50,
+            success: false,
+            error_category: None,
+            output_preview: None,
+            error_message: Some("timeout".into()),
+        }))
+        .await;
+
+        let spans = store.lock().unwrap();
+        assert!(
+            matches!(spans[0].status, opentelemetry::trace::Status::Error { .. }),
+            "expected Error status for failed skill"
+        );
+    }
+
+    #[tokio::test]
+    async fn llm_completed_creates_client_span_with_model_attribute() {
+        let (sink, store) = make_sink();
+        sink.emit(make_event(orka_core::DomainEventKind::LlmCompleted {
+            message_id: orka_core::types::MessageId::new(),
+            model: "claude-sonnet-4-6".into(),
+            provider: "anthropic".into(),
+            input_tokens: 100,
+            output_tokens: 50,
+            reasoning_tokens: 0,
+            duration_ms: 300,
+            estimated_cost_usd: Some(0.001),
+        }))
+        .await;
+
+        let spans = store.lock().unwrap();
+        assert_eq!(spans[0].span_kind, SpanKind::Client);
+        let has_model_attr = spans[0]
+            .attributes
+            .iter()
+            .any(|kv| kv.key.as_str() == "gen_ai.request.model");
+        assert!(has_model_attr, "expected gen_ai.request.model attribute");
+    }
+
+    #[tokio::test]
+    async fn agent_iteration_creates_server_span() {
+        let (sink, store) = make_sink();
+        sink.emit(make_event(orka_core::DomainEventKind::AgentIteration {
+            message_id: orka_core::types::MessageId::new(),
+            iteration: 3,
+            tool_count: 2,
+            tokens_used: 500,
+            elapsed_ms: 1000,
+        }))
+        .await;
+
+        let spans = store.lock().unwrap();
+        assert_eq!(spans[0].name.as_ref(), "invoke_agent");
+        assert_eq!(spans[0].span_kind, SpanKind::Server);
+    }
+
+    #[tokio::test]
+    async fn message_received_creates_internal_span() {
+        let (sink, store) = make_sink();
+        sink.emit(make_event(orka_core::DomainEventKind::MessageReceived {
+            message_id: orka_core::types::MessageId::new(),
+            channel: "telegram".into(),
+            session_id: orka_core::types::SessionId::new(),
+        }))
+        .await;
+
+        let names = span_names(&store);
+        assert!(
+            names.iter().any(|n| n == "message.received"),
+            "expected message.received span, got: {names:?}"
+        );
+        let spans = store.lock().unwrap();
+        assert_eq!(spans[0].span_kind, SpanKind::Internal);
+    }
+
+    #[tokio::test]
+    async fn error_occurred_creates_error_span() {
+        let (sink, store) = make_sink();
+        sink.emit(make_event(orka_core::DomainEventKind::ErrorOccurred {
+            source: "adapter".into(),
+            message: "connection lost".into(),
+        }))
+        .await;
+
+        let spans = store.lock().unwrap();
+        assert_eq!(spans[0].name.as_ref(), "error");
+        assert!(matches!(
+            spans[0].status,
+            opentelemetry::trace::Status::Error { .. }
+        ));
+    }
+}
