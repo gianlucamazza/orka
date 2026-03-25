@@ -9,6 +9,9 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+/// Duration of the rate-limiting sliding window in seconds.
+const RATE_LIMIT_WINDOW_SECS: i64 = 60;
+
 use chrono::Utc;
 use deadpool_redis::Pool;
 use orka_core::{
@@ -150,7 +153,7 @@ impl Gateway {
                                 // First request in window — set expiry
                                 let expire_result: redis::RedisResult<()> = redis::cmd("EXPIRE")
                                     .arg(&key)
-                                    .arg(60i64)
+                                    .arg(RATE_LIMIT_WINDOW_SECS)
                                     .query_async(&mut *conn)
                                     .await;
                                 if let Err(e) = expire_result {
@@ -185,7 +188,7 @@ impl Gateway {
 
         // Reset window if more than 60 seconds have passed
         let elapsed = now.signed_duration_since(entry.1);
-        if elapsed.num_seconds() >= 60 {
+        if elapsed.num_seconds() >= RATE_LIMIT_WINDOW_SECS {
             entry.0 = 0;
             entry.1 = now;
         }

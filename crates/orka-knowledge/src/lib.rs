@@ -46,28 +46,28 @@ pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn S
                 Arc::new(embeddings::openai::OpenAiEmbeddingProvider::new(
                     api_key,
                     config.embeddings.model.clone(),
-                    1536, // OpenAI ada-002 dimensions
+                    embeddings::OPENAI_EMBEDDING_DIMS,
                 ))
             }
             EmbeddingProvider::Anthropic => {
                 // Anthropic embeddings not yet implemented - use local as fallback
                 Arc::new(embeddings::local::LocalEmbeddingProvider::new(
                     &config.embeddings.model,
-                    384, // BGE-small dimensions
+                    embeddings::LOCAL_EMBEDDING_DIMS,
                 )?)
             }
             EmbeddingProvider::Custom => {
                 // Custom endpoint not yet implemented - use local as fallback
                 Arc::new(embeddings::local::LocalEmbeddingProvider::new(
                     &config.embeddings.model,
-                    384, // BGE-small dimensions
+                    embeddings::LOCAL_EMBEDDING_DIMS,
                 )?)
             }
             EmbeddingProvider::Local => {
                 // Default: local fastembed
                 Arc::new(embeddings::local::LocalEmbeddingProvider::new(
                     &config.embeddings.model,
-                    384, // BGE-small dimensions
+                    embeddings::LOCAL_EMBEDDING_DIMS,
                 )?)
             }
         };
@@ -78,7 +78,7 @@ pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn S
             .vector_store
             .url
             .as_deref()
-            .unwrap_or("http://localhost:6333"),
+            .unwrap_or(&orka_core::config::defaults::default_qdrant_url()),
     )?);
 
     create_knowledge_skills_with(config, embedding_provider, vector_store)

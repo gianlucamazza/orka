@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use orka_core::{
     Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema,
-    config::{ClaudeCodeConfig, CodexConfig, CodingConfig, OsConfig},
+    config::{
+        ClaudeCodeConfig, CodexConfig, CodingConfig, CodingProvider, CodingSelectionPolicy,
+        OsConfig, SandboxMode,
+    },
     traits::Skill,
 };
 use tracing::debug;
@@ -144,23 +147,23 @@ impl CodingDelegateSkill {
         let claude_enabled = self.claude.is_enabled();
         let codex_enabled = self.codex.is_enabled();
 
-        let chosen = match self.coding.default_provider.as_str() {
-            "claude_code" => {
+        let chosen = match self.coding.default_provider {
+            CodingProvider::ClaudeCode => {
                 if claude_enabled {
                     Some(&self.claude as &dyn CodeDelegateBackend)
                 } else {
                     None
                 }
             }
-            "codex" => {
+            CodingProvider::Codex => {
                 if codex_enabled {
                     Some(&self.codex as &dyn CodeDelegateBackend)
                 } else {
                     None
                 }
             }
-            "auto" => match self.coding.selection_policy.as_str() {
-                "prefer_claude" => {
+            CodingProvider::Auto => match self.coding.selection_policy {
+                CodingSelectionPolicy::PreferClaude => {
                     if claude_enabled {
                         Some(&self.claude as &dyn CodeDelegateBackend)
                     } else if codex_enabled {
@@ -169,7 +172,7 @@ impl CodingDelegateSkill {
                         None
                     }
                 }
-                "prefer_codex" => {
+                CodingSelectionPolicy::PreferCodex => {
                     if codex_enabled {
                         Some(&self.codex as &dyn CodeDelegateBackend)
                     } else if claude_enabled {
@@ -178,7 +181,7 @@ impl CodingDelegateSkill {
                         None
                     }
                 }
-                _ => {
+                CodingSelectionPolicy::Availability => {
                     if claude_enabled {
                         Some(&self.claude as &dyn CodeDelegateBackend)
                     } else if codex_enabled {
@@ -188,7 +191,6 @@ impl CodingDelegateSkill {
                     }
                 }
             },
-            _ => None,
         };
 
         chosen.ok_or_else(|| Error::SkillCategorized {
@@ -350,8 +352,8 @@ impl CodeDelegateBackend for CodexBackend {
     ) -> Result<SkillOutput> {
         let prompt = build_prompt(self, request, input, coding);
         let mut cmd = tokio::process::Command::new(executable(self));
-        if let Some(policy) = &self.config.approval_policy {
-            cmd.arg("-a").arg(policy);
+        if let Some(policy) = self.config.approval_policy {
+            cmd.arg("-a").arg(policy.to_string());
         }
         cmd.arg("exec")
             .arg("--skip-git-repo-check")
@@ -362,7 +364,7 @@ impl CodeDelegateBackend for CodexBackend {
             cmd.arg("--model").arg(model);
         }
         cmd.arg("--sandbox")
-            .arg(effective_codex_sandbox(&self.config));
+            .arg(effective_codex_sandbox(&self.config).to_string());
 
         apply_working_dir(self, request, input, coding, &mut cmd);
         cmd.arg(prompt);
@@ -621,15 +623,14 @@ fn value_to_text(value: &serde_json::Value) -> Option<String> {
     }
 }
 
-fn effective_codex_sandbox(config: &CodexConfig) -> &str {
-    if let Some(mode) = config.sandbox_mode.as_deref() {
-        return mode;
-    }
-    if config.allow_file_modifications || config.allow_command_execution {
-        "workspace-write"
-    } else {
-        "read-only"
-    }
+fn effective_codex_sandbox(config: &CodexConfig) -> SandboxMode {
+    config.sandbox_mode.unwrap_or(
+        if config.allow_file_modifications || config.allow_command_execution {
+            SandboxMode::WorkspaceWrite
+        } else {
+            SandboxMode::ReadOnly
+        },
+    )
 }
 
 #[cfg(test)]
@@ -639,7 +640,7 @@ mod tests {
     fn base_os_config() -> OsConfig {
         let mut config = OsConfig::default();
         config.coding.enabled = true;
-        config.coding.default_provider = "auto".into();
+        config.coding.default_provider = CodingProvider::Auto;
         config.coding.providers.claude_code.enabled = true;
         config.coding.providers.codex.enabled = true;
         config
@@ -689,7 +690,7 @@ mod tests {
     #[test]
     fn auto_selection_prefers_configured_policy() {
         let mut config = base_os_config();
-        config.coding.selection_policy = "prefer_codex".into();
+        config.coding.selection_policy = CodingSelectionPolicy::PreferCodex;
         let skill = CodingDelegateSkill::new(&config);
         let selected = skill.select_backend().unwrap();
         assert_eq!(selected.kind(), BackendKind::Codex);
@@ -698,7 +699,7 @@ mod tests {
     #[test]
     fn direct_backend_uses_explicit_default() {
         let mut config = base_os_config();
-        config.coding.default_provider = "claude_code".into();
+        config.coding.default_provider = CodingProvider::ClaudeCode;
         config.coding.providers.codex.enabled = false;
         let skill = CodingDelegateSkill::new(&config);
         let selected = skill.select_backend().unwrap();

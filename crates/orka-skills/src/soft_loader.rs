@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use orka_core::{Error, Result};
+
 use crate::soft_skill::{SoftSkill, SoftSkillMeta};
 
 /// Scan a directory for soft skill subdirectories.
@@ -49,8 +51,9 @@ pub fn scan_soft_skills(dir: &Path) -> Vec<SoftSkill> {
     skills
 }
 
-fn load_skill_md(skill_md: &Path, dir: &Path) -> anyhow::Result<SoftSkill> {
-    let content = std::fs::read_to_string(skill_md)?;
+fn load_skill_md(skill_md: &Path, dir: &Path) -> Result<SoftSkill> {
+    let content = std::fs::read_to_string(skill_md)
+        .map_err(|e| Error::Config(format!("failed to read {}: {e}", skill_md.display())))?;
 
     // Parse YAML frontmatter delimited by ---
     let (meta, body) = parse_frontmatter(&content)?;
@@ -62,22 +65,22 @@ fn load_skill_md(skill_md: &Path, dir: &Path) -> anyhow::Result<SoftSkill> {
     ))
 }
 
-fn parse_frontmatter(content: &str) -> anyhow::Result<(SoftSkillMeta, String)> {
+fn parse_frontmatter(content: &str) -> Result<(SoftSkillMeta, String)> {
     // Content must start with ---
     let rest = content
         .strip_prefix("---")
-        .ok_or_else(|| anyhow::anyhow!("SKILL.md must start with --- YAML frontmatter"))?;
+        .ok_or_else(|| Error::Config("SKILL.md must start with --- YAML frontmatter".into()))?;
 
     // Find closing ---
     let end = rest
         .find("\n---")
-        .ok_or_else(|| anyhow::anyhow!("SKILL.md frontmatter not closed with ---"))?;
+        .ok_or_else(|| Error::Config("SKILL.md frontmatter not closed with ---".into()))?;
 
     let yaml = &rest[..end];
     let body = &rest[end + 4..]; // skip \n---
 
     let meta: SoftSkillMeta = serde_yml::from_str(yaml)
-        .map_err(|e| anyhow::anyhow!("invalid SKILL.md frontmatter: {e}"))?;
+        .map_err(|e| Error::Config(format!("invalid SKILL.md frontmatter: {e}")))?;
 
     Ok((meta, body.to_string()))
 }

@@ -82,7 +82,10 @@ impl SandboxExecutor for ProcessSandbox {
                 Ok(())
             });
         }
-        debug!(max_memory_bytes = mem_limit, "process sandbox resource limits applied");
+        debug!(
+            max_memory_bytes = mem_limit,
+            "process sandbox resource limits applied"
+        );
 
         // Set environment variables.
         for (k, v) in &req.env {

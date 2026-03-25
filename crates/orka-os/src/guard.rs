@@ -351,9 +351,11 @@ mod tests {
     fn file_size_check() {
         let guard = PermissionGuard::new(&test_config());
         assert!(guard.check_file_size(512).is_ok());
-        assert!(guard
-            .check_file_size(guard.max_file_size_bytes() + 1)
-            .is_err());
+        assert!(
+            guard
+                .check_file_size(guard.max_file_size_bytes() + 1)
+                .is_err()
+        );
     }
 
     #[test]
@@ -408,17 +410,21 @@ mod tests {
     #[test]
     fn sudo_allowed_command_accepted() {
         let guard = PermissionGuard::new(&sudo_config());
-        assert!(guard
-            .check_sudo_command("systemctl", &["restart", "nginx"])
-            .is_ok());
+        assert!(
+            guard
+                .check_sudo_command("systemctl", &["restart", "nginx"])
+                .is_ok()
+        );
     }
 
     #[test]
     fn sudo_command_not_in_allowlist_rejected() {
         let guard = PermissionGuard::new(&sudo_config());
-        assert!(guard
-            .check_sudo_command("systemctl", &["start", "nginx"])
-            .is_err());
+        assert!(
+            guard
+                .check_sudo_command("systemctl", &["start", "nginx"])
+                .is_err()
+        );
     }
 
     #[test]
@@ -426,9 +432,11 @@ mod tests {
         let mut config = sudo_config();
         config.sudo.allowed = false;
         let guard = PermissionGuard::new(&config);
-        assert!(guard
-            .check_sudo_command("systemctl", &["restart", "nginx"])
-            .is_err());
+        assert!(
+            guard
+                .check_sudo_command("systemctl", &["restart", "nginx"])
+                .is_err()
+        );
     }
 
     #[test]
@@ -436,9 +444,11 @@ mod tests {
         let mut config = sudo_config();
         config.permission_level = OsPermissionLevel::Execute;
         let guard = PermissionGuard::new(&config);
-        assert!(guard
-            .check_sudo_command("systemctl", &["restart", "nginx"])
-            .is_err());
+        assert!(
+            guard
+                .check_sudo_command("systemctl", &["restart", "nginx"])
+                .is_err()
+        );
     }
 
     #[test]
