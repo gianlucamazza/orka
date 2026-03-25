@@ -26,8 +26,6 @@ The documentation is organized into the following areas:
 
 ### Internal
 *   **[Analysis Report](internal/analysis-report.md)**: Repository analysis and current-state notes.
-*   **[Architecture Fix Plan](internal/architecture-fix-plan.md)**: Architecture remediation backlog and proposed follow-up work.
-*   **[Config Refactor Plan](internal/config-refactor-plan.md)**: Notes and plan for configuration cleanup.
 *   **[Root Organization Decisions](internal/root-organization-decisions.md)**: Decision record for special root files, workspace model, packaging, and test layout.
 
 ### Contributing

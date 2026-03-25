@@ -1,40 +1,39 @@
-# Analisi di Eccellenza della Codebase Orka
+# Orka Codebase Analysis Report
 
-**Data:** 2026-03-23  
-**Versione analizzata:** 1.0.0  
-**Commit:** HEAD  
-**MSRV:** 1.91  
+**Date:** 2026-03-23
+**Version analyzed:** 1.0.0
+**Commit:** HEAD
+**MSRV:** 1.91
 **Edition:** 2024
 
 ---
 
 ## Executive Summary
 
-La codebase Orka è un framework di orchestrazione agenti AI scritto in Rust con **35 crates** organizzati in workspace. L'architettura è modulare e ben stratificata, ma presenta **issue critici di compilazione** che bloccano i test, debt tecnico significativo e ampie variazioni nella completezza delle feature tra i crates.
+The Orka codebase is an AI agent orchestration framework written in Rust with **38 crates** organized as a workspace. The architecture is modular and well-layered, though it has areas with incomplete test coverage and some technical debt in specific crates.
 
-### Metriche Chiave
+### Key Metrics
 
-| Metrica | Valore | Stato |
-|---------|--------|-------|
-| Totale righe codice (src) | ~58,000 | ✅ |
-| Crate totali | 35 | ✅ |
-| Errori compilazione test | 11 (in orka-core) | 🔴 P0 |
-| Unwrap/expect/todo! | 1,287 occorrenze | 🟡 P2 |
-| File >500 righe | 12 | 🟡 P2 |
-| Test file per crate | 1.2 media | 🟡 P2 |
-| Crates senza test | 11 | 🔴 P1 |
+| Metric | Value | Status |
+|--------|-------|--------|
+| Total lines of code (src) | ~58,000 | ✅ |
+| Total crates | 38 | ✅ |
+| Unwrap/expect/todo! occurrences | ~1,287 | 🟡 P2 |
+| Files >500 lines | 12 | 🟡 P2 |
+| Avg test files per crate | 1.2 | 🟡 P2 |
+| Crates without tests | 11 | 🔴 P1 |
 | Unsafe blocks | 5 | ✅ |
-| Warnings documentazione | 7 | 🟢 |
+| Doc warnings | 7 | 🟢 |
 
 ---
 
-## Area 1 — Architettura e Design delle Astrazioni
+## Area 1 — Architecture and Abstraction Design
 
-### 1.1 Object-Safety e Trait Bounds
+### 1.1 Object-Safety and Trait Bounds
 
-**Stato:** ✅ **Eccellente**
+**Status:** ✅ **Excellent**
 
-Tutti i trait core sono correttamente definiti con bounds `Send + Sync + 'static`:
+All core traits are correctly defined with `Send + Sync + 'static` bounds:
 
 ```rust
 // crates/orka-core/src/traits.rs
@@ -45,618 +44,375 @@ pub trait SessionStore: Send + Sync + 'static { ... }
 pub trait MemoryStore: Send + Sync + 'static { ... }
 ```
 
-L'uso di `async-trait` è coerente e necessario per il dynamic dispatch. Il trait `Skill` include `serde_json::Value` come tipo associato per input/output, mantenendo flessibilità.
+Use of `async-trait` is consistent and necessary for dynamic dispatch. The `Skill` trait uses `serde_json::Value` as an associated type for input/output, preserving flexibility.
 
 ### 1.2 Service Container (DI)
 
-**Stato:** 🟡 **Da migliorare**
+**Status:** 🟡 **Needs improvement**
 
-Il container in `orka-core/src/container.rs` implementa tre varianti:
-- `ServiceContainer`: sincrono, base
-- `LazyContainer`: inizializzazione pigra
-- `AsyncServiceContainer`: versione async con `RwLock`/`Mutex`
+The container in `orka-core/src/container.rs` implements three variants:
+- `ServiceContainer`: synchronous, base
+- `LazyContainer`: lazy initialization
+- `AsyncServiceContainer`: async version with `RwLock`/`Mutex`
 
-**Issue identificati:**
-- **Errori di compilazione** nelle righe 512-534 (test): type mismatch in `register_async`
-- Il bound `Pin<Box<dyn Future<Output = T> + Send>>` è corretto ma l'implementazione test ha problemmi di inferenza tipo
-- Manca documentazione su quando usare quale variante
+**Identified issues:**
+- The `factory.remove()` pattern can cause race conditions when multiple tasks request the same service concurrently.
+- Lacks documentation on when to use which variant.
 
-### 1.3 Separazione Dati/Logica
+### 1.3 Data/Logic Separation
 
-**Stato:** ✅ **Buona**
+**Status:** ✅ **Good**
 
-- `orka-core/src/types.rs` (1,340 righe): contiene solo tipi e strutture dati
-- `orka-agent/src/agent.rs`: separa `Agent` (dati) da `AgentRunner` (logica)
-- `orka-llm/src/context.rs`: gestione token e contesto ben isolata
+- `orka-core/src/types.rs` (~1,340 lines): contains only types and data structures
+- `orka-agent/src/agent.rs`: separates `Agent` (data) from `AgentRunner` (logic)
+- `orka-llm/src/context.rs`: token budget and context management well isolated
 
-### 1.4 Dipendenze Circolari
+### 1.4 Circular Dependencies
 
-**Stato:** ✅ **Nessuna rilevata**
+**Status:** ✅ **None detected**
 
-Analisi del grafo delle dipendenze:
+Dependency graph:
 ```
-orka-core ← tutti gli altri (foglia)
+orka-core ← all others (leaf)
 orka-bus, orka-queue, orka-session → orka-core
 orka-agent → orka-llm, orka-core, orka-skills
-orka-server → tutti (orchestratore)
+orka-server → all (orchestrator)
 ```
 
-Nessuna dipendenza circolare rilevata. La stratificazione è corretta.
+### 1.5 Large Files
 
-### 1.5 God Module Analysis
+| File | Lines | Assessment |
+|------|-------|------------|
+| `orka-worker/src/workspace_handler/` | ~2,172 | 🟡 Excessive |
+| `orka-cli/src/cmd/chat.rs` | ~1,361 | 🟡 Excessive |
+| `orka-core/src/types.rs` | ~1,340 | 🟡 Acceptable (data-only) |
+| `orka-os/src/skills/fs.rs` | ~1,097 | 🟢 Aggregated skills |
 
-**Stato:** 🔴 **Critico**
-
-| File | Righe | Valutazione |
-|------|-------|-------------|
-| `orka-core/src/config.rs` | 2,712 | 🔴 **God Module** |
-| `orka-worker/src/workspace_handler.rs` | 2,172 | 🟡 Eccessivo |
-| `orka-cli/src/cmd/chat.rs` | 1,361 | 🟡 Eccessivo |
-| `orka-core/src/types.rs` | 1,340 | 🟡 Accettabile (dati) |
-| `orka-os/src/skills/fs.rs` | 1,097 | 🟢 Skills aggregate |
-
-**Raccomandazione P0:** Suddividere `config.rs` in sottomoduli per dominio:
-```
-config/
-  mod.rs          # re-exports
-  server.rs       # ServerConfig
-  llm.rs          # LlmConfig, ProviderConfig
-  adapters.rs     # AdapterConfig
-  security.rs     # AuthConfig, SecretConfig
-  ...
-```
+Note: `orka-core/src/config.rs` was previously a 2,712-line god module — it has since been split into `crates/orka-core/src/config/` with 18 domain-specific modules.
 
 ---
 
-## Area 2 — Qualità del Codice e Debt Tecnico
+## Area 2 — Code Quality and Technical Debt
 
 ### 2.1 Panic Points (unwrap/expect)
 
-**Totale:** 1,287 occorrenze
+**Total:** ~1,287 occurrences
 
-**Distribuzione stimata:**
-```bash
-$ grep -r "unwrap\|expect" crates/*/src --include="*.rs" | wc -l
-1287
-```
+**Distribution (estimated):**
+- Tests: ~60% (acceptable)
+- Production: ~40% (concerning)
 
-**Categorie:**
-- Test: ~60% (accettabile)
-- Produzione: ~40% (preoccupante)
-
-**Esempi problematici:**
-```rust
-// crates/orka-agent/src/node_runner.rs:131
-serde_json::from_str(&current_tool_input).unwrap_or_else(...)
-
-// crates/orka-core/src/container.rs:142
-self.get::<T>().unwrap_or_else(|| panic!("..."))
-```
-
-**Nota:** Il `expect_used` e `unwrap_used` sono configurati come `warn` in clippy, ma le violazioni sono presenti.
+`expect_used` and `unwrap_used` are configured as `warn` in clippy, but violations are present.
 
 ### 2.2 TODO/FIXME/HACK
 
-**Stato:** ✅ **Eccellente**
+**Status:** ✅ **Excellent**
 
-Nessun TODO/FIXME/HACK/XXX rilevato nel codice sorgente:
-```bash
-$ grep -rn "TODO\|FIXME\|HACK\|XXX" crates/*/src --include="*.rs"
-# (nessun risultato)
-```
+No TODO/FIXME/HACK/XXX found in source code.
 
-### 2.3 #[allow] Ingiustificati
+### 2.3 Unjustified `#[allow]` Attributes
 
-**Stato:** 🟡 **Da rivedere**
+**Status:** 🟡 **Needs review**
 
 ```
-crates/orka-adapter-slack/src/lib.rs:73:    #[allow(dead_code)]
-crates/orka-adapter-telegram/src/types.rs:6,16,31,75,119: #[allow(dead_code)]
-crates/orka-adapter-telegram/src/webhook.rs:131: #[allow(clippy::too_many_arguments)]
-crates/orka-core/src/testing.rs:237:    #[allow(clippy::type_complexity)]
-crates/orka-gateway/src/lib.rs:37:    #[allow(clippy::too_many_arguments)]
-crates/orka-guardrails/src/chain.rs:21:    #[allow(clippy::should_implement_trait)]
-crates/orka-worker/src/lib.rs:416:    #[allow(clippy::too_many_arguments)]
-crates/orka-worker/src/workspace_handler.rs:178,652: #[allow(clippy::too_many_arguments)]
+crates/orka-adapter-slack/src/lib.rs          #[allow(dead_code)]
+crates/orka-adapter-telegram/src/types.rs     #[allow(dead_code)] ×5
+crates/orka-adapter-telegram/src/webhook.rs   #[allow(clippy::too_many_arguments)]
+crates/orka-core/src/testing.rs               #[allow(clippy::type_complexity)]
+crates/orka-gateway/src/lib.rs                #[allow(clippy::too_many_arguments)]
+crates/orka-guardrails/src/chain.rs           #[allow(clippy::should_implement_trait)]
+crates/orka-worker/src/lib.rs                 #[allow(clippy::too_many_arguments)]
 ```
 
-**Raccomandazione:** I `dead_code` sugli adapter indicano feature parzialmente implementate. Documentare con commento esplicativo.
+`dead_code` on adapters indicates partially implemented features. Each should be documented with an explanatory comment.
 
 ### 2.4 Unsafe Code
 
-**Stato:** ✅ **Minimo e giustificato**
+**Status:** ✅ **Minimal and justified**
 
-5 occorrenze totali:
+5 total occurrences:
 - `orka-cli/src/completion.rs:526,528`: test-only env var manipulation
-- `orka-os/src/skills/env.rs:202,212`: test-only env var manipulation  
-- `orka-os/src/lib.rs:39`: `libc::prctl` per sandboxing (giustificato)
+- `orka-os/src/skills/env.rs:202,212`: test-only env var manipulation
+- `orka-os/src/lib.rs:39`: `libc::prctl` for sandboxing (justified)
 
-Tutto l'unsafe è isolato in test o per system call Linux necessarie.
+All unsafe code is isolated to tests or necessary Linux system calls.
 
 ---
 
-## Area 3 — Strategia di Test e Copertura
+## Area 3 — Test Strategy and Coverage
 
-### 3.1 Inventario Test per Crate
+### 3.1 Test Inventory by Crate
 
-| Crate | Test Files | Test Functions | Stato |
-|-------|-----------|----------------|-------|
-| orka-a2a | 1 | ~5 | 🟡 Minimale |
-| orka-adapter-custom | 1 | ~3 | 🟡 Minimale |
-| orka-adapter-discord | 1 | ~3 | 🟡 Minimale |
-| orka-adapter-slack | 1 | ~3 | 🟡 Minimale |
+| Crate | Test Files | Test Functions | Status |
+|-------|-----------|----------------|--------|
+| orka-a2a | 1 | ~5 | 🟡 Minimal |
+| orka-adapter-custom | 1 | ~3 | 🟡 Minimal |
+| orka-adapter-discord | 1 | ~3 | 🟡 Minimal |
+| orka-adapter-slack | 1 | ~3 | 🟡 Minimal |
 | orka-adapter-telegram | 1 | ~5 | 🟢 OK |
-| orka-adapter-whatsapp | 1 | ~3 | 🟡 Minimale |
+| orka-adapter-whatsapp | 1 | ~3 | 🟡 Minimal |
 | orka-agent | 1 | ~10 | 🟢 OK |
 | orka-auth | 1 | ~8 | 🟢 OK |
 | orka-bus | 1 | ~6 | 🟢 OK |
-| orka-circuit-breaker | 1 | ~5 | 🟡 Minimale |
-| orka-cli | **0** | 0 | 🔴 **Critico** |
+| orka-circuit-breaker | 1 | ~5 | 🟡 Minimal |
+| orka-cli | **0** | 0 | 🔴 Critical |
 | orka-core | 1 | ~15 | 🟢 OK |
-| orka-eval | **0** | 0 | 🔴 **Critico** |
-| orka-experience | 1 | ~5 | 🟡 Minimale |
+| orka-eval | **0** | 0 | 🔴 Critical |
+| orka-experience | 1 | ~5 | 🟡 Minimal |
 | orka-gateway | 2 | ~8 | 🟢 OK |
-| orka-guardrails | 1 | ~5 | 🟡 Minimale |
-| orka-http | **0** | 0 | 🔴 **Critico** |
-| orka-knowledge | 1 | ~5 | 🟡 Minimale |
-| orka-llm | **0** | 0 | 🔴 **Critico** |
+| orka-guardrails | 1 | ~5 | 🟡 Minimal |
+| orka-http | **0** | 0 | 🔴 Critical |
+| orka-knowledge | 1 | ~5 | 🟡 Minimal |
+| orka-llm | **0** | 0 | 🔴 Critical |
 | orka-mcp | 2 | ~8 | 🟢 OK |
-| orka-memory | 1 | ~5 | 🟡 Minimale |
-| orka-observe | **0** | 0 | 🔴 **Critico** |
-| orka-os | **0** | 0 | 🔴 **Critico** |
-| orka-prompts | **0** | 0 | 🔴 **Critico** |
-| orka-queue | 1 | ~5 | 🟡 Minimale |
-| orka-sandbox | 1 | ~5 | 🟡 Minimale |
-| orka-scheduler | **0** | 0 | 🔴 **Critico** |
-| orka-secrets | 1 | ~5 | 🟡 Minimale |
+| orka-memory | 1 | ~5 | 🟡 Minimal |
+| orka-observe | **0** | 0 | 🔴 Critical |
+| orka-os | **0** | 0 | 🔴 Critical |
+| orka-prompts | **0** | 0 | 🔴 Critical |
+| orka-queue | 1 | ~5 | 🟡 Minimal |
+| orka-sandbox | 1 | ~5 | 🟡 Minimal |
+| orka-scheduler | **0** | 0 | 🔴 Critical |
+| orka-secrets | 1 | ~5 | 🟡 Minimal |
 | orka-server | 6 | ~20 | 🟢 OK |
-| orka-session | 1 | ~5 | 🟡 Minimale |
-| orka-skills | 1 | ~5 | 🟡 Minimale |
+| orka-session | 1 | ~5 | 🟡 Minimal |
+| orka-skills | 1 | ~5 | 🟡 Minimal |
 | orka-wasm | 2 | ~8 | 🟢 OK |
-| orka-web | **0** | 0 | 🔴 **Critico** |
+| orka-web | **0** | 0 | 🔴 Critical |
 | orka-worker | 4 | ~15 | 🟢 OK |
-| orka-workspace | 1 | ~5 | 🟡 Minimale |
+| orka-workspace | 1 | ~5 | 🟡 Minimal |
 
-### 3.2 Errori Compilazione Test
+### 3.2 Testing Infrastructure
 
-**Stato:** 🔴 **CRITICO - Bloccante**
+**Status:** ✅ **Excellent**
 
-```
-error[E0271]: type mismatch in container.rs:518
-erro[E0282]: cannot infer type in container.rs:531,534
-error[E0433]: failed to resolve in container.rs (async test code)
-```
-
-I test in `orka-core/src/container.rs` (righe 500+) sono **rotti** e impediscono `cargo test --workspace`.
-
-### 3.3 Testing Infrastructure
-
-**Stato:** ✅ **Eccellente**
-
-L'infrastruttura testing è sofisticata:
-- `testcontainers` per integration test con Redis/Qdrant
-- `proptest` per property-based testing (586 assertions trovate)
-- `insta` per snapshot testing
-- `orka-core/src/testing.rs`: 636 righe di test doubles e mock
+- `testcontainers` for integration tests with Redis/Qdrant
+- `proptest` for property-based testing (~586 assertions)
+- `insta` for snapshot testing
+- `orka-core/src/testing.rs`: 636 lines of test doubles and mocks
 
 ---
 
-## Area 4 — Sicurezza e Robustezza
+## Area 4 — Security and Robustness
 
-### 4.1 Autenticazione (orka-auth)
+### 4.1 Authentication (orka-auth)
 
-**Stato:** ✅ **Implementata correttamente**
+**Status:** ✅ **Correctly implemented**
 
-| Feature | Stato | Note |
-|---------|-------|------|
-| JWT (HMAC) | ✅ | `jwt.rs:79` - validation con `jsonwebtoken` |
-| JWT (RSA) | ✅ | `jwt.rs:21` - public key validation |
-| API Key | ✅ | `api_key.rs:13` - hashing SHA-256 |
-| Middleware Axum | ✅ | `middleware.rs:228` - estrazione header |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| JWT (HMAC) | ✅ | `jwt.rs:79` — validation via `jsonwebtoken` |
+| JWT (RSA) | ✅ | `jwt.rs:21` — public key validation |
+| API Key | ✅ | `api_key.rs:13` — SHA-256 hashing |
+| Axum Middleware | ✅ | `middleware.rs:228` — header extraction |
 
-**Note:**
-- API key usano SHA-256 hash con costante-time comparison (da verificare)
-- JWT supporta entrambi HMAC e RSA
-- Scopes implementati per entrambi
+### 4.2 Secrets (orka-secrets)
 
-### 4.2 Segreti (orka-secrets)
+**Status:** ✅ **Excellent**
 
-**Stato:** ✅ **Eccellente**
-
-```rust
-// crates/orka-secrets/src/redis_secret.rs
-use aes_gcm::{Aes256Gcm, Nonce};
-use zeroize::{Zeroize, ZeroizeOnDrop};
-```
-
-- **AES-256-GCM** per encryption at rest
-- **zeroize** per secure memory clearing
-- Rotazione chiavi supportata (`rotation.rs:356`)
+- **AES-256-GCM** encryption at rest
+- **zeroize** for secure memory clearing
+- Key rotation supported (`rotation.rs:356`)
 
 ### 4.3 Sandboxing (orka-sandbox, orka-os)
 
-**Stato:** 🟡 **Parziale**
+**Status:** 🟡 **Partial**
 
-| Feature | Stato |
-|---------|-------|
+| Feature | Status |
+|---------|--------|
 | Process isolation | ✅ `process.rs:169` |
 | Timeout enforcement | ✅ `config.shell_timeout_secs` |
 | Command allowlist | ✅ `allowed_shell_commands` |
-| Seccomp/landlock | ⚠️ `prctl` check presente ma limitato |
-| SSRF protection | ⚠️ Dipende da config |
+| Seccomp/landlock | ⚠️ `prctl` check present but limited |
+| SSRF protection | ⚠️ Config-dependent |
 
-**Issue:** `shell_words::split` usato correttamente per evitare shell injection (riga 117).
+`shell_words::split` used correctly to prevent shell injection (line 117).
 
 ### 4.4 Guardrails (orka-guardrails)
 
-**Stato:** 🟡 **Struttura presente, implementazione base**
+**Status:** 🟡 **Structure present, basic implementation**
 
-```rust
-// crates/orka-guardrails/src/lib.rs - 71 righe
-pub trait Guardrail: Send + Sync { ... }
-```
+Implementations:
+- `keyword.rs:86` — basic keyword filtering
+- `regex_filter.rs:150` — regex matching
+- `code_filter.rs:187` — code detection (heuristic)
+- `chain.rs:124` — chaining multiple guardrails
 
-Implementazioni:
-- `keyword.rs:86` - keyword filtering base
-- `regex_filter.rs:150` - regex matching
-- `code_filter.rs:187` - rilevamento codice (euristico)
-- `chain.rs:124` - chaining multipli guardrail
-
-**Nota:** Nessun LLM-based guardrail ( toxicity, prompt injection detection ).
+No LLM-based guardrails (toxicity detection, prompt injection detection).
 
 ### 4.5 Dependency Scanning
 
-**Stato:** 🔴 **Configurazione rotta**
-
-```
-error[unexpected-value]: expected '["all", "workspace", "transitive", "none"]'
-  ┌─ deny.toml:20:17
-  │
-20 │ unmaintained = "warn"
-```
-
-Il `deny.toml` ha una configurazione non valida. `cargo deny check` fallisce.
+**Status:** ✅ **Fixed** — `deny.toml` migrated to v2 format.
 
 ---
 
-## Area 5 — Performance e Scalabilità
+## Area 5 — Performance and Scalability
 
 ### 5.1 Hot Path Analysis
 
-**File critici per performance:**
-
-| File | Righe | Hot Path | Note |
-|------|-------|----------|------|
-| `orka-agent/src/node_runner.rs` | 953 | Tool loop LLM | Streaming + token mgmt |
-| `orka-worker/src/workspace_handler.rs` | 2,172 | Message dispatch | Da ottimizzare |
-| `orka-core/src/types.rs` | 1,340 | Serialization | OK - solo dati |
+| File | Lines | Hot Path | Notes |
+|------|-------|----------|-------|
+| `orka-agent/src/node_runner.rs` | 953 | LLM tool loop | Streaming + token mgmt |
+| `orka-worker/src/workspace_handler/` | ~2,172 | Message dispatch | To optimize |
+| `orka-core/src/types.rs` | ~1,340 | Serialization | OK — data only |
 
 ### 5.2 Memory Efficiency
 
-**Stato:** ✅ **Buono**
+**Status:** ✅ **Good**
 
-```rust
-// crates/orka-agent/src/agent.rs:13
-pub struct AgentId(pub Arc<str>);  // ✅ Ottimale vs String
-```
-
-Uso appropriato di `Arc<str>` invece di `String` per identificatori immutabili.
+`Arc<str>` used instead of `String` for immutable identifiers (e.g. `AgentId`).
 
 ### 5.3 Connection Pooling
 
-**Stato:** ✅ **Implementato**
+**Status:** ✅ **Implemented**
 
-```rust
-// crates/orka-bus/src/redis_bus.rs:13
-pub struct RedisMessageBus {
-    pool: Pool,  // deadpool-redis
-}
-```
-
-**Nota:** Manca configurazione esplicita di `pool_size` in molti crates (default usato).
+`deadpool-redis` used across bus, queue, memory, scheduler crates. Pool size uses library defaults in most crates.
 
 ### 5.4 Token Budget Management
 
-**Stato:** ✅ **Implementato**
+**Status:** ✅ **Implemented**
 
-```rust
-// crates/orka-llm/src/context.rs
-pub fn available_history_budget_with_hint(...) -> usize
-pub fn truncate_history_with_hint(...)
-```
+`orka-llm/src/context.rs` provides `available_history_budget_with_hint` and `truncate_history_with_hint` with support for `TokenizerHint::Claude`, `TokenizerHint::OpenAi`, `TokenizerHint::Tiktoken`.
 
-Supporto per `TokenizerHint::Claude`, `TokenizerHint::OpenAi`, `TokenizerHint::Tiktoken`.
+### 5.5 Benchmarks
 
-### 5.5 Locking
+**Status:** 🟡 **Minimal**
 
-**Stato:** 🟡 **Da verificare**
-
-```rust
-// crates/orka-agent/src/context.rs:95-97
-state: Arc<RwLock<HashMap<SlotKey, Value>>>,
-messages: Arc<RwLock<Vec<ChatMessage>>>,
-changelog: Arc<RwLock<VecDeque<StateChange>>>,
-```
-
-`RwLock` usato correttamente per read-heavy workloads. `DashMap` potrebbe essere più performante per `state`.
-
-### 5.6 Benchmarks
-
-**Stato:** 🟡 **Minimale**
-
-Solo `benches/message_bus.rs` (149 righe) - benchmark del message bus.
-
-**Mancanti:**
-- LLM token processing
-- Context truncation
-- Serialization/deserialization
+Only `benches/message_bus.rs` (149 lines). Missing: LLM token processing, context truncation, serialization/deserialization.
 
 ---
 
-## Area 6 — Developer Experience e Manutenibilità
+## Area 6 — Developer Experience and Maintainability
 
-### 6.1 Documentazione
+### 6.1 Documentation
 
-**Stato:** 🟡 **Buona con warning**
+**Status:** 🟡 **Good with warnings**
 
-```
-warning: public documentation for `create_event_sink` links to private item `FanoutSink`
-warning: unresolved link to `build_router`
-warning: unclosed HTML tag `Edge`
-```
+7 documentation warnings — all minor:
+- Private item links in public docs
+- Unresolved links
+- Unclosed HTML tags
 
-7 warning documentazione - tutti minori.
+### 6.2 CLI Ergonomics
 
-### 6.2 Configurazione
+**Status:** ✅ **Excellent**
 
-**Stato:** 🔴 **Eccessivamente complessa**
-
-| File | Righe | Issue |
-|------|-------|-------|
-| `orka.toml` | 348 | Troppe opzioni |
-| `orka-core/src/config.rs` | 2,712 | **God module** |
-
-**Esempio complessità:** 27 sezioni config diverse in `OrkaConfig`.
-
-**Raccomandazione:** Split in feature-specific config files:
-```
-orka.toml              # core minimo
-orka.d/server.toml
-orka.d/llm.toml
-orka.d/adapters.toml
-...
-```
-
-### 6.3 CLI Ergonomia
-
-**Stato:** ✅ **Eccellente**
-
-```rust
-// crates/orka-cli/src/main.rs:494 righe
-Subcommand complessi: chat, dashboard, config, completion
-```
-
-- Clap con derive macros
+- Clap with derive macros
 - Shell completion support
-- Markdown rendering in terminale
+- Markdown rendering in terminal
+- TUI dashboard with real-time metrics
 
-### 6.4 Esempi e Demo
+### 6.3 Examples and Demos
 
-**Stato:** ✅ **Buono**
+**Status:** ✅ **Good**
 
 ```
 examples/
-  basic_bot/      # Bot semplice
-  custom_skill/   # Skill custom
-  multi_agent/    # Multi-agent
+  basic_bot/      # Simple echo bot
+  custom_skill/   # Custom skill implementation
+  multi_agent/    # Multi-agent workflow
   wasm_plugin/    # WASM plugin
 
 demo/
-  *.gif           # Demo video
+  *.gif           # Demo recordings
   *.tape          # VHS recording scripts
 ```
 
-### 6.5 Dockerfile
+### 6.4 Dockerfile
 
-**Stato:** ✅ **Production-ready**
+**Status:** ✅ **Production-ready**
 
-```dockerfile
-# Multi-stage build con cargo-chef
-# Cache layer ottimizzati
-# Dev e production targets
-# mold linker per speed
-```
+Multi-stage build with `cargo-chef`, optimized layer caching, `mold` linker, security hardening (`read_only`, `no-new-privileges`).
 
-### 6.6 CI Pipeline
+### 6.5 CI Pipeline
 
-**Stato:** ✅ **Comprehensiva**
+**Status:** ✅ **Comprehensive**
 
-```yaml
-# .github/workflows/ci.yml
-- commitlint
-- fmt (nightly)
-- clippy
-- cargo audit
-- cargo deny check  # 🔴 rotto
-- build
-- test
-- test --ignored (integration)
-- MSRV check (1.91)
-- coverage
-```
+- `ci.yml`: commitlint, fmt (nightly), clippy, cargo audit, cargo deny, build, unit tests, integration tests (Redis + Qdrant), MSRV check (1.91), coverage
+- `packaging.yml`: Debian and Fedora package linting
+- `release.yml`: release automation
+- `typos.yml`: typo checking
 
 ---
 
-## Area 7 — Completezza Features e Roadmap Gap
+## Area 7 — Feature Completeness
 
-### 7.1 Matrice Feature-Completeness
+### 7.1 Feature Matrix
 
-| Crate | Stato | Righe | Note |
-|-------|-------|-------|------|
-| **CORE** |
-| orka-core | 🟢 Done | ~4,500 | Tipi, trait, config, container |
-| orka-circuit-breaker | 🟢 Done | ~200 | Pattern implementato |
-| **INFRASTRUCTURE** |
+| Crate | Status | Lines | Notes |
+|-------|--------|-------|-------|
+| **CORE** | | | |
+| orka-core | 🟢 Done | ~4,500 | Types, traits, config (modularized), container |
+| orka-circuit-breaker | 🟢 Done | ~200 | Pattern implemented |
+| **INFRASTRUCTURE** | | | |
 | orka-bus | 🟢 Done | ~400 | Redis Streams |
 | orka-queue | 🟢 Done | ~300 | Priority queue |
 | orka-session | 🟢 Done | ~300 | Session store |
 | orka-memory | 🟢 Done | ~350 | Semantic memory |
 | orka-secrets | 🟢 Done | ~450 | AES-256-GCM + rotation |
-| orka-scheduler | 🟡 Partial | ~250 | Cron base, manca distributed |
-| orka-observe | 🟡 Partial | ~400 | Metrics OK, tracing parziale |
-| **AI / INTELLIGENCE** |
+| orka-scheduler | 🟡 Partial | ~250 | Cron base, no distributed coordinator |
+| orka-observe | 🟡 Partial | ~400 | Metrics OK, tracing partial |
+| **AI / INTELLIGENCE** | | | |
 | orka-llm | 🟢 Done | ~2,800 | Anthropic, OpenAI, Ollama |
-| orka-knowledge | 🟢 Done | ~600 | RAG con Qdrant |
-| orka-prompts | 🟢 Done | ~900 | Templating Handlebars |
-| orka-guardrails | 🟡 Partial | ~600 | Keyword/regex, manca LLM-based |
-| orka-experience | 🟡 Partial | ~1,800 | Structure presente, test minimo |
-| orka-eval | 🔴 Stub | ~400 | **Quasi vuoto - solo scaffold** |
-| **EXECUTION** |
+| orka-knowledge | 🟢 Done | ~600 | RAG with Qdrant |
+| orka-prompts | 🟢 Done | ~900 | Handlebars templating |
+| orka-guardrails | 🟡 Partial | ~600 | Keyword/regex, no LLM-based |
+| orka-experience | 🟡 Partial | ~1,800 | Structure complete, minimal tests |
+| orka-eval | 🟡 Partial | ~400 | Framework implemented, no tests |
+| **EXECUTION** | | | |
 | orka-skills | 🟢 Done | ~800 | Registry + macro |
-| orka-wasm | 🟢 Done | ~700 | WASMtime component model |
+| orka-wasm | 🟢 Done | ~700 | Wasmtime Component Model |
 | orka-sandbox | 🟢 Done | ~600 | Process isolation |
 | orka-mcp | 🟢 Done | ~700 | Model Context Protocol |
-| orka-a2a | 🟡 Partial | ~550 | **Google A2A - routes vuote?** |
-| **ADAPTERS** |
-| orka-adapter-telegram | 🟢 Done | ~900 | Completo |
-| orka-adapter-discord | 🟢 Done | ~554 | Completo |
-| orka-adapter-slack | 🟢 Done | ~571 | Completo |
-| orka-adapter-whatsapp | 🟢 Done | ~560 | Completo |
-| orka-adapter-custom | 🟢 Done | ~300 | Webhook custom |
-| **NETWORKING** |
-| orka-http | 🟢 Done | ~400 | Client HTTP |
-| orka-web | 🟢 Done | ~500 | Search Tavily/Brave/SearXNG |
+| orka-a2a | 🟡 Partial | ~550 | Routes present, coverage thin |
+| **ADAPTERS** | | | |
+| orka-adapter-telegram | 🟢 Done | ~900 | Full (polling, webhook, media) |
+| orka-adapter-discord | 🟢 Done | ~554 | Complete |
+| orka-adapter-slack | 🟢 Done | ~571 | Complete |
+| orka-adapter-whatsapp | 🟢 Done | ~560 | Complete |
+| orka-adapter-custom | 🟢 Done | ~300 | HTTP + WebSocket |
+| **NETWORKING** | | | |
+| orka-http | 🟢 Done | ~400 | HTTP client |
+| orka-web | 🟢 Done | ~500 | Tavily/Brave/SearXNG search |
 | orka-auth | 🟢 Done | ~550 | JWT + API Key |
 | orka-os | 🟢 Done | ~2,200 | Linux integration |
-| **ORCHESTRATION** |
+| **ORCHESTRATION** | | | |
 | orka-agent | 🟢 Done | ~2,500 | Multi-agent graph |
 | orka-workspace | 🟢 Done | ~1,200 | Workspace loading |
 | orka-gateway | 🟢 Done | ~600 | Rate limiting + dedup |
 | orka-worker | 🟢 Done | ~3,200 | Worker pool |
-| orka-cli | 🟢 Done | ~3,500 | CLI completa |
+| orka-cli | 🟢 Done | ~3,500 | Full CLI + TUI |
 | orka-server | 🟢 Done | ~2,800 | HTTP server + bootstrap |
 
-### 7.2 Crates Critici da Sviluppare
+### 7.2 Priority Backlog
 
-#### orka-eval (🔴 Stub)
-
-**Stato attuale:** 400 righe, struttura minima
-
-```rust
-// src/lib.rs - 13 righe!
-pub mod assertion;
-pub mod report;
-pub mod runner;
-pub mod scenario;
-```
-
-**Manca:**
-- Evaluation dataset management
-- LLM-as-a-judge implementation
-- Regression testing framework
-- Benchmark suite
-
-#### orka-experience (🟡 Partial)
-
-**Stato:** Struttura completa ma test insufficienti
-
-File presenti:
-- `collector.rs:138` - raccolta esperienze
-- `distiller.rs:254` - distillazione
-- `reflector.rs:321` - reflection LLM
-- `service.rs:273` - servizio
-- `store.rs:233` - storage
-- `trajectory_store.rs:239` - traiettorie
-
-**Rischio:** Complesso, 1,800 righe, 0 test realistici.
-
-#### orka-guardrails (🟡 Partial)
-
-**Manca:**
-- LLM-based content moderation
-- Prompt injection detection
-- PII detection
-- Jailbreak detection
-
-#### orka-a2a (🟡 Partial)
-
-**Google Agent-to-Agent Protocol:**
-- `agent_card.rs:80` - schema base
-- `routes.rs:211` - route Axum
-- `types.rs:241` - tipi
-
-**Verificare:** Le route sono implementate o solo stub?
+| ID | Priority | Issue | Effort | Impact |
+|----|----------|-------|--------|--------|
+| 1 | **P1** | Add tests to crates with zero coverage | 8h | 🟡 Quality |
+| 2 | **P1** | Complete `orka-eval` test coverage | 4h | 🟡 Quality |
+| 3 | **P2** | Reduce unwrap/expect in production code | 8h | 🟡 Robustness |
+| 4 | **P2** | Add critical benchmarks (LLM, serialization) | 4h | 🟡 Performance |
+| 5 | **P2** | Document `#[allow]` attributes | 1h | 🟡 Maintainability |
+| 6 | **P3** | Implement LLM-based guardrails | 8h | 🟢 Feature |
+| 7 | **P3** | Optimize `workspace_handler` | 4h | 🟡 Performance |
 
 ---
 
-## Tabella Priorità P0–P3
+## Conclusions
 
-| ID | Priorità | Issue | Effort | Impact | Crate |
-|----|----------|-------|--------|--------|-------|
-| 1 | **P0** | Fix test compilation in orka-core | 1h | 🔴 Bloccante | orka-core |
-| 2 | **P0** | Fix cargo deny config | 10m | 🔴 CI rotta | root |
-| 3 | **P1** | Split config.rs in moduli | 4h | 🟡 Manutenibilità | orka-core |
-| 4 | **P1** | Aggiungere test a crates senza | 8h | 🟡 Qualità | vari |
-| 5 | **P1** | Implementare orka-eval | 16h | 🟢 Feature gap | orka-eval |
-| 6 | **P2** | Ridurre unwrap/expect in produzione | 8h | 🟡 Robustezza | vari |
-| 7 | **P2** | Aggiungere benchmarks critici | 4h | 🟡 Performance | vari |
-| 8 | **P2** | Documentare allow attributes | 1h | 🟡 Manutenibilità | vari |
-| 9 | **P3** | Implementare guardrail LLM-based | 8h | 🟢 Feature | orka-guardrails |
-| 10 | **P3** | Ottimizzare workspace_handler.rs | 4h | 🟡 Performance | orka-worker |
+### Strengths
 
----
+1. **Modular architecture** — well-layered, no circular dependencies
+2. **Security** — AES-256-GCM, zeroize, JWT, SSRF protection
+3. **Tooling** — comprehensive CI, Docker, Justfile
+4. **Extensibility** — WASM plugins, MCP, A2A, soft skills
+5. **Minimal unsafe** — 5 occurrences, all justified
 
-## Quick Wins (< 1 ora)
+### Immediate Gaps
 
-### 1. Fix cargo deny (10 min)
-```toml
-# deny.toml riga 20
-- unmaintained = "warn"
-+ unmaintained = "workspace"  # o "all"
-```
-
-### 2. Documentare allow attributes (30 min)
-Aggiungere commenti prima di ogni `#[allow(dead_code)]`:
-```rust
-// TODO: Implementare webhook verification
-#[allow(dead_code)]
-fn verify_signature(...) { }
-```
-
-### 3. Fix doc warnings (30 min)
-```bash
-cargo doc --no-deps 2>&1 | grep "warning:" | head -10
-```
-
-### 4. Aggiungere .editorconfig check (10 min)
-Già presente, verificare che venga usato in CI.
+1. **11 crates without any tests** — regression risk
+2. **High unwrap/expect count in production code** — robustness risk
+3. **LLM-based guardrails missing** — feature gap
 
 ---
 
-## Conclusioni
-
-### Punti di Forza
-
-1. **Architettura modulare** ben stratificata
-2. **Sicurezza** implementata seriamente (AES-256-GCM, zeroize, JWT)
-3. **Tooling** eccellente (CI completa, Docker, justfile)
-4. **Documentazione** buona con warning minori
-5. **Unsafe minimo** e giustificato
-
-### Criticità Immediate
-
-1. **Test rotti** in orka-core - bloccante per sviluppo
-2. **CI parzialmente rotta** (cargo deny)
-3. **11 crates senza test** - rischio regressione
-4. **God module** config.rs - debt tecnico
-
-### Raccomandazioni Strategiche
-
-1. **Immediato:** Fix test compilation e cargo deny
-2. **Short-term:** Split config.rs + aggiungere test mancanti
-3. **Mid-term:** Implementare orka-eval e completare guardrails
-4. **Long-term:** Ottimizzazione performance e benchmark suite
-
----
-
-*Report generato automaticamente da analisi codebase.*
+*Report produced by automated codebase analysis — 2026-03-23. Updated 2026-03-25.*

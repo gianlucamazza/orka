@@ -13,7 +13,7 @@ flowchart TD
     GW["Gateway — orka-gateway<br/>1. Deduplication (Redis SET NX EX)<br/>2. Rate limiting (Redis INCR / in-memory fallback)<br/>3. Session resolution (create or load)<br/>4. Priority routing (DM → Urgent, group → Normal)<br/>5. Trace context generation (W3C traceparent)"]
     PQ["Redis Sorted Set — orka-queue<br/>Score = bucket × 10¹⁵ + timestamp_µs (lowest first)"]
     WP["WorkerPool — orka-worker (N concurrent)<br/>Retries: base × 3ⁿ backoff · DLQ after max_retries"]
-    WH["WorkspaceHandler<br/>1. Load workspace config (system prompt, skills, model)<br/>2. Inject memory context (orka-memory)<br/>3. Inject principles (orka-experience)<br/>4. Apply guardrails (orka-guardrails)<br/>5. Agentic loop: LLM call → stream → tool calls → repeat<br/>6. Post-task reflection → trajectory recording (orka-experience)"]
+    WH["GraphExecutor — orka-agent<br/>1. Resolve entry-point agent from [[agents]] / [graph]<br/>2. run_agent_node: inject memory + principles (orka-experience)<br/>3. Input guardrail checkpoint (orka-guardrails)<br/>4. Agentic loop: LLM call → tool calls (skill dispatch) → repeat<br/>5. Output guardrail checkpoint<br/>6. Evaluate outgoing edge conditions → next agent<br/>7. Post-task reflection → trajectory recording (orka-experience)"]
     RS2["Redis Streams — outbound<br/>bus.publish('outbound', envelope)"]
     CA2["ChannelAdapter<br/>Converts OutboundMessage → platform reply"]
     Reply["User sees reply"]
@@ -26,7 +26,7 @@ flowchart TD
     RS1 -->|"subscribe"| GW
     GW -->|"PriorityQueue.push(envelope)"| PQ
     PQ -->|"PriorityQueue.pop() — blocking, 5 s timeout"| WP
-    WP -->|"AgentHandler.handle(envelope, session)"| WH
+    WP -->|"GraphExecutor.execute(envelope, session)"| WH
     WH -->|"Vec&lt;OutboundMessage&gt;"| RS2
     RS2 -->|"subscribe"| CA2
     CA2 --> Reply
@@ -129,15 +129,21 @@ The `orka-agent` crate implements both single-agent and multi-agent graph
 execution. In graph mode the topology is defined in `orka.toml` under
 `[[agents]]` and `[graph]`. The executor:
 
-1. Resolves the entry-point agent from the graph definition.
-2. Runs the agent's agentic loop to completion.
-3. Evaluates outgoing edge conditions (`state_match`, `output_contains`, or
+1. Resolves the entry-point agent from `graph.entry` (falls back to the first `[[agents]]` entry).
+2. Runs the node according to its `kind`:
+   - `agent` — full LLM tool loop; `transfer_to_agent`/`delegate_to_agent` tools
+     are auto-injected based on outgoing edges
+   - `router` — evaluates edge conditions without calling the LLM
+   - `fan_out` — dispatches to all successors in parallel
+   - `fan_in` — waits for predecessors, then synthesizes results via LLM
+3. Applies guardrail checkpoints (input, tool-call, output) for every node.
+4. Evaluates outgoing edge conditions (`state_match`, `output_contains`, or
    `always`) to select the next agent.
-4. Repeats until a terminal agent is reached or limits are hit
+5. Repeats until a terminal agent is reached or limits are hit
    (`max_total_iterations`, `max_total_tokens`, `max_duration_secs`).
 
-Handoffs between agents preserve the conversation history and session state,
-allowing specialised agents to collaborate on complex tasks.
+Handoffs forward `context_transfer` data as an injected user message and apply
+the per-agent `history_filter` (`full`, `last_n`, `none`) before the next LLM call.
 
 ### OS Integration (orka-os)
 

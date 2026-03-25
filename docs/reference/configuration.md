@@ -115,32 +115,45 @@ There is no top-level `auth.enabled` field in the current schema.
 
 Each `[[agents]]` entry defines one agent in the execution graph.
 
-| Key | Type | Notes |
-| --- | --- | --- |
-| `id` | `string` | Unique agent identifier (required) |
-| `name` | `string` | Human-readable agent name |
-| `system_prompt` | `string` | Optional static prompt |
-| `model` | `string` | Default model for the agent |
-| `temperature` | `f32` | Sampling temperature |
-| `max_tokens` | `u32` | Response token cap |
-| `max_iterations` | `usize` | Agent loop cap |
-| `tool_result_max_chars` | `usize` | Tool output truncation |
-| `allowed_tools` | `string[]` | Optional allowlist |
-| `denied_tools` | `string[]` | Optional denylist |
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `id` | `string` | required | Unique agent identifier |
+| `kind` | `string` | `"agent"` | Node behaviour: `"agent"`, `"router"`, `"fan_out"`, `"fan_in"` |
+| `name` | `string` | `"Orka"` | Human-readable agent name |
+| `system_prompt` | `string` | `""` | Optional static prompt |
+| `model` | `string` | global default | LLM model identifier |
+| `temperature` | `f32` | `0.7` | Sampling temperature |
+| `max_tokens` | `u32` | `4096` | Response token cap |
+| `thinking` | `string?` | none | Reasoning effort: `"low"`, `"medium"`, `"high"`, `"max"` |
+| `max_iterations` | `usize` | `10` | Agent LLM loop cap |
+| `tool_result_max_chars` | `usize` | `8000` | Tool output truncation |
+| `allowed_tools` | `string[]` | `[]` | Optional allowlist (empty = all tools) |
+| `denied_tools` | `string[]` | `[]` | Optional denylist (takes precedence) |
+| `history_filter` | `string` | `"full"` | Handoff history strategy: `"full"`, `"last_n"`, `"none"` |
+| `history_filter_n` | `usize?` | none | Messages to keep when `history_filter = "last_n"` |
+
+**Node kinds:**
+- `agent` — full LLM tool loop; can hand off to other agents via `transfer_to_agent` / `delegate_to_agent` (auto-injected)
+- `router` — evaluates outgoing edge conditions without calling the LLM (use a cheap model)
+- `fan_out` — dispatches to **all** successors in parallel (requires ≥ 2 outgoing edges)
+- `fan_in` — waits for predecessors, then synthesizes results via LLM
 
 The legacy `[agent]` single-table form is automatically promoted to `[[agents]]` + `[graph]` by the v4→v5 migration on first boot. Use `orka config migrate` to persist the conversion to disk.
 
 ### `graph`
 
-| Key | Type | Notes |
-| --- | --- | --- |
-| `execution_mode` | `string` | `"sequential"` (default) |
-| `max_hops` | `usize` | Max agent transitions per run (default `10`) |
-| `edges` | `EdgeDef[]` | Edge list connecting agents |
+| Key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `entry` | `string?` | first agent | Explicit entry-point agent ID |
+| `execution_mode` | `string` | `"sequential"` | Graph execution mode |
+| `max_hops` | `usize` | `10` | Max agent transitions per run |
+| `edges` | `EdgeDef[]` | `[]` | Edge list connecting agents |
 
 Each `[[graph.edges]]` entry: `from` (string), `to` (string), `condition` (string, optional), `weight` (f32, default `1.0`).
 
 Condition syntax: `"always"`, `"output_contains:<text>"`, or `"state_match:<key>=<value>"`.
+
+**Handoff targets** are auto-derived from outgoing edges for `agent`-kind nodes — no manual configuration needed. `router`, `fan_out`, and `fan_in` nodes use structural routing only.
 
 ### `llm`
 

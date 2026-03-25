@@ -1,65 +1,65 @@
 # Orka Eval Framework
 
-Test framework per valutare l'efficacia delle skill di Orka.
+Test framework for evaluating the effectiveness of Orka skills.
 
-## Panoramica
+## Overview
 
-`orka-eval` fornisce un framework basato su file TOML per definire scenari di test che verificano il comportamento delle skill. Ogni file `.eval.toml` contiene uno o più scenari con input e aspettative.
+`orka-eval` provides a TOML-based framework for defining test scenarios that verify skill behavior. Each `.eval.toml` file contains one or more scenarios with inputs and expectations.
 
-## Struttura File
+## File Structure
 
 ```toml
-# Nome della skill da testare (opzionale, inferito dal filename)
+# Skill to test (optional, inferred from filename)
 skill = "web_search"
 
-# Lista di scenari di test
+# List of test scenarios
 [[scenarios]]
 name = "search_returns_results"
 description = "Web search should return relevant results"
 
-# Input passati alla skill
+# Input passed to the skill
 [scenarios.input]
 query = "Rust programming language"
 limit = 5
 
-# Aspettative sul risultato
+# Expectations on the result
 [scenarios.expected]
-is_ok = true                    # La skill deve riuscire
-contains = ["Rust", "programming"]  # L'output deve contenere queste stringhe
-max_duration_ms = 2000          # Tempo massimo di esecuzione
-format = "json"                 # L'output deve essere JSON valido
+is_ok = true                    # The skill must succeed
+contains = ["Rust", "programming"]  # Output must contain these strings
+max_duration_ms = 2000          # Maximum execution time
+format = "json"                 # Output must be valid JSON
 ```
 
-## Campi Expectations
+## Expectation Fields
 
-| Campo | Tipo | Descrizione |
+| Field | Type | Description |
 |-------|------|-------------|
-| `is_ok` | `bool` | Se `true`, la skill deve riuscire; se `false`, deve fallire |
-| `contains` | `Vec<String>` | Sottstringhe che devono apparire nell'output |
-| `not_contains` | `Vec<String>` | Sottstringhe che NON devono apparire nell'output |
-| `format` | `String` | Formato atteso (attualmente solo `"json"` supportato) |
-| `output_matches` | `String` | Regex pattern che l'output deve matchare |
-| `max_duration_ms` | `u64` | Durata massima in millisecondi |
+| `is_ok` | `bool` | If `true`, the skill must succeed; if `false`, it must fail |
+| `contains` | `Vec<String>` | Substrings that must appear in the output |
+| `not_contains` | `Vec<String>` | Substrings that must NOT appear in the output |
+| `format` | `String` | Expected format (currently only `"json"` is supported) |
+| `output_matches` | `String` | Regex pattern the output must match |
+| `max_duration_ms` | `u64` | Maximum duration in milliseconds |
 
-## Utilizzo CLI
+## CLI Usage
 
 ```bash
-# Esegui tutti i test in una directory
+# Run all tests in a directory
 orka eval run evals/
 
-# Esegui test per una skill specifica
+# Run tests for a specific skill
 orka eval run evals/ --skill web_search
 
-# Esegui un file specifico
+# Run a specific file
 orka eval run evals/web_search.eval.toml
 
-# Output JSON
+# JSON output
 orka eval run evals/ --json
 ```
 
-## Esempi
+## Examples
 
-### Test base di una skill
+### Basic skill test
 
 ```toml
 skill = "file_read"
@@ -76,7 +76,7 @@ is_ok = true
 max_duration_ms = 500
 ```
 
-### Test con regex
+### Test with regex
 
 ```toml
 skill = "shell"
@@ -94,14 +94,14 @@ output_matches = "\\d{4}-\\d{2}-\\d{2}"
 max_duration_ms = 1000
 ```
 
-### Test di fallimento atteso
+### Expected failure test
 
 ```toml
 skill = "file_read"
 
 [[scenarios]]
 name = "read_nonexistent_file"
-description = "Should fail when file doesn't exist"
+description = "Should fail when file does not exist"
 
 [scenarios.input]
 path = "/nonexistent/path/file.txt"
@@ -111,14 +111,14 @@ is_ok = false
 max_duration_ms = 500
 ```
 
-### Test multipli nella stessa file
+### Multiple scenarios in one file
 
 ```toml
 skill = "web_search"
 
 [[scenarios]]
 name = "search_with_limit"
-description = "Search should respect limit parameter"
+description = "Search should respect the limit parameter"
 
 [scenarios.input]
 query = "AI"
@@ -139,14 +139,14 @@ query = ""
 is_ok = false
 ```
 
-## Integrazione CI
+## CI Integration
 
-Aggiungi nel tuo workflow CI:
+Add to your CI workflow:
 
 ```yaml
 - name: Run skill evaluations
   run: orka eval run evals/ --json > eval-results.json
-  
+
 - name: Check eval results
   run: |
     PASSED=$(jq '.passed' eval-results.json)
@@ -159,22 +159,22 @@ Aggiungi nel tuo workflow CI:
 
 ## Best Practices
 
-1. **Nomi descrittivi**: Usa nomi di scenario che descrivono il comportamento testato
-2. **Aspettative specifiche**: Usa `contains` e `output_matches` per verifiche precise
-3. **Timeout ragionevoli**: Imposta `max_duration_ms` appropriati per il tipo di skill
-4. **Test di fallimento**: Includi scenari che testano il comportamento di errore
-5. **Mantieni aggiornati**: Aggiorna gli eval quando cambi il comportamento delle skill
+1. **Descriptive names**: Use scenario names that describe the behavior being tested
+2. **Specific expectations**: Use `contains` and `output_matches` for precise checks
+3. **Reasonable timeouts**: Set `max_duration_ms` appropriate to the skill type
+4. **Failure tests**: Include scenarios that test error behavior
+5. **Keep up to date**: Update evals when changing skill behavior
 
-## Architettura
+## Architecture
 
-Il framework è composto da:
+The framework consists of:
 
-- **scenario.rs**: Definizioni `Scenario`, `Expectations`, `EvalFile`
-- **assertion.rs**: Logica di validazione `check_all()`
-- **runner.rs**: Esecutore `EvalRunner` che carica file e runna scenari
-- **report.rs**: Report strutturati `EvalReport` e `ScenarioResult`
+- **scenario.rs**: `Scenario`, `Expectations`, `EvalFile` definitions
+- **assertion.rs**: Validation logic `check_all()`
+- **runner.rs**: `EvalRunner` that loads files and runs scenarios
+- **report.rs**: Structured reports `EvalReport` and `ScenarioResult`
 
-## API Rust
+## Rust API
 
 ```rust
 use orka_eval::{EvalRunner, EvalReport};
@@ -184,12 +184,12 @@ use orka_skills::SkillRegistry;
 let registry: Arc<SkillRegistry> = // ...
 let runner = EvalRunner::new(registry);
 
-// Esegui directory
+// Run a directory
 let report: EvalReport = runner.run_dir("evals/", None).await?;
 
-// Stampa report
+// Print report
 report.print_pretty();
 
-// O serializza in JSON
+// Or serialize to JSON
 let json = report.to_json();
 ```

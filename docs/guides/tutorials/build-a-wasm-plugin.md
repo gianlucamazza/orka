@@ -8,7 +8,7 @@ This tutorial covers the creation of a simple WASM plugin using the WebAssembly 
 
 You'll need the following installed:
 *   [Rust](https://rustup.rs/) (latest stable)
-*   The `wasm32-wasip1` target: `rustup target add wasm32-wasip1`
+*   The `wasm32-wasip2` target: `rustup target add wasm32-wasip2`
 *   [`cargo-component`](https://github.com/bytecodealliance/cargo-component): `cargo binstall cargo-component` (or `cargo install cargo-component`)
 
 ## Step 1: Initialize the Project
@@ -81,7 +81,7 @@ Build the WebAssembly component:
 cargo component build --release
 ```
 
-This will produce a `.wasm` file in `target/wasm32-wasip1/release/weather_plugin.wasm`.
+This will produce a `.wasm` file in `target/wasm32-wasip2/release/weather_plugin.wasm`.
 
 Next, move the `.wasm` file and its `.json` schema to Orka's plugins directory. By default, this is defined in `orka.toml`:
 
