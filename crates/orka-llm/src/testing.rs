@@ -48,6 +48,12 @@ pub struct MockLlmClient {
 }
 
 impl MockLlmClient {
+    fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        mutex
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     /// Create a new mock client with no predefined responses.
     pub fn new() -> Self {
         Self {
@@ -59,35 +65,35 @@ impl MockLlmClient {
     }
 
     /// Enqueue a plain-text reply returned by `complete`.
+    #[must_use]
     pub fn with_text_response(self, response: impl Into<String>) -> Self {
-        self.text_responses
-            .lock()
-            .unwrap()
-            .push_back(response.into());
+        Self::lock_or_recover(&self.text_responses).push_back(response.into());
         self
     }
 
     /// Enqueue a [`CompletionResponse`] returned by `complete_with_tools`
     /// (and transitively by the default `complete_stream_with_tools`).
+    #[must_use]
     pub fn with_tool_response(self, response: CompletionResponse) -> Self {
-        self.tool_responses.lock().unwrap().push_back(response);
+        Self::lock_or_recover(&self.tool_responses).push_back(response);
         self
     }
 
     /// Configure the mock to return an error after N successful calls.
+    #[must_use]
     pub fn error_after(self, n: usize) -> Self {
-        *self.error_after.lock().unwrap() = Some(n);
+        *Self::lock_or_recover(&self.error_after) = Some(n);
         self
     }
 
     /// Return the number of times the mock has been called.
     pub fn call_count(&self) -> usize {
-        *self.call_count.lock().unwrap()
+        *Self::lock_or_recover(&self.call_count)
     }
 
     fn check_error(&self) -> Result<()> {
-        if let Some(limit) = *self.error_after.lock().unwrap()
-            && *self.call_count.lock().unwrap() > limit
+        if let Some(limit) = *Self::lock_or_recover(&self.error_after)
+            && *Self::lock_or_recover(&self.call_count) > limit
         {
             return Err(Error::Other(format!(
                 "Mock error triggered after {limit} calls"
@@ -97,15 +103,13 @@ impl MockLlmClient {
     }
 
     fn next_text_response(&self) -> String {
-        self.text_responses
-            .lock()
-            .unwrap()
+        Self::lock_or_recover(&self.text_responses)
             .pop_front()
             .unwrap_or_else(|| "mock response".to_string())
     }
 
     fn next_tool_response(&self) -> CompletionResponse {
-        if let Some(resp) = self.tool_responses.lock().unwrap().pop_front() {
+        if let Some(resp) = Self::lock_or_recover(&self.tool_responses).pop_front() {
             resp
         } else {
             // Fall back to the text queue, wrapped as a single Text block.
@@ -128,7 +132,7 @@ impl Default for MockLlmClient {
 #[async_trait]
 impl LlmClient for MockLlmClient {
     async fn complete(&self, _messages: Vec<ChatMessage>, _system: &str) -> Result<String> {
-        *self.call_count.lock().unwrap() += 1;
+        *MockLlmClient::lock_or_recover(&self.call_count) += 1;
         self.check_error()?;
         Ok(self.next_text_response())
     }
@@ -140,7 +144,7 @@ impl LlmClient for MockLlmClient {
         _tools: &[ToolDefinition],
         _options: CompletionOptions,
     ) -> Result<CompletionResponse> {
-        *self.call_count.lock().unwrap() += 1;
+        *MockLlmClient::lock_or_recover(&self.call_count) += 1;
         self.check_error()?;
         Ok(self.next_tool_response())
     }
@@ -184,12 +188,14 @@ impl CompletionResponseBuilder {
     }
 
     /// Append a [`ContentBlock::Text`] block.
+    #[must_use]
     pub fn text(mut self, text: impl Into<String>) -> Self {
         self.blocks.push(ContentBlock::Text(text.into()));
         self
     }
 
     /// Append a [`ContentBlock::ToolUse`] block.
+    #[must_use]
     pub fn tool_use(
         mut self,
         id: impl Into<String>,
@@ -202,12 +208,14 @@ impl CompletionResponseBuilder {
     }
 
     /// Set the input/output token usage.
+    #[must_use]
     pub fn usage(mut self, input_tokens: u32, output_tokens: u32) -> Self {
         self.usage = Usage::new(input_tokens, output_tokens);
         self
     }
 
     /// Set the stop reason.
+    #[must_use]
     pub fn stop_reason(mut self, reason: StopReason) -> Self {
         self.stop_reason = Some(reason);
         self
@@ -231,6 +239,8 @@ impl Default for CompletionResponseBuilder {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use futures_util::StreamExt;
 
     use super::*;

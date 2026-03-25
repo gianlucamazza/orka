@@ -7,6 +7,25 @@ use std::{
 
 use orka_core::config::HistoryFilter;
 use orka_llm::ThinkingConfig;
+
+use crate::planner::PlanningMode;
+
+/// How to manage conversation history when it exceeds the context window.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HistoryStrategy {
+    /// Drop oldest turns (current behaviour, default).
+    #[default]
+    Truncate,
+    /// Summarize dropped turns with a cheap LLM call and prepend the summary to
+    /// the system prompt so key context is not silently discarded.
+    Summarize,
+    /// Keep only the most recent `recent_turns` conversation turns. Dropped
+    /// turns are summarized incrementally and prepended to the system prompt.
+    RollingWindow {
+        /// Maximum number of conversation turns to retain.
+        recent_turns: usize,
+    },
+}
 use orka_prompts::{
     pipeline::{BuildContext, PipelineConfig, SystemPromptPipeline},
     template::TemplateRegistry,
@@ -192,6 +211,18 @@ pub struct Agent {
     pub history_filter: HistoryFilter,
     /// Number of messages to keep when `history_filter` is `LastN`.
     pub history_filter_n: Option<usize>,
+    /// Whether to inject planning tools into the LLM tool list.
+    pub planning_mode: PlanningMode,
+    /// How to handle conversation history when it exceeds the context window.
+    pub history_strategy: HistoryStrategy,
+    /// Tool names that require human approval before execution.
+    ///
+    /// When the LLM requests a tool in this set the executor saves an
+    /// `Interrupted` checkpoint and pauses, waiting for `approve` or `reject`.
+    pub interrupt_before_tools: HashSet<String>,
+    /// Maximum characters kept per tool result before truncation for LLM
+    /// context.
+    pub tool_result_max_chars: usize,
 }
 
 impl Agent {
@@ -211,6 +242,10 @@ impl Agent {
             progressive_disclosure: false,
             history_filter: HistoryFilter::default(),
             history_filter_n: None,
+            planning_mode: PlanningMode::None,
+            history_strategy: HistoryStrategy::Truncate,
+            interrupt_before_tools: HashSet::new(),
+            tool_result_max_chars: 50_000,
         }
     }
 }

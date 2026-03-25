@@ -19,23 +19,28 @@ use orka_prompts::pipeline::PipelineConfig;
 use tracing::{Instrument, debug, info, info_span, warn};
 
 use crate::{
-    agent::Agent,
-    context::ExecutionContext,
+    agent::{Agent, HistoryStrategy},
+    context::{ExecutionContext, SlotKey},
     executor::ExecutorDeps,
     graph::AgentGraph,
     handoff::{Handoff, HandoffMode},
+    planner::{PLAN_SLOT, Plan, PlanStep, PlanningMode, StepStatus, planning_tools},
     tools::build_handoff_tools,
 };
 
 /// The result of running a single agent node.
 #[derive(Debug)]
-pub struct AgentNodeResult {
+pub(crate) struct AgentNodeResult {
     /// The agent's final text response, if it produced one.
     pub response: Option<String>,
     /// A handoff request, if the agent decided to transfer/delegate.
     pub handoff: Option<Handoff>,
     /// Number of LLM iterations consumed.
     pub iterations: usize,
+    /// Set when the agent was interrupted before executing a tool that requires
+    /// human approval. The executor saves an `Interrupted` checkpoint and
+    /// stops.
+    pub interrupted: Option<orka_checkpoint::InterruptReason>,
 }
 
 /// Parse a handoff from a tool call issued by the LLM.
@@ -97,7 +102,7 @@ pub(crate) fn build_tool_error_hint(
 ///
 /// This is the core of the agent system, adapted to operate on
 /// `(Agent, ExecutionContext, ExecutorDeps)`.
-pub async fn run_agent_node(
+pub(crate) async fn run_agent_node(
     agent: &Agent,
     ctx: &ExecutionContext,
     deps: &ExecutorDeps,
@@ -110,6 +115,7 @@ pub async fn run_agent_node(
                 response: Some("No LLM provider configured.".into()),
                 handoff: None,
                 iterations: 0,
+                interrupted: None,
             });
         }
     };
@@ -165,16 +171,23 @@ pub async fn run_agent_node(
     };
 
     let handoff_tools = build_handoff_tools(agent, graph);
+    let plan_tools = if agent.planning_mode == PlanningMode::Adaptive {
+        planning_tools()
+    } else {
+        vec![]
+    };
 
     let initial_skill_tools = build_skill_tools(&enabled_categories);
     let mut tools: Vec<ToolDefinition> = if progressive {
         let mut t = synthetic_tools();
         t.extend(initial_skill_tools);
         t.extend(handoff_tools.clone());
+        t.extend(plan_tools.clone());
         t
     } else {
         let mut t = initial_skill_tools;
         t.extend(handoff_tools.clone());
+        t.extend(plan_tools.clone());
         t
     };
 
@@ -287,8 +300,59 @@ pub async fn run_agent_node(
         .map(|s| format!("## Recent local shell commands\n{s}"))
         .unwrap_or_default();
 
+    // ── History summarization (HistoryStrategy::Summarize) ───────────────────
+    // Before building the system prompt we check if history truncation would
+    // occur.  If so, and if the agent uses the Summarize strategy, we call the
+    // LLM once to summarise the would-be-dropped turns and store the result in
+    // `ctx` so it can be injected into the system prompt and persisted across
+    // checkpoints.
+    if agent.history_strategy == HistoryStrategy::Summarize
+        && ctx.conversation_summary().await.is_none()
+        && let Some(ref llm_client) = deps.llm
+    {
+        {
+            let current_msgs = ctx.messages().await;
+            if !current_msgs.is_empty() {
+                let hint = TokenizerHint::from_model(agent.llm_config.model.as_deref());
+                // Use a conservative budget estimate (no tools/system yet).
+                let context_window = agent.llm_config.context_window.unwrap_or(200_000);
+                let output_budget = agent.llm_config.max_tokens.unwrap_or(4096);
+                let rough_budget = context_window.saturating_sub(output_budget);
+                let total: u32 = current_msgs
+                    .iter()
+                    .map(|m| orka_llm::context::estimate_message_tokens_with_hint(m, hint))
+                    .sum();
+                if total > rough_budget / 2 {
+                    // History is large enough that truncation is likely.
+                    // Summarise oldest half of turns.
+                    let turns = orka_llm::context::group_into_turns(&current_msgs);
+                    let cutoff = turns.len() / 2;
+                    if cutoff > 0 {
+                        let end = turns[cutoff - 1].end;
+                        let to_summarise = &current_msgs[..end];
+                        let summary_result =
+                            summarize_messages(llm_client.as_ref(), to_summarise).await;
+                        match summary_result {
+                            Ok(summary) => {
+                                debug!(
+                                    agent = %agent.id,
+                                    turns_summarized = cutoff,
+                                    "history.summarized"
+                                );
+                                ctx.set_conversation_summary(summary).await;
+                            }
+                            Err(e) => {
+                                warn!(%e, agent = %agent.id, "history summarization failed");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Build system prompt using context providers and pipeline
-    let system_prompt = {
+    let mut system_prompt = {
         use orka_prompts::{
             context::{
                 ContextCoordinator, ExperienceContextProvider, SectionsContextProvider,
@@ -312,6 +376,9 @@ pub async fn run_agent_node(
         }
         if let Some(ref registry) = deps.templates {
             base_context = base_context.with_templates(Arc::clone(registry));
+        }
+        if let Some(summary) = ctx.conversation_summary().await {
+            base_context = base_context.with_summary(summary);
         }
 
         // 2. Create session context
@@ -415,7 +482,7 @@ pub async fn run_agent_node(
 
     let max_tool_retries: u32 = 2;
     let mut tool_error_counts: HashMap<String, u32> = HashMap::new();
-    let max_result_chars: usize = 50_000;
+    let max_result_chars: usize = agent.tool_result_max_chars;
     let skill_timeout = std::time::Duration::from_secs(agent.skill_timeout_secs);
 
     let mut messages = {
@@ -439,6 +506,7 @@ pub async fn run_agent_node(
                     response: Some(format!("Input blocked: {reason}")),
                     handoff: None,
                     iterations: 0,
+                    interrupted: None,
                 });
             }
             Ok(GuardrailDecision::Modify(filtered)) => {
@@ -453,9 +521,39 @@ pub async fn run_agent_node(
         }
     }
 
+    // ── PlanningMode::Always — eager plan generation ──────────────────────────
+    // Before the first iteration, generate a structured plan via a dedicated
+    // LLM call and inject it into the system prompt.  Skip if a plan is
+    // already stored in context (e.g. resumed from checkpoint).
+    if agent.planning_mode == PlanningMode::Always
+        && ctx.get(&SlotKey::shared(PLAN_SLOT)).await.is_none()
+        && let Some(ref llm_client) = deps.llm
+    {
+        let plan_result: orka_core::Result<Plan> =
+            generate_plan(llm_client.as_ref(), &trigger_text, &messages).await;
+        match plan_result {
+            Ok(plan) => {
+                let plan_section = format!("\n\n## Task Plan\n{}", plan.display_summary());
+                system_prompt.push_str(&plan_section);
+                if let Ok(plan_json) = serde_json::to_value(&plan) {
+                    ctx.set(&agent.id, SlotKey::shared(PLAN_SLOT), plan_json)
+                        .await;
+                }
+                debug!(agent = %agent.id, steps = plan.steps.len(), "always plan generated");
+            }
+            Err(e) => {
+                warn!(%e, agent = %agent.id, "PlanningMode::Always plan generation failed, continuing without plan");
+            }
+        }
+    }
+
     let mut iterations = 0usize;
     let mut final_response: Option<String> = None;
     let mut handoff: Option<Handoff> = None;
+    // Active worktree path for this agent run. Set when `git_worktree_create`
+    // succeeds; cleared when `git_worktree_remove` is called.  Propagated into
+    // every `SkillContext` so tools operate inside the worktree automatically.
+    let mut worktree_cwd: Option<String> = None;
 
     for iteration in 0..agent.max_iterations {
         iterations = iteration + 1;
@@ -467,41 +565,82 @@ pub async fn run_agent_node(
             tools.extend(synthetic_tools());
             tools.extend(build_skill_tools(&enabled_categories));
             tools.extend(handoff_tools.clone());
+            tools.extend(plan_tools.clone());
         }
 
         // Truncate history to fit context window
         let hint = TokenizerHint::from_model(agent.llm_config.model.as_deref());
-        let budget = available_history_budget_with_hint(
-            context_window,
-            output_budget,
-            &system_prompt,
-            &tools,
-            hint,
-        );
-        let (truncated, dropped) = truncate_history_with_hint(messages, budget, hint, true);
-        messages = truncated;
-        if dropped > 0 {
-            warn!(
-                dropped,
-                remaining = messages.len(),
-                "truncated history to fit context window"
+        if let HistoryStrategy::RollingWindow { recent_turns } = agent.history_strategy {
+            // Keep only the last `recent_turns` conversation turns; summarize
+            // the dropped ones incrementally so context is not silently lost.
+            let turns = orka_llm::context::group_into_turns(&messages);
+            if turns.len() > recent_turns {
+                let cutoff = turns.len() - recent_turns;
+                let drop_end = turns[cutoff - 1].end;
+                let to_drop = messages[..drop_end].to_vec();
+                if let Some(ref llm_client) = deps.llm
+                    && let Ok(summary) = summarize_messages(llm_client.as_ref(), &to_drop).await
+                {
+                    ctx.set_conversation_summary(summary).await;
+                }
+                let dropped = drop_end;
+                messages = messages[drop_end..].to_vec();
+                warn!(
+                    dropped,
+                    remaining = messages.len(),
+                    recent_turns,
+                    "rolling window: trimmed history"
+                );
+                let history_tokens: u32 = messages
+                    .iter()
+                    .map(|m| estimate_message_tokens_with_hint(m, hint))
+                    .sum();
+                deps.stream_registry
+                    .send(orka_core::stream::StreamChunk::new(
+                        ctx.session_id,
+                        envelope.channel.clone(),
+                        Some(envelope.id),
+                        orka_core::stream::StreamChunkKind::ContextInfo {
+                            history_tokens,
+                            context_window,
+                            messages_truncated: dropped as u32,
+                            summary_generated: true,
+                        },
+                    ));
+            }
+        } else {
+            let budget = available_history_budget_with_hint(
+                context_window,
+                output_budget,
+                &system_prompt,
+                &tools,
+                hint,
             );
-            let history_tokens: u32 = messages
-                .iter()
-                .map(|m| estimate_message_tokens_with_hint(m, hint))
-                .sum();
-            deps.stream_registry
-                .send(orka_core::stream::StreamChunk::new(
-                    ctx.session_id,
-                    envelope.channel.clone(),
-                    Some(envelope.id),
-                    orka_core::stream::StreamChunkKind::ContextInfo {
-                        history_tokens,
-                        context_window,
-                        messages_truncated: dropped as u32,
-                        summary_generated: false,
-                    },
-                ));
+            let (truncated, dropped) = truncate_history_with_hint(messages, budget, hint, true);
+            messages = truncated;
+            if dropped > 0 {
+                warn!(
+                    dropped,
+                    remaining = messages.len(),
+                    "truncated history to fit context window"
+                );
+                let history_tokens: u32 = messages
+                    .iter()
+                    .map(|m| estimate_message_tokens_with_hint(m, hint))
+                    .sum();
+                deps.stream_registry
+                    .send(orka_core::stream::StreamChunk::new(
+                        ctx.session_id,
+                        envelope.channel.clone(),
+                        Some(envelope.id),
+                        orka_core::stream::StreamChunkKind::ContextInfo {
+                            history_tokens,
+                            context_window,
+                            messages_truncated: dropped as u32,
+                            summary_generated: false,
+                        },
+                    ));
+            }
         }
 
         let llm_span = info_span!(
@@ -694,7 +833,95 @@ pub async fn run_agent_node(
         let mut skill_calls: Vec<&ToolCall> = Vec::new();
 
         for call in &regular_calls {
-            if progressive && (call.name == "list_tool_categories" || call.name == "enable_tools") {
+            if call.name == "create_plan" || call.name == "update_plan_step" {
+                let result = match call.name.as_str() {
+                    "create_plan" => {
+                        let goal = call
+                            .input
+                            .get("goal")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let steps: Vec<PlanStep> = call
+                            .input
+                            .get("steps")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|s| {
+                                        let id = s.get("id")?.as_str()?.to_string();
+                                        let description =
+                                            s.get("description")?.as_str()?.to_string();
+                                        Some(PlanStep {
+                                            id,
+                                            description,
+                                            status: StepStatus::Pending,
+                                        })
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+
+                        let plan = Plan { goal, steps };
+                        let summary = plan.display_summary();
+                        if let Ok(json) = serde_json::to_value(&plan) {
+                            ctx.set(&agent.id, SlotKey::shared(PLAN_SLOT), json).await;
+                        }
+                        (format!("Plan created.\n{summary}"), false)
+                    }
+                    "update_plan_step" => {
+                        let step_id = call
+                            .input
+                            .get("step_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let status_str = call
+                            .input
+                            .get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("completed");
+                        let summary = call
+                            .input
+                            .get("summary")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        // Load current plan from state, update step, save back.
+                        let plan_key = SlotKey::shared(PLAN_SLOT);
+                        let updated = if let Some(json) = ctx.get(&plan_key).await {
+                            match serde_json::from_value::<Plan>(json) {
+                                Ok(mut plan) => {
+                                    if let Some(step) =
+                                        plan.steps.iter_mut().find(|s| s.id == step_id)
+                                    {
+                                        step.status = match status_str {
+                                            "in_progress" => StepStatus::InProgress,
+                                            "failed" => StepStatus::Failed { summary },
+                                            "skipped" => StepStatus::Skipped { summary },
+                                            _ => StepStatus::Completed { summary },
+                                        };
+                                    }
+                                    let s = plan.display_summary();
+                                    if let Ok(json) = serde_json::to_value(&plan) {
+                                        ctx.set(&agent.id, plan_key, json).await;
+                                    }
+                                    s
+                                }
+                                Err(_) => "Error: plan data is corrupt.".to_string(),
+                            }
+                        } else {
+                            "Error: no active plan. Call create_plan first.".to_string()
+                        };
+                        (updated, false)
+                    }
+                    _ => unreachable!(),
+                };
+                results_map.insert(call.id.clone(), result);
+            } else if progressive
+                && (call.name == "list_tool_categories" || call.name == "enable_tools")
+            {
                 let result = match call.name.as_str() {
                     "list_tool_categories" => {
                         let categories = deps.skills.list_by_category();
@@ -725,11 +952,32 @@ pub async fn run_agent_node(
             }
         }
 
+        // HITL: if any pending skill call requires human approval, interrupt
+        // before running *any* tool in this batch.
+        if let Some(call) = skill_calls
+            .iter()
+            .find(|c| agent.interrupt_before_tools.contains(&c.name))
+        {
+            let reason = orka_checkpoint::InterruptReason::HumanApproval {
+                tool_name: call.name.clone(),
+                tool_input: call.input.clone(),
+                agent_id: agent.id.0.to_string(),
+            };
+            return Ok(AgentNodeResult {
+                response: None,
+                handoff: None,
+                iterations,
+                interrupted: Some(reason),
+            });
+        }
+
         let mut join_set = tokio::task::JoinSet::new();
 
         for call in &skill_calls {
             // Tool-input guardrail: check serialized args before execution.
             // Blocked calls return an error result to the LLM without execution.
+            // `modified_input` holds a guardrail-replaced value when `Modify` is returned.
+            let mut modified_input: Option<serde_json::Value> = None;
             if let Some(ref guardrail) = deps.guardrail {
                 use orka_core::traits::GuardrailDecision;
                 let session = orka_core::Session::new(&ctx.trigger.channel, "");
@@ -744,9 +992,9 @@ pub async fn run_agent_node(
                         continue;
                     }
                     Ok(GuardrailDecision::Modify(modified)) => {
-                        // Use modified args — the call is reconstructed below via call_input
-                        // We fall through; the override will be handled in the spawn
-                        let _ = modified; // TODO: thread modified args through spawn
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&modified) {
+                            modified_input = Some(v);
+                        }
                     }
                     _ => {}
                 }
@@ -754,7 +1002,7 @@ pub async fn run_agent_node(
 
             let call_id = call.id.clone();
             let call_name = call.name.clone();
-            let call_input = call.input.clone();
+            let call_input = modified_input.unwrap_or_else(|| call.input.clone());
             let skills = deps.skills.clone();
             let event_sink = deps.event_sink.clone();
             let secrets = deps.secrets.clone();
@@ -781,6 +1029,7 @@ pub async fn run_agent_node(
                 .get("workspace:cwd")
                 .and_then(|v| v.as_str())
                 .map(String::from);
+            let worktree_cwd_for_task = worktree_cwd.clone();
 
             join_set.spawn(async move {
                 let args: HashMap<String, serde_json::Value> = match call_input {
@@ -790,7 +1039,8 @@ pub async fn run_agent_node(
 
                 let start = std::time::Instant::now();
                 let mut skill_ctx = orka_core::SkillContext::new(secrets, Some(event_sink.clone()))
-                    .with_user_cwd(user_cwd);
+                    .with_user_cwd(user_cwd)
+                    .with_worktree_cwd(worktree_cwd_for_task);
                 if skill_max_output_bytes.is_some() || skill_max_duration_ms.is_some() {
                     skill_ctx = skill_ctx.with_budget(orka_core::SkillBudget {
                         max_duration_ms: skill_max_duration_ms,
@@ -857,6 +1107,29 @@ pub async fn run_agent_node(
         while let Some(res) = join_set.join_next().await {
             if let Ok((call_id, content, is_error)) = res {
                 results_map.insert(call_id, (content, is_error));
+            }
+        }
+
+        // Update worktree context based on successful worktree skill calls.
+        // This enables all subsequent skill calls (coding_delegate, shell_exec,
+        // git_*) to automatically operate inside the correct worktree.
+        for call in &regular_calls {
+            if let Some((content, false)) = results_map.get(&call.id) {
+                match call.name.as_str() {
+                    "git_worktree_create" => {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(content) {
+                            if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
+                                worktree_cwd = Some(path.to_string());
+                                debug!(worktree_path = path, "worktree context activated");
+                            }
+                        }
+                    }
+                    "git_worktree_remove" => {
+                        worktree_cwd = None;
+                        debug!("worktree context cleared");
+                    }
+                    _ => {}
+                }
             }
         }
 
@@ -942,6 +1215,163 @@ pub async fn run_agent_node(
         response: final_response,
         handoff,
         iterations,
+        interrupted: None,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Call the LLM to produce a brief summary of `messages`.
+///
+/// Used by `HistoryStrategy::Summarize` to compress old turns before they are
+/// dropped from the context window.  Returns an error on any LLM failure; the
+/// caller logs and falls back to plain truncation.
+async fn summarize_messages(
+    llm: &dyn orka_llm::client::LlmClient,
+    messages: &[orka_llm::client::ChatMessage],
+) -> orka_core::Result<String> {
+    use orka_llm::{
+        client::{ChatMessage, CompletionOptions},
+        consume_stream,
+    };
+
+    let system = "You are a concise conversation summarizer. \
+                  Summarize the key information, decisions, tool results, and context \
+                  from the provided conversation in 3-7 sentences. \
+                  Focus on facts the assistant will need later; omit pleasantries.";
+
+    // Format messages as plain text for summarization.
+    let transcript: String = messages
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                orka_llm::client::Role::User => "User",
+                orka_llm::client::Role::Assistant => "Assistant",
+                _ => "Unknown",
+            };
+            let text = match &m.content {
+                orka_llm::client::ChatContent::Text(t) => t.clone(),
+                orka_llm::client::ChatContent::Blocks(blocks) => blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        orka_llm::client::ContentBlockInput::Text { text } => Some(text.as_str()),
+                        orka_llm::client::ContentBlockInput::ToolResult { content, .. } => {
+                            Some(content.as_str())
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                _ => String::new(),
+            };
+            format!("{role}: {text}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let prompt = format!("Conversation to summarize:\n\n{transcript}");
+    let msgs = vec![ChatMessage::user(prompt)];
+
+    let stream = llm
+        .complete_stream_with_tools(&msgs, system, &[], CompletionOptions::default())
+        .await
+        .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+
+    // Use a no-op stream registry for the summarization call.
+    let registry = orka_core::StreamRegistry::new();
+    let session_id = orka_core::SessionId::new();
+    let completion = consume_stream(stream, &session_id, &registry, "summarize", None)
+        .await
+        .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+
+    let text = completion
+        .blocks
+        .iter()
+        .filter_map(|b| match b {
+            orka_llm::client::ContentBlock::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    Ok(text)
+}
+
+/// Call the LLM to generate a structured [`Plan`] for a task.
+///
+/// Used by [`PlanningMode::Always`] to proactively plan before the first
+/// iteration.  Returns an error on any LLM failure; the caller logs and
+/// continues without a plan.
+async fn generate_plan(
+    llm: &dyn orka_llm::client::LlmClient,
+    trigger_text: &str,
+    messages: &[orka_llm::client::ChatMessage],
+) -> orka_core::Result<Plan> {
+    use orka_llm::client::{ChatMessage, CompletionOptions, ResponseFormat};
+
+    let system = "You are a task planning assistant. Given a user request and conversation \
+                  context, produce a concise step-by-step plan in JSON. \
+                  Respond ONLY with valid JSON matching: \
+                  {\"goal\": \"...\", \"steps\": [{\"id\": \"s1\", \"description\": \"...\"}]}";
+
+    let context_snippet: String = messages
+        .iter()
+        .rev()
+        .take(6)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .filter_map(|m| match &m.content {
+            orka_llm::client::ChatContent::Text(t) if !t.is_empty() => Some(t.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let prompt = if context_snippet.is_empty() {
+        format!("Task: {trigger_text}")
+    } else {
+        format!("Recent context:\n{context_snippet}\n\nTask: {trigger_text}")
+    };
+
+    let msgs = vec![ChatMessage::user(prompt)];
+    let mut opts = CompletionOptions::default();
+    opts.max_tokens = Some(512);
+    opts.response_format = Some(ResponseFormat::Json);
+
+    let raw = llm
+        .complete_with_options(msgs, system, opts)
+        .await
+        .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+
+    // Parse response — allow partial structures gracefully
+    #[derive(serde::Deserialize)]
+    struct RawPlan {
+        goal: String,
+        steps: Vec<RawStep>,
+    }
+    #[derive(serde::Deserialize)]
+    struct RawStep {
+        id: String,
+        description: String,
+    }
+
+    let raw_plan: RawPlan = serde_json::from_str(&raw)
+        .map_err(|e| orka_core::Error::Other(format!("plan parse error: {e} — raw: {raw}")))?;
+
+    Ok(Plan {
+        goal: raw_plan.goal,
+        steps: raw_plan
+            .steps
+            .into_iter()
+            .map(|s| PlanStep {
+                id: s.id,
+                description: s.description,
+                status: StepStatus::Pending,
+            })
+            .collect(),
     })
 }
 
@@ -987,6 +1417,7 @@ mod tests {
             templates: None,
             coding_runtime: None,
             guardrail: None,
+            checkpoint_store: None,
         }
     }
 
@@ -1104,6 +1535,7 @@ mod tests {
             templates: None,
             coding_runtime: None,
             guardrail: None,
+            checkpoint_store: None,
         };
         let agent = Agent::new(AgentId::new("test"), "Test");
         let ctx = minimal_ctx();
@@ -1168,5 +1600,118 @@ mod tests {
             response.contains("maximum"),
             "expected max-iterations message, got: {response}"
         );
+    }
+
+    /// `PlanningMode::Always` triggers a pre-execution plan generation call and
+    /// injects the plan into the context before the first LLM iteration.
+    #[tokio::test]
+    async fn planning_mode_always_generates_plan_before_execution() {
+        use orka_llm::{client::StopReason, testing::CompletionResponseBuilder};
+
+        let plan_json =
+            r#"{"goal": "do the thing", "steps": [{"id": "s1", "description": "step one"}]}"#;
+
+        // First call (complete_with_options → complete): plan generation.
+        // Second call (complete_with_tools): main agent response.
+        let mock = MockLlmClient::new()
+            .with_text_response(plan_json)
+            .with_tool_response(
+                CompletionResponseBuilder::new()
+                    .text("done")
+                    .stop_reason(StopReason::EndTurn)
+                    .build(),
+            );
+
+        let mut agent = Agent::new(AgentId::new("planner"), "Planner");
+        agent.planning_mode = PlanningMode::Always;
+
+        let ctx = minimal_ctx();
+        let deps = minimal_deps(mock);
+        let graph = minimal_graph(&agent.id);
+
+        let result = run_agent_node(&agent, &ctx, &deps, &graph).await.unwrap();
+
+        // Agent should complete with the final text response
+        assert_eq!(result.response.unwrap_or_default(), "done");
+
+        // The plan must have been stored in the shared context slot
+        let plan_value = ctx.get(&SlotKey::shared(PLAN_SLOT)).await;
+        assert!(
+            plan_value.is_some(),
+            "plan should be stored in context under PLAN_SLOT"
+        );
+        let plan_obj = plan_value.unwrap();
+        assert_eq!(
+            plan_obj.get("goal").and_then(|v| v.as_str()),
+            Some("do the thing")
+        );
+    }
+
+    /// `HistoryStrategy::RollingWindow` drops old turns and stores a summary
+    /// in the context when the message history exceeds `recent_turns`.
+    #[tokio::test]
+    async fn rolling_window_trims_history_and_stores_summary() {
+        use orka_llm::{
+            client::{ChatMessage, Role, StopReason},
+            testing::CompletionResponseBuilder,
+        };
+
+        // Two historical turns (user+assistant pairs) already in context.
+        // With recent_turns = 1 the first turn will be dropped and summarized.
+        let ctx = minimal_ctx();
+        ctx.push_message(ChatMessage::new(
+            Role::User,
+            orka_llm::client::ChatContent::Text("hi".into()),
+        ))
+        .await;
+        ctx.push_message(ChatMessage::new(
+            Role::Assistant,
+            orka_llm::client::ChatContent::Text("hello".into()),
+        ))
+        .await;
+        ctx.push_message(ChatMessage::new(
+            Role::User,
+            orka_llm::client::ChatContent::Text("follow up".into()),
+        ))
+        .await;
+        ctx.push_message(ChatMessage::new(
+            Role::Assistant,
+            orka_llm::client::ChatContent::Text("answer".into()),
+        ))
+        .await;
+
+        // First tool response: summary of dropped turn.
+        // Second tool response: final agent answer.
+        let mock = MockLlmClient::new()
+            .with_tool_response(
+                CompletionResponseBuilder::new()
+                    .text("prior context summary")
+                    .stop_reason(StopReason::EndTurn)
+                    .build(),
+            )
+            .with_tool_response(
+                CompletionResponseBuilder::new()
+                    .text("final answer")
+                    .stop_reason(StopReason::EndTurn)
+                    .build(),
+            );
+
+        let mut agent = Agent::new(AgentId::new("rw"), "RW");
+        agent.history_strategy = HistoryStrategy::RollingWindow { recent_turns: 1 };
+
+        let deps = minimal_deps(mock);
+        let graph = minimal_graph(&agent.id);
+
+        let result = run_agent_node(&agent, &ctx, &deps, &graph).await.unwrap();
+
+        assert_eq!(result.response.unwrap_or_default(), "final answer");
+
+        // The summary of the dropped turn must be stored in context.
+        let summary = ctx.conversation_summary().await;
+        assert!(
+            summary.is_some(),
+            "rolling window should store a conversation summary"
+        );
+        assert_eq!(summary.as_deref(), Some("prior context summary"));
     }
 }

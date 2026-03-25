@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! Integration tests for orka-eval framework.
 
 use std::{sync::Arc, time::Duration};

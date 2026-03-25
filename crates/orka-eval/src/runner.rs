@@ -5,6 +5,7 @@ use orka_skills::SkillRegistry;
 
 use crate::{
     assertion::check_all,
+    llm_judge::LlmJudge,
     report::{EvalReport, ScenarioResult},
     scenario::EvalFile,
 };
@@ -12,12 +13,22 @@ use crate::{
 /// Runs evaluation scenarios against a skill registry.
 pub struct EvalRunner {
     registry: Arc<SkillRegistry>,
+    judge: Option<LlmJudge>,
 }
 
 impl EvalRunner {
     /// Create a new runner backed by the given skill registry.
     pub fn new(registry: Arc<SkillRegistry>) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            judge: None,
+        }
+    }
+
+    /// Attach an LLM judge to evaluate semantic quality criteria.
+    pub fn with_judge(mut self, judge: LlmJudge) -> Self {
+        self.judge = Some(judge);
+        self
     }
 
     /// Scan `dir` for `*.eval.toml` files and run all matching scenarios.
@@ -97,7 +108,22 @@ impl EvalRunner {
         let invoke_result = self.registry.invoke(skill_name, input).await;
         let elapsed = start.elapsed();
 
-        let assertions = check_all(&invoke_result, &scenario.expected, elapsed);
+        let mut assertions = check_all(&invoke_result, &scenario.expected, elapsed);
+
+        // Run LLM judge if configured and there are judge criteria
+        if let (Some(judge), Some(criteria)) = (&self.judge, &scenario.expected.judge)
+            && !criteria.is_empty()
+        {
+            let output_str = match &invoke_result {
+                Ok(out) => out.data.to_string(),
+                Err(e) => format!("error: {e}"),
+            };
+            let input_val =
+                serde_json::to_value(&scenario.input).unwrap_or(serde_json::Value::Null);
+            let judge_results = judge.evaluate(criteria, &output_str, &input_val).await;
+            assertions.extend(judge_results);
+        }
+
         let passed = assertions.iter().all(|a| a.passed);
         let error = invoke_result.as_ref().err().map(|e| e.to_string());
 

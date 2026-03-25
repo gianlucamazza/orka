@@ -13,6 +13,13 @@ use crate::client::{
     StreamEvent, ToolCall, ToolDefinition, Usage,
 };
 
+struct AnthropicSseState {
+    buffer: String,
+    active_tool_id: Option<String>,
+    active_tool_name: Option<String>,
+    tool_input_buffer: String,
+}
+
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1/messages";
 
 /// Anthropic Messages API client with retry and streaming support.
@@ -27,7 +34,7 @@ pub struct AnthropicClient {
 }
 
 impl AnthropicClient {
-    /// Create a client with default max_tokens (8192) and no custom base URL.
+    /// Create a client with default `max_tokens` (8192) and no custom base URL.
     pub fn new(
         api_key: String,
         model: String,
@@ -46,8 +53,8 @@ impl AnthropicClient {
         )
     }
 
-    /// Create a client with full configuration including max_tokens and custom
-    /// base URL.
+    /// Create a client with full configuration including `max_tokens` and
+    /// custom base URL.
     pub fn with_options(
         api_key: String,
         model: String,
@@ -145,7 +152,7 @@ impl AnthropicClient {
         }
     }
 
-    /// Parse stop_reason from Anthropic response JSON.
+    /// Parse `stop_reason` from Anthropic response JSON.
     fn parse_stop_reason(resp: &serde_json::Value) -> Option<StopReason> {
         match resp["stop_reason"].as_str() {
             Some("end_turn") => Some(StopReason::EndTurn),
@@ -184,7 +191,7 @@ impl AnthropicClient {
             .unwrap_or_default()
     }
 
-    /// Build API messages from ChatMessage.
+    /// Build API messages from `ChatMessage`.
     /// Thinking blocks are filtered out — Anthropic requires they are not
     /// re-sent in history.
     fn build_ext_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
@@ -210,7 +217,7 @@ impl AnthropicClient {
     /// budget equals or exceeds `max_tokens` (Anthropic returns 400 otherwise).
     /// For `Adaptive`: no transformation needed — no token budget to clamp.
     fn validated_thinking(
-        thinking: &Option<crate::client::ThinkingConfig>,
+        thinking: Option<&crate::client::ThinkingConfig>,
         max_tokens: u32,
     ) -> Option<crate::client::ThinkingConfig> {
         match thinking {
@@ -228,7 +235,7 @@ impl AnthropicClient {
                     budget_tokens: clamped,
                 })
             }
-            other => other.clone(),
+            other => other.cloned(),
         }
     }
 
@@ -239,7 +246,7 @@ impl AnthropicClient {
     /// is applied unchanged.
     fn apply_thinking_to_body(
         body: &mut serde_json::Value,
-        thinking: &Option<crate::client::ThinkingConfig>,
+        thinking: Option<&crate::client::ThinkingConfig>,
         temperature: Option<f32>,
     ) {
         match thinking {
@@ -263,7 +270,7 @@ impl AnthropicClient {
         }
     }
 
-    /// Build API messages from ChatMessage.
+    /// Build API messages from `ChatMessage`.
     fn build_simple_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         messages
             .iter()
@@ -293,7 +300,7 @@ impl LlmClient for AnthropicClient {
     ) -> Result<String> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
-        let thinking = Self::validated_thinking(&options.thinking, max_tokens);
+        let thinking = Self::validated_thinking(options.thinking.as_ref(), max_tokens);
         let api_messages = Self::build_simple_messages(&messages);
 
         let mut body = json!({
@@ -303,7 +310,7 @@ impl LlmClient for AnthropicClient {
             "messages": api_messages,
         });
 
-        Self::apply_thinking_to_body(&mut body, &thinking, options.temperature);
+        Self::apply_thinking_to_body(&mut body, thinking.as_ref(), options.temperature);
 
         debug!(model, messages = messages.len(), "calling Anthropic API");
 
@@ -319,6 +326,7 @@ impl LlmClient for AnthropicClient {
         Ok(text)
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn complete_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -328,7 +336,7 @@ impl LlmClient for AnthropicClient {
     ) -> Result<CompletionResponse> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
-        let thinking = Self::validated_thinking(&options.thinking, max_tokens);
+        let thinking = Self::validated_thinking(options.thinking.as_ref(), max_tokens);
         let api_messages = Self::build_ext_messages(messages);
 
         let api_tools: Vec<serde_json::Value> = tools
@@ -352,7 +360,7 @@ impl LlmClient for AnthropicClient {
             body["tools"] = json!(api_tools);
         }
 
-        Self::apply_thinking_to_body(&mut body, &thinking, options.temperature);
+        Self::apply_thinking_to_body(&mut body, thinking.as_ref(), options.temperature);
 
         // Structured output support (not all providers support this)
         // Anthropic doesn't have native response_format, but we can add it to system
@@ -459,6 +467,7 @@ impl LlmClient for AnthropicClient {
         Ok(Box::pin(stream))
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn complete_stream_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -468,7 +477,7 @@ impl LlmClient for AnthropicClient {
     ) -> Result<LlmToolStream> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
-        let thinking = Self::validated_thinking(&options.thinking, max_tokens);
+        let thinking = Self::validated_thinking(options.thinking.as_ref(), max_tokens);
         let api_messages = Self::build_ext_messages(messages);
 
         let api_tools: Vec<serde_json::Value> = tools
@@ -493,7 +502,7 @@ impl LlmClient for AnthropicClient {
             body["tools"] = json!(api_tools);
         }
 
-        Self::apply_thinking_to_body(&mut body, &thinking, options.temperature);
+        Self::apply_thinking_to_body(&mut body, thinking.as_ref(), options.temperature);
 
         debug!(
             model,
@@ -505,14 +514,7 @@ impl LlmClient for AnthropicClient {
         let response = self.send_request_with_retry(&body).await?;
         let byte_stream = response.bytes_stream();
 
-        struct SseState {
-            buffer: String,
-            active_tool_id: Option<String>,
-            active_tool_name: Option<String>,
-            tool_input_buffer: String,
-        }
-
-        let state = SseState {
+        let state = AnthropicSseState {
             buffer: String::new(),
             active_tool_id: None,
             active_tool_name: None,
@@ -572,27 +574,16 @@ impl LlmClient for AnthropicClient {
                                 }
                                 "content_block_start" => {
                                     let block = &event["content_block"];
-                                    match block["type"].as_str() {
-                                        Some("thinking") => {
-                                            // thinking block — deltas arrive as
-                                            // thinking_delta
-                                        }
-                                        Some("tool_use") => {
-                                            let id = block["id"].as_str().unwrap_or("").to_string();
-                                            let name =
-                                                block["name"].as_str().unwrap_or("").to_string();
-                                            events.push(StreamEvent::ToolUseStart {
-                                                id: id.clone(),
-                                                name: name.clone(),
-                                            });
-                                            state.active_tool_id = Some(id);
-                                            state.active_tool_name = Some(name);
-                                            state.tool_input_buffer.clear();
-                                        }
-                                        _ => {
-                                            // text block start — deltas come
-                                            // next
-                                        }
+                                    if let Some("tool_use") = block["type"].as_str() {
+                                        let id = block["id"].as_str().unwrap_or("").to_string();
+                                        let name = block["name"].as_str().unwrap_or("").to_string();
+                                        events.push(StreamEvent::ToolUseStart {
+                                            id: id.clone(),
+                                            name: name.clone(),
+                                        });
+                                        state.active_tool_id = Some(id);
+                                        state.active_tool_name = Some(name);
+                                        state.tool_input_buffer.clear();
                                     }
                                 }
                                 "content_block_delta" => {
@@ -628,7 +619,7 @@ impl LlmClient for AnthropicClient {
                                         let input: serde_json::Value =
                                             serde_json::from_str(&state.tool_input_buffer)
                                                 .unwrap_or(serde_json::Value::Object(
-                                                    Default::default(),
+                                                    serde_json::Map::default(),
                                                 ));
                                         events.push(StreamEvent::ToolUseEnd { id, input });
                                         state.active_tool_name = None;
@@ -653,26 +644,23 @@ impl LlmClient for AnthropicClient {
                                         events.push(StreamEvent::Usage(Usage {
                                             input_tokens: usage
                                                 .get("input_tokens")
-                                                .and_then(|v| v.as_u64())
+                                                .and_then(serde_json::Value::as_u64)
                                                 .unwrap_or(0)
                                                 as u32,
                                             output_tokens: usage
                                                 .get("output_tokens")
-                                                .and_then(|v| v.as_u64())
+                                                .and_then(serde_json::Value::as_u64)
                                                 .unwrap_or(0)
                                                 as u32,
                                             cache_read_input_tokens: 0,
                                             cache_creation_input_tokens: 0,
                                             reasoning_tokens: usage
                                                 .get("reasoning_tokens")
-                                                .and_then(|v| v.as_u64())
+                                                .and_then(serde_json::Value::as_u64)
                                                 .unwrap_or(0)
                                                 as u32,
                                         }));
                                     }
-                                }
-                                "message_stop" => {
-                                    // Stream complete
                                 }
                                 _ => {}
                             }
@@ -696,6 +684,8 @@ impl LlmClient for AnthropicClient {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
     use crate::client::{ContentBlockInput, Role};
 
@@ -841,7 +831,7 @@ mod tests {
         let thinking = Some(crate::client::ThinkingConfig::Enabled {
             budget_tokens: 10000,
         });
-        let result = AnthropicClient::validated_thinking(&thinking, 8192);
+        let result = AnthropicClient::validated_thinking(thinking.as_ref(), 8192);
         assert!(
             matches!(result, Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) if budget_tokens == 8191)
         );
@@ -852,7 +842,7 @@ mod tests {
         let thinking = Some(crate::client::ThinkingConfig::Enabled {
             budget_tokens: 8192,
         });
-        let result = AnthropicClient::validated_thinking(&thinking, 8192);
+        let result = AnthropicClient::validated_thinking(thinking.as_ref(), 8192);
         assert!(
             matches!(result, Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) if budget_tokens == 8191)
         );
@@ -863,7 +853,7 @@ mod tests {
         let thinking = Some(crate::client::ThinkingConfig::Enabled {
             budget_tokens: 5000,
         });
-        let result = AnthropicClient::validated_thinking(&thinking, 8192);
+        let result = AnthropicClient::validated_thinking(thinking.as_ref(), 8192);
         assert!(
             matches!(result, Some(crate::client::ThinkingConfig::Enabled { budget_tokens }) if budget_tokens == 5000)
         );
@@ -871,7 +861,7 @@ mod tests {
 
     #[test]
     fn validated_thinking_none_passthrough() {
-        let result = AnthropicClient::validated_thinking(&None, 8192);
+        let result = AnthropicClient::validated_thinking(None, 8192);
         assert!(result.is_none());
     }
 
@@ -880,7 +870,7 @@ mod tests {
         let thinking = Some(crate::client::ThinkingConfig::Adaptive {
             effort: crate::client::ThinkingEffort::High,
         });
-        let result = AnthropicClient::validated_thinking(&thinking, 8192);
+        let result = AnthropicClient::validated_thinking(thinking.as_ref(), 8192);
         assert!(matches!(
             result,
             Some(crate::client::ThinkingConfig::Adaptive {
@@ -895,7 +885,7 @@ mod tests {
             effort: crate::client::ThinkingEffort::Medium,
         });
         let mut body = serde_json::json!({});
-        AnthropicClient::apply_thinking_to_body(&mut body, &thinking, None);
+        AnthropicClient::apply_thinking_to_body(&mut body, thinking.as_ref(), None);
         assert_eq!(body["thinking"]["type"], "adaptive");
         assert_eq!(body["output_config"]["effort"], "medium");
         assert_eq!(body["temperature"], 1);
@@ -907,7 +897,7 @@ mod tests {
             budget_tokens: 5000,
         });
         let mut body = serde_json::json!({});
-        AnthropicClient::apply_thinking_to_body(&mut body, &thinking, None);
+        AnthropicClient::apply_thinking_to_body(&mut body, thinking.as_ref(), None);
         assert_eq!(body["thinking"]["type"], "enabled");
         assert_eq!(body["thinking"]["budget_tokens"], 5000);
         assert_eq!(body["temperature"], 1);
@@ -916,7 +906,7 @@ mod tests {
     #[test]
     fn apply_thinking_body_none_applies_temperature() {
         let mut body = serde_json::json!({});
-        AnthropicClient::apply_thinking_to_body(&mut body, &None, Some(0.5));
+        AnthropicClient::apply_thinking_to_body(&mut body, None, Some(0.5));
         assert!(body.get("thinking").is_none());
         assert_eq!(body["temperature"], 0.5);
     }

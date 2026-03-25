@@ -45,6 +45,7 @@ where
             }
         }
     }
+    #[allow(clippy::expect_used)]
     Err(last_err.expect("at least one attempt must be made"))
 }
 

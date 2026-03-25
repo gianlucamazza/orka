@@ -174,9 +174,8 @@ impl StreamRegistry {
     /// The chunk is wrapped in `Arc` once before broadcasting, so cloning is
     /// O(1) regardless of subscriber count.
     pub fn send(&self, chunk: StreamChunk) -> usize {
-        let mut entry = match self.inner.get_mut(&chunk.session_id) {
-            Some(e) => e,
-            None => return 0,
+        let Some(mut entry) = self.inner.get_mut(&chunk.session_id) else {
+            return 0;
         };
         let senders = entry.value_mut();
 

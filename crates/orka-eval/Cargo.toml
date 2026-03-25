@@ -7,10 +7,11 @@ license.workspace = true
 
 [dependencies]
 orka-core = { workspace = true }
+orka-llm = { workspace = true }
 orka-skills = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-toml = "0.8"
+toml.workspace = true
 tokio = { workspace = true, features = ["rt", "time"] }
 glob = { workspace = true }
 regex = { workspace = true }
@@ -21,3 +22,6 @@ anyhow = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
 insta = { workspace = true }
 tempfile = { workspace = true }
+
+[lints]
+workspace = true

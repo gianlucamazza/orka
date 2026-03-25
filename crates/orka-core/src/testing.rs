@@ -138,7 +138,7 @@ impl InMemoryQueue {
         self.dlq.lock().await.clone()
     }
 
-    fn priority_bucket(p: &Priority) -> u8 {
+    fn priority_bucket(p: Priority) -> u8 {
         match p {
             Priority::Urgent => 0,
             Priority::Normal => 1,
@@ -160,8 +160,8 @@ impl PriorityQueue for InMemoryQueue {
         items.push(envelope.clone());
         // Sort: lower bucket = higher priority, then by timestamp (earlier first)
         items.sort_by(|a, b| {
-            let ba = Self::priority_bucket(&a.priority);
-            let bb = Self::priority_bucket(&b.priority);
+            let ba = Self::priority_bucket(a.priority);
+            let bb = Self::priority_bucket(b.priority);
             ba.cmp(&bb).then_with(|| a.timestamp.cmp(&b.timestamp))
         });
         self.notify.notify_one();
@@ -180,10 +180,10 @@ impl PriorityQueue for InMemoryQueue {
         match tokio::time::timeout(timeout, self.notify.notified()).await {
             Ok(()) => {
                 let mut items = self.items.lock().await;
-                if !items.is_empty() {
-                    Ok(Some(items.remove(0)))
-                } else {
+                if items.is_empty() {
                     Ok(None)
+                } else {
+                    Ok(Some(items.remove(0)))
                 }
             }
             Err(_) => Ok(None),
@@ -416,11 +416,11 @@ pub struct EchoSkill;
 
 #[async_trait]
 impl Skill for EchoSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "echo"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Echoes back the input arguments"
     }
 

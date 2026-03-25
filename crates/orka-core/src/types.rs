@@ -229,8 +229,8 @@ pub enum DomainEventKind {
         skill_name: String,
         /// Human-readable reason for disabling.
         reason: String,
-        /// Source of the disable action: "circuit_breaker" or
-        /// "experience_feedback".
+        /// Source of the disable action: "`circuit_breaker`" or
+        /// "`experience_feedback`".
         source: String,
     },
     /// Emitted before each LLM call with request parameters.
@@ -389,6 +389,15 @@ pub enum DomainEventKind {
         /// Whether the agent completed successfully.
         success: bool,
     },
+    /// Emitted when a graph run is paused pending human approval.
+    RunInterrupted {
+        /// Graph run identifier.
+        run_id: String,
+        /// ID of the agent that triggered the interrupt.
+        agent_id: String,
+        /// Name of the tool awaiting approval.
+        tool_name: String,
+    },
     /// Emitted when the entire graph execution completes.
     GraphCompleted {
         /// Graph run identifier.
@@ -441,6 +450,15 @@ pub struct SkillContext {
     /// one, so that commands run in the user's directory rather than the
     /// server process's working directory.
     pub user_cwd: Option<String>,
+    /// Active git worktree path for this agent turn. When set, skills that
+    /// operate on files or run commands (`shell_exec`, `coding_delegate`,
+    /// `git_*`) should prefer this over `user_cwd` so the agent works
+    /// inside the isolated worktree automatically, without needing to pass
+    /// an explicit `path`/`cwd`/`working_dir` argument on every call.
+    ///
+    /// Set by the node runner when a `git_worktree_create` call succeeds;
+    /// cleared when `git_worktree_remove` is called.
+    pub worktree_cwd: Option<String>,
 }
 
 impl std::fmt::Debug for SkillContext {
@@ -480,7 +498,7 @@ impl SkillInput {
     pub fn get_i64(&self, key: &str) -> crate::Result<i64> {
         self.args
             .get(key)
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .ok_or_else(|| crate::Error::Skill(format!("{key} is required")))
     }
 
@@ -488,7 +506,7 @@ impl SkillInput {
     pub fn get_bool(&self, key: &str) -> crate::Result<bool> {
         self.args
             .get(key)
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .ok_or_else(|| crate::Error::Skill(format!("{key} is required")))
     }
 
@@ -722,10 +740,12 @@ impl SkillContext {
             event_sink,
             budget: None,
             user_cwd: None,
+            worktree_cwd: None,
         }
     }
 
     /// Attach a [`SkillBudget`] to this context.
+    #[must_use]
     pub fn with_budget(mut self, budget: SkillBudget) -> Self {
         self.budget = Some(budget);
         self
@@ -733,8 +753,17 @@ impl SkillContext {
 
     /// Set the user's working directory (from `workspace:cwd` envelope
     /// metadata).
+    #[must_use]
     pub fn with_user_cwd(mut self, cwd: Option<String>) -> Self {
         self.user_cwd = cwd;
+        self
+    }
+
+    /// Set the active git worktree path. Skills that operate on files or run
+    /// commands will prefer this over `user_cwd` when set.
+    #[must_use]
+    pub fn with_worktree_cwd(mut self, cwd: Option<String>) -> Self {
+        self.worktree_cwd = cwd;
         self
     }
 }
@@ -763,6 +792,7 @@ impl SkillInput {
     }
 
     /// Set the skill context.
+    #[must_use]
     pub fn with_context(mut self, context: SkillContext) -> Self {
         self.context = Some(context);
         self
@@ -849,6 +879,7 @@ impl MemoryEntry {
     }
 
     /// Set tags on this entry.
+    #[must_use]
     pub fn with_tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
         self
@@ -909,11 +940,12 @@ impl OutboundMessage {
     pub fn require_meta_i64(&self, key: &str) -> crate::Result<i64> {
         self.metadata
             .get(key)
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .ok_or_else(|| crate::Error::Other(format!("missing metadata key: {key}")))
     }
 
     /// Set `source_channel` in metadata and return self (builder-style).
+    #[must_use]
     pub fn with_source_channel(mut self, channel: &str) -> Self {
         self.metadata.insert(
             "source_channel".into(),
@@ -1013,6 +1045,7 @@ impl SecretValue {
 
     /// Create an explicit copy of the secret. Prefer passing references
     /// instead of cloning to minimize secret copies in memory.
+    #[must_use]
     pub fn to_owned_secret(&self) -> Self {
         Self(zeroize::Zeroizing::new(self.0.to_vec()))
     }
@@ -1299,6 +1332,7 @@ mod tests {
             event_sink: None,
             budget: None,
             user_cwd: Some(cwd.to_string()),
+            worktree_cwd: None,
         };
         SkillInput::new(std::collections::HashMap::new()).with_context(ctx)
     }

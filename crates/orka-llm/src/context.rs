@@ -7,7 +7,8 @@ use crate::client::{ChatContent, ChatMessage, ContentBlockInput, Role, ToolDefin
 /// Model family hint for selecting the right tokenizer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenizerHint {
-    /// OpenAI models (GPT-5, o3, o4-mini, etc.) — use cl100k_base / o200k_base.
+    /// `OpenAI` models (GPT-5, o3, o4-mini, etc.) — use `cl100k_base` /
+    /// `o200k_base`.
     OpenAi,
     /// Anthropic models (Claude) — use chars/3.5 heuristic.
     Anthropic,
@@ -28,16 +29,19 @@ impl TokenizerHint {
     }
 }
 
-/// Thread-safe singleton for the cl100k_base tokenizer (used by GPT-series /
+/// Thread-safe singleton for the `cl100k_base` tokenizer (used by GPT-series /
 /// o-series).
 fn cl100k_bpe() -> &'static CoreBPE {
     static BPE: OnceLock<CoreBPE> = OnceLock::new();
-    BPE.get_or_init(|| tiktoken_rs::cl100k_base().expect("failed to load cl100k_base tokenizer"))
+    BPE.get_or_init(|| match tiktoken_rs::cl100k_base() {
+        Ok(bpe) => bpe,
+        Err(err) => panic!("failed to load cl100k_base tokenizer: {err}"),
+    })
 }
 
 /// Estimate token count from text using a model-aware strategy.
 ///
-/// - OpenAI: exact count via cl100k_base tokenizer.
+/// - `OpenAI`: exact count via `cl100k_base` tokenizer.
 /// - Anthropic: chars / 3.5 (empirically closer than chars / 4).
 /// - Unknown: chars / 4 heuristic.
 pub fn estimate_tokens(text: &str) -> u32 {
@@ -76,8 +80,9 @@ pub fn estimate_message_tokens_with_hint(msg: &ChatMessage, hint: TokenizerHint)
                 }
                 // Thinking blocks are stripped before sending to the API (see anthropic.rs
                 // build_ext_messages), so they must not count against the token budget.
-                ContentBlockInput::Thinking { .. } => 0,
-                ContentBlockInput::Unknown => 0,
+                ContentBlockInput::Thinking { .. } | ContentBlockInput::Unknown => 0,
+                // Images are treated as approximately 1000 tokens (rough estimate).
+                ContentBlockInput::Image { .. } => 1000,
             })
             .sum(),
     };
@@ -180,7 +185,7 @@ pub fn group_into_turns(messages: &[ChatMessage]) -> Vec<std::ops::Range<usize>>
 /// When `protect_first_turn` is `true` the first conversation turn is never
 /// dropped, regardless of budget pressure.
 ///
-/// Returns (kept_messages, dropped_count).
+/// Returns (`kept_messages`, `dropped_count`).
 pub fn truncate_history(
     messages: Vec<ChatMessage>,
     available_tokens: u32,
@@ -381,7 +386,7 @@ mod tests {
                 content: ChatContent::Text("hello".into()),
             },
         ];
-        let (kept, dropped) = truncate_history(messages.clone(), 100_000, false);
+        let (kept, dropped) = truncate_history(messages, 100_000, false);
         assert_eq!(dropped, 0);
         assert_eq!(kept.len(), 2);
     }

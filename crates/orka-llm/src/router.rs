@@ -17,7 +17,7 @@ use crate::client::{
 pub struct LlmRouter {
     /// Default provider used when no prefix matches.
     default_provider: Arc<dyn LlmClient>,
-    /// Map of provider name -> client (e.g., "anthropic" -> AnthropicClient).
+    /// Map of provider name -> client (e.g., "anthropic" -> `AnthropicClient`).
     providers: HashMap<String, Arc<dyn LlmClient>>,
     /// Map of model prefix -> provider name (e.g., "claude" -> "anthropic",
     /// "gpt" -> "openai").
@@ -47,6 +47,7 @@ impl LlmRouter {
 
     /// Set a custom circuit breaker config. Affects subsequently added
     /// providers and replaces the default provider's breaker.
+    #[must_use]
     pub fn with_circuit_breaker_config(mut self, config: CircuitBreakerConfig) -> Self {
         self.default_breaker = Arc::new(CircuitBreaker::new(config.clone()));
         self.breaker_config = config;
@@ -54,6 +55,7 @@ impl LlmRouter {
     }
 
     /// Register a provider with model-name prefixes for routing.
+    #[must_use]
     pub fn add_provider(
         mut self,
         name: impl Into<String>,
@@ -144,7 +146,7 @@ impl LlmClient for LlmRouter {
         let provider: Arc<dyn LlmClient> = self
             .providers
             .values()
-            .find(|p| std::ptr::eq(p.as_ref() as *const _, provider as *const _))
+            .find(|p| std::ptr::eq(std::ptr::from_ref(p.as_ref()), std::ptr::from_ref(provider)))
             .cloned()
             .unwrap_or_else(|| self.default_provider.clone());
         let system = system.to_string();
@@ -260,6 +262,8 @@ impl LlmRouter {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use std::{
         sync::atomic::{AtomicU32, Ordering},
         time::Duration,

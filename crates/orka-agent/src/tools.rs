@@ -4,7 +4,7 @@ use crate::{agent::Agent, graph::AgentGraph};
 
 /// Build the `transfer_to_agent` and `delegate_to_agent` tool definitions
 /// based on the agent's `handoff_targets` list.
-pub fn build_handoff_tools(agent: &Agent, graph: &AgentGraph) -> Vec<ToolDefinition> {
+pub(crate) fn build_handoff_tools(agent: &Agent, graph: &AgentGraph) -> Vec<ToolDefinition> {
     if agent.handoff_targets.is_empty() {
         return Vec::new();
     }

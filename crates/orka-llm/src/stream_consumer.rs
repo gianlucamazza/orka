@@ -70,13 +70,13 @@ pub async fn consume_stream(
             }
             StreamEvent::ToolUseEnd { id, input } => {
                 let name = current_tool_name.take().unwrap_or_default();
-                let final_input = if input != serde_json::Value::Null {
-                    input
-                } else {
+                let final_input = if input == serde_json::Value::Null {
                     serde_json::from_str(&current_tool_input).unwrap_or_else(|e| {
                         warn!(%e, tool = %name, "malformed tool input JSON, using empty object");
-                        serde_json::Value::Object(Default::default())
+                        serde_json::Value::Object(serde_json::Map::default())
                     })
+                } else {
+                    input
                 };
                 stream_registry.send(StreamChunk::new(
                     *session_id,
@@ -122,6 +122,8 @@ pub async fn consume_stream(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use orka_core::{SessionId, stream::StreamRegistry};
 
     use super::*;

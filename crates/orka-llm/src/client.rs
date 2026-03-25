@@ -163,7 +163,7 @@ pub enum ThinkingConfig {
         /// Maximum tokens the model may spend on thinking.
         budget_tokens: u32,
     },
-    /// OpenAI o-series / GPT-5.x reasoning effort.
+    /// `OpenAI` o-series / GPT-5.x reasoning effort.
     ReasoningEffort(ReasoningEffort),
 }
 
@@ -192,7 +192,7 @@ impl ThinkingEffort {
     }
 }
 
-/// OpenAI o-series / GPT-5.x reasoning effort level.
+/// `OpenAI` o-series / GPT-5.x reasoning effort level.
 #[derive(Debug, Clone, Copy)]
 pub enum ReasoningEffort {
     /// Low effort — fastest, least thorough.
@@ -204,7 +204,7 @@ pub enum ReasoningEffort {
 }
 
 impl ReasoningEffort {
-    /// Return the string value expected by the OpenAI API.
+    /// Return the string value expected by the `OpenAI` API.
     pub fn as_str(self) -> &'static str {
         match self {
             ReasoningEffort::Low => "low",
@@ -324,6 +324,26 @@ impl<'de> Deserialize<'de> for ChatContent {
     }
 }
 
+/// Source data for an image content block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ImageSource {
+    /// Base64-encoded image data with an explicit MIME type.
+    Base64 {
+        /// MIME type, e.g. `"image/jpeg"`, `"image/png"`, `"image/gif"`,
+        /// `"image/webp"`.
+        media_type: String,
+        /// Base64-encoded image bytes.
+        data: String,
+    },
+    /// A publicly-accessible image URL.
+    Url {
+        /// URL of the image.
+        url: String,
+    },
+}
+
 /// Input content block for messages with tool use/results.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -356,6 +376,12 @@ pub enum ContentBlockInput {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         is_error: bool,
     },
+    /// An image block for vision-capable models.
+    #[serde(rename = "image")]
+    Image {
+        /// Source data for the image.
+        source: ImageSource,
+    },
     /// A thinking/reasoning block returned by reasoning-capable models.
     #[serde(rename = "thinking")]
     Thinking {
@@ -382,7 +408,7 @@ pub struct Usage {
     /// Tokens written to cache.
     #[serde(default)]
     pub cache_creation_input_tokens: u32,
-    /// Tokens consumed by extended thinking / reasoning (Anthropic + OpenAI
+    /// Tokens consumed by extended thinking / reasoning (Anthropic + `OpenAI`
     /// o-series).
     #[serde(default)]
     pub reasoning_tokens: u32,
@@ -454,7 +480,7 @@ pub trait LlmClient: Send + Sync + 'static {
     /// Complete a chat conversation, returning the assistant's reply.
     async fn complete(&self, messages: Vec<ChatMessage>, system: &str) -> Result<String>;
 
-    /// Complete with per-call overrides for model/max_tokens.
+    /// Complete with per-call overrides for `model/max_tokens`.
     /// Default implementation ignores options and calls `complete()`.
     async fn complete_with_options(
         &self,
@@ -509,9 +535,9 @@ pub trait LlmClient: Send + Sync + 'static {
         })
     }
 
-    /// Streaming variant with tool support — yields StreamEvent as they arrive.
-    /// Default implementation calls `complete_with_tools()` and yields events
-    /// from the full response.
+    /// Streaming variant with tool support — yields `StreamEvent` as they
+    /// arrive. Default implementation calls `complete_with_tools()` and
+    /// yields events from the full response.
     async fn complete_stream_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -549,6 +575,8 @@ pub trait LlmClient: Send + Sync + 'static {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
 
     #[test]

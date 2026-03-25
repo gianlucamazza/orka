@@ -13,7 +13,18 @@ use crate::client::{
     Usage,
 };
 
-/// OpenAI Chat Completions API client with retry and streaming support.
+struct OpenAiToolAccum {
+    id: String,
+    _name: String,
+    arguments: String,
+}
+
+struct OpenAiSseState {
+    buffer: String,
+    tool_calls: std::collections::HashMap<u64, OpenAiToolAccum>,
+}
+
+/// `OpenAI` Chat Completions API client with retry and streaming support.
 pub struct OpenAiClient {
     client: Client,
     api_key: String,
@@ -121,9 +132,8 @@ impl OpenAiClient {
     }
 
     fn parse_response(resp: &serde_json::Value) -> (Vec<ContentBlock>, Usage, Option<StopReason>) {
-        let choice = match resp["choices"].as_array().and_then(|a| a.first()) {
-            Some(c) => c,
-            None => return (Vec::new(), Usage::default(), None),
+        let Some(choice) = resp["choices"].as_array().and_then(|a| a.first()) else {
+            return (Vec::new(), Usage::default(), None);
         };
         let message = &choice["message"];
 
@@ -144,7 +154,7 @@ impl OpenAiClient {
                 let input: serde_json::Value = tc["function"]["arguments"]
                     .as_str()
                     .and_then(|s| serde_json::from_str(s).ok())
-                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                    .unwrap_or(serde_json::Value::Object(serde_json::Map::default()));
                 blocks.push(ContentBlock::ToolUse(ToolCall { id, name, input }));
             }
         }
@@ -178,6 +188,35 @@ impl OpenAiClient {
                     out.push(json!({"role": m.role, "content": t}));
                 }
                 ChatContent::Blocks(blocks) => {
+                    // User messages with image blocks → OpenAI vision content array.
+                    let has_image = blocks
+                        .iter()
+                        .any(|b| matches!(b, crate::client::ContentBlockInput::Image { .. }));
+                    if m.role == crate::client::Role::User && has_image {
+                        let mut content_parts: Vec<serde_json::Value> = Vec::new();
+                        for block in blocks {
+                            match block {
+                                crate::client::ContentBlockInput::Text { text } => {
+                                    content_parts.push(json!({"type": "text", "text": text}));
+                                }
+                                crate::client::ContentBlockInput::Image { source } => {
+                                    let url = match source {
+                                        crate::client::ImageSource::Url { url } => url.clone(),
+                                        crate::client::ImageSource::Base64 { media_type, data } => {
+                                            format!("data:{media_type};base64,{data}")
+                                        }
+                                    };
+                                    content_parts.push(json!({
+                                        "type": "image_url",
+                                        "image_url": {"url": url}
+                                    }));
+                                }
+                                _ => {}
+                            }
+                        }
+                        out.push(json!({"role": "user", "content": content_parts}));
+                        continue;
+                    }
                     // Collect text and tool_use blocks into a single assistant message,
                     // and tool_result blocks into separate tool messages.
                     let mut text_parts = Vec::new();
@@ -208,9 +247,10 @@ impl OpenAiClient {
                                     "content": content,
                                 }));
                             }
-                            // Thinking blocks are Anthropic-specific; skip for OpenAI.
-                            crate::client::ContentBlockInput::Thinking { .. } => {}
-                            crate::client::ContentBlockInput::Unknown => {}
+                            // Thinking and Image blocks are handled above; skip for this path.
+                            crate::client::ContentBlockInput::Thinking { .. }
+                            | crate::client::ContentBlockInput::Image { .. }
+                            | crate::client::ContentBlockInput::Unknown => {}
                         }
                     }
                     // Emit assistant message with text and/or tool_calls
@@ -289,8 +329,9 @@ impl LlmClient for OpenAiClient {
                 let openai_effort = match effort {
                     crate::client::ThinkingEffort::Low => "low",
                     crate::client::ThinkingEffort::Medium => "medium",
-                    crate::client::ThinkingEffort::High => "high",
-                    crate::client::ThinkingEffort::Max => "high",
+                    crate::client::ThinkingEffort::High | crate::client::ThinkingEffort::Max => {
+                        "high"
+                    }
                 };
                 body["reasoning_effort"] = json!(openai_effort);
             }
@@ -370,6 +411,7 @@ impl LlmClient for OpenAiClient {
         Ok(Box::pin(stream))
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn complete_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -421,8 +463,9 @@ impl LlmClient for OpenAiClient {
                 let openai_effort = match effort {
                     crate::client::ThinkingEffort::Low => "low",
                     crate::client::ThinkingEffort::Medium => "medium",
-                    crate::client::ThinkingEffort::High => "high",
-                    crate::client::ThinkingEffort::Max => "high",
+                    crate::client::ThinkingEffort::High | crate::client::ThinkingEffort::Max => {
+                        "high"
+                    }
                 };
                 body["reasoning_effort"] = json!(openai_effort);
             }
@@ -445,6 +488,7 @@ impl LlmClient for OpenAiClient {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn complete_stream_with_tools(
         &self,
         messages: &[ChatMessage],
@@ -480,8 +524,9 @@ impl LlmClient for OpenAiClient {
                 let openai_effort = match effort {
                     crate::client::ThinkingEffort::Low => "low",
                     crate::client::ThinkingEffort::Medium => "medium",
-                    crate::client::ThinkingEffort::High => "high",
-                    crate::client::ThinkingEffort::Max => "high",
+                    crate::client::ThinkingEffort::High | crate::client::ThinkingEffort::Max => {
+                        "high"
+                    }
                 };
                 body["reasoning_effort"] = json!(openai_effort);
             }
@@ -498,20 +543,7 @@ impl LlmClient for OpenAiClient {
         let response = self.send_request_with_retry(&body).await?;
         let byte_stream = response.bytes_stream();
 
-        /// Tracks accumulated state for an in-progress tool call.
-        struct ToolAccum {
-            id: String,
-            _name: String,
-            arguments: String,
-        }
-
-        struct SseState {
-            buffer: String,
-            /// Tool calls indexed by their position in the delta array.
-            tool_calls: std::collections::HashMap<u64, ToolAccum>,
-        }
-
-        let state = SseState {
+        let state = OpenAiSseState {
             buffer: String::new(),
             tool_calls: std::collections::HashMap::new(),
         };
@@ -535,9 +567,9 @@ impl LlmClient for OpenAiClient {
                                 Err(_) => continue,
                             };
 
-                            let choice = match event["choices"].as_array().and_then(|a| a.first()) {
-                                Some(c) => c,
-                                None => continue,
+                            let Some(choice) = event["choices"].as_array().and_then(|a| a.first())
+                            else {
+                                continue;
                             };
                             let delta = &choice["delta"];
 
@@ -563,7 +595,7 @@ impl LlmClient for OpenAiClient {
                                         });
                                         state.tool_calls.insert(
                                             index,
-                                            ToolAccum {
+                                            OpenAiToolAccum {
                                                 id,
                                                 _name: name.to_string(),
                                                 arguments: String::new(),
@@ -588,13 +620,15 @@ impl LlmClient for OpenAiClient {
                                     // Emit ToolUseEnd for all accumulated tool calls
                                     let mut indices: Vec<u64> =
                                         state.tool_calls.keys().copied().collect();
-                                    indices.sort();
+                                    indices.sort_unstable();
                                     for idx in indices {
                                         if let Some(accum) = state.tool_calls.remove(&idx) {
-                                            let input: serde_json::Value =
-                                                serde_json::from_str(&accum.arguments).unwrap_or(
-                                                    serde_json::Value::Object(Default::default()),
-                                                );
+                                            let input: serde_json::Value = serde_json::from_str(
+                                                &accum.arguments,
+                                            )
+                                            .unwrap_or(serde_json::Value::Object(
+                                                serde_json::Map::default(),
+                                            ));
                                             events.push(StreamEvent::ToolUseEnd {
                                                 id: accum.id,
                                                 input,
@@ -603,7 +637,6 @@ impl LlmClient for OpenAiClient {
                                     }
 
                                     let stop = match reason {
-                                        "stop" => StopReason::EndTurn,
                                         "tool_calls" => StopReason::ToolUse,
                                         "length" => StopReason::MaxTokens,
                                         _ => StopReason::EndTurn,
@@ -623,12 +656,12 @@ impl LlmClient for OpenAiClient {
                                 events.push(StreamEvent::Usage(Usage {
                                     input_tokens: usage
                                         .get("prompt_tokens")
-                                        .and_then(|v| v.as_u64())
+                                        .and_then(serde_json::Value::as_u64)
                                         .unwrap_or(0)
                                         as u32,
                                     output_tokens: usage
                                         .get("completion_tokens")
-                                        .and_then(|v| v.as_u64())
+                                        .and_then(serde_json::Value::as_u64)
                                         .unwrap_or(0)
                                         as u32,
                                     cache_read_input_tokens: 0,
@@ -656,6 +689,8 @@ impl LlmClient for OpenAiClient {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used)]
+
     use super::*;
 
     #[test]
@@ -734,5 +769,68 @@ mod tests {
         assert_eq!(api_tools.len(), 1);
         assert_eq!(api_tools[0]["type"], "function");
         assert_eq!(api_tools[0]["function"]["name"], "search");
+    }
+
+    #[test]
+    fn build_messages_image_url_produces_vision_content_array() {
+        use crate::client::{ChatContent, ChatMessage, ContentBlockInput, ImageSource, Role};
+
+        let messages = vec![ChatMessage {
+            role: Role::User,
+            content: ChatContent::Blocks(vec![
+                ContentBlockInput::Text {
+                    text: "What is in this image?".into(),
+                },
+                ContentBlockInput::Image {
+                    source: ImageSource::Url {
+                        url: "https://example.com/photo.png".into(),
+                    },
+                },
+            ]),
+        }];
+
+        let built = OpenAiClient::build_messages(&messages);
+        assert_eq!(built.len(), 1);
+
+        let msg = &built[0];
+        assert_eq!(msg["role"], "user");
+
+        let parts = msg["content"].as_array().expect("content should be array");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[0]["text"], "What is in this image?");
+        assert_eq!(parts[1]["type"], "image_url");
+        assert_eq!(
+            parts[1]["image_url"]["url"],
+            "https://example.com/photo.png"
+        );
+    }
+
+    #[test]
+    fn build_messages_image_base64_produces_data_url() {
+        use crate::client::{ChatContent, ChatMessage, ContentBlockInput, ImageSource, Role};
+
+        let messages = vec![ChatMessage {
+            role: Role::User,
+            content: ChatContent::Blocks(vec![ContentBlockInput::Image {
+                source: ImageSource::Base64 {
+                    media_type: "image/jpeg".into(),
+                    data: "abc123".into(),
+                },
+            }]),
+        }];
+
+        let built = OpenAiClient::build_messages(&messages);
+        assert_eq!(built.len(), 1);
+
+        let parts = built[0]["content"]
+            .as_array()
+            .expect("content should be array");
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0]["type"], "image_url");
+        assert_eq!(
+            parts[0]["image_url"]["url"],
+            "data:image/jpeg;base64,abc123"
+        );
     }
 }

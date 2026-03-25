@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::{
     agent::{Agent, AgentId},
     context::SlotKey,
+    reducer::ReducerStrategy,
 };
 
 /// How an agent node behaves in the graph.
@@ -97,6 +98,11 @@ pub struct AgentGraph {
     edges: HashMap<AgentId, Vec<Edge>>,
     /// Policy controlling when the overall graph run terminates.
     pub termination: TerminationPolicy,
+    /// Per-slot merge strategies used during concurrent fan-out writes.
+    ///
+    /// Keys are `"namespace::name"` strings (e.g. `"__shared::results"`).
+    /// Slots not listed here default to [`ReducerStrategy::LastWriteWins`].
+    pub reducers: HashMap<String, ReducerStrategy>,
 }
 
 impl AgentGraph {
@@ -108,6 +114,7 @@ impl AgentGraph {
             nodes: HashMap::new(),
             edges: HashMap::new(),
             termination: TerminationPolicy::default(),
+            reducers: HashMap::new(),
         }
     }
 
@@ -157,6 +164,11 @@ impl AgentGraph {
     /// Iterate over all (AgentId, Vec<Edge>) pairs in the graph.
     pub fn edges_iter(&self) -> impl Iterator<Item = (&AgentId, &Vec<Edge>)> {
         self.edges.iter()
+    }
+
+    /// Return a reference to the entry-point agent.
+    pub fn entry_agent(&self) -> &Agent {
+        &self.nodes[&self.entry].agent
     }
 }
 

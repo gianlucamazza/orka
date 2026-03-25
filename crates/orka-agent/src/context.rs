@@ -1,7 +1,7 @@
 //! Shared execution context that flows through the agent graph during a run.
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -9,13 +9,20 @@ use std::{
     time::Instant,
 };
 
+use chrono::Utc;
+use orka_checkpoint::{
+    Checkpoint, CheckpointId, RunStatus, SerializableSlotKey, SerializableStateChange,
+};
 use orka_core::{Envelope, SessionId};
 use orka_llm::client::ChatMessage;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::agent::AgentId;
+use crate::{
+    agent::AgentId,
+    reducer::{ReducerStrategy, apply_reducer},
+};
 
 /// Unique identifier for a single graph execution run.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -70,8 +77,11 @@ impl SlotKey {
 /// A single state mutation recorded for observability.
 #[derive(Debug, Clone)]
 pub struct StateChange {
-    /// Wall-clock time when the change occurred.
-    pub timestamp: Instant,
+    /// UTC wall-clock time when the change occurred.
+    ///
+    /// Using `DateTime<Utc>` rather than `std::time::Instant` ensures the
+    /// changelog can be serialized into checkpoints without loss of meaning.
+    pub timestamp: chrono::DateTime<Utc>,
     /// The slot that was modified.
     pub key: SlotKey,
     /// The agent that performed the write.
@@ -100,6 +110,14 @@ pub struct ExecutionContext {
     messages: Arc<RwLock<Vec<ChatMessage>>>,
     changelog: Arc<RwLock<VecDeque<StateChange>>>,
     usage: Arc<AtomicU64>,
+    /// Accumulated summary of conversation history dropped by
+    /// [`HistoryStrategy::Summarize`].
+    summary: Arc<RwLock<Option<String>>>,
+    /// Per-slot reducer strategies shared across all clones of this context.
+    ///
+    /// Set once at run start via [`set_reducers`](Self::set_reducers);
+    /// effectively immutable during execution. Key format: `"namespace::name"`.
+    reducers: Arc<RwLock<HashMap<String, ReducerStrategy>>>,
 }
 
 impl ExecutionContext {
@@ -115,6 +133,8 @@ impl ExecutionContext {
             messages: Arc::new(RwLock::new(Vec::new())),
             changelog: Arc::new(RwLock::new(VecDeque::new())),
             usage: Arc::new(AtomicU64::new(0)),
+            summary: Arc::new(RwLock::new(None)),
+            reducers: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -130,16 +150,31 @@ impl ExecutionContext {
     }
 
     /// Write a value to the state map, recording the change.
+    ///
+    /// If a [`ReducerStrategy`] is registered for this slot (via
+    /// [`set_reducers`](Self::set_reducers)) it is applied before storing the
+    /// value so that concurrent fan-out writes merge deterministically.
     pub async fn set(&self, agent: &AgentId, key: SlotKey, value: Value) {
+        // Build the "namespace::name" key used by the reducer registry.
+        let reducer_key = format!("{}::{}", key.namespace, key.name);
+        let strategy = self
+            .reducers
+            .read()
+            .await
+            .get(&reducer_key)
+            .copied()
+            .unwrap_or_default();
+
         let old_value = {
             let mut state = self.state.write().await;
             let old = state.get(&key).cloned();
-            state.insert(key.clone(), value.clone());
+            let merged = apply_reducer(strategy, old.as_ref(), &value);
+            state.insert(key.clone(), merged);
             old
         };
 
         let change = StateChange {
-            timestamp: Instant::now(),
+            timestamp: Utc::now(),
             key: key.clone(),
             agent: agent.clone(),
             old_value,
@@ -186,9 +221,158 @@ impl ExecutionContext {
         self.changelog.read().await.iter().cloned().collect()
     }
 
+    /// Get the current conversation summary (set by
+    /// `HistoryStrategy::Summarize`).
+    pub async fn conversation_summary(&self) -> Option<String> {
+        self.summary.read().await.clone()
+    }
+
+    /// Store a conversation summary produced by history summarization.
+    pub async fn set_conversation_summary(&self, s: String) {
+        *self.summary.write().await = Some(s);
+    }
+
     /// Elapsed time since this run started.
     pub fn elapsed_ms(&self) -> u64 {
         self.started_at.elapsed().as_millis() as u64
+    }
+
+    /// Snapshot the current execution state into a [`Checkpoint`].
+    ///
+    /// Called by the executor after each node completes and the next node has
+    /// been determined. `completed_node` is the node that just finished;
+    /// `resume_node` is the node the executor will start from on resume
+    /// (`None` when the run has reached a terminal state).
+    pub async fn to_checkpoint(
+        &self,
+        graph_id: &str,
+        completed_node: &str,
+        resume_node: Option<&str>,
+        total_iterations: usize,
+        agents_executed: Vec<String>,
+        status: RunStatus,
+    ) -> Checkpoint {
+        // Serialize state map: SlotKey → "namespace::name" string keys.
+        let state: HashMap<String, Value> = self
+            .state
+            .read()
+            .await
+            .iter()
+            .map(|(k, v)| {
+                let key = SerializableSlotKey {
+                    namespace: k.namespace.clone(),
+                    name: k.name.clone(),
+                };
+                (key.to_map_key(), v.clone())
+            })
+            .collect();
+
+        let messages = self.messages.read().await.clone();
+
+        let changelog: Vec<SerializableStateChange> = self
+            .changelog
+            .read()
+            .await
+            .iter()
+            .map(|c| SerializableStateChange {
+                timestamp: c.timestamp,
+                slot: SerializableSlotKey {
+                    namespace: c.key.namespace.clone(),
+                    name: c.key.name.clone(),
+                }
+                .to_map_key(),
+                agent_id: c.agent.to_string(),
+                old_value: c.old_value.clone(),
+                new_value: c.new_value.clone(),
+            })
+            .collect();
+
+        Checkpoint {
+            id: CheckpointId::new(),
+            run_id: self.run_id.to_string(),
+            session_id: self.session_id,
+            graph_id: graph_id.to_string(),
+            trigger: self.trigger.clone(),
+            completed_node: completed_node.to_string(),
+            resume_node: resume_node.map(|s| s.to_string()),
+            state,
+            messages,
+            total_tokens: self.total_tokens(),
+            total_iterations,
+            agents_executed,
+            changelog,
+            status,
+            created_at: Utc::now(),
+        }
+    }
+
+    /// Reconstruct an `ExecutionContext` from a persisted [`Checkpoint`].
+    ///
+    /// Used by the executor's `resume` path to restore execution state after
+    /// a crash or HITL interruption.
+    pub async fn from_checkpoint(checkpoint: &Checkpoint) -> Self {
+        let session_id = checkpoint.session_id;
+        let trigger = checkpoint.trigger.clone();
+
+        // Deserialize state map.
+        let state: HashMap<SlotKey, Value> = checkpoint
+            .state
+            .iter()
+            .filter_map(|(key_str, value): (&String, &Value)| {
+                let parsed = SerializableSlotKey::from_map_key(key_str)?;
+                let slot = SlotKey {
+                    namespace: parsed.namespace,
+                    name: parsed.name,
+                };
+                Some((slot, value.clone()))
+            })
+            .collect();
+
+        // Deserialize changelog.
+        let changelog: VecDeque<StateChange> = checkpoint
+            .changelog
+            .iter()
+            .filter_map(|c| {
+                let parsed = SerializableSlotKey::from_map_key(&c.slot)?;
+                Some(StateChange {
+                    timestamp: c.timestamp,
+                    key: SlotKey {
+                        namespace: parsed.namespace,
+                        name: parsed.name,
+                    },
+                    agent: AgentId::new(c.agent_id.as_str()),
+                    old_value: c.old_value.clone(),
+                    new_value: c.new_value.clone(),
+                })
+            })
+            .collect();
+
+        Self {
+            run_id: RunId(
+                checkpoint
+                    .run_id
+                    .parse()
+                    .unwrap_or_else(|_| uuid::Uuid::now_v7()),
+            ),
+            session_id,
+            trigger,
+            started_at: Instant::now(),
+            state: Arc::new(RwLock::new(state)),
+            messages: Arc::new(RwLock::new(checkpoint.messages.clone())),
+            changelog: Arc::new(RwLock::new(changelog)),
+            usage: Arc::new(AtomicU64::new(checkpoint.total_tokens)),
+            summary: Arc::new(RwLock::new(None)),
+            reducers: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Register reducer strategies for this run.
+    ///
+    /// Must be called before any fan-out agent begins writing.  The reducers
+    /// are shared across all clones of this context (all branches see the same
+    /// map since it is `Arc`-wrapped).
+    pub async fn set_reducers(&self, reducers: HashMap<String, ReducerStrategy>) {
+        *self.reducers.write().await = reducers;
     }
 }
 
@@ -313,5 +497,69 @@ mod tests {
         ctx.set(&a2, k2.clone(), serde_json::json!(2)).await;
         assert_eq!(ctx.get(&k1).await, Some(serde_json::json!(1)));
         assert_eq!(ctx.get(&k2).await, Some(serde_json::json!(2)));
+    }
+
+    #[tokio::test]
+    async fn reducer_append_collects_values_from_multiple_agents() {
+        use std::collections::HashMap;
+
+        use crate::reducer::ReducerStrategy;
+
+        let ctx = make_context();
+        let key = SlotKey::shared("results");
+
+        // Register Append reducer for this slot
+        let mut reducers = HashMap::new();
+        reducers.insert("__shared::results".to_string(), ReducerStrategy::Append);
+        ctx.set_reducers(reducers).await;
+
+        let a1 = AgentId::new("worker_a");
+        let a2 = AgentId::new("worker_b");
+        ctx.set(&a1, key.clone(), serde_json::json!("a_result"))
+            .await;
+        ctx.set(&a2, key.clone(), serde_json::json!("b_result"))
+            .await;
+
+        let value = ctx.get(&key).await.unwrap();
+        let arr = value
+            .as_array()
+            .expect("expected array after Append reducer");
+        assert_eq!(arr.len(), 2, "both results should be accumulated");
+        assert!(arr.contains(&serde_json::json!("a_result")));
+        assert!(arr.contains(&serde_json::json!("b_result")));
+    }
+
+    #[tokio::test]
+    async fn reducer_sum_accumulates_numeric_values() {
+        use std::collections::HashMap;
+
+        use crate::reducer::ReducerStrategy;
+
+        let ctx = make_context();
+        let key = SlotKey::shared("score");
+
+        let mut reducers = HashMap::new();
+        reducers.insert("__shared::score".to_string(), ReducerStrategy::Sum);
+        ctx.set_reducers(reducers).await;
+
+        let a1 = AgentId::new("w1");
+        let a2 = AgentId::new("w2");
+        ctx.set(&a1, key.clone(), serde_json::json!(10.0)).await;
+        ctx.set(&a2, key.clone(), serde_json::json!(5.0)).await;
+
+        let value = ctx.get(&key).await.unwrap();
+        assert_eq!(value.as_f64(), Some(15.0));
+    }
+
+    #[tokio::test]
+    async fn reducer_last_write_wins_without_registration() {
+        // Without a reducer registered, default is LastWriteWins
+        let ctx = make_context();
+        let a1 = AgentId::new("w1");
+        let a2 = AgentId::new("w2");
+        let key = SlotKey::shared("val");
+        ctx.set(&a1, key.clone(), serde_json::json!("first")).await;
+        ctx.set(&a2, key.clone(), serde_json::json!("second")).await;
+        assert_eq!(ctx.get(&key).await, Some(serde_json::json!("second")));
     }
 }

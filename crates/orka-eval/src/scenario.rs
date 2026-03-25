@@ -39,4 +39,22 @@ pub struct Expectations {
     pub output_matches: Option<String>,
     /// Maximum allowed duration in milliseconds.
     pub max_duration_ms: Option<u64>,
+    /// Semantic quality criteria evaluated by an LLM judge.
+    ///
+    /// Requires [`EvalRunner`] to be configured with a judge via
+    /// [`EvalRunner::with_judge`]. Skipped silently when no judge is set.
+    ///
+    /// [`EvalRunner`]: crate::runner::EvalRunner
+    pub judge: Option<Vec<JudgeCriterion>>,
+}
+
+/// A single semantic quality criterion for LLM-as-Judge evaluation.
+#[derive(Debug, Deserialize, Clone)]
+pub struct JudgeCriterion {
+    /// Short identifier for this criterion (e.g. `"helpfulness"`).
+    pub name: String,
+    /// Human-readable description of what a passing response looks like.
+    pub description: String,
+    /// Optional rubric with explicit pass/fail guidance for the judge.
+    pub rubric: Option<String>,
 }

@@ -20,7 +20,7 @@ pub mod context;
 pub mod error;
 /// Ollama client — delegates to OpenAI-compatible local API.
 pub mod ollama;
-/// OpenAI Chat Completions API client with retry and streaming support.
+/// `OpenAI` Chat Completions API client with retry and streaming support.
 pub mod openai;
 /// [`LlmRouter`] — model-prefix routing with per-provider circuit breakers.
 pub mod router;

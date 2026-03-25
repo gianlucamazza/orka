@@ -2,6 +2,7 @@
 
 use std::{path::Path, sync::Arc, time::Instant};
 
+use orka_checkpoint::{CheckpointStore, RunStatus};
 use orka_core::{
     DomainEvent, DomainEventKind, OutboundMessage, Payload,
     traits::{EventSink, Guardrail, MemoryStore, SecretManager},
@@ -157,6 +158,12 @@ pub struct ExecutorDeps {
     /// Optional guardrail applied to input, tool calls, and output within
     /// every agent node in this graph.
     pub guardrail: Option<Arc<dyn Guardrail>>,
+    /// Optional checkpoint store for crash recovery and HITL support.
+    ///
+    /// When set, the executor writes a checkpoint after every node completes.
+    /// A crashed run can be resumed via [`GraphExecutor::resume`] without
+    /// reprocessing completed nodes.
+    pub checkpoint_store: Option<Arc<dyn CheckpointStore>>,
 }
 
 /// Result of a complete graph execution.
@@ -193,6 +200,19 @@ impl ExecutionResult {
     }
 }
 
+/// Snapshot of mutable execution state passed to
+/// [`GraphExecutor::maybe_save_checkpoint`].
+///
+/// Bundles the arguments needed for checkpoint creation to stay within the
+/// 7-argument clippy limit while keeping the public API clean.
+struct CheckpointSnap<'a> {
+    completed_node: &'a AgentId,
+    resume_node: Option<&'a AgentId>,
+    total_iterations: usize,
+    agents_executed: &'a [String],
+    status: RunStatus,
+}
+
 /// Executes an `AgentGraph` driven by an `ExecutionContext`.
 pub struct GraphExecutor {
     /// Shared external dependencies used during execution.
@@ -220,7 +240,16 @@ impl GraphExecutor {
             session_id = %ctx.session_id,
         );
 
-        let result = self.execute_inner(graph, ctx).instrument(span).await?;
+        // Register graph-level reducer strategies on the context so concurrent
+        // fan-out writes merge deterministically.
+        if !graph.reducers.is_empty() {
+            ctx.set_reducers(graph.reducers.clone()).await;
+        }
+
+        let result = self
+            .execute_inner(graph, ctx, None)
+            .instrument(span)
+            .await?;
 
         // Emit GraphCompleted event
         self.deps
@@ -238,16 +267,117 @@ impl GraphExecutor {
         Ok(result)
     }
 
+    /// Resume a previously interrupted or crashed graph run from its latest
+    /// checkpoint.
+    ///
+    /// Loads the checkpoint from the configured store, reconstructs the
+    /// `ExecutionContext`, and continues execution from the node recorded in
+    /// `Checkpoint::resume_node`.
+    ///
+    /// Returns `Ok(None)` when no checkpoint exists for `run_id` or when the
+    /// run has already reached a terminal state (no `resume_node`).
+    pub async fn resume(
+        &self,
+        run_id: &str,
+        graph: &AgentGraph,
+    ) -> orka_core::Result<Option<ExecutionResult>> {
+        let Some(store) = &self.deps.checkpoint_store else {
+            return Err(orka_core::Error::Other(
+                "resume requires a checkpoint_store".into(),
+            ));
+        };
+
+        let Some(checkpoint) = store.load_latest(run_id).await? else {
+            return Ok(None);
+        };
+
+        let Some(ref resume_node_id) = checkpoint.resume_node else {
+            // The run completed or failed terminally — nothing to resume.
+            return Ok(None);
+        };
+
+        let starting_node = AgentId::new(resume_node_id.as_str());
+        let ctx = ExecutionContext::from_checkpoint(&checkpoint).await;
+
+        // Restore reducer strategies so fan-out writes merge correctly on resume.
+        if !graph.reducers.is_empty() {
+            ctx.set_reducers(graph.reducers.clone()).await;
+        }
+
+        let span = info_span!(
+            "graph.resume",
+            run_id = %ctx.run_id,
+            graph_id = %graph.id,
+            session_id = %ctx.session_id,
+            resume_from = %resume_node_id,
+        );
+
+        let result = self
+            .execute_inner(graph, &ctx, Some(starting_node))
+            .instrument(span)
+            .await?;
+
+        self.deps
+            .event_sink
+            .emit(DomainEvent::new(DomainEventKind::GraphCompleted {
+                run_id: ctx.run_id.to_string(),
+                graph_id: graph.id.clone(),
+                agents_executed: result.agents_executed.clone(),
+                total_iterations: result.total_iterations,
+                total_tokens: result.total_tokens,
+                duration_ms: result.duration_ms,
+            }))
+            .await;
+
+        Ok(Some(result))
+    }
+
+    /// Save a checkpoint if a checkpoint store is configured.
+    ///
+    /// Checkpoint failures are logged as warnings but never propagate — a
+    /// failed checkpoint write must not abort the ongoing graph execution.
+    async fn maybe_save_checkpoint(
+        &self,
+        ctx: &ExecutionContext,
+        graph: &AgentGraph,
+        snap: CheckpointSnap<'_>,
+    ) {
+        let Some(store) = &self.deps.checkpoint_store else {
+            return;
+        };
+
+        let ckpt = ctx
+            .to_checkpoint(
+                &graph.id,
+                snap.completed_node.0.as_ref(),
+                snap.resume_node.map(|id| id.0.as_ref()),
+                snap.total_iterations,
+                snap.agents_executed.to_vec(),
+                snap.status,
+            )
+            .await;
+
+        if let Err(e) = store.save(&ckpt).await {
+            warn!(
+                run_id = %ctx.run_id,
+                checkpoint_id = %ckpt.id,
+                error = %e,
+                "checkpoint.save failed — execution continues"
+            );
+        }
+    }
+
     async fn execute_inner(
         &self,
         graph: &AgentGraph,
         ctx: &ExecutionContext,
+        starting_node: Option<AgentId>,
     ) -> orka_core::Result<ExecutionResult> {
         let policy = &graph.termination;
         let max_duration = policy.max_duration;
         let start = Instant::now();
 
-        let mut current_id = graph.entry.clone();
+        let mut current_id = starting_node.unwrap_or_else(|| graph.entry.clone());
         let mut total_iterations = 0usize;
         let mut agents_executed: Vec<String> = Vec::new();
         let mut final_response = String::new();
@@ -336,6 +466,50 @@ impl GraphExecutor {
                         }))
                         .await;
 
+                    // HITL: save interrupted checkpoint and stop execution.
+                    if let Some(interrupt_reason) = result.interrupted {
+                        let tool_name = match &interrupt_reason {
+                            orka_checkpoint::InterruptReason::HumanApproval {
+                                tool_name, ..
+                            } => tool_name.clone(),
+                            orka_checkpoint::InterruptReason::Breakpoint { node_id } => {
+                                node_id.clone()
+                            }
+                            _ => String::new(),
+                        };
+                        self.deps
+                            .event_sink
+                            .emit(DomainEvent::new(DomainEventKind::RunInterrupted {
+                                run_id: ctx.run_id.to_string(),
+                                agent_id: node.agent.id.0.to_string(),
+                                tool_name,
+                            }))
+                            .await;
+                        self.maybe_save_checkpoint(
+                            ctx,
+                            graph,
+                            CheckpointSnap {
+                                completed_node: &node.agent.id,
+                                // Resume from the same node so the tool is
+                                // re-dispatched after approval.
+                                resume_node: Some(&current_id),
+                                total_iterations,
+                                agents_executed: &agents_executed,
+                                status: RunStatus::Interrupted {
+                                    reason: interrupt_reason,
+                                },
+                            },
+                        )
+                        .await;
+                        return Ok(ExecutionResult {
+                            response: String::new(),
+                            agents_executed,
+                            total_iterations,
+                            total_tokens: ctx.total_tokens(),
+                            duration_ms: start.elapsed().as_millis() as u64,
+                        });
+                    }
+
                     if let Some(handoff) = result.handoff {
                         // Emit AgentDelegated event
                         self.deps
@@ -359,19 +533,29 @@ impl GraphExecutor {
                                 // Inject structured context provided by the
                                 // source agent so the target has visibility
                                 if !handoff.context_transfer.is_empty()
-                                    && let Ok(json) = serde_json::to_string_pretty(
-                                        &handoff.context_transfer,
-                                    )
+                                    && let Ok(json) =
+                                        serde_json::to_string_pretty(&handoff.context_transfer)
                                 {
-                                    ctx.push_message(orka_llm::client::ChatMessage::user(
-                                        format!(
-                                            "[Handoff context from {}]: {json}",
-                                            handoff.from
-                                        ),
-                                    ))
+                                    ctx.push_message(orka_llm::client::ChatMessage::user(format!(
+                                        "[Handoff context from {}]: {json}",
+                                        handoff.from
+                                    )))
                                     .await;
                                 }
-                                current_id = handoff.to;
+                                let next = handoff.to.clone();
+                                self.maybe_save_checkpoint(
+                                    ctx,
+                                    graph,
+                                    CheckpointSnap {
+                                        completed_node: &node.agent.id,
+                                        resume_node: Some(&next),
+                                        total_iterations,
+                                        agents_executed: &agents_executed,
+                                        status: RunStatus::Running,
+                                    },
+                                )
+                                .await;
+                                current_id = next;
                                 continue;
                             }
                             HandoffMode::Delegate => {
@@ -382,16 +566,13 @@ impl GraphExecutor {
                                     "agent delegate"
                                 );
                                 if !handoff.context_transfer.is_empty()
-                                    && let Ok(json) = serde_json::to_string_pretty(
-                                        &handoff.context_transfer,
-                                    )
+                                    && let Ok(json) =
+                                        serde_json::to_string_pretty(&handoff.context_transfer)
                                 {
-                                    ctx.push_message(orka_llm::client::ChatMessage::user(
-                                        format!(
-                                            "[Handoff context from {}]: {json}",
-                                            handoff.from
-                                        ),
-                                    ))
+                                    ctx.push_message(orka_llm::client::ChatMessage::user(format!(
+                                        "[Handoff context from {}]: {json}",
+                                        handoff.from
+                                    )))
                                     .await;
                                 }
                                 let target_node = match graph.get_node(&handoff.to) {
@@ -441,6 +622,18 @@ impl GraphExecutor {
                         if policy.terminal_agents.contains(&current_id)
                             || graph.outgoing_edges(&current_id).is_empty()
                         {
+                            self.maybe_save_checkpoint(
+                                ctx,
+                                graph,
+                                CheckpointSnap {
+                                    completed_node: &node.agent.id,
+                                    resume_node: None,
+                                    total_iterations,
+                                    agents_executed: &agents_executed,
+                                    status: RunStatus::Completed,
+                                },
+                            )
+                            .await;
                             break;
                         }
 
@@ -448,11 +641,35 @@ impl GraphExecutor {
                         let next = self.evaluate_edges(graph, &current_id, &resp, ctx).await;
                         match next {
                             Some(next_id) => {
+                                self.maybe_save_checkpoint(
+                                    ctx,
+                                    graph,
+                                    CheckpointSnap {
+                                        completed_node: &node.agent.id,
+                                        resume_node: Some(&next_id),
+                                        total_iterations,
+                                        agents_executed: &agents_executed,
+                                        status: RunStatus::Running,
+                                    },
+                                )
+                                .await;
                                 current_id = next_id;
                                 continue;
                             }
                             None => {
                                 // No matching edge — terminal
+                                self.maybe_save_checkpoint(
+                                    ctx,
+                                    graph,
+                                    CheckpointSnap {
+                                        completed_node: &node.agent.id,
+                                        resume_node: None,
+                                        total_iterations,
+                                        agents_executed: &agents_executed,
+                                        status: RunStatus::Completed,
+                                    },
+                                )
+                                .await;
                                 break;
                             }
                         }
@@ -465,7 +682,20 @@ impl GraphExecutor {
                     let mut routed = false;
                     for edge in edges {
                         if self.edge_matches(edge, "", ctx).await {
-                            current_id = edge.target.clone();
+                            let next_id = edge.target.clone();
+                            self.maybe_save_checkpoint(
+                                ctx,
+                                graph,
+                                CheckpointSnap {
+                                    completed_node: &current_id,
+                                    resume_node: Some(&next_id),
+                                    total_iterations,
+                                    agents_executed: &agents_executed,
+                                    status: RunStatus::Running,
+                                },
+                            )
+                            .await;
+                            current_id = next_id;
                             routed = true;
                             break;
                         }
@@ -476,9 +706,12 @@ impl GraphExecutor {
                 }
 
                 NodeKind::FanOut => {
-                    // Fan-out: run all successors in parallel
+                    // Fan-out: dispatch Agent/Router/FanOut successors in parallel.
+                    // Any FanIn-kind successor is the continuation node reached after
+                    // all parallel branches complete.
                     let edges = graph.outgoing_edges(&current_id);
                     let mut join_set = tokio::task::JoinSet::new();
+                    let mut fan_in_id: Option<AgentId> = None;
 
                     for edge in edges {
                         let target_id = edge.target.clone();
@@ -486,6 +719,11 @@ impl GraphExecutor {
                             Some(n) => n.clone(),
                             None => continue,
                         };
+                        // Route to FanIn after all parallel branches finish.
+                        if matches!(target_node.kind, NodeKind::FanIn) {
+                            fan_in_id = Some(target_id);
+                            continue;
+                        }
                         let ctx = ctx.clone();
                         let deps = self.deps.clone();
                         let graph_clone = graph.clone();
@@ -520,12 +758,18 @@ impl GraphExecutor {
                         }
                     }
 
-                    // After fan-out, check for further edges from this node
-                    break;
+                    // Continue to FanIn node if present, otherwise terminate.
+                    match fan_in_id {
+                        Some(next_id) => {
+                            current_id = next_id;
+                            continue;
+                        }
+                        None => break,
+                    }
                 }
 
                 NodeKind::FanIn => {
-                    // FanIn: same as Agent but reads merged results from context
+                    // FanIn: synthesise parallel results, then continue graph traversal.
                     {
                         use orka_core::stream::{StreamChunk, StreamChunkKind};
                         self.deps.stream_registry.send(StreamChunk::new(
@@ -543,9 +787,19 @@ impl GraphExecutor {
                         .await?;
                     total_iterations += result.iterations;
                     if let Some(resp) = result.response {
-                        final_response = resp;
+                        final_response = resp.clone();
+                        // Evaluate outgoing edges — FanIn can feed into further nodes.
+                        let next = self.evaluate_edges(graph, &current_id, &resp, ctx).await;
+                        match next {
+                            Some(next_id) => {
+                                current_id = next_id;
+                                continue;
+                            }
+                            None => break,
+                        }
+                    } else {
+                        break;
                     }
-                    break;
                 }
             }
         }

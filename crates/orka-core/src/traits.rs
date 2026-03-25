@@ -144,7 +144,7 @@ pub trait EventSink: Send + Sync + 'static {
 /// A named, schema-described skill that an agent can invoke.
 #[async_trait]
 pub trait Skill: Send + Sync + 'static {
-    /// The unique name of this skill (e.g. "web_search").
+    /// The unique name of this skill (e.g. "`web_search`").
     fn name(&self) -> &str;
     /// A human-readable description for LLM tool-use prompts.
     fn description(&self) -> &str;
@@ -167,7 +167,7 @@ pub trait Skill: Send + Sync + 'static {
     ///
     /// Used to group skills by domain when building the LLM tool list.
     /// Override this method to assign a non-default category.
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "general"
     }
 

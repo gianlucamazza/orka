@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! Integration tests for slash commands end-to-end through the worker pipeline.
 
 use std::{sync::Arc, time::Duration};

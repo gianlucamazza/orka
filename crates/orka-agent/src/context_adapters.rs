@@ -10,13 +10,13 @@ use async_trait::async_trait;
 use orka_core::Result;
 
 /// Adapter for ExperienceService from orka-experience to orka-prompts trait.
-pub struct ExperienceServiceAdapter {
+pub(crate) struct ExperienceServiceAdapter {
     inner: Arc<orka_experience::ExperienceService>,
 }
 
 impl ExperienceServiceAdapter {
     /// Create a new adapter wrapping the real experience service.
-    pub fn new(inner: Arc<orka_experience::ExperienceService>) -> Self {
+    pub(crate) fn new(inner: Arc<orka_experience::ExperienceService>) -> Self {
         Self { inner }
     }
 }
@@ -52,13 +52,13 @@ impl orka_prompts::context::ExperienceService for ExperienceServiceAdapter {
 }
 
 /// Adapter for SoftSkillRegistry from orka-skills to orka-prompts trait.
-pub struct SoftSkillRegistryAdapter {
+pub(crate) struct SoftSkillRegistryAdapter {
     inner: Arc<orka_skills::SoftSkillRegistry>,
 }
 
 impl SoftSkillRegistryAdapter {
     /// Create a new adapter wrapping the real soft skill registry.
-    pub fn new(inner: Arc<orka_skills::SoftSkillRegistry>) -> Self {
+    pub(crate) fn new(inner: Arc<orka_skills::SoftSkillRegistry>) -> Self {
         Self { inner }
     }
 }
@@ -78,7 +78,7 @@ impl orka_prompts::context::SoftSkillRegistry for SoftSkillRegistryAdapter {
 }
 
 /// Helper function to get the soft skill selection mode.
-pub fn get_soft_skill_selection_mode(
+pub(crate) fn get_soft_skill_selection_mode(
     registry: &orka_skills::SoftSkillRegistry,
 ) -> orka_prompts::context::SoftSkillSelectionMode {
     match registry.selection_mode {

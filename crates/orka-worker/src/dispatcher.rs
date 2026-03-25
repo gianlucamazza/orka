@@ -130,12 +130,36 @@ impl Dispatcher for GraphDispatcher {
         }
 
         // Append current user message so the graph sees the live input
-        let user_text = match &envelope.payload {
-            Payload::Text(t) => Some(t.clone()),
-            Payload::Media(m) => m
-                .caption
-                .clone()
-                .or_else(|| Some(format!("[media: {}]", m.mime_type))),
+        match &envelope.payload {
+            Payload::Text(t) => {
+                ctx.push_message(ChatMessage::user(t.clone())).await;
+            }
+            Payload::Media(m) if m.mime_type.starts_with("image/") && !m.url.is_empty() => {
+                // Build a vision message with an image block + optional caption.
+                use orka_llm::client::{ChatContent, ContentBlockInput, ImageSource};
+                let mut blocks = vec![ContentBlockInput::Image {
+                    source: ImageSource::Url { url: m.url.clone() },
+                }];
+                if let Some(ref caption) = m.caption
+                    && !caption.is_empty()
+                {
+                    blocks.push(ContentBlockInput::Text {
+                        text: caption.clone(),
+                    });
+                }
+                ctx.push_message(ChatMessage::new(
+                    orka_llm::client::Role::User,
+                    ChatContent::Blocks(blocks),
+                ))
+                .await;
+            }
+            Payload::Media(m) => {
+                let text = m
+                    .caption
+                    .clone()
+                    .unwrap_or_else(|| format!("[media: {}]", m.mime_type));
+                ctx.push_message(ChatMessage::user(text)).await;
+            }
             Payload::Command(c) => {
                 let mut text = format!("/{}", c.name);
                 if let Some(rest) = c.args.get("text").and_then(|v| v.as_str())
@@ -144,16 +168,30 @@ impl Dispatcher for GraphDispatcher {
                     text.push(' ');
                     text.push_str(rest);
                 }
-                Some(text)
+                ctx.push_message(ChatMessage::user(text)).await;
             }
-            Payload::Event(_) | _ => None,
-        };
-        if let Some(text) = user_text {
-            ctx.push_message(ChatMessage::user(text)).await;
+            Payload::Event(_) | _ => {}
         }
 
-        // Execute graph
-        let result = self.executor.execute(&self.graph, &ctx).await?;
+        // Execute graph — or resume if this envelope carries a resume token.
+        let result = if let Some(resume_run_id) = envelope.metadata.get("__resume_run_id")
+            && let Some(run_id) = resume_run_id.as_str()
+        {
+            match self.executor.resume(run_id, &self.graph).await? {
+                Some(r) => r,
+                // No checkpoint or already at terminal state — treat as
+                // completed with empty response.
+                None => orka_agent::ExecutionResult {
+                    response: String::new(),
+                    agents_executed: vec![],
+                    total_iterations: 0,
+                    total_tokens: 0,
+                    duration_ms: 0,
+                },
+            }
+        } else {
+            self.executor.execute(&self.graph, &ctx).await?
+        };
         let outbound_msgs = result.into_outbound_messages(&ctx);
 
         // Persist updated history with compaction
