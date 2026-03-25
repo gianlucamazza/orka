@@ -7,7 +7,8 @@ use crate::{
     DomainEvent, Envelope, Error, MemoryEntry, MessageId, MessageStream, Priority, Result,
     SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
     traits::{
-        EventSink, MemoryStore, MessageBus, PriorityQueue, SecretManager, SessionStore, Skill,
+        DeadLetterQueue, EventSink, MemoryStore, MessageBus, PriorityQueue, SecretManager,
+        SessionLock, SessionStore, Skill,
     },
 };
 
@@ -193,32 +194,35 @@ impl PriorityQueue for InMemoryQueue {
         let items = self.items.lock().await;
         Ok(items.len())
     }
+}
 
-    async fn push_dlq(&self, envelope: &Envelope) -> Result<()> {
+#[async_trait]
+impl DeadLetterQueue for InMemoryQueue {
+    async fn push(&self, envelope: &Envelope) -> Result<()> {
         let mut dlq = self.dlq.lock().await;
         dlq.push(envelope.clone());
         Ok(())
     }
 
-    async fn list_dlq(&self) -> Result<Vec<Envelope>> {
+    async fn list(&self) -> Result<Vec<Envelope>> {
         Ok(self.dlq.lock().await.clone())
     }
 
-    async fn purge_dlq(&self) -> Result<usize> {
+    async fn purge(&self) -> Result<usize> {
         let mut dlq = self.dlq.lock().await;
         let count = dlq.len();
         dlq.clear();
         Ok(count)
     }
 
-    async fn replay_dlq(&self, id: &MessageId) -> Result<bool> {
+    async fn replay(&self, id: &MessageId) -> Result<bool> {
         let mut dlq = self.dlq.lock().await;
         if let Some(pos) = dlq.iter().position(|e| &e.id == id) {
             let mut envelope = dlq.remove(pos);
             drop(dlq);
             envelope.metadata.remove("retry_count");
             envelope.priority = Priority::Normal;
-            self.push(&envelope).await?;
+            PriorityQueue::push(self, &envelope).await?;
             Ok(true)
         } else {
             Ok(false)
@@ -297,6 +301,15 @@ impl MemoryStore for InMemoryMemoryStore {
         entries.retain(|_, (_, deadline)| deadline.is_none_or(|dl| now < dl));
         Ok(before - entries.len())
     }
+}
+
+#[async_trait]
+impl SessionLock for InMemoryMemoryStore {
+    async fn try_acquire(&self, _session_id: &str, _ttl_ms: u64) -> bool {
+        true
+    }
+
+    async fn release(&self, _session_id: &str) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -462,9 +475,9 @@ mod tests {
         urgent.priority = Priority::Urgent;
         let normal = Envelope::text("ch", SessionId::new(), "normal");
 
-        queue.push(&bg).await.unwrap();
-        queue.push(&normal).await.unwrap();
-        queue.push(&urgent).await.unwrap();
+        PriorityQueue::push(&queue, &bg).await.unwrap();
+        PriorityQueue::push(&queue, &normal).await.unwrap();
+        PriorityQueue::push(&queue, &urgent).await.unwrap();
 
         let first = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
         assert_eq!(first.priority, Priority::Urgent);

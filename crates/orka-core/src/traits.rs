@@ -76,25 +76,23 @@ pub trait MemoryStore: Send + Sync + 'static {
     /// Compact expired or low-priority entries. Returns number of entries
     /// removed.
     async fn compact(&self) -> Result<usize>;
+}
 
-    /// Try to acquire a distributed session lock using an atomic SET NX
-    /// operation.
+/// Distributed per-session lock for preventing concurrent history corruption.
+///
+/// Decoupled from [`MemoryStore`] so that the lock backend can be swapped
+/// independently (e.g. Redis for locking, in-memory for history in tests).
+#[async_trait]
+pub trait SessionLock: Send + Sync + 'static {
+    /// Try to acquire a lock for `session_id`.
     ///
     /// Returns `true` if the lock was acquired, `false` if another worker
-    /// already holds it. The lock expires automatically after `ttl_ms`
+    /// already holds it.  The lock expires automatically after `ttl_ms`
     /// milliseconds.
-    ///
-    /// Default implementation always returns `true` (no-op; safe for
-    /// single-worker or in-memory use).
-    async fn try_acquire_session_lock(&self, _session_id: &str, _ttl_ms: u64) -> bool {
-        true
-    }
+    async fn try_acquire(&self, session_id: &str, ttl_ms: u64) -> bool;
 
-    /// Release a session lock previously acquired with
-    /// [`Self::try_acquire_session_lock`].
-    ///
-    /// Default implementation is a no-op.
-    async fn release_session_lock(&self, _session_id: &str) {}
+    /// Release the lock previously acquired for `session_id`.
+    async fn release(&self, session_id: &str);
 }
 
 /// Priority queue for ordered message processing.
@@ -113,19 +111,27 @@ pub trait PriorityQueue: Send + Sync + 'static {
     async fn is_empty(&self) -> Result<bool> {
         Ok(self.len().await? == 0)
     }
+}
 
-    /// Push an envelope to the dead-letter queue.
-    async fn push_dlq(&self, envelope: &Envelope) -> Result<()>;
+/// Dead-letter queue for messages that exhausted all retry attempts.
+///
+/// Decoupled from [`PriorityQueue`] so that API routes and observability tools
+/// can depend only on DLQ operations without access to the full queue.
+#[async_trait]
+pub trait DeadLetterQueue: Send + Sync + 'static {
+    /// Push a failed envelope to the dead-letter queue.
+    async fn push(&self, envelope: &Envelope) -> Result<()>;
 
     /// List all envelopes in the dead-letter queue.
-    async fn list_dlq(&self) -> Result<Vec<Envelope>>;
+    async fn list(&self) -> Result<Vec<Envelope>>;
 
     /// Remove all envelopes from the dead-letter queue. Returns the number
     /// removed.
-    async fn purge_dlq(&self) -> Result<usize>;
+    async fn purge(&self) -> Result<usize>;
 
-    /// Remove a single envelope from the DLQ by ID and re-enqueue it.
-    async fn replay_dlq(&self, id: &MessageId) -> Result<bool>;
+    /// Remove a single envelope from the DLQ by ID and re-enqueue it for
+    /// processing.
+    async fn replay(&self, id: &MessageId) -> Result<bool>;
 }
 
 /// Fire-and-forget event sink for domain-level observability.

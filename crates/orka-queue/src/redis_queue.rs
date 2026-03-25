@@ -4,9 +4,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use deadpool_redis::{Config, Pool, Runtime};
 use orka_core::{
-    Result,
+    MessageId, Result,
     error::Error,
-    traits::PriorityQueue,
+    traits::{DeadLetterQueue, PriorityQueue},
     types::{Envelope, Priority},
 };
 use redis::AsyncCommands;
@@ -174,8 +174,11 @@ impl PriorityQueue for RedisPriorityQueue {
 
         Ok(count)
     }
+}
 
-    async fn push_dlq(&self, envelope: &Envelope) -> Result<()> {
+#[async_trait]
+impl DeadLetterQueue for RedisPriorityQueue {
+    async fn push(&self, envelope: &Envelope) -> Result<()> {
         let mut conn = self
             .pool
             .get()
@@ -196,7 +199,7 @@ impl PriorityQueue for RedisPriorityQueue {
         Ok(())
     }
 
-    async fn list_dlq(&self) -> Result<Vec<Envelope>> {
+    async fn list(&self) -> Result<Vec<Envelope>> {
         let mut conn = self
             .pool
             .get()
@@ -219,7 +222,7 @@ impl PriorityQueue for RedisPriorityQueue {
         Ok(envelopes)
     }
 
-    async fn purge_dlq(&self) -> Result<usize> {
+    async fn purge(&self) -> Result<usize> {
         let mut conn = self
             .pool
             .get()
@@ -239,7 +242,7 @@ impl PriorityQueue for RedisPriorityQueue {
         Ok(count)
     }
 
-    async fn replay_dlq(&self, id: &orka_core::MessageId) -> Result<bool> {
+    async fn replay(&self, id: &MessageId) -> Result<bool> {
         let mut conn = self
             .pool
             .get()
@@ -268,7 +271,7 @@ impl PriorityQueue for RedisPriorityQueue {
                 // Reset retry state and re-enqueue
                 envelope.metadata.remove("retry_count");
                 envelope.priority = Priority::Normal;
-                self.push(&envelope).await?;
+                PriorityQueue::push(self, &envelope).await?;
                 return Ok(true);
             }
         }

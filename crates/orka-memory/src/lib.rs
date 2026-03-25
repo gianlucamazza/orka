@@ -10,29 +10,54 @@ pub mod redis_store;
 
 use std::sync::Arc;
 
-use orka_core::{config::primitives::MemoryBackend, traits::MemoryStore};
+use orka_core::{
+    config::primitives::MemoryBackend,
+    traits::{MemoryStore, SessionLock},
+};
 
 pub use crate::redis_store::RedisMemoryStore;
 
-/// Create a [`MemoryStore`] from the given configuration.
+/// Paired trait objects produced by [`create_memory_store`].
+///
+/// Both arcs point to the same underlying concrete object, obtained before
+/// type erasure so that callers can use history storage and session locking
+/// independently.
+pub struct MemoryBundle {
+    /// Key-value store for conversation history and other memory entries.
+    pub store: Arc<dyn MemoryStore>,
+    /// Distributed session lock for preventing concurrent history corruption.
+    pub lock: Arc<dyn SessionLock>,
+}
+
+/// Create a [`MemoryBundle`] from the given configuration.
 pub fn create_memory_store(
     config: &orka_core::config::OrkaConfig,
-) -> orka_core::Result<Arc<dyn MemoryStore>> {
+) -> orka_core::Result<MemoryBundle> {
     match config.memory.backend {
         MemoryBackend::Memory => {
             tracing::debug!(
                 max_entries = config.memory.max_entries,
                 "in-memory memory store created"
             );
-            Ok(Arc::new(orka_core::testing::InMemoryMemoryStore::new()))
+            let store = Arc::new(orka_core::testing::InMemoryMemoryStore::new());
+            Ok(MemoryBundle {
+                lock: Arc::clone(&store) as Arc<dyn SessionLock>,
+                store: store as Arc<dyn MemoryStore>,
+            })
         }
         _ => {
-            let store = RedisMemoryStore::new(&config.redis.url, config.memory.max_entries)?;
+            let store = Arc::new(RedisMemoryStore::new(
+                &config.redis.url,
+                config.memory.max_entries,
+            )?);
             tracing::debug!(
                 max_entries = config.memory.max_entries,
                 "memory store created"
             );
-            Ok(Arc::new(store))
+            Ok(MemoryBundle {
+                lock: Arc::clone(&store) as Arc<dyn SessionLock>,
+                store: store as Arc<dyn MemoryStore>,
+            })
         }
     }
 }

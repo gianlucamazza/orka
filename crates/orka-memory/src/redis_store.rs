@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
-use orka_core::{Error, MemoryEntry, Result, traits::MemoryStore};
+use orka_core::{
+    Error, MemoryEntry, Result,
+    traits::{MemoryStore, SessionLock},
+};
 use redis::AsyncCommands;
 use tracing::{debug, warn};
 
@@ -236,8 +239,11 @@ impl MemoryStore for RedisMemoryStore {
         debug!(removed = count, "memory compact completed");
         Ok(count)
     }
+}
 
-    async fn try_acquire_session_lock(&self, session_id: &str, ttl_ms: u64) -> bool {
+#[async_trait]
+impl SessionLock for RedisMemoryStore {
+    async fn try_acquire(&self, session_id: &str, ttl_ms: u64) -> bool {
         let key = Self::lock_key(session_id);
         match self.pool.get().await {
             Ok(mut conn) => {
@@ -262,7 +268,7 @@ impl MemoryStore for RedisMemoryStore {
         }
     }
 
-    async fn release_session_lock(&self, session_id: &str) {
+    async fn release(&self, session_id: &str) {
         let key = Self::lock_key(session_id);
         match self.pool.get().await {
             Ok(mut conn) => {
