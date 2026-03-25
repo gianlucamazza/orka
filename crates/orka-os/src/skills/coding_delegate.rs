@@ -207,7 +207,7 @@ impl Skill for CodingDelegateSkill {
         "coding_delegate"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         CODING_CATEGORY
     }
 
@@ -401,10 +401,22 @@ fn resolve_working_dir(
     input: &SkillInput,
     coding: &CodingConfig,
 ) -> Option<PathBuf> {
+    // 1. Explicit LLM override (only when permitted by config)
     if coding.allow_working_dir_override && request.working_dir.is_some() {
         return request.working_dir.clone();
     }
 
+    // 2. Active worktree context — propagated automatically by the node runner
+    //    after a successful `git_worktree_create` call.
+    if let Some(wt) = input
+        .context
+        .as_ref()
+        .and_then(|c| c.worktree_cwd.as_deref())
+    {
+        return Some(PathBuf::from(wt));
+    }
+
+    // 3. User's CWD (from CLI `workspace:cwd` metadata)
     input
         .context
         .as_ref()

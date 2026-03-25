@@ -38,6 +38,7 @@ impl RedisPriorityQueue {
 /// Background to 2. Within the same bucket, earlier timestamps sort first
 /// (FIFO).
 pub fn priority_score(priority: &Priority, timestamp: DateTime<Utc>) -> f64 {
+    #[allow(clippy::match_same_arms)] // canonical mapping vs. fallback for unknown variants
     let bucket: u64 = match priority {
         Priority::Urgent => 0,
         Priority::Normal => 1,
@@ -100,63 +101,59 @@ impl PriorityQueue for RedisPriorityQueue {
             .await
             .map_err(|e| Error::queue(format!("pop failed: {e}")))?;
 
-        let (_key, member, score) = match result {
-            Some(r) => r,
-            None => return Ok(None),
+        let Some((_key, member, score)) = result else {
+            return Ok(None);
         };
 
         // Fetch and delete data key atomically via pipeline
         // (BZPOPMIN already removed from ZSET, so we just need GET+DEL atomically)
         let dkey = data_key(&member);
         let data: Option<String> = redis::Script::new(
-            r#"
+            r"
             local data = redis.call('GET', KEYS[1])
             if data then
                 redis.call('DEL', KEYS[1])
                 return data
             end
             return nil
-            "#,
+            ",
         )
         .key(&dkey)
         .invoke_async(&mut *conn)
         .await
         .map_err(|e| Error::queue(format!("atomic get+del failed: {e}")))?;
 
-        match data {
-            Some(json) => {
-                let envelope: Envelope = serde_json::from_str(&json)?;
+        if let Some(json) = data {
+            let envelope: Envelope = serde_json::from_str(&json)?;
 
-                // Check not_before: if message is not yet mature, re-enqueue it
-                if let Some(not_before_val) = envelope.metadata.get("not_before")
-                    && let Some(not_before_str) = not_before_val.as_str()
-                    && let Ok(not_before) = chrono::DateTime::parse_from_rfc3339(not_before_str)
-                    && Utc::now() < not_before
-                {
-                    debug!(id = %member, "message not yet mature, re-enqueuing");
-                    // Re-add to sorted set with original score and restore data
-                    redis::pipe()
-                        .atomic()
-                        .cmd("SET")
-                        .arg(&dkey)
-                        .arg(&json)
-                        .cmd("ZADD")
-                        .arg(PENDING_KEY)
-                        .arg(score)
-                        .arg(&member)
-                        .exec_async(&mut *conn)
-                        .await
-                        .map_err(|e| Error::queue(format!("re-enqueue not_before failed: {e}")))?;
-                    return Ok(None);
-                }
+            // Check not_before: if message is not yet mature, re-enqueue it
+            if let Some(not_before_val) = envelope.metadata.get("not_before")
+                && let Some(not_before_str) = not_before_val.as_str()
+                && let Ok(not_before) = chrono::DateTime::parse_from_rfc3339(not_before_str)
+                && Utc::now() < not_before
+            {
+                debug!(id = %member, "message not yet mature, re-enqueuing");
+                // Re-add to sorted set with original score and restore data
+                redis::pipe()
+                    .atomic()
+                    .cmd("SET")
+                    .arg(&dkey)
+                    .arg(&json)
+                    .cmd("ZADD")
+                    .arg(PENDING_KEY)
+                    .arg(score)
+                    .arg(&member)
+                    .exec_async(&mut *conn)
+                    .await
+                    .map_err(|e| Error::queue(format!("re-enqueue not_before failed: {e}")))?;
+                return Ok(None);
+            }
 
-                debug!(id = %member, "popped envelope from queue");
-                Ok(Some(envelope))
-            }
-            None => {
-                warn!(id = %member, "envelope data missing for popped member");
-                Ok(None)
-            }
+            debug!(id = %member, "popped envelope from queue");
+            Ok(Some(envelope))
+        } else {
+            warn!(id = %member, "envelope data missing for popped member");
+            Ok(None)
         }
     }
 

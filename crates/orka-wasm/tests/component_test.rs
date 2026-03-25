@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! Tests for the WASM Component Model path.
 
 use orka_wasm::{PluginCapabilities, WasmEngine, WasmLimits};

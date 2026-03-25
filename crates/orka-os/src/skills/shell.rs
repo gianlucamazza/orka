@@ -32,7 +32,7 @@ impl Skill for ShellExecSkill {
         "shell_exec"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "shell"
     }
 
@@ -125,6 +125,9 @@ impl Skill for ShellExecSkill {
             .args
             .get("cwd")
             .and_then(|v| v.as_str())
+            // Prefer active worktree context over the raw user_cwd so commands
+            // run inside the agent's isolated worktree automatically.
+            .or_else(|| input.context.as_ref().and_then(|c| c.worktree_cwd.as_deref()))
             .or_else(|| input.context.as_ref().and_then(|c| c.user_cwd.as_deref()));
         let env_vars = input.args.get("env").and_then(|v| v.as_object());
         let timeout = input

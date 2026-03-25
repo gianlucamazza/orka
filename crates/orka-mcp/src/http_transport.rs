@@ -9,7 +9,7 @@ use crate::oauth::OAuthClient;
 ///
 /// Sends JSON-RPC 2.0 requests via HTTP POST and handles both
 /// `application/json` and `text/event-stream` responses.
-pub struct HttpTransport {
+pub(crate) struct HttpTransport {
     http: Client,
     url: String,
     session_id: Mutex<Option<String>>,
@@ -17,7 +17,7 @@ pub struct HttpTransport {
 }
 
 impl HttpTransport {
-    pub fn new(http: Client, url: String, auth: Option<OAuthClient>) -> Self {
+    pub(crate) fn new(http: Client, url: String, auth: Option<OAuthClient>) -> Self {
         Self {
             http,
             url,
@@ -27,7 +27,7 @@ impl HttpTransport {
     }
 
     /// Send a JSON-RPC request and return the `result` value.
-    pub async fn send(&self, request: serde_json::Value) -> Result<serde_json::Value> {
+    pub(crate) async fn send(&self, request: serde_json::Value) -> Result<serde_json::Value> {
         let body = serde_json::to_string(&request)
             .map_err(|e| Error::Other(format!("failed to serialize MCP request: {e}")))?;
 

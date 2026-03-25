@@ -1,5 +1,5 @@
 Name:           orka
-Version:        1.0.0
+Version:        %{pkg_version}
 Release:        1%{?dist}
 Summary:        AI agent orchestration server and CLI
 License:        MIT AND Apache-2.0

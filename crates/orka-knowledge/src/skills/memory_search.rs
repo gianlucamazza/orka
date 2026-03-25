@@ -31,15 +31,15 @@ impl MemorySearchSkill {
 
 #[async_trait]
 impl Skill for MemorySearchSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "memory_search"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "knowledge"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Search for semantically similar content in the vector store."
     }
 
@@ -93,13 +93,13 @@ impl Skill for MemorySearchSkill {
         let limit = input
             .args
             .get("limit")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(5) as usize;
 
         let score_threshold = input
             .args
             .get("score_threshold")
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .map(|v| v as f32);
 
         let filter = input

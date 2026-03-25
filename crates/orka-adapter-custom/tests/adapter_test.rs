@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use orka_adapter_custom::{
     CustomAdapter, routes::app_router, types::InboundResponse, ws::WsRegistry,
 };

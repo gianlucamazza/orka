@@ -41,6 +41,7 @@ impl RedisBus {
     }
 
     /// Override the consumer group name (default: `"orka"`).
+    #[must_use]
     pub fn with_group(mut self, group: impl Into<String>) -> Self {
         self.group = group.into();
         self
@@ -49,6 +50,136 @@ impl RedisBus {
     /// Return the Redis key used for a given topic's stream.
     pub fn stream_key(topic: &str) -> String {
         format!("orka:bus:{topic}")
+    }
+}
+
+/// Spawn a task that ACKs `entry_id` and writes the raw payload to the DLQ
+/// stream so that malformed entries are not redelivered indefinitely.
+fn spawn_dlq_route(
+    pool: Pool,
+    key: String,
+    group: String,
+    entry_id: String,
+    raw: String,
+    err_msg: String,
+) {
+    tokio::spawn(async move {
+        let mut conn = match pool.get().await {
+            Ok(c) => c,
+            Err(e) => {
+                error!(error = %e, "failed to get connection for DLQ routing");
+                return;
+            }
+        };
+        let _ = redis::cmd("XACK")
+            .arg(&key)
+            .arg(&group)
+            .arg(&entry_id)
+            .query_async::<i64>(&mut conn)
+            .await;
+        let _ = redis::cmd("XADD")
+            .arg("orka:bus:dlq")
+            .arg("*")
+            .arg("raw")
+            .arg(&raw)
+            .arg("error")
+            .arg(&err_msg)
+            .arg("source_stream")
+            .arg(&key)
+            .query_async::<String>(&mut conn)
+            .await;
+    });
+}
+
+struct ReaderConfig {
+    pool: Pool,
+    key: String,
+    group: String,
+    consumer: String,
+    pending: Arc<Mutex<HashMap<String, (String, String)>>>,
+    tx: mpsc::Sender<Envelope>,
+    block_ms: u64,
+    batch_size: usize,
+    initial_backoff: std::time::Duration,
+    max_backoff: std::time::Duration,
+}
+
+/// Drive the XREADGROUP read loop for a single stream.
+async fn run_reader_loop(cfg: ReaderConfig) {
+    let ReaderConfig {
+        pool,
+        key,
+        group,
+        consumer,
+        pending,
+        tx,
+        block_ms,
+        batch_size,
+        initial_backoff,
+        max_backoff,
+    } = cfg;
+    let mut backoff = initial_backoff;
+    loop {
+        let mut conn = match pool.get().await {
+            Ok(c) => c,
+            Err(e) => {
+                error!(error = %e, "failed to get Redis connection");
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(max_backoff);
+                continue;
+            }
+        };
+
+        let result: redis::RedisResult<redis::Value> = redis::cmd("XREADGROUP")
+            .arg("GROUP")
+            .arg(&group)
+            .arg(&consumer)
+            .arg("BLOCK")
+            .arg(block_ms)
+            .arg("COUNT")
+            .arg(batch_size)
+            .arg("STREAMS")
+            .arg(&key)
+            .arg(">")
+            .query_async(&mut conn)
+            .await;
+
+        match result {
+            Ok(redis::Value::Nil) => {}
+            Ok(value) => {
+                if let Some(entries) = parse_xreadgroup_response(&value) {
+                    backoff = initial_backoff;
+                    for (entry_id, envelope_json) in entries {
+                        match serde_json::from_str::<Envelope>(&envelope_json) {
+                            Ok(envelope) => {
+                                let msg_id = envelope.id.to_string();
+                                pending.lock().await.insert(msg_id, (key.clone(), entry_id));
+                                if tx.send(envelope).await.is_err() {
+                                    debug!("subscriber dropped, stopping reader");
+                                    return;
+                                }
+                            }
+                            Err(e) => {
+                                warn!(error = %e, entry_id = %entry_id, "failed to deserialize envelope, routing to DLQ");
+                                spawn_dlq_route(
+                                    pool.clone(),
+                                    key.clone(),
+                                    group.clone(),
+                                    entry_id,
+                                    envelope_json,
+                                    e.to_string(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                error!(error = %e, "XREADGROUP failed");
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(max_backoff);
+            }
+        }
     }
 }
 
@@ -110,101 +241,18 @@ impl MessageBus for RedisBus {
         let initial_backoff = std::time::Duration::from_secs(self.backoff_initial_secs);
         let max_backoff = std::time::Duration::from_secs(self.backoff_max_secs);
 
-        tokio::spawn(async move {
-            let mut backoff = initial_backoff;
-            loop {
-                let mut conn = match pool.get().await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        error!(error = %e, "failed to get Redis connection");
-                        tokio::time::sleep(backoff).await;
-                        backoff = (backoff * 2).min(max_backoff);
-                        continue;
-                    }
-                };
-
-                let result: redis::RedisResult<redis::Value> = redis::cmd("XREADGROUP")
-                    .arg("GROUP")
-                    .arg(&group)
-                    .arg(&consumer)
-                    .arg("BLOCK")
-                    .arg(block_ms)
-                    .arg("COUNT")
-                    .arg(batch_size)
-                    .arg("STREAMS")
-                    .arg(&key)
-                    .arg(">")
-                    .query_async(&mut conn)
-                    .await;
-
-                match result {
-                    Ok(redis::Value::Nil) => continue,
-                    Ok(value) => {
-                        if let Some(entries) = parse_xreadgroup_response(&value) {
-                            backoff = initial_backoff;
-                            for (entry_id, envelope_json) in entries {
-                                match serde_json::from_str::<Envelope>(&envelope_json) {
-                                    Ok(envelope) => {
-                                        let msg_id = envelope.id.to_string();
-                                        pending
-                                            .lock()
-                                            .await
-                                            .insert(msg_id, (key.clone(), entry_id));
-                                        if tx.send(envelope).await.is_err() {
-                                            debug!("subscriber dropped, stopping reader");
-                                            return;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        warn!(error = %e, entry_id = %entry_id, "failed to deserialize envelope, routing to DLQ");
-                                        // XACK to remove from the PEL so the entry is not
-                                        // redelivered indefinitely, then XADD raw payload to
-                                        // the DLQ stream for offline inspection.
-                                        let pool_dlq = pool.clone();
-                                        let key_dlq = key.clone();
-                                        let group_dlq = group.clone();
-                                        let entry_id_dlq = entry_id.clone();
-                                        let raw_dlq = envelope_json.clone();
-                                        let err_dlq = e.to_string();
-                                        tokio::spawn(async move {
-                                            let mut conn = match pool_dlq.get().await {
-                                                Ok(c) => c,
-                                                Err(e) => {
-                                                    error!(error = %e, "failed to get connection for DLQ routing");
-                                                    return;
-                                                }
-                                            };
-                                            let _ = redis::cmd("XACK")
-                                                .arg(&key_dlq)
-                                                .arg(&group_dlq)
-                                                .arg(&entry_id_dlq)
-                                                .query_async::<i64>(&mut conn)
-                                                .await;
-                                            let _ = redis::cmd("XADD")
-                                                .arg("orka:bus:dlq")
-                                                .arg("*")
-                                                .arg("raw")
-                                                .arg(&raw_dlq)
-                                                .arg("error")
-                                                .arg(&err_dlq)
-                                                .arg("source_stream")
-                                                .arg(&key_dlq)
-                                                .query_async::<String>(&mut conn)
-                                                .await;
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!(error = %e, "XREADGROUP failed");
-                        tokio::time::sleep(backoff).await;
-                        backoff = (backoff * 2).min(max_backoff);
-                    }
-                }
-            }
-        });
+        tokio::spawn(run_reader_loop(ReaderConfig {
+            pool,
+            key,
+            group,
+            consumer,
+            pending,
+            tx,
+            block_ms,
+            batch_size,
+            initial_backoff,
+            max_backoff,
+        }));
 
         Ok(rx)
     }
@@ -260,9 +308,8 @@ fn parse_xreadgroup_response(value: &redis::Value) -> Option<Vec<(String, String
     let mut results = Vec::new();
 
     // Top-level array: list of streams
-    let streams = match value {
-        redis::Value::Array(arr) => arr,
-        _ => return None,
+    let redis::Value::Array(streams) = value else {
+        return None;
     };
 
     for stream in streams {
@@ -273,9 +320,8 @@ fn parse_xreadgroup_response(value: &redis::Value) -> Option<Vec<(String, String
         };
 
         // stream_parts[1] is the entries array
-        let entries = match &stream_parts[1] {
-            redis::Value::Array(arr) => arr,
-            _ => continue,
+        let redis::Value::Array(entries) = &stream_parts[1] else {
+            continue;
         };
 
         for entry in entries {
@@ -288,9 +334,8 @@ fn parse_xreadgroup_response(value: &redis::Value) -> Option<Vec<(String, String
             let entry_id = value_to_string(&entry_parts[0])?;
 
             // fields_array: [field_name, field_value, ...]
-            let fields = match &entry_parts[1] {
-                redis::Value::Array(arr) => arr,
-                _ => continue,
+            let redis::Value::Array(fields) = &entry_parts[1] else {
+                continue;
             };
 
             // Look for "envelope" key followed by its value
@@ -316,8 +361,8 @@ fn parse_xreadgroup_response(value: &redis::Value) -> Option<Vec<(String, String
     }
 }
 
-/// Convert a Redis Value to a String, handling both BulkString and SimpleString
-/// variants.
+/// Convert a Redis Value to a String, handling both `BulkString` and
+/// `SimpleString` variants.
 fn value_to_string(value: &redis::Value) -> Option<String> {
     match value {
         redis::Value::BulkString(bytes) => String::from_utf8(bytes.clone()).ok(),

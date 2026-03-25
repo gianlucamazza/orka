@@ -1,4 +1,4 @@
-/// Embedding vector dimensions for OpenAI ada-002 model.
+/// Embedding vector dimensions for `OpenAI` ada-002 model.
 pub const OPENAI_EMBEDDING_DIMS: u32 = 1536;
 /// Embedding vector dimensions for local BGE-small model.
 pub const LOCAL_EMBEDDING_DIMS: u32 = 384;

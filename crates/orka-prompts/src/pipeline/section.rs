@@ -40,6 +40,7 @@ impl StaticSection {
     }
 
     /// Make this section required.
+    #[must_use]
     pub fn required(mut self) -> Self {
         self.required = true;
         self
@@ -98,9 +99,8 @@ where
     }
 
     async fn render(&self, ctx: &BuildContext) -> Result<Option<String>> {
-        let data = match (self.generator)(ctx).await? {
-            Some(data) => data,
-            None => return Ok(None),
+        let Some(data) = (self.generator)(ctx).await? else {
+            return Ok(None);
         };
 
         // Use template engine from context if available

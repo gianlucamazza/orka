@@ -7,10 +7,7 @@
 #![warn(missing_docs)]
 
 use std::{
-    sync::{
-        Mutex,
-        atomic::{AtomicU8, AtomicU32, Ordering},
-    },
+    sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering},
     time::Duration,
 };
 
@@ -31,6 +28,7 @@ pub enum CircuitState {
 
 impl CircuitState {
     fn from_u8(v: u8) -> Self {
+        #[allow(clippy::match_same_arms)]
         match v {
             0 => Self::Closed,
             1 => Self::Open,
@@ -89,16 +87,23 @@ impl Default for CircuitBreakerConfig {
 /// - `quality_failures`: semantic (output validation) failures
 ///
 /// The circuit opens when *either* counter reaches its configured threshold.
+///
+/// Fully lock-free: all state is stored in atomics. `open_since_nanos` encodes
+/// the open timestamp as nanoseconds elapsed since `base_instant` (0 = not
+/// open). `u64` nanoseconds covers ~584 years, far beyond any practical
+/// `open_duration`.
 pub struct CircuitBreaker {
     config: CircuitBreakerConfig,
-    /// 0 = Closed, 1 = Open, 2 = HalfOpen
+    /// 0 = Closed, 1 = Open, 2 = `HalfOpen`
     state: AtomicU8,
     failure_count: AtomicU32,
     quality_failures: AtomicU32,
     success_count: AtomicU32,
     half_open_probes: AtomicU32,
-    /// The instant when the circuit transitioned to Open.
-    open_since: Mutex<Option<Instant>>,
+    /// Fixed reference point created in `new()`.
+    base_instant: Instant,
+    /// Nanoseconds since `base_instant` when the circuit opened; 0 = not open.
+    open_since_nanos: AtomicU64,
 }
 
 impl CircuitBreaker {
@@ -111,7 +116,8 @@ impl CircuitBreaker {
             quality_failures: AtomicU32::new(0),
             success_count: AtomicU32::new(0),
             half_open_probes: AtomicU32::new(0),
-            open_since: Mutex::new(None),
+            base_instant: Instant::now(),
+            open_since_nanos: AtomicU64::new(0),
         }
     }
 
@@ -121,7 +127,7 @@ impl CircuitBreaker {
     ///   the threshold is reached the circuit opens.
     /// - **Open**: if `open_duration` has elapsed, transitions to half-open and
     ///   allows the call. Otherwise returns [`CircuitBreakerError::Open`].
-    /// - **HalfOpen**: allows at most one concurrent probe. On success the
+    /// - **`HalfOpen`**: allows at most one concurrent probe. On success the
     ///   circuit closes; on failure it opens again.
     pub async fn call<F, Fut, T, E>(&self, f: F) -> Result<T, CircuitBreakerError<E>>
     where
@@ -156,7 +162,7 @@ impl CircuitBreaker {
     ///
     /// Equivalent to what `call()` does internally on success: resets the
     /// failure counter in Closed state, or advances the success counter in
-    /// HalfOpen state.
+    /// `HalfOpen` state.
     pub fn record_success(&self) {
         let state = CircuitState::from_u8(self.state.load(Ordering::SeqCst));
         match state {
@@ -233,7 +239,7 @@ impl CircuitBreaker {
         self.quality_failures.store(0, Ordering::SeqCst);
         self.success_count.store(0, Ordering::SeqCst);
         self.half_open_probes.store(0, Ordering::SeqCst);
-        *self.open_since.lock().expect("mutex poisoned") = None;
+        self.open_since_nanos.store(0, Ordering::SeqCst);
     }
 
     // -- private helpers --
@@ -317,15 +323,19 @@ impl CircuitBreaker {
         self.failure_count.store(0, Ordering::SeqCst);
         self.success_count.store(0, Ordering::SeqCst);
         self.half_open_probes.store(0, Ordering::SeqCst);
-        *self.open_since.lock().expect("mutex poisoned") = Some(Instant::now());
+        // Store elapsed nanos since base_instant (minimum 1 to distinguish from "not
+        // open").
+        let nanos = self.base_instant.elapsed().as_nanos() as u64;
+        self.open_since_nanos.store(nanos.max(1), Ordering::SeqCst);
     }
 
     fn open_duration_elapsed(&self) -> bool {
-        let guard = self.open_since.lock().expect("mutex poisoned");
-        match *guard {
-            Some(since) => since.elapsed() >= self.config.open_duration,
-            None => false,
+        let stored = self.open_since_nanos.load(Ordering::SeqCst);
+        if stored == 0 {
+            return false;
         }
+        let elapsed_since_open = self.base_instant.elapsed().as_nanos() as u64 - stored;
+        elapsed_since_open >= self.config.open_duration.as_nanos() as u64
     }
 }
 

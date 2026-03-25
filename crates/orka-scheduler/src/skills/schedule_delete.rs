@@ -19,15 +19,15 @@ impl ScheduleDeleteSkill {
 
 #[async_trait]
 impl Skill for ScheduleDeleteSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "schedule_delete"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "schedule"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Delete a scheduled task by ID or name."
     }
 

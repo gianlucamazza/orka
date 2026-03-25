@@ -20,6 +20,7 @@ detect_distro() {
 	elif command -v apt-get &>/dev/null; then
 		PKG_MGR="apt"
 		REDIS_SERVICE="redis-server.service"
+		# Note: `just` is not in standard apt repos; it is installed via cargo after rustup (see below).
 		PACKAGES=(build-essential pkg-config libssl-dev redis-server curl git)
 	elif command -v dnf &>/dev/null; then
 		PKG_MGR="dnf"
@@ -172,6 +173,12 @@ detect_distro
 detect_required_rust
 install_packages
 ensure_rust
+
+# On Debian/Ubuntu, `just` is not in apt — install via cargo if not already present.
+if [[ "$PKG_MGR" == "apt" ]] && ! command -v just &>/dev/null; then
+	info "Installing 'just' via cargo (not available in apt)..."
+	cargo install just
+fi
 
 if [[ ! -f "$REPO_ROOT/.env" ]]; then
 	cp "$REPO_ROOT/.env.example" "$REPO_ROOT/.env"

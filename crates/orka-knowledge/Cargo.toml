@@ -16,11 +16,14 @@ uuid.workspace = true
 chrono.workspace = true
 reqwest.workspace = true
 qdrant-client.workspace = true
-fastembed = "5"
-text-splitter = { version = "0.16", features = ["tiktoken-rs"] }
-pdf-extract = "0.7"
+fastembed.workspace = true
+text-splitter.workspace = true
+pdf-extract.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 testcontainers.workspace = true
 proptest.workspace = true
+
+[lints]
+workspace = true

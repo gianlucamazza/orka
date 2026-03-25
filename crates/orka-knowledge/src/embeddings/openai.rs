@@ -30,7 +30,7 @@ struct EmbeddingData {
 }
 
 impl OpenAiEmbeddingProvider {
-    /// Create a provider targeting the standard OpenAI embeddings endpoint.
+    /// Create a provider targeting the standard `OpenAI` embeddings endpoint.
     pub fn new(api_key: String, model: String, dimensions: u32) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -42,6 +42,7 @@ impl OpenAiEmbeddingProvider {
     }
 
     /// Override the API base URL (useful for OpenAI-compatible proxies).
+    #[must_use]
     pub fn with_base_url(mut self, url: String) -> Self {
         self.base_url = url;
         self

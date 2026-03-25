@@ -24,3 +24,6 @@ uuid.workspace = true
 orka-core.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

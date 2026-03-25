@@ -23,9 +23,9 @@ fmt-check:
 fmt:
     cargo +nightly fmt --all
 
-# Start infra (Redis)
+# Start infra (Redis + Qdrant only, no server)
 infra:
-    docker compose up -d
+    docker compose up -d redis qdrant
 
 # Stop infra
 infra-down:

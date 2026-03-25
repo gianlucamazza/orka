@@ -17,9 +17,12 @@ deadpool-redis.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
-cron = "0.13"
+cron.workspace = true
 tokio-util.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 insta.workspace = true
+
+[lints]
+workspace = true

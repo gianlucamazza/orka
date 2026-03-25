@@ -17,12 +17,13 @@ pub trait DocumentParser: Send + Sync {
 
 /// Detect format from file extension and return the appropriate parser.
 pub fn detect_format(path: &str) -> Box<dyn DocumentParser> {
-    let lower = path.to_lowercase();
-    if lower.ends_with(".pdf") {
+    let p = std::path::Path::new(path);
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if ext.eq_ignore_ascii_case("pdf") {
         Box::new(pdf::PdfParser)
-    } else if lower.ends_with(".html") || lower.ends_with(".htm") {
+    } else if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
         Box::new(html::HtmlParser)
-    } else if lower.ends_with(".md") || lower.ends_with(".markdown") {
+    } else if ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown") {
         Box::new(markdown::MarkdownParser)
     } else {
         Box::new(plaintext::PlaintextParser)

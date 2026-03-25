@@ -40,7 +40,7 @@ pub enum TemplateLoaderEvent {
 ///     loader.load_all().await.unwrap();
 ///
 ///     // Start watching for changes
-///     let mut events = loader.watch().await.unwrap();
+///     let mut events = loader.watch().unwrap();
 ///
 ///     // Process events
 ///     while let Some(event) = events.recv().await {
@@ -51,7 +51,7 @@ pub enum TemplateLoaderEvent {
 pub struct TemplateLoader {
     registry: TemplateRegistry,
     templates_dir: PathBuf,
-    _watcher: Option<Arc<std::sync::Mutex<RecommendedWatcher>>>,
+    watcher: Option<Arc<std::sync::Mutex<RecommendedWatcher>>>,
 }
 
 impl TemplateLoader {
@@ -65,7 +65,7 @@ impl TemplateLoader {
         Self {
             registry,
             templates_dir,
-            _watcher: None,
+            watcher: None,
         }
     }
 
@@ -82,14 +82,14 @@ impl TemplateLoader {
     /// Start watching the templates directory for changes.
     ///
     /// Returns a receiver for template loader events.
-    pub async fn watch(
+    pub fn watch(
         &mut self,
     ) -> Result<mpsc::Receiver<TemplateLoaderEvent>, Box<dyn std::error::Error>> {
         let (tx, rx) = mpsc::channel(100);
         let registry = self.registry.clone();
         let templates_dir = self.templates_dir.clone();
 
-        let watcher_tx = tx.clone();
+        let watcher_tx = tx;
         let mut watcher =
             notify::recommended_watcher(move |res: Result<Event, notify::Error>| match res {
                 Ok(event) => {
@@ -115,8 +115,7 @@ impl TemplateLoader {
                                     if let Err(e) = registry.register_file(&name, &path).await {
                                         let _ = tx
                                             .send(TemplateLoaderEvent::Error(format!(
-                                                "failed to reload {}: {}",
-                                                name, e
+                                                "failed to reload {name}: {e}"
                                             )))
                                             .await;
                                     } else {
@@ -131,13 +130,13 @@ impl TemplateLoader {
                 }
                 Err(e) => {
                     let _ = watcher_tx
-                        .try_send(TemplateLoaderEvent::Error(format!("watch error: {}", e)));
+                        .try_send(TemplateLoaderEvent::Error(format!("watch error: {e}")));
                 }
             })?;
 
         watcher.watch(&self.templates_dir, RecursiveMode::Recursive)?;
 
-        self._watcher = Some(Arc::new(std::sync::Mutex::new(watcher)));
+        self.watcher = Some(Arc::new(std::sync::Mutex::new(watcher)));
 
         Ok(rx)
     }

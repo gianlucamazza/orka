@@ -74,10 +74,11 @@ jobs:
         run: cargo build --workspace
       - name: Test
         run: cargo test --workspace
-      - name: Integration tests (Redis)
+      - name: Integration tests (Redis + Qdrant)
         run: cargo test --workspace -- --ignored
         env:
           REDIS_URL: redis://127.0.0.1:6379
+          QDRANT_URL: http://localhost:6334
 
   msrv:
     name: MSRV (1.91)
@@ -102,6 +103,16 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      qdrant:
+        image: qdrant/qdrant:v1.14.0
+        ports:
+          - 6333:6333
+          - 6334:6334
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/healthz || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -115,6 +126,7 @@ jobs:
         run: cargo llvm-cov --workspace --codecov --output-path codecov.json
         env:
           REDIS_URL: redis://127.0.0.1:6379
+          QDRANT_URL: http://localhost:6334
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:

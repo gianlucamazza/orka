@@ -9,14 +9,14 @@ use tracing::debug;
 use crate::{cache::WebCache, extract};
 
 /// Skill that fetches and reads a web page, extracting readable text.
-pub struct WebReadSkill {
+pub(crate) struct WebReadSkill {
     client: reqwest::Client,
     cache: Arc<WebCache>,
     max_chars: usize,
 }
 
 impl WebReadSkill {
-    pub fn new(
+    pub(crate) fn new(
         cache: Arc<WebCache>,
         max_chars: usize,
         timeout_secs: u64,
@@ -43,7 +43,7 @@ impl Skill for WebReadSkill {
         "web_read"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "web"
     }
 

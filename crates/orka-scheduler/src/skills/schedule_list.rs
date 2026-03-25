@@ -19,15 +19,15 @@ impl ScheduleListSkill {
 
 #[async_trait]
 impl Skill for ScheduleListSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "schedule_list"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "schedule"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List active scheduled tasks."
     }
 
@@ -48,7 +48,7 @@ impl Skill for ScheduleListSkill {
         let include_completed = input
             .args
             .get("include_completed")
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
         let schedules = self.store.list(include_completed).await?;

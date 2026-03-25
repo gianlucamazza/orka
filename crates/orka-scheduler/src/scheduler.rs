@@ -53,7 +53,7 @@ impl Scheduler {
 
         loop {
             tokio::select! {
-                _ = cancel.cancelled() => {
+                () = cancel.cancelled() => {
                     info!("scheduler stopping");
                     break;
                 }

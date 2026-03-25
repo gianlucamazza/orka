@@ -40,7 +40,7 @@ impl Skill for ServiceStatusSkill {
         "service_status"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "systemd"
     }
 
@@ -106,7 +106,7 @@ impl Skill for ServiceListSkill {
         "service_list"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "systemd"
     }
 
@@ -173,7 +173,7 @@ impl Skill for JournalReadSkill {
         "journal_read"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "systemd"
     }
 
@@ -257,7 +257,7 @@ impl Skill for ServiceControlSkill {
         "service_control"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "systemd"
     }
 

@@ -26,6 +26,7 @@ use tracing::{info, warn};
 ///
 /// On Linux this uses `prctl(PR_GET_NO_NEW_PRIVS)`. Returns `false` on
 /// non-Linux platforms or if the check cannot be performed.
+#[allow(unsafe_code)]
 pub fn has_no_new_privileges() -> bool {
     #[cfg(target_os = "linux")]
     {

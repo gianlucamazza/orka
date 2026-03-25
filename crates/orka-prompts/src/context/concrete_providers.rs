@@ -54,7 +54,7 @@ impl ExperienceContextProvider {
 
 #[async_trait]
 impl super::provider::ContextProvider for ExperienceContextProvider {
-    fn provider_id(&self) -> &str {
+    fn provider_id(&self) -> &'static str {
         "experience"
     }
 
@@ -101,7 +101,7 @@ impl Default for ShellContextProvider {
 
 #[async_trait]
 impl super::provider::ContextProvider for ShellContextProvider {
-    fn provider_id(&self) -> &str {
+    fn provider_id(&self) -> &'static str {
         "shell"
     }
 
@@ -164,7 +164,7 @@ impl SoftSkillsContextProvider {
 
 #[async_trait]
 impl super::provider::ContextProvider for SoftSkillsContextProvider {
-    fn provider_id(&self) -> &str {
+    fn provider_id(&self) -> &'static str {
         "soft_skills"
     }
 
@@ -203,7 +203,7 @@ impl SectionsContextProvider {
 
 #[async_trait]
 impl super::provider::ContextProvider for SectionsContextProvider {
-    fn provider_id(&self) -> &str {
+    fn provider_id(&self) -> &'static str {
         "sections"
     }
 
@@ -218,7 +218,7 @@ impl super::provider::ContextProvider for SectionsContextProvider {
     }
 }
 
-/// A coordinator that builds BuildContext using registered providers.
+/// A coordinator that builds `BuildContext` using registered providers.
 pub struct ContextCoordinator {
     base_context: BuildContext,
     providers: Vec<Box<dyn super::provider::ContextProvider>>,
@@ -234,6 +234,7 @@ impl ContextCoordinator {
     }
 
     /// Add a provider.
+    #[must_use]
     pub fn with_provider(mut self, provider: Box<dyn super::provider::ContextProvider>) -> Self {
         self.providers.push(provider);
         self

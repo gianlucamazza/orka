@@ -106,11 +106,9 @@ services:
       - ./orka.toml:/etc/orka/orka.toml:ro
       - /etc/os-release:/host/os-release:ro
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health/live"]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
+      # Distroless prod image has no curl/wget — disable here.
+      # The dev override (docker-compose.override.yml) re-enables it with curl.
+      test: ["NONE"]
     restart: unless-stopped
     read_only: true
     tmpfs:

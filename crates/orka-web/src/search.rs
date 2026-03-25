@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Skill that searches the web using a configured provider.
-pub struct WebSearchSkill {
+pub(crate) struct WebSearchSkill {
     provider: Arc<dyn SearchProvider>,
     cache: Arc<WebCache>,
     max_results: usize,
@@ -20,7 +20,7 @@ pub struct WebSearchSkill {
 }
 
 impl WebSearchSkill {
-    pub fn new(
+    pub(crate) fn new(
         provider: Arc<dyn SearchProvider>,
         cache: Arc<WebCache>,
         max_results: usize,
@@ -41,7 +41,7 @@ impl Skill for WebSearchSkill {
         "web_search"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "web"
     }
 

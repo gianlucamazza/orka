@@ -133,7 +133,7 @@ impl VectorStore for QdrantStore {
                 for (key, value) in &payload {
                     if let Some(qdrant_client::qdrant::value::Kind::StringValue(s)) = &value.kind {
                         if key == "content" {
-                            content = s.clone();
+                            content.clone_from(s);
                         } else if key == "document_id" {
                             document_id = Some(s.clone());
                         } else {

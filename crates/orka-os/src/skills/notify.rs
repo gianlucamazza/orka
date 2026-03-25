@@ -25,7 +25,7 @@ impl Skill for NotifySendSkill {
         "notify_send"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "desktop"
     }
 

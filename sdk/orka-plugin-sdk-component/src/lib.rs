@@ -43,18 +43,23 @@
 
 /// Static metadata returned by [`Plugin::info`].
 pub struct PluginInfo {
+    /// Unique skill name (e.g. `"hello"`).
     pub name: String,
+    /// Human-readable description of the plugin.
     pub description: String,
+    /// JSON Schema for the plugin's input parameters.
     pub parameters_schema: String,
 }
 
 /// Arguments passed to [`Plugin::execute`].
 pub struct PluginInput {
+    /// Key-value argument pairs from the skill invocation.
     pub args: Vec<(String, String)>,
 }
 
 /// Successful output from [`Plugin::execute`].
 pub struct PluginOutput {
+    /// The serialised output returned to the agent.
     pub data: String,
 }
 

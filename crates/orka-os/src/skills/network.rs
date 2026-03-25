@@ -26,7 +26,7 @@ impl Skill for NetworkInfoSkill {
         "network_info"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "system"
     }
 
@@ -84,7 +84,7 @@ impl Skill for NetworkCheckSkill {
         "network_check"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "system"
     }
 

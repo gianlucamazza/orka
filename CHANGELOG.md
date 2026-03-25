@@ -23,6 +23,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   is forwarded on handoff (`"full"` (default), `"last_n"`, `"none"`)
 - Guardrails wired into `GraphExecutor` via `ExecutorDeps::guardrail` — three checkpoints per node:
   input, tool-call, and output; blocked requests short-circuit with an error response
+- **Checkpointing** — `orka-checkpoint` crate: automatic per-node checkpoint saving, crash recovery
+  via `GraphExecutor::resume()`, and REST API (`/api/v1/runs/{run_id}/checkpoints*`) for inspection
+- **Human-in-the-Loop (HITL)** — `interrupt_before_tools` agent config pauses execution before
+  specified tool calls; `POST /api/v1/runs/{run_id}/approve` re-enqueues for resumption,
+  `POST /api/v1/runs/{run_id}/reject` marks the run as failed
+- **Planning mode** — `planning_mode` per-agent config: `"always"` generates a structured plan via
+  a dedicated LLM call before the first iteration; `"adaptive"` exposes plan tools for LLM-driven
+  planning
+- **History strategy** — `history_strategy` per-agent config: `"summarize"` calls the LLM to
+  summarize dropped turns; `"rolling_window:<n>"` keeps the last *n* conversation turns with
+  incremental background summarization
+- **State reducers** — `[graph.reducers]` TOML config maps shared state slots to merge strategies
+  (`append`, `sum`, `max`, `min`, `merge_object`, `last_write_wins`) enabling correct fan-out
+  aggregation without coordinator agents
+- **Multi-modal vision** — `ImageSource` (URL / Base64) and `ContentBlockInput::Image` added to
+  `orka-llm`; dispatchers forward `image/*` media payloads as vision messages to Anthropic Claude
+  and OpenAI providers; captions are appended as text blocks
 
 ## [1.0.0] - 2026-03-18
 

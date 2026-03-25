@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use orka_bus::RedisBus;
 use orka_core::{Envelope, MessageId, SessionId, traits::MessageBus};
 

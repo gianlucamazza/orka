@@ -28,7 +28,7 @@ impl Skill for ProcessListSkill {
         "process_list"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "system"
     }
 
@@ -148,7 +148,7 @@ impl Skill for ProcessInfoSkill {
         "process_info"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "system"
     }
 
@@ -223,7 +223,7 @@ impl Skill for ProcessSignalSkill {
         "process_signal"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "system"
     }
 

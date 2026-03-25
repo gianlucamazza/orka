@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use orka_core::{MemoryEntry, traits::MemoryStore};
 use orka_memory::RedisMemoryStore;
 

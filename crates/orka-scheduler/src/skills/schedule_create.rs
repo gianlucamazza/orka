@@ -21,15 +21,15 @@ impl ScheduleCreateSkill {
 
 #[async_trait]
 impl Skill for ScheduleCreateSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "schedule_create"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "schedule"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Create a scheduled task (cron or one-shot) to run a skill at a specific time."
     }
 

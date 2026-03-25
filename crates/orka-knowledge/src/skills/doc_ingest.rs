@@ -37,15 +37,15 @@ impl DocIngestSkill {
 
 #[async_trait]
 impl Skill for DocIngestSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "doc_ingest"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "knowledge"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Ingest a document (PDF/HTML/MD/TXT) by parsing, chunking, embedding, and storing it."
     }
 
@@ -87,13 +87,13 @@ impl Skill for DocIngestSkill {
         let chunk_size = input
             .args
             .get("chunk_size")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(self.default_chunk_size as u64) as usize;
 
         let chunk_overlap = input
             .args
             .get("chunk_overlap")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(self.default_chunk_overlap as u64) as usize;
 
         // Read document data

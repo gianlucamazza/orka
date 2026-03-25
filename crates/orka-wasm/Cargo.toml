@@ -11,3 +11,6 @@ cap-std.workspace = true
 wasmtime.workspace = true
 wasmtime-wasi.workspace = true
 tracing.workspace = true
+
+[lints]
+workspace = true

@@ -29,6 +29,7 @@ impl ProcessSandbox {
 
 #[async_trait]
 impl SandboxExecutor for ProcessSandbox {
+    #[allow(unsafe_code)]
     async fn execute(&self, req: SandboxRequest) -> Result<SandboxResult> {
         let (cmd_name, ext, extra_args) = match req.language {
             SandboxLang::Python => ("python3", ".py", vec![]),

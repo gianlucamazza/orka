@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use orka_mcp::{
     McpClient, McpContent, McpOAuthConfig, McpServerConfig, McpToolInfo, McpToolResult,
     McpTransportConfig,

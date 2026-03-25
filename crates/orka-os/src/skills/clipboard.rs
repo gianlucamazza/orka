@@ -31,7 +31,7 @@ impl Skill for ClipboardReadSkill {
         "clipboard_read"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "desktop"
     }
 
@@ -106,7 +106,7 @@ impl Skill for ClipboardWriteSkill {
         "clipboard_write"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "desktop"
     }
 

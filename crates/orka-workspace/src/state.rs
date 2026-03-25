@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use orka_prompts::template::TemplateRegistry;
 
-use crate::{config::*, parse::Document};
+use crate::{config::SoulFrontmatter, parse::Document};
 
 /// Live state of a loaded workspace.
 #[derive(Debug, Clone, Default)]

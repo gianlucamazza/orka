@@ -267,11 +267,11 @@ pub(crate) mod test_helpers {
         types::{MessageId, SessionId},
     };
 
-    pub fn make_event(kind: DomainEventKind) -> DomainEvent {
+    pub(crate) fn make_event(kind: DomainEventKind) -> DomainEvent {
         DomainEvent::new(kind)
     }
 
-    pub fn all_event_kinds() -> Vec<DomainEventKind> {
+    pub(crate) fn all_event_kinds() -> Vec<DomainEventKind> {
         let mid = MessageId::new();
         let sid = SessionId::new();
         vec![
@@ -429,6 +429,7 @@ mod tests {
             scheduler: SchedulerConfig::default(),
             http: HttpClientConfig::default(),
             experience: ExperienceConfig::default(),
+            git: Default::default(),
             agents: Vec::new(),
             graph: None,
         }

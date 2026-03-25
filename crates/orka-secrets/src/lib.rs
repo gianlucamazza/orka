@@ -58,22 +58,21 @@ pub fn create_secret_manager(
             }
         });
 
-    let store = match &encryption_key {
-        Some(key) => RedisSecretManager::with_encryption(&config.redis.url, Some(key))?,
-        None => {
-            let env = std::env::var("ORKA_ENV")
-                .or_else(|_| std::env::var("APP_ENV"))
-                .unwrap_or_default();
-            if env.eq_ignore_ascii_case("production") {
-                return Err(orka_core::Error::secret(
-                    "ORKA_SECRET_ENCRYPTION_KEY must be set in production",
-                ));
-            }
-            warn!(
-                "ORKA_SECRET_ENCRYPTION_KEY not set — secrets stored in PLAINTEXT. Do NOT use in production."
-            );
-            RedisSecretManager::new(&config.redis.url)?
+    let store = if let Some(key) = &encryption_key {
+        RedisSecretManager::with_encryption(&config.redis.url, Some(key))?
+    } else {
+        let env = std::env::var("ORKA_ENV")
+            .or_else(|_| std::env::var("APP_ENV"))
+            .unwrap_or_default();
+        if env.eq_ignore_ascii_case("production") {
+            return Err(orka_core::Error::secret(
+                "ORKA_SECRET_ENCRYPTION_KEY must be set in production",
+            ));
         }
+        warn!(
+            "ORKA_SECRET_ENCRYPTION_KEY not set — secrets stored in PLAINTEXT. Do NOT use in production."
+        );
+        RedisSecretManager::new(&config.redis.url)?
     };
 
     Ok(Arc::new(store))

@@ -10,7 +10,7 @@ impl Skill for EchoSkill {
         "echo"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "general"
     }
 

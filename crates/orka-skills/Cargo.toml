@@ -21,3 +21,6 @@ orka-prompts.workspace = true
 [dev-dependencies]
 orka-core.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

@@ -70,7 +70,7 @@ CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=gcc \
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS= \
 RUSTFLAGS= \
 RUSTC_WRAPPER= \
-rpmbuild -ba --define '_topdir /work/rpmbuild' /work/rpmbuild/SPECS/orka.spec
+rpmbuild -ba --define '_topdir /work/rpmbuild' --define "pkg_version ${VERSION}" /work/rpmbuild/SPECS/orka.spec
 rpmlint /work/rpmbuild/SRPMS/*.src.rpm /work/rpmbuild/RPMS/*/*.rpm
 "
 

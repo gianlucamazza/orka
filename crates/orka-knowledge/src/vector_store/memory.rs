@@ -86,9 +86,8 @@ impl VectorStore for InMemoryVectorStore {
         filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<SearchResult>> {
         let collections = self.collections.lock().await;
-        let entries = match collections.get(collection) {
-            Some(e) => e,
-            None => return Ok(Vec::new()),
+        let Some(entries) = collections.get(collection) else {
+            return Ok(Vec::new());
         };
 
         let mut scored: Vec<(f32, &VectorEntry)> = entries
@@ -125,9 +124,8 @@ impl VectorStore for InMemoryVectorStore {
         filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<HashMap<String, String>>> {
         let collections = self.collections.lock().await;
-        let entries = match collections.get(collection) {
-            Some(e) => e,
-            None => return Ok(Vec::new()),
+        let Some(entries) = collections.get(collection) else {
+            return Ok(Vec::new());
         };
 
         let mut seen = std::collections::HashSet::new();

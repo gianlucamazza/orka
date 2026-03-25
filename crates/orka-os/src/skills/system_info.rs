@@ -24,7 +24,7 @@ impl Skill for SystemInfoSkill {
         "system_info"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "system"
     }
 

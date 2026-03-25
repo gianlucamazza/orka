@@ -35,7 +35,7 @@ impl WorkspaceProvider {
 
 #[async_trait]
 impl ContextProvider for WorkspaceProvider {
-    fn provider_id(&self) -> &str {
+    fn provider_id(&self) -> &'static str {
         "workspace"
     }
 
@@ -68,7 +68,7 @@ where
     F: Fn(&SessionContext) -> Fut + Send + Sync,
     Fut: std::future::Future<Output = Result<Vec<PrincipleContext>>> + Send,
 {
-    fn provider_id(&self) -> &str {
+    fn provider_id(&self) -> &'static str {
         "principles"
     }
 

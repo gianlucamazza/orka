@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use std::collections::HashMap;
 
 use orka_knowledge::vector_store::{VectorStore, qdrant::QdrantStore};

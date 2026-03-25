@@ -35,7 +35,7 @@ pub trait VectorStore: Send + Sync + 'static {
         filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<SearchResult>>;
 
-    /// List all documents in a collection (by unique document_id).
+    /// List all documents in a collection (by unique `document_id`).
     async fn list_documents(
         &self,
         collection: &str,

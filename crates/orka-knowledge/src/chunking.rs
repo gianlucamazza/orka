@@ -9,7 +9,7 @@ pub fn split_text(text: &str, chunk_size: usize, chunk_overlap: usize) -> Vec<St
     let effective_size = chunk_size.max(1);
     let splitter = TextSplitter::new(effective_size);
 
-    let chunks: Vec<String> = splitter.chunks(text).map(|s| s.to_string()).collect();
+    let chunks: Vec<String> = splitter.chunks(text).map(ToString::to_string).collect();
 
     if chunk_overlap == 0 || chunks.len() <= 1 {
         return chunks;

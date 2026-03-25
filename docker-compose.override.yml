@@ -1,5 +1,5 @@
 # docker-compose.override.yml — local development overrides.
-# This file is merged with docker-compose.yml automatically by `docker-compose up`.
+# This file is merged with docker-compose.yml automatically by `docker compose up`.
 # It exposes service ports, mounts source code for hot-reload, and enables verbose
 # logging.  Do NOT commit secrets or personal .env values here.
 
@@ -39,6 +39,13 @@ services:
       # Enable debug-level logging for all first-party crates in development.
       RUST_LOG: info,orka_server=debug,orka_core=debug,orka_worker=debug,orka_llm=debug,orka_adapter_custom=debug,orka_adapter_telegram=debug,orka_bus=debug,orka_memory=debug,orka_observe=debug,orka_auth=debug,orka_skills=debug,orka_web=debug,orka_mcp=debug,orka_session=debug,orka_workspace=debug
       RUST_BACKTRACE: 1
+    # Re-enable healthcheck with curl (dev image includes curl from the chef stage).
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     # Allow writes for the cargo target cache volume.
     read_only: false
     develop:
@@ -48,7 +55,7 @@ services:
           path: ./crates
         # Rebuild when the binary crate changes.
         - action: rebuild
-          path: ./orka-server
+          path: ./crates/orka-server
         # Hot-reload config without a full rebuild.
         - action: sync+restart
           path: ./orka.toml

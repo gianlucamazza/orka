@@ -31,7 +31,7 @@ impl Skill for DesktopOpenSkill {
         "desktop_open"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "desktop"
     }
 
@@ -121,7 +121,7 @@ impl Skill for DesktopScreenshotSkill {
         "desktop_screenshot"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "desktop"
     }
 

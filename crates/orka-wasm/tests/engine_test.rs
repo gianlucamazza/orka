@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! Integration tests for `WasmEngine`, `WasmModule`, and `WasmInstance`.
 
 use orka_wasm::{WasmEngine, WasmInstance, WasmLimits};

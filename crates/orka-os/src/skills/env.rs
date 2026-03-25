@@ -27,7 +27,7 @@ impl Skill for EnvGetSkill {
         "env_get"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "system"
     }
 
@@ -87,7 +87,7 @@ impl Skill for EnvListSkill {
         "env_list"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "system"
     }
 
@@ -198,6 +198,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(unsafe_code)]
     async fn env_list_masks_sensitive() {
         // Set a test env var that matches sensitive pattern
         // SAFETY: test runs single-threaded; no other thread reads this var.

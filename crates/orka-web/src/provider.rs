@@ -7,15 +7,15 @@ use tracing::debug;
 use crate::{extract, types::SearchResult};
 
 /// Options passed to search providers.
-pub struct SearchOptions {
-    pub max_results: usize,
-    pub include_content: bool,
-    pub max_content_chars: usize,
+pub(crate) struct SearchOptions {
+    pub(crate) max_results: usize,
+    pub(crate) include_content: bool,
+    pub(crate) max_content_chars: usize,
 }
 
 /// Trait for pluggable search backends.
 #[async_trait]
-pub trait SearchProvider: Send + Sync {
+pub(crate) trait SearchProvider: Send + Sync {
     async fn search(&self, query: &str, options: &SearchOptions) -> Result<Vec<SearchResult>>;
 }
 
@@ -53,13 +53,13 @@ async fn fetch_and_extract(
 // ---------------------------------------------------------------------------
 
 /// Tavily search provider — purpose-built for AI agents.
-pub struct TavilyProvider {
+pub(crate) struct TavilyProvider {
     client: reqwest::Client,
     api_key: String,
 }
 
 impl TavilyProvider {
-    pub fn new(api_key: String, timeout_secs: u64) -> Self {
+    pub(crate) fn new(api_key: String, timeout_secs: u64) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .build()
@@ -139,14 +139,14 @@ impl SearchProvider for TavilyProvider {
 // ---------------------------------------------------------------------------
 
 /// Brave Search API provider.
-pub struct BraveProvider {
+pub(crate) struct BraveProvider {
     client: reqwest::Client,
     /// Separate client with short timeout for page fetches.
     fetch_client: reqwest::Client,
 }
 
 impl BraveProvider {
-    pub fn new(api_key: String, timeout_secs: u64, user_agent: &str) -> Self {
+    pub(crate) fn new(api_key: String, timeout_secs: u64, user_agent: &str) -> Self {
         let mut headers = reqwest::header::HeaderMap::new();
         if let Ok(val) = api_key.parse() {
             headers.insert("X-Subscription-Token", val);
@@ -241,14 +241,14 @@ impl SearchProvider for BraveProvider {
 // ---------------------------------------------------------------------------
 
 /// SearXNG provider — self-hosted, no API key required.
-pub struct SearxngProvider {
+pub(crate) struct SearxngProvider {
     client: reqwest::Client,
     fetch_client: reqwest::Client,
     base_url: String,
 }
 
 impl SearxngProvider {
-    pub fn new(base_url: String, timeout_secs: u64, user_agent: &str) -> Self {
+    pub(crate) fn new(base_url: String, timeout_secs: u64, user_agent: &str) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .build()

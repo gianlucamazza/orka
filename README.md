@@ -103,6 +103,9 @@ For a detailed description of each subsystem and their interactions, see [docs/r
 - **Knowledge base** — RAG with Qdrant vector store and document ingestion
 - **Sandboxed execution** — Process isolation and WASM sandboxing
 - **Guardrails** — Input/output validation and content filtering
+- **Checkpointing** — Per-node execution checkpoints with crash recovery and human-in-the-loop approval
+- **Multi-agent graphs** — Fan-out/fan-in, state reducers, planning mode, rolling-window history
+- **Multi-modal** — Vision support for image messages across LLM providers
 - **Circuit breaker** — Resilience pattern for external services
 - **Observability** — OpenTelemetry tracing, Prometheus metrics, Swagger UI, append-only JSONL audit log
 - **Security** — JWT/API key auth, AES-256-GCM secret encryption, SSRF protection
@@ -228,6 +231,11 @@ Config fields can also be overridden via `ORKA__<SECTION>__<KEY>` (e.g., `ORKA__
 | `GET`    | `/api/v1/sessions`              | List active sessions                                 |
 | `GET`    | `/api/v1/sessions/{id}`         | Session detail                                       |
 | `DELETE` | `/api/v1/sessions/{id}`         | Delete a session                                     |
+| `GET`    | `/api/v1/runs/{run_id}/checkpoints`        | List checkpoint IDs for a run           |
+| `GET`    | `/api/v1/runs/{run_id}/checkpoints/latest` | Most recent checkpoint                  |
+| `GET`    | `/api/v1/runs/{run_id}/status`             | Run status from latest checkpoint       |
+| `POST`   | `/api/v1/runs/{run_id}/approve`            | Approve an interrupted run (HITL)       |
+| `POST`   | `/api/v1/runs/{run_id}/reject`             | Reject an interrupted run (HITL)        |
 
 **Adapter (`:8081`):**
 
@@ -328,6 +336,7 @@ orka/
 │   ├── orka-experience/      # Self-learning experience system
 │   ├── orka-agent/           # Agent orchestration and routing
 │   ├── orka-wasm/            # WASM runtime utilities (module + Component Model)
+│   ├── orka-checkpoint/      # Execution checkpointing and crash recovery
 │   ├── orka-eval/            # Skill evaluation framework (TOML scenarios)
 │   ├── orka-cli/             # CLI tool
 │   └── orka-adapter-*/       # Channel adapters

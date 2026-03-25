@@ -8,7 +8,7 @@ use crate::template::TemplateRegistry;
 /// Context passed during prompt building.
 ///
 /// Contains all data needed to render prompt sections.
-/// This is the unified BuildContext used by both the pipeline and context
+/// This is the unified `BuildContext` used by both the pipeline and context
 /// providers.
 #[derive(Clone, Default)]
 pub struct BuildContext {
@@ -62,18 +62,21 @@ impl BuildContext {
     }
 
     /// Set the persona content.
+    #[must_use]
     pub fn with_persona(mut self, persona: impl Into<String>) -> Self {
         self.persona = persona.into();
         self
     }
 
     /// Set the tool instructions.
+    #[must_use]
     pub fn with_tool_instructions(mut self, instructions: impl Into<String>) -> Self {
         self.tool_instructions = instructions.into();
         self
     }
 
     /// Set the workspace context.
+    #[must_use]
     pub fn with_workspace(mut self, name: impl Into<String>, available: Vec<String>) -> Self {
         self.workspace_name = name.into();
         self.available_workspaces = available;
@@ -81,24 +84,28 @@ impl BuildContext {
     }
 
     /// Set the current working directory.
+    #[must_use]
     pub fn with_cwd(mut self, cwd: impl Into<String>) -> Self {
         self.cwd = Some(cwd.into());
         self
     }
 
     /// Set the principles.
+    #[must_use]
     pub fn with_principles(mut self, principles: Vec<serde_json::Value>) -> Self {
         self.principles = principles;
         self
     }
 
     /// Set the conversation summary.
+    #[must_use]
     pub fn with_summary(mut self, summary: impl Into<String>) -> Self {
         self.conversation_summary = Some(summary.into());
         self
     }
 
     /// Add a dynamic section.
+    #[must_use]
     pub fn with_dynamic_section(
         mut self,
         name: impl Into<String>,
@@ -109,24 +116,28 @@ impl BuildContext {
     }
 
     /// Set the template registry.
+    #[must_use]
     pub fn with_templates(mut self, registry: Arc<TemplateRegistry>) -> Self {
         self.template_registry = Some(registry);
         self
     }
 
     /// Set the pipeline configuration.
+    #[must_use]
     pub fn with_config(mut self, config: PipelineConfig) -> Self {
         self.config = config;
         self
     }
 
     /// Set the datetime string.
+    #[must_use]
     pub fn with_datetime(mut self, datetime: impl Into<String>) -> Self {
         self.datetime = datetime.into();
         self
     }
 
     /// Set the timezone.
+    #[must_use]
     pub fn with_timezone(mut self, timezone: impl Into<String>) -> Self {
         self.timezone = timezone.into();
         self
@@ -214,7 +225,10 @@ impl SystemPromptPipeline {
     }
 
     fn create_section(name: &str, config: &PipelineConfig) -> Option<Box<dyn PromptSection>> {
-        use crate::defaults::*;
+        use crate::defaults::{
+            SECTION_DATETIME, SECTION_DYNAMIC, SECTION_PERSONA, SECTION_PRINCIPLES,
+            SECTION_SUMMARY, SECTION_TOOLS, SECTION_WORKSPACE,
+        };
 
         match name {
             SECTION_PERSONA => Some(Box::new(PersonaSection)),
@@ -241,7 +255,7 @@ struct PersonaSection;
 
 #[async_trait]
 impl PromptSection for PersonaSection {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "persona"
     }
 
@@ -265,7 +279,7 @@ struct DateTimeSection {
 
 #[async_trait]
 impl PromptSection for DateTimeSection {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "datetime"
     }
 
@@ -292,7 +306,7 @@ impl PromptSection for DateTimeSection {
                 .render("sections/datetime", &data)
                 .await
                 .map(Some)
-                .map_err(|e| Error::Other(format!("template error: {}", e)));
+                .map_err(|e| Error::Other(format!("template error: {e}")));
         }
 
         // Fallback
@@ -311,7 +325,7 @@ struct WorkspaceSection;
 
 #[async_trait]
 impl PromptSection for WorkspaceSection {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "workspace"
     }
 
@@ -337,7 +351,7 @@ impl PromptSection for WorkspaceSection {
                 .render("sections/workspace", &data)
                 .await
                 .map(Some)
-                .map_err(|e| Error::Other(format!("template error: {}", e)));
+                .map_err(|e| Error::Other(format!("template error: {e}")));
         }
 
         // Fallback
@@ -353,11 +367,10 @@ impl PromptSection for WorkspaceSection {
 
         if let Some(cwd) = &ctx.cwd {
             parts.push(format!(
-                "The user's current working directory is: {}\n\
+                "The user's current working directory is: {cwd}\n\
                 When the user asks to create, read, or modify files without specifying an absolute \
                 path, resolve them relative to this directory. Use this directory as the default \
-                working directory for shell commands.",
-                cwd
+                working directory for shell commands."
             ));
         }
 
@@ -369,7 +382,7 @@ struct ToolsSection;
 
 #[async_trait]
 impl PromptSection for ToolsSection {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "tools"
     }
 
@@ -393,7 +406,7 @@ impl PromptSection for ToolsSection {
                 .render("sections/tools", &data)
                 .await
                 .map(Some)
-                .map_err(|e| Error::Other(format!("template error: {}", e)));
+                .map_err(|e| Error::Other(format!("template error: {e}")));
         }
 
         Ok(Some(ctx.tool_instructions.clone()))
@@ -408,7 +421,7 @@ struct DynamicSectionsSection;
 
 #[async_trait]
 impl PromptSection for DynamicSectionsSection {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dynamic"
     }
 
@@ -444,7 +457,7 @@ impl PromptSection for DynamicSectionsSection {
 
 #[async_trait]
 impl PromptSection for PrinciplesSection {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "principles"
     }
 
@@ -453,6 +466,10 @@ impl PromptSection for PrinciplesSection {
     }
 
     async fn render(&self, ctx: &BuildContext) -> Result<Option<String>> {
+        use crate::defaults::{
+            PRINCIPLE_PREFIX_AVOID, PRINCIPLE_PREFIX_DO, PRINCIPLES_SECTION_HEADER,
+        };
+
         if ctx.principles.is_empty() {
             return Ok(None);
         }
@@ -480,12 +497,10 @@ impl PromptSection for PrinciplesSection {
                 .render("sections/principles", &data)
                 .await
                 .map(Some)
-                .map_err(|e| Error::Other(format!("template error: {}", e)));
+                .map_err(|e| Error::Other(format!("template error: {e}")));
         }
 
         // Fallback
-        use crate::defaults::*;
-
         let mut lines = vec![
             PRINCIPLES_SECTION_HEADER.to_string(),
             String::new(),
@@ -513,7 +528,7 @@ struct SummarySection;
 
 #[async_trait]
 impl PromptSection for SummarySection {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "summary"
     }
 
@@ -536,14 +551,11 @@ impl PromptSection for SummarySection {
                 .render("sections/summary", &data)
                 .await
                 .map(Some)
-                .map_err(|e| Error::Other(format!("template error: {}", e)));
+                .map_err(|e| Error::Other(format!("template error: {e}")));
         }
 
         // Fallback
-        Ok(Some(format!(
-            "## Prior Conversation Context\n\n{}",
-            summary
-        )))
+        Ok(Some(format!("## Prior Conversation Context\n\n{summary}")))
     }
 }
 

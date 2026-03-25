@@ -4,7 +4,7 @@ use scraper::{Html, Selector};
 ///
 /// Uses a simple approach: strips scripts/styles, extracts text from
 /// semantic content elements, falls back to body text.
-pub fn extract_text(html: &str) -> String {
+pub(crate) fn extract_text(html: &str) -> String {
     let document = Html::parse_document(html);
 
     // Try to find main content areas first
@@ -62,7 +62,7 @@ pub fn extract_text(html: &str) -> String {
 }
 
 /// Extract the <title> from HTML.
-pub fn extract_title(html: &str) -> Option<String> {
+pub(crate) fn extract_title(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
     let sel = Selector::parse("title").ok()?;
     document
@@ -73,7 +73,7 @@ pub fn extract_title(html: &str) -> Option<String> {
 }
 
 /// Truncate text to max_chars, appending a truncation marker.
-pub fn truncate(text: &str, max_chars: usize) -> (String, bool) {
+pub(crate) fn truncate(text: &str, max_chars: usize) -> (String, bool) {
     if text.len() <= max_chars {
         return (text.to_string(), false);
     }

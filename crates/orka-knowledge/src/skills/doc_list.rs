@@ -24,15 +24,15 @@ impl DocListSkill {
 
 #[async_trait]
 impl Skill for DocListSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "doc_list"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "knowledge"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List documents that have been ingested into the knowledge base."
     }
 
@@ -63,7 +63,7 @@ impl Skill for DocListSkill {
         let limit = input
             .args
             .get("limit")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(100) as usize;
 
         let documents = self.store.list_documents(collection, limit, None).await?;

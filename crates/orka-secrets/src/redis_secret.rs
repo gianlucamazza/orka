@@ -64,9 +64,8 @@ impl RedisSecretManager {
 
     /// Encrypt plaintext bytes. Returns nonce || ciphertext.
     pub(crate) fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
-        let cipher = match &self.cipher {
-            Some(c) => c,
-            None => return Ok(plaintext.to_vec()),
+        let Some(cipher) = &self.cipher else {
+            return Ok(plaintext.to_vec());
         };
         let mut nonce_bytes = [0u8; NONCE_SIZE];
         OsRng.fill_bytes(&mut nonce_bytes);
@@ -84,9 +83,8 @@ impl RedisSecretManager {
 
     /// Decrypt nonce || ciphertext back to plaintext.
     pub(crate) fn decrypt(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let cipher = match &self.cipher {
-            Some(c) => c,
-            None => return Ok(data.to_vec()),
+        let Some(cipher) = &self.cipher else {
+            return Ok(data.to_vec());
         };
         if data.len() < NONCE_SIZE {
             return Err(Error::secret("encrypted data too short".to_string()));

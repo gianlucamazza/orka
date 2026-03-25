@@ -26,7 +26,7 @@ impl Default for InMemoryEmbeddingProvider {
 fn text_to_vector(text: &str, dimensions: usize) -> Vec<f32> {
     let mut vec = vec![0.0f32; dimensions];
     for (i, byte) in text.bytes().enumerate() {
-        vec[i % dimensions] += byte as f32;
+        vec[i % dimensions] += f32::from(byte);
     }
     // Normalize
     let norm: f32 = vec.iter().map(|x| x * x).sum::<f32>().sqrt();

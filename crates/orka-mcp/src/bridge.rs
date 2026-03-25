@@ -41,7 +41,7 @@ impl Skill for McpToolBridge {
         &self.qualified_name
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "mcp"
     }
 

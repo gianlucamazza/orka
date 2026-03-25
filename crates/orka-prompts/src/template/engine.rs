@@ -29,7 +29,7 @@ impl fmt::Display for TemplateError {
 
 impl From<TemplateError> for orka_core::Error {
     fn from(e: TemplateError) -> Self {
-        orka_core::Error::Other(format!("template error: {}", e))
+        orka_core::Error::Other(format!("template error: {e}"))
     }
 }
 
@@ -114,7 +114,7 @@ impl TemplateEngine {
     /// * `name` - Unique template identifier (e.g., "system/reflection")
     /// * `content` - Template content in Handlebars syntax
     pub fn register_template(&mut self, name: &str, content: &str) -> Result<(), TemplateError> {
-        self.validate_name(name)?;
+        Self::validate_name(name)?;
         self.handlebars.register_template_string(name, content)?;
         Ok(())
     }
@@ -125,7 +125,7 @@ impl TemplateEngine {
         name: &str,
         path: &std::path::Path,
     ) -> Result<(), TemplateError> {
-        self.validate_name(name)?;
+        Self::validate_name(name)?;
         self.handlebars
             .register_template_file(name, path)
             .map_err(TemplateError::from)
@@ -159,14 +159,10 @@ impl TemplateEngine {
 
     /// Get a list of all registered template names.
     pub fn template_names(&self) -> Vec<String> {
-        self.handlebars
-            .get_templates()
-            .keys()
-            .map(|k| k.to_string())
-            .collect()
+        self.handlebars.get_templates().keys().cloned().collect()
     }
 
-    fn validate_name(&self, name: &str) -> Result<(), TemplateError> {
+    fn validate_name(name: &str) -> Result<(), TemplateError> {
         if name.is_empty() {
             return Err(TemplateError::InvalidName("empty string".to_string()));
         }
@@ -195,8 +191,7 @@ impl TemplateEngine {
                     })?;
                     let separator = h
                         .param(1)
-                        .map(|p| p.value().as_str().unwrap_or(", "))
-                        .unwrap_or(", ");
+                        .map_or(", ", |p| p.value().as_str().unwrap_or(", "));
 
                     if let Some(arr) = value.value().as_array() {
                         let joined: Vec<String> = arr

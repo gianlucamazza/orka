@@ -17,7 +17,6 @@ impl LocalEmbeddingProvider {
     /// Load the named ONNX embedding model and initialise the provider.
     pub fn new(model_name: &str, dimensions: u32) -> Result<Self> {
         let embedding_model = match model_name {
-            "BAAI/bge-small-en-v1.5" => EmbeddingModel::BGESmallENV15,
             "BAAI/bge-base-en-v1.5" => EmbeddingModel::BGEBaseENV15,
             "BAAI/bge-large-en-v1.5" => EmbeddingModel::BGELargeENV15,
             _ => EmbeddingModel::BGESmallENV15,

@@ -6,7 +6,7 @@ use tracing::debug;
 
 use crate::guard::SsrfGuard;
 
-pub struct HttpRequestSkill {
+pub(crate) struct HttpRequestSkill {
     client: reqwest::Client,
     guard: Arc<SsrfGuard>,
     max_response_bytes: usize,
@@ -14,7 +14,7 @@ pub struct HttpRequestSkill {
 }
 
 impl HttpRequestSkill {
-    pub fn new(
+    pub(crate) fn new(
         guard: Arc<SsrfGuard>,
         max_response_bytes: usize,
         default_timeout_secs: u64,
@@ -41,7 +41,7 @@ impl Skill for HttpRequestSkill {
         "http_request"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "http"
     }
 

@@ -10,3 +10,6 @@ license.workspace = true
 crate-type = ["rlib"]
 
 [dependencies]
+
+[lints]
+workspace = true

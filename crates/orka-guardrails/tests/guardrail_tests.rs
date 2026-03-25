@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! Integration tests for orka-guardrails.
 
 use orka_core::{

@@ -70,7 +70,7 @@ impl Skill for PackageSearchSkill {
         "package_search"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "package"
     }
 
@@ -154,7 +154,7 @@ impl Skill for PackageInfoSkill {
         "package_info"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "package"
     }
 
@@ -238,7 +238,7 @@ impl Skill for PackageListSkill {
         "package_list"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "package"
     }
 
@@ -347,7 +347,7 @@ impl Skill for PackageUpdatesSkill {
         "package_updates"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "package"
     }
 
@@ -496,7 +496,7 @@ impl Skill for PackageInstallSkill {
         "package_install"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "package"
     }
 

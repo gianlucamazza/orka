@@ -51,7 +51,7 @@ impl Skill for FsReadSkill {
         "fs_read"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "filesystem"
     }
 
@@ -184,7 +184,7 @@ impl Skill for FsListSkill {
         "fs_list"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "filesystem"
     }
 
@@ -332,7 +332,7 @@ impl Skill for FsInfoSkill {
         "fs_info"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "filesystem"
     }
 
@@ -423,7 +423,7 @@ impl Skill for FsSearchSkill {
         "fs_search"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "filesystem"
     }
 
@@ -630,7 +630,7 @@ impl Skill for FsWriteSkill {
         "fs_write"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "filesystem"
     }
 
@@ -739,7 +739,7 @@ impl Skill for FsEditSkill {
         "fs_edit"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "filesystem"
     }
 
@@ -867,7 +867,7 @@ impl Skill for FsWatchSkill {
         "fs_watch"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "filesystem"
     }
 

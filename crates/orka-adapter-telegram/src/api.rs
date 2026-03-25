@@ -16,7 +16,7 @@ pub(crate) struct TelegramApi {
 }
 
 impl TelegramApi {
-    pub fn new(bot_token: String) -> Self {
+    pub(crate) fn new(bot_token: String) -> Self {
         Self {
             client: Client::new(),
             bot_token,
@@ -24,7 +24,7 @@ impl TelegramApi {
     }
 
     /// Build a full download URL for a resolved file path.
-    pub fn file_download_url(&self, file_path: &str) -> String {
+    pub(crate) fn file_download_url(&self, file_path: &str) -> String {
         format!("{}/file/bot{}/{}", BASE_URL, self.bot_token, file_path)
     }
 
@@ -93,7 +93,7 @@ impl TelegramApi {
     }
 
     /// Fetch pending updates from Telegram (long polling).
-    pub async fn get_updates(
+    pub(crate) async fn get_updates(
         &self,
         offset: i64,
         timeout: u64,
@@ -111,7 +111,7 @@ impl TelegramApi {
     }
 
     /// Send a text message.
-    pub async fn send_message(
+    pub(crate) async fn send_message(
         &self,
         chat_id: i64,
         text: &str,
@@ -140,7 +140,7 @@ impl TelegramApi {
     }
 
     /// Send a photo by URL.
-    pub async fn send_photo(
+    pub(crate) async fn send_photo(
         &self,
         chat_id: i64,
         photo_url: &str,
@@ -165,7 +165,7 @@ impl TelegramApi {
     }
 
     /// Send a document by URL.
-    pub async fn send_document(
+    pub(crate) async fn send_document(
         &self,
         chat_id: i64,
         doc_url: &str,
@@ -190,7 +190,7 @@ impl TelegramApi {
     }
 
     /// Send an audio file by URL.
-    pub async fn send_audio(
+    pub(crate) async fn send_audio(
         &self,
         chat_id: i64,
         audio_url: &str,
@@ -215,7 +215,7 @@ impl TelegramApi {
     }
 
     /// Send a video by URL.
-    pub async fn send_video(
+    pub(crate) async fn send_video(
         &self,
         chat_id: i64,
         video_url: &str,
@@ -240,7 +240,7 @@ impl TelegramApi {
     }
 
     /// Send a chat action (e.g. "typing").
-    pub async fn send_chat_action(
+    pub(crate) async fn send_chat_action(
         &self,
         chat_id: i64,
         action: &str,
@@ -257,7 +257,7 @@ impl TelegramApi {
     }
 
     /// Resolve a file_id to a download URL.
-    pub async fn get_file_url(&self, file_id: &str) -> Result<String> {
+    pub(crate) async fn get_file_url(&self, file_id: &str) -> Result<String> {
         let file: TelegramFile = self.call("getFile", &json!({ "file_id": file_id })).await?;
         let path = file.file_path.ok_or_else(|| Error::Adapter {
             source: Box::new(std::io::Error::other(
@@ -269,7 +269,7 @@ impl TelegramApi {
     }
 
     /// Edit a previously sent message's text.
-    pub async fn edit_message_text(
+    pub(crate) async fn edit_message_text(
         &self,
         chat_id: i64,
         message_id: i64,
@@ -288,7 +288,7 @@ impl TelegramApi {
     }
 
     /// Acknowledge a callback query.
-    pub async fn answer_callback_query(
+    pub(crate) async fn answer_callback_query(
         &self,
         callback_query_id: &str,
         text: Option<&str>,
@@ -301,7 +301,7 @@ impl TelegramApi {
     }
 
     /// Register the webhook URL with Telegram.
-    pub async fn set_webhook(&self, url: &str, allowed_updates: &[&str]) -> Result<bool> {
+    pub(crate) async fn set_webhook(&self, url: &str, allowed_updates: &[&str]) -> Result<bool> {
         self.call(
             "setWebhook",
             &json!({
@@ -313,7 +313,7 @@ impl TelegramApi {
     }
 
     /// Remove the registered webhook.
-    pub async fn delete_webhook(&self) -> Result<bool> {
+    pub(crate) async fn delete_webhook(&self) -> Result<bool> {
         self.call("deleteWebhook", &json!({})).await
     }
 

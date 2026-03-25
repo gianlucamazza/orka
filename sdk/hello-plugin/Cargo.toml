@@ -13,3 +13,6 @@ crate-type = ["cdylib"]
 [dependencies]
 orka-plugin-sdk-component = { path = "../orka-plugin-sdk-component" }
 wit-bindgen.workspace = true
+
+[lints]
+workspace = true

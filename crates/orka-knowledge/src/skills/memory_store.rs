@@ -32,15 +32,15 @@ impl MemoryStoreSkill {
 
 #[async_trait]
 impl Skill for MemoryStoreSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "memory_store"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "knowledge"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Store content with semantic embedding in the vector store for later retrieval."
     }
 

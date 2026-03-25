@@ -25,7 +25,7 @@ impl Skill for SandboxSkill {
         "sandbox"
     }
 
-    fn category(&self) -> &str {
+    fn category(&self) -> &'static str {
         "code"
     }
 

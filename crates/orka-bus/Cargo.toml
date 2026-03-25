@@ -20,3 +20,6 @@ async-trait.workspace = true
 testcontainers.workspace = true
 testcontainers-modules.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

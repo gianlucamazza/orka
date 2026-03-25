@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 ///
 /// Designed for development and single-instance deployments.
 /// For production multi-instance setups, replace with a Redis-backed impl.
-pub struct WebCache {
+pub(crate) struct WebCache {
     entries: Mutex<HashMap<String, CacheEntry>>,
     ttl: Duration,
 }
@@ -21,7 +21,7 @@ struct CacheEntry {
 }
 
 impl WebCache {
-    pub fn new(ttl_secs: u64) -> Self {
+    pub(crate) fn new(ttl_secs: u64) -> Self {
         Self {
             entries: Mutex::new(HashMap::new()),
             ttl: Duration::from_secs(ttl_secs),
@@ -29,7 +29,7 @@ impl WebCache {
     }
 
     /// Get a cached value by key prefix and raw key.
-    pub fn get(&self, prefix: &str, raw_key: &str) -> Option<String> {
+    pub(crate) fn get(&self, prefix: &str, raw_key: &str) -> Option<String> {
         let key = cache_key(prefix, raw_key);
         let entries = self.entries.lock().ok()?;
         let entry = entries.get(&key)?;
@@ -40,7 +40,7 @@ impl WebCache {
     }
 
     /// Store a value in the cache.
-    pub fn set(&self, prefix: &str, raw_key: &str, value: String) {
+    pub(crate) fn set(&self, prefix: &str, raw_key: &str, value: String) {
         let key = cache_key(prefix, raw_key);
         if let Ok(mut entries) = self.entries.lock() {
             // Evict expired entries periodically (every 100 inserts)

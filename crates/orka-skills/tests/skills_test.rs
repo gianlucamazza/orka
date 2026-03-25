@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;

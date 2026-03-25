@@ -46,8 +46,12 @@ impl WorkspaceRegistry {
 
     /// List all registered workspace names, sorted alphabetically.
     pub fn list_names(&self) -> Vec<&str> {
-        let mut names: Vec<&str> = self.loaders.keys().map(|s| s.as_str()).collect();
-        names.sort();
+        let mut names: Vec<&str> = self
+            .loaders
+            .keys()
+            .map(std::string::String::as_str)
+            .collect();
+        names.sort_unstable();
         names
     }
 

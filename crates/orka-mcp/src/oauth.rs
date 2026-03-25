@@ -14,7 +14,7 @@ struct CachedToken {
 }
 
 /// OAuth 2.1 Client Credentials token provider with in-memory cache.
-pub struct OAuthClient {
+pub(crate) struct OAuthClient {
     http: Client,
     token_url: String,
     client_id: String,
@@ -25,7 +25,7 @@ pub struct OAuthClient {
 
 impl OAuthClient {
     /// Build from config, reading the client secret from the environment.
-    pub fn from_config(http: Client, config: &McpOAuthConfig) -> Result<Self> {
+    pub(crate) fn from_config(http: Client, config: &McpOAuthConfig) -> Result<Self> {
         let client_secret = std::env::var(&config.client_secret_env).map_err(|_| {
             Error::Config(format!(
                 "MCP OAuth: environment variable '{}' is not set",
@@ -43,7 +43,7 @@ impl OAuthClient {
     }
 
     /// Return a valid access token, refreshing if the cached one has expired.
-    pub async fn get_token(&self) -> Result<String> {
+    pub(crate) async fn get_token(&self) -> Result<String> {
         // Fast path: valid cached token.
         {
             let guard = self.cached.lock().expect("oauth cache lock poisoned");

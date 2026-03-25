@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::defaults::*;
+use crate::defaults::{
+    DEFAULT_MAX_PRINCIPLES, DEFAULT_SECTION_ORDER, DEFAULT_TIMEZONE, SECTION_SEPARATOR,
+};
 
 /// Configuration for the system prompt pipeline.
 ///
@@ -57,7 +59,7 @@ impl Default for PipelineConfig {
 fn default_section_order_vec() -> Vec<String> {
     DEFAULT_SECTION_ORDER
         .iter()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .collect()
 }
 
