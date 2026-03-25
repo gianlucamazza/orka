@@ -3,6 +3,9 @@
 //! This module centralizes all default value functions used across the
 //! configuration system, ensuring consistency and discoverability.
 
+/// System-wide configuration file path (native package installs).
+pub const SYSTEM_CONFIG_PATH: &str = "/etc/orka/orka.toml";
+
 /// Default host for the HTTP server.
 pub fn default_host() -> String {
     "127.0.0.1".to_string()

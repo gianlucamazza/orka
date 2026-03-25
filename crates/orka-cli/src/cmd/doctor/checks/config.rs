@@ -35,7 +35,7 @@ impl DoctorCheck for CfgFileExists {
         } else {
             let path = ctx.config_path.display().to_string();
             CheckOutcome::fail(format!("not found: {path}"))
-                .with_hint("Create orka.toml or set ORKA_CONFIG env var to the correct path.")
+                .with_hint("Create orka.toml in the current directory, set ORKA_CONFIG env var, or install the system config at /etc/orka/orka.toml.")
                 .with_fix(FixAction {
                     description: format!("Generate a minimal orka.toml at {path}"),
                     apply: Box::new(move || {
@@ -52,7 +52,8 @@ impl DoctorCheck for CfgFileExists {
 
     fn explain(&self) -> &'static str {
         "Orka resolves the config file in this order: explicit --config flag, \
-         ORKA_CONFIG environment variable, then ./orka.toml in the current directory. \
+         ORKA_CONFIG environment variable, ./orka.toml in the current directory, \
+         then /etc/orka/orka.toml (system install path). \
          If none is found, all subsequent checks are skipped. \
          Run `orka doctor --fix` to generate a minimal starter config."
     }

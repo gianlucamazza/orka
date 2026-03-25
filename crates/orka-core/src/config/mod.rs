@@ -201,14 +201,29 @@ impl Default for OrkaConfig {
 
 impl OrkaConfig {
     /// Resolve the config file path.
+    ///
+    /// Resolution order:
+    /// 1. Explicit `path` argument (e.g. `--config` CLI flag)
+    /// 2. `ORKA_CONFIG` environment variable
+    /// 3. `./orka.toml` in the current working directory (if it exists)
+    /// 4. `/etc/orka/orka.toml` (system install path, if it exists)
+    /// 5. Falls back to `./orka.toml` so error messages are actionable
     pub fn resolve_path(path: Option<&Path>) -> std::path::PathBuf {
-        path.map(|p| p.to_path_buf())
-            .or_else(|| {
-                std::env::var("ORKA_CONFIG")
-                    .ok()
-                    .map(std::path::PathBuf::from)
-            })
-            .unwrap_or_else(|| "orka.toml".into())
+        if let Some(p) = path {
+            return p.to_path_buf();
+        }
+        if let Ok(p) = std::env::var("ORKA_CONFIG") {
+            return std::path::PathBuf::from(p);
+        }
+        let cwd = std::path::PathBuf::from("orka.toml");
+        if cwd.exists() {
+            return cwd;
+        }
+        let system = std::path::PathBuf::from(defaults::SYSTEM_CONFIG_PATH);
+        if system.exists() {
+            return system;
+        }
+        cwd
     }
 
     /// Load configuration from file + environment variables.
