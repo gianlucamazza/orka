@@ -18,7 +18,7 @@ The system follows a **Modular Monolith** architecture that is **Distributed-Rea
     - **Knowledge:** RAG system using **Qdrant**.
 
 ### Key Technologies
-- **Language:** Rust (MSRV 1.85+)
+- **Language:** Rust (MSRV 1.91+)
 - **Async Runtime:** `tokio`
 - **Web Framework:** `axum`
 - **Messaging & State:** `redis` (Streams, Sorted Sets, KV)
@@ -31,7 +31,7 @@ The system follows a **Modular Monolith** architecture that is **Distributed-Rea
 ## Environment Setup
 
 ### Prerequisites
-- **Rust:** 1.85+
+- **Rust:** 1.91+
 - **Redis:** 7+ (Required for messaging and state)
 - **Docker:** Optional, useful for running infrastructure (`docker compose`).
 - **Tools:** `just` (Command runner - **Highly Recommended**), `bacon` (Background checks).
@@ -105,15 +105,21 @@ The workspace is organized into specialized crates in the `crates/` directory:
 | Crate | Responsibility |
 | :--- | :--- |
 | **`orka-core`** | Core traits (`MessageBus`, `Skill`), types (`Envelope`, `Session`), and errors. |
-| **`orka-agent`** | The "Brain": Agent loop, prompt engineering, tool execution. |
-| **`orka-bus`** | Message bus implementation (Redis Streams). |
+| **`orka-agent`** | The "Brain": Agent loop, multi-agent graph execution, tool orchestration. |
+| **`orka-bus`** | Message bus implementation (Redis Streams + in-memory). |
 | **`orka-server`** | Main entry point and API server. |
-| **`orka-worker`** | Worker pool implementation. |
-| **`orka-llm`** | LLM provider abstractions. |
+| **`orka-worker`** | Worker pool implementation and agent supervisor. |
+| **`orka-llm`** | LLM provider abstractions (Anthropic, OpenAI, Ollama). |
 | **`orka-memory`** | Long-term memory and session storage. |
-| **`orka-knowledge`** | RAG and Vector DB integration. |
+| **`orka-knowledge`** | RAG pipeline — document ingestion, embeddings, semantic search via Qdrant. |
+| **`orka-experience`** | Self-learning loop — trajectory recording, LLM reflection, offline distillation. |
+| **`orka-prompts`** | Handlebars-based prompt template engine. |
+| **`orka-scheduler`** | Cron-based task scheduler backed by Redis Sorted Sets. |
+| **`orka-workspace`** | Workspace file loader and hot-reload watcher (SOUL.md / TOOLS.md). |
+| **`orka-mcp`** | Model Context Protocol client and server. |
+| **`orka-a2a`** | Agent-to-Agent protocol (structured delegation). |
 | **`orka-wasm`** | WASM runtime and plugin system. |
-| **`orka-adapter-*`** | Platform-specific adapters (Discord, Telegram, Slack, etc.). |
+| **`orka-adapter-*`** | Platform-specific adapters (Telegram, Discord, Slack, WhatsApp, HTTP/WS). |
 
 ## Conventions & Standards
 

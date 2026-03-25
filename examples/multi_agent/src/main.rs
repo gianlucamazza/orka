@@ -155,47 +155,59 @@ fn build_multi_agent_graph() -> Arc<AgentGraph> {
     // Router -> Researcher (for research queries)
     graph.add_edge(
         AgentId::from("router"),
-        AgentId::from("researcher"),
-        orka_agent::EdgeCondition::OutputContains {
-            contains: "RESEARCH".to_string(),
+        orka_agent::Edge {
+            target: AgentId::from("researcher"),
+            condition: Some(orka_agent::EdgeCondition::OutputContains("RESEARCH".to_string())),
+            priority: 0,
         },
     );
 
     // Router -> Coder (for coding queries)
     graph.add_edge(
         AgentId::from("router"),
-        AgentId::from("coder"),
-        orka_agent::EdgeCondition::OutputContains {
-            contains: "CODE".to_string(),
+        orka_agent::Edge {
+            target: AgentId::from("coder"),
+            condition: Some(orka_agent::EdgeCondition::OutputContains("CODE".to_string())),
+            priority: 1,
         },
     );
 
     // Router -> Analyst (for data queries)
     graph.add_edge(
         AgentId::from("router"),
-        AgentId::from("analyst"),
-        orka_agent::EdgeCondition::OutputContains {
-            contains: "DATA".to_string(),
+        orka_agent::Edge {
+            target: AgentId::from("analyst"),
+            condition: Some(orka_agent::EdgeCondition::OutputContains("DATA".to_string())),
+            priority: 2,
         },
     );
 
     // All specialists -> Summarizer
     graph.add_edge(
         AgentId::from("researcher"),
-        AgentId::from("summarizer"),
-        orka_agent::EdgeCondition::Always,
+        orka_agent::Edge {
+            target: AgentId::from("summarizer"),
+            condition: Some(orka_agent::EdgeCondition::Always),
+            priority: 0,
+        },
     );
 
     graph.add_edge(
         AgentId::from("coder"),
-        AgentId::from("summarizer"),
-        orka_agent::EdgeCondition::Always,
+        orka_agent::Edge {
+            target: AgentId::from("summarizer"),
+            condition: Some(orka_agent::EdgeCondition::Always),
+            priority: 0,
+        },
     );
 
     graph.add_edge(
         AgentId::from("analyst"),
-        AgentId::from("summarizer"),
-        orka_agent::EdgeCondition::Always,
+        orka_agent::Edge {
+            target: AgentId::from("summarizer"),
+            condition: Some(orka_agent::EdgeCondition::Always),
+            priority: 0,
+        },
     );
 
     Arc::new(graph)

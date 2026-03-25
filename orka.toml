@@ -1,4 +1,4 @@
-config_version = 5
+config_version = 6
 
 workspace_dir = "."
 # default_workspace = "default"
@@ -132,13 +132,17 @@ max_retries = 3
 id = "orka-default"
 name = "Orka"
 max_iterations = 15
+# kind = "agent"                   # "agent" (default), "router", "fan_out", "fan_in"
 # system_prompt = ""
 # model = "claude-sonnet-4-6"
 # temperature = 0.7
 # max_tokens = 4096
+# thinking = "high"                # effort: "low", "medium", "high", "max" (Opus 4.6+ only)
 # tool_result_max_chars = 50000
 # allowed_tools = []
 # denied_tools = []
+# history_filter = "full"          # "full" (default), "last_n", "none"
+# history_filter_n = 10            # number of messages to keep when history_filter = "last_n"
 
 [graph]
 # execution_mode = "sequential"
@@ -269,6 +273,23 @@ enabled = true
 
 [plugins]
 # dir = "plugins"
+#
+# Global capability defaults (deny-by-default):
+# [plugins.capabilities]
+# filesystem = false          # bool shorthand: false = deny, true = ["."] (current dir)
+# filesystem = ["/data"]      # or an explicit list of host paths to pre-open
+# network = false             # TCP/UDP outbound access
+# env = []                    # host env vars the plugin may read (empty = deny all)
+#
+# Per-plugin overrides — any capability field replaces the global default:
+# [plugins.plugins.my-plugin]
+# enabled = true
+# [plugins.plugins.my-plugin.capabilities]
+# filesystem = ["/data/my-plugin"]
+# network = true
+# env = ["API_KEY"]
+# [plugins.plugins.my-plugin.config]
+# custom_key = "value"        # arbitrary plugin-specific config (passed to the plugin)
 
 # [guardrails]
 # blocked_keywords = ["password", "secret"]
@@ -293,22 +314,37 @@ enabled = true
 # distillation_interval_secs = 3600     # offline distillation cycle (seconds)
 
 # --- Multi-agent graph example ---
+# Node kinds: "agent" (default), "router", "fan_out", "fan_in"
+#   agent   — full LLM tool loop, can hand off to other agents via transfer/delegate
+#   router  — routes by edge conditions WITHOUT calling the LLM (use cheap model)
+#   fan_out — dispatches to ALL successors in parallel (requires ≥ 2 outgoing edges)
+#   fan_in  — synthesizes results from predecessors via LLM
+
 # [[agents]]
 # id = "router"
+# kind = "router"
 # name = "Router"
-# model = "claude-sonnet-4-6"
-# max_iterations = 5
-# temperature = 0.5
+# model = "claude-haiku-4-5-20251001"        # cheap model: no LLM call needed for routing
+# temperature = 0.3
 # system_prompt = "Route incoming requests to the appropriate agent."
 # allowed_tools = ["web_search", "shell"]     # or use: denied_tools = ["shell"]
 
 # [[agents]]
 # id = "coder"
+# kind = "agent"
 # name = "Coder"
 # model = "claude-sonnet-4-6"
 # max_iterations = 15
 
+# [[agents]]
+# id = "reviewer"
+# kind = "agent"
+# name = "Reviewer"
+# model = "claude-sonnet-4-6"
+# max_iterations = 5
+
 # [graph]
+# entry = "router"                           # explicit entry point (default: first agent)
 # execution_mode = "sequential"              # "sequential" (default)
 # max_hops = 20                              # max agent transitions per run
 # [[graph.edges]]

@@ -20,7 +20,7 @@ tracing.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 utoipa.workspace = true
-futures-util = "0.3"
+futures-util.workspace = true
 governor.workspace = true
 
 [dev-dependencies]

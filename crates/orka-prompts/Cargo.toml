@@ -1,5 +1,6 @@
 [package]
 name = "orka-prompts"
+description = "Handlebars-based prompt template engine with context providers"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

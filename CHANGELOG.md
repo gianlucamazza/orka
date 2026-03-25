@@ -14,6 +14,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - `AgentGraph::nodes_iter()` / `edges_iter()` public accessors
 - `Serialize` derive on `SoulFrontmatter`
 - MCP serve now uses Redis-backed `SecretManager` when Redis is configured (fallback to in-memory)
+- `NodeKindDef` config enum (`"agent"`, `"router"`, `"fan_out"`, `"fan_in"`) — graph topology is now
+  fully declarative via `[[agents]] kind = "..."` in `orka.toml`
+- `graph.entry` — explicit entry-point agent ID; falls back to the first `[[agents]]` entry
+- Auto-derived `handoff_targets` — `agent`-kind nodes automatically advertise transfer/delegate tools
+  for each of their outgoing graph edges; no manual `handoff_targets` configuration needed
+- `history_filter` / `history_filter_n` per-agent fields — control how much conversation history
+  is forwarded on handoff (`"full"` (default), `"last_n"`, `"none"`)
+- Guardrails wired into `GraphExecutor` via `ExecutorDeps::guardrail` — three checkpoints per node:
+  input, tool-call, and output; blocked requests short-circuit with an error response
 
 ## [1.0.0] - 2026-03-18
 

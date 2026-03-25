@@ -1,5 +1,6 @@
 [package]
 name = "orka-eval"
+description = "TOML-based skill evaluation framework for scenario testing"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
