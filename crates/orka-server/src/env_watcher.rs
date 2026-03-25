@@ -10,14 +10,14 @@ use crate::providers::default_env_var;
 
 /// Watches an `.env` file for changes and hot-swaps LLM clients when API keys
 /// rotate.
-pub struct EnvWatcher {
+pub(crate) struct EnvWatcher {
     _watcher: RecommendedWatcher,
     _handle: JoinHandle<()>,
 }
 
 impl EnvWatcher {
     /// Start watching the env file. Returns `None` if no env file is found.
-    pub fn start(
+    pub(crate) fn start(
         providers: Vec<LlmProviderConfig>,
         clients: HashMap<String, Arc<SwappableLlmClient>>,
         secrets: Arc<dyn SecretManager>,

@@ -8,7 +8,6 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use dialoguer::Confirm;
 use orka_core::config::OrkaConfig;
-
 pub use types::*;
 
 /// Context passed to every check.
@@ -158,14 +157,20 @@ async fn run_checks(
     let mut results = Vec::new();
 
     // Phase 1: sequential — Config (order matters)
-    for check in checks.iter().filter(|c| c.meta().category == Category::Config) {
+    for check in checks
+        .iter()
+        .filter(|c| c.meta().category == Category::Config)
+    {
         let outcome = run_with_timeout(check.as_ref(), &ctx, timeout).await;
         results.push((check.meta(), outcome));
     }
 
     // Phase 2: sequential — Security + Environment (filesystem, fast)
     for check in checks.iter().filter(|c| {
-        matches!(c.meta().category, Category::Security | Category::Environment)
+        matches!(
+            c.meta().category,
+            Category::Security | Category::Environment
+        )
     }) {
         let outcome = run_with_timeout(check.as_ref(), &ctx, timeout).await;
         results.push((check.meta(), outcome));
@@ -174,7 +179,10 @@ async fn run_checks(
     // Phase 3: parallel — Connectivity + Providers (network I/O)
     let mut join_set = tokio::task::JoinSet::new();
     for check in checks.into_iter().filter(|c| {
-        matches!(c.meta().category, Category::Connectivity | Category::Providers)
+        matches!(
+            c.meta().category,
+            Category::Connectivity | Category::Providers
+        )
     }) {
         let ctx = ctx.clone();
         join_set.spawn(async move {
@@ -205,11 +213,8 @@ async fn run_with_timeout(
 ) -> CheckOutcome {
     match tokio::time::timeout(timeout, check.run(ctx)).await {
         Ok(outcome) => outcome,
-        Err(_) => CheckOutcome::fail(format!(
-            "check timed out after {}s",
-            timeout.as_secs()
-        ))
-        .with_hint("Increase --timeout or check network connectivity."),
+        Err(_) => CheckOutcome::fail(format!("check timed out after {}s", timeout.as_secs()))
+            .with_hint("Increase --timeout or check network connectivity."),
     }
 }
 

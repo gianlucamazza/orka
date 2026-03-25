@@ -43,8 +43,9 @@ impl DoctorCheck for EnvRustToolchain {
                     if version_ok(version_str, MSRV) {
                         CheckOutcome::pass(ver)
                     } else {
-                        CheckOutcome::fail(format!("{ver} — below MSRV {MSRV}"))
-                            .with_hint(format!("Upgrade to Rust {MSRV} or later with `rustup update stable`."))
+                        CheckOutcome::fail(format!("{ver} — below MSRV {MSRV}")).with_hint(format!(
+                            "Upgrade to Rust {MSRV} or later with `rustup update stable`."
+                        ))
                     }
                 } else {
                     CheckOutcome::pass(ver)
@@ -91,7 +92,9 @@ impl DoctorCheck for EnvDockerAvailable {
                 let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 CheckOutcome::pass(ver)
             }
-            _ => CheckOutcome::skip("docker not found in PATH (optional — needed for integration tests)"),
+            _ => CheckOutcome::skip(
+                "docker not found in PATH (optional — needed for integration tests)",
+            ),
         }
     }
 }
@@ -306,7 +309,11 @@ impl DoctorCheck for EnvAdapterTokens {
         let mut missing = Vec::new();
 
         if let Some(tg) = &config.adapters.telegram {
-            if tg.bot_token_secret.as_deref().is_some_and(|s| !s.is_empty()) {
+            if tg
+                .bot_token_secret
+                .as_deref()
+                .is_some_and(|s| !s.is_empty())
+            {
                 configured.push("telegram");
             } else {
                 missing.push("telegram (bot_token_secret not set)");
@@ -314,7 +321,11 @@ impl DoctorCheck for EnvAdapterTokens {
         }
 
         if let Some(dc) = &config.adapters.discord {
-            if dc.bot_token_secret.as_deref().is_some_and(|s| !s.is_empty()) {
+            if dc
+                .bot_token_secret
+                .as_deref()
+                .is_some_and(|s| !s.is_empty())
+            {
                 configured.push("discord");
             } else {
                 missing.push("discord (bot_token_secret not set)");

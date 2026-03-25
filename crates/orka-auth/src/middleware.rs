@@ -130,19 +130,16 @@ where
                 Credentials::None
             };
 
-            match authenticator.authenticate(&creds).await {
-                Ok(identity) => {
-                    req.extensions_mut().insert(identity);
-                    inner.call(req).await
-                }
-                Err(_) => {
-                    let resp = (
-                        http::StatusCode::UNAUTHORIZED,
-                        axum::Json(serde_json::json!({"error": "unauthorized"})),
-                    )
-                        .into_response();
-                    Ok(resp)
-                }
+            if let Ok(identity) = authenticator.authenticate(&creds).await {
+                req.extensions_mut().insert(identity);
+                inner.call(req).await
+            } else {
+                let resp = (
+                    http::StatusCode::UNAUTHORIZED,
+                    axum::Json(serde_json::json!({"error": "unauthorized"})),
+                )
+                    .into_response();
+                Ok(resp)
             }
         })
     }

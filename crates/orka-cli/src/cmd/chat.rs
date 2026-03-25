@@ -38,9 +38,70 @@ fn category_icon(category: Option<&str>) -> &'static str {
     }
 }
 
-/// Print the box-drawn welcome banner.
-fn print_banner() {
-    let version = env!("CARGO_PKG_VERSION");
+/// Server info returned by `GET /api/v1/info`.
+#[derive(serde::Deserialize)]
+struct ServerInfo {
+    version: String,
+    git_sha: String,
+    agent_name: String,
+    agent_model: String,
+    skill_count: usize,
+    mcp_server_count: usize,
+    features: ServerFeatures,
+    thinking: Option<String>,
+    agent_count: usize,
+    auth_enabled: bool,
+    #[serde(default)]
+    adapters: Vec<String>,
+    coding_backend: Option<String>,
+    web_search: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ServerFeatures {
+    knowledge: bool,
+    scheduler: bool,
+    experience: bool,
+    guardrails: bool,
+    a2a: bool,
+    observe: bool,
+}
+
+fn adapter_icon(name: &str) -> &'static str {
+    match name {
+        "telegram" => "\u{1f4ac}", // 💬
+        "discord" => "\u{1f3ae}",  // 🎮
+        "slack" => "\u{1f4bc}",    // 💼
+        "whatsapp" => "\u{1f4f1}", // 📱
+        _ => "\u{1f517}",          // 🔗
+    }
+}
+
+/// Normalize raw technical identifiers to user-friendly display names.
+fn display_name(raw: &str) -> &str {
+    match raw {
+        "codex" => "Codex",
+        "claude-code" | "claude_code" => "Claude Code",
+        "tavily" => "Tavily",
+        "brave" => "Brave",
+        "searxng" => "SearXNG",
+        "telegram" => "Telegram",
+        "discord" => "Discord",
+        "slack" => "Slack",
+        "whatsapp" => "WhatsApp",
+        other => other,
+    }
+}
+
+/// Print the box-drawn welcome banner with optional server info.
+fn print_welcome(
+    info: Option<&ServerInfo>,
+    base_url: &str,
+    session_id: &str,
+    workspace: Option<&str>,
+) {
+    // Box header (always shown, uses CLI version)
+    let version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ORKA_GIT_SHA"), ")");
     let inner = format!("  \u{25c8}  Orka Shell  v{version}  ");
     // UI-11: use display width (handles wide/ambiguous Unicode) rather than char
     // count
@@ -49,6 +110,121 @@ fn print_banner() {
     println!("{}", format!("\u{250c}{bar}\u{2510}").cyan().bold());
     println!("{}", format!("\u{2502}{inner}\u{2502}").cyan().bold());
     println!("{}", format!("\u{2514}{bar}\u{2518}").cyan().bold());
+
+    // Label column width for alignment
+    const LBL: usize = 10;
+
+    if let Some(info) = info {
+        let short_sha = if info.git_sha.len() >= 7 {
+            &info.git_sha[..7]
+        } else {
+            &info.git_sha
+        };
+
+        // Agent line: name · model [· N agents] [· 💡 thinking: level]
+        let mut agent_parts = vec![format!("{} \u{00b7} {}", info.agent_name, info.agent_model)];
+        if info.agent_count > 1 {
+            agent_parts.push(format!("{} agents", info.agent_count));
+        }
+        if let Some(ref t) = info.thinking {
+            agent_parts.push(format!("\u{1f4a1} thinking: {t}")); // 💡
+        }
+        println!(
+            " {}{} {}",
+            "Agent".dimmed(),
+            " ".repeat(LBL.saturating_sub("Agent".len())),
+            agent_parts.join(" \u{00b7} ")
+        );
+
+        // Server line: url  vX.Y.Z+sha [🔒]
+        let display_url = base_url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://");
+        let auth_icon = if info.auth_enabled { "  \u{1f512}" } else { "" }; // 🔒
+        println!(
+            " {}{} {}  {}{}",
+            "Server".dimmed(),
+            " ".repeat(LBL.saturating_sub("Server".len())),
+            display_url.dimmed(),
+            format!("v{}+{short_sha}", info.version).dimmed(),
+            auth_icon.dimmed()
+        );
+    }
+
+    println!(
+        " {}{} {}",
+        "Session".dimmed(),
+        " ".repeat(LBL.saturating_sub("Session".len())),
+        truncate_sid(session_id).dimmed()
+    );
+    if let Some(ws) = workspace {
+        println!(
+            " {}{} {}",
+            "Workspace".dimmed(),
+            " ".repeat(LBL.saturating_sub("Workspace".len())),
+            ws.dimmed()
+        );
+    }
+
+    if let Some(info) = info {
+        // Feature icons row (only when at least one feature is active)
+        let mut feature_parts: Vec<&str> = Vec::new();
+        if info.features.knowledge {
+            feature_parts.push("\u{1f9e0} knowledge");
+        } // 🧠
+        if info.features.scheduler {
+            feature_parts.push("\u{1f4c5} scheduler");
+        } // 📅
+        if info.features.experience {
+            feature_parts.push("\u{1f52c} experience");
+        } // 🔬
+        if info.features.guardrails {
+            feature_parts.push("\u{1f6e1} guardrails");
+        } // 🛡
+        if info.features.a2a {
+            feature_parts.push("\u{1f91d} a2a");
+        } // 🤝
+        if info.features.observe {
+            feature_parts.push("\u{1f4ca} observe");
+        } // 📊
+        if !feature_parts.is_empty() {
+            println!(" {}", feature_parts.join("  ").dimmed());
+        }
+
+        // Skills / MCP row
+        let mut parts: Vec<String> = Vec::new();
+        if info.skill_count > 0 {
+            parts.push(format!("\u{1f527} {} skills", info.skill_count)); // 🔧
+        }
+        if info.mcp_server_count > 0 {
+            parts.push(format!("\u{1f50c} {} MCP servers", info.mcp_server_count)); // 🔌
+        }
+        if !parts.is_empty() {
+            println!(" {}", parts.join(" \u{00b7} ").dimmed()); // ·
+        }
+
+        // Adapters row
+        if !info.adapters.is_empty() {
+            let adapter_tags: Vec<String> = info
+                .adapters
+                .iter()
+                .map(|a| format!("{} {}", adapter_icon(a), display_name(a)))
+                .collect();
+            println!(" {}", adapter_tags.join("  ").dimmed());
+        }
+
+        // Coding + Web row
+        let mut tool_parts: Vec<String> = Vec::new();
+        if let Some(ref backend) = info.coding_backend {
+            tool_parts.push(format!("\u{1f5a5} coding: {}", display_name(backend))); // 🖥
+        }
+        if let Some(ref provider) = info.web_search {
+            tool_parts.push(format!("\u{1f50d} web: {}", display_name(provider))); // 🔍
+        }
+        if !tool_parts.is_empty() {
+            println!(" {}", tool_parts.join(" \u{00b7} ").dimmed()); // ·
+        }
+    }
 }
 
 fn print_help() {
@@ -60,7 +236,7 @@ fn print_help() {
         println!("  {}{pad}{desc}", cmd.yellow());
     };
 
-    print_banner();
+    print_welcome(None, "", "", None);
     println!();
     println!("{}", "Shell execution:".bold());
     row("!<command>", "Execute shell command locally");
@@ -236,6 +412,7 @@ fn expand_file_attachments(text: &str) -> String {
 
 pub async fn run(
     client: &OrkaClient,
+    server_client: &OrkaClient,
     session_id: Option<&str>,
     local_workspace: Option<crate::workspace::LocalWorkspace>,
 ) -> Result<()> {
@@ -245,22 +422,30 @@ pub async fn run(
     // total)
     client.wait_for_ready(30, Duration::from_secs(1)).await?;
 
+    // Fetch server info from the management server (best-effort, degrades
+    // gracefully)
+    let server_info: Option<ServerInfo> = server_client
+        .get_json("/api/v1/info")
+        .await
+        .ok()
+        .and_then(|v| serde_json::from_value(v).ok());
+
     // Welcome banner
-    print_banner();
+    let workspace_str = local_workspace
+        .as_ref()
+        .map(|ws| ws.root.display().to_string());
+    print_welcome(
+        server_info.as_ref(),
+        server_client.base_url(),
+        &sid,
+        workspace_str.as_deref(),
+    );
     // Show update notice from cache (no network I/O on the hot path)
     if let Some(info) = super::update::check_from_cache() {
         super::update::print_update_notice(&info);
     }
     // Refresh the update cache in the background
     tokio::spawn(async { super::update::check().await });
-    println!(" {}  {}", "Session".dimmed(), truncate_sid(&sid).dimmed());
-    if let Some(ref ws) = local_workspace {
-        println!(
-            " {}  {}",
-            "Workspace".dimmed(),
-            ws.root.display().to_string().dimmed()
-        );
-    }
     println!(
         "\nType messages for AI, {} for shell, {} for commands, {} to exit.\n",
         "!cmd".yellow(),

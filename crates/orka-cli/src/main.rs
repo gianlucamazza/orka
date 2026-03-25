@@ -1,3 +1,6 @@
+//! Command-line interface for interacting with Orka services and local tooling.
+#![allow(unreachable_pub)]
+
 mod client;
 mod cmd;
 mod completion;
@@ -12,8 +15,17 @@ mod workspace;
 use clap::{CommandFactory, Parser};
 use tracing_subscriber::EnvFilter;
 
+const VERSION_LONG: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("ORKA_GIT_SHA"),
+    " ",
+    env!("ORKA_BUILD_DATE"),
+    ")"
+);
+
 #[derive(Parser)]
-#[command(name = "orka", version, about = "Orka AI platform CLI")]
+#[command(name = "orka", version = VERSION_LONG, about = "Orka AI platform CLI")]
 struct Cli {
     /// Main server URL
     #[arg(
@@ -375,11 +387,35 @@ enum SessionAction {
 enum A2aAction {
     /// Show the agent card (capabilities)
     Card,
-    /// Send a task via A2A JSON-RPC
+    /// Send a task via A2A `message/send`
     Send {
         /// Task JSON (or plain text message)
         task: String,
     },
+    /// Stream a task via A2A `message/stream` (SSE)
+    Stream {
+        /// Task text
+        task: String,
+    },
+    /// Task management subcommands
+    Tasks {
+        #[command(subcommand)]
+        action: TasksAction,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum TasksAction {
+    /// Get a task by ID
+    Get { task_id: String },
+    /// List tasks (optional state filter)
+    List {
+        /// Filter by state (e.g. working, completed, failed)
+        #[arg(long)]
+        state: Option<String>,
+    },
+    /// Cancel a task by ID
+    Cancel { task_id: String },
 }
 
 #[tokio::main]
@@ -419,7 +455,7 @@ async fn main() {
             } else {
                 workspace::discover()
             };
-            cmd::chat::run(&adapter_client, session_id.as_deref(), ws).await
+            cmd::chat::run(&adapter_client, &server_client, session_id.as_deref(), ws).await
         }
         Commands::Dlq { action } => match action {
             DlqAction::List => cmd::dlq::list(&server_client).await,
@@ -487,6 +523,16 @@ async fn main() {
         Commands::A2a { action } => match action {
             A2aAction::Card => cmd::a2a::card(&server_client).await,
             A2aAction::Send { task } => cmd::a2a::send(&server_client, &task).await,
+            A2aAction::Stream { task } => cmd::a2a::stream(&server_client, &task).await,
+            A2aAction::Tasks { action } => match action {
+                TasksAction::Get { task_id } => cmd::a2a::tasks_get(&server_client, &task_id).await,
+                TasksAction::List { state } => {
+                    cmd::a2a::tasks_list(&server_client, state.as_deref()).await
+                }
+                TasksAction::Cancel { task_id } => {
+                    cmd::a2a::tasks_cancel(&server_client, &task_id).await
+                }
+            },
         },
         Commands::Secret { action } => match action {
             SecretAction::Set { path } => cmd::secret::set(&path).await,
@@ -537,7 +583,7 @@ async fn main() {
             if check {
                 cmd::update::run_check().await
             } else {
-                println!("orka {}", env!("CARGO_PKG_VERSION"));
+                println!("orka {VERSION_LONG}");
                 Ok(())
             }
         }

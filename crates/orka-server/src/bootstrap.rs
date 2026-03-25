@@ -8,7 +8,9 @@ use orka_bus::create_bus;
 use orka_core::{OutboundMessage, Payload, config::OrkaConfig};
 use orka_gateway::Gateway;
 use orka_queue::{QueueBundle, create_queue};
-use orka_server::router::{BUILD_DATE, GIT_SHA, RouterParams, VERSION, build_router};
+use orka_server::router::{
+    BUILD_DATE, GIT_SHA, RouterParams, ServerFeatures, VERSION, build_router,
+};
 use orka_session::create_session_store;
 use orka_worker::{CommandRegistry, GraphDispatcher, WorkerPool};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
@@ -148,7 +150,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     }
 
     // 4d. MCP servers (connect in parallel)
-    {
+    let mcp_server_count = {
         let mut mcp_set = tokio::task::JoinSet::new();
         for server_config in &config.mcp.servers {
             let transport = match (&server_config.command, &server_config.url) {
@@ -193,9 +195,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                 Ok::<_, orka_core::Error>((server_name, client, tools))
             });
         }
+        let mut mcp_server_count: usize = 0;
         while let Some(result) = mcp_set.join_next().await {
             match result {
                 Ok(Ok((server_name, client, tools))) => {
+                    mcp_server_count += 1;
                     for tool in tools {
                         let bridge = orka_mcp::McpToolBridge::new(
                             client.clone(),
@@ -211,7 +215,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                 Err(e) => warn!(%e, "MCP connection task panicked"),
             }
         }
-    }
+        mcp_server_count
+    };
 
     // 4e. Web skills
     if config.web.search_provider != "none" {
@@ -341,6 +346,20 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                 }
             }
             Err(e) => warn!(%e, "failed to initialize OS skills"),
+        }
+    }
+
+    // 4k. Git skills
+    if config.git.enabled {
+        match orka_git::create_git_skills(&config.git, None) {
+            Ok(git_skills) => {
+                let count = git_skills.len();
+                for skill in git_skills {
+                    skills.register(std::sync::Arc::from(skill));
+                }
+                info!(skill_count = count, "git skills initialized");
+            }
+            Err(e) => warn!(%e, "failed to initialize git skills"),
         }
     }
 
@@ -543,25 +562,135 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     };
 
     let a2a_enabled = config.a2a.discovery_enabled || !config.a2a.known_agents.is_empty();
+    let agent_directory = Arc::new(orka_a2a::AgentDirectory::new());
     let a2a_state = if a2a_enabled {
         let base_url = format!("http://{}:{}", config.server.host, config.server.port);
-        let agent_card =
-            orka_a2a::build_agent_card("orka", "Orka AI Agent Platform", &base_url, &skills);
+        let agent_card = orka_a2a::build_agent_card_with_auth(
+            "orka",
+            "Orka AI Agent Platform",
+            &base_url,
+            &skills,
+            config.a2a.auth_enabled.then_some(&config.auth),
+        );
+
+        let use_redis = config.a2a.store_backend == "redis";
+        let (task_store, push_store): (
+            Arc<dyn orka_a2a::TaskStore>,
+            Arc<dyn orka_a2a::PushNotificationStore>,
+        ) = if use_redis {
+            let redis_url = &config.redis.url;
+            let ts = orka_a2a::RedisTaskStore::new(redis_url)
+                .map(|s| Arc::new(s) as Arc<dyn orka_a2a::TaskStore>)
+                .unwrap_or_else(|e| {
+                    tracing::warn!(%e, "failed to create RedisTaskStore, falling back to memory");
+                    Arc::new(orka_a2a::InMemoryTaskStore::default())
+                });
+            let ps = orka_a2a::RedisPushNotificationStore::new(redis_url)
+                .map(|s| Arc::new(s) as Arc<dyn orka_a2a::PushNotificationStore>)
+                .unwrap_or_else(|e| {
+                    tracing::warn!(%e, "failed to create RedisPushNotificationStore, falling back to memory");
+                    Arc::new(orka_a2a::InMemoryPushNotificationStore::default())
+                });
+            (ts, ps)
+        } else {
+            (
+                Arc::new(orka_a2a::InMemoryTaskStore::default()),
+                Arc::new(orka_a2a::InMemoryPushNotificationStore::default()),
+            )
+        };
+
         Some(orka_a2a::A2aState {
             agent_card,
             skills: skills.clone(),
             secrets: secrets.clone(),
-            tasks: Default::default(),
+            task_store,
+            task_events: Default::default(),
+            push_store: push_store.clone(),
+            webhook_deliverer: Arc::new(orka_a2a::WebhookDeliverer::new(push_store)),
         })
     } else {
         None
     };
+
+    // Spawn A2A discovery client if known agent URLs are configured.
+    if !config.a2a.known_agents.is_empty() {
+        let client = orka_a2a::DiscoveryClient::new(
+            config.a2a.known_agents.clone(),
+            config.a2a.discovery_interval_secs,
+            agent_directory.clone(),
+        );
+        tokio::spawn(client.run(shutdown.clone()));
+    }
 
     let qdrant_url = if config.knowledge.enabled {
         config.knowledge.vector_store.url.clone()
     } else {
         None
     };
+
+    let entry = graph.entry_agent();
+    let agent_name = entry.display_name.clone();
+    let agent_model = entry
+        .llm_config
+        .model
+        .clone()
+        .unwrap_or_else(|| config.llm.default_model.clone());
+
+    let thinking = entry.llm_config.thinking.as_ref().map(|t| {
+        use orka_llm::{ThinkingConfig, ThinkingEffort};
+        match t {
+            ThinkingConfig::Adaptive { effort } => match effort {
+                ThinkingEffort::Low => "low".to_string(),
+                ThinkingEffort::Medium => "medium".to_string(),
+                ThinkingEffort::High => "high".to_string(),
+                ThinkingEffort::Max => "max".to_string(),
+            },
+            ThinkingConfig::Enabled { budget_tokens } => format!("budget:{budget_tokens}"),
+            ThinkingConfig::ReasoningEffort(_) => "reasoning".to_string(),
+            _ => "enabled".to_string(),
+        }
+    });
+
+    let agent_count = graph.nodes_iter().count();
+
+    let adapter_names: Vec<String> = adapters
+        .iter()
+        .map(|a| a.channel_id().to_string())
+        .filter(|id| id != "custom") // internal transport, not a user-facing channel
+        .collect();
+
+    let coding_backend = coding_runtime
+        .as_ref()
+        .and_then(|r| r.selected_backend.clone());
+
+    let web_search = if config.web.search_provider != "none" {
+        Some(config.web.search_provider.clone())
+    } else {
+        None
+    };
+
+    let features = ServerFeatures {
+        knowledge: config.knowledge.enabled,
+        scheduler: config.scheduler.enabled,
+        experience: config.experience.enabled,
+        guardrails: config.guardrails.enabled,
+        a2a: a2a_enabled,
+        observe: config.observe.enabled,
+    };
+
+    // Build checkpoint store from existing Redis config. Errors are logged and
+    // the server falls back to no checkpointing rather than aborting startup.
+    let checkpoint_store: Option<Arc<dyn orka_checkpoint::CheckpointStore>> =
+        match orka_checkpoint::RedisCheckpointStore::new_default_ttl(&config.redis.url) {
+            Ok(store) => {
+                info!("checkpoint store: Redis at {}", config.redis.url);
+                Some(Arc::new(store))
+            }
+            Err(e) => {
+                warn!(%e, "checkpoint store unavailable, running without persistence");
+                None
+            }
+        };
 
     let health_app = build_router(RouterParams {
         queue: queue.clone(),
@@ -570,6 +699,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         soft_skills: soft_skills.clone(),
         sessions: sessions.clone(),
         scheduler_store: scheduler_store.clone(),
+        checkpoint_store: checkpoint_store.clone(),
         workspace_registry: workspace_registry.clone(),
         graph: graph.clone(),
         experience_service: experience_service.clone(),
@@ -579,7 +709,19 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         qdrant_url,
         auth_layer: auth_layer_for_router,
         a2a_state,
+        a2a_auth_enabled: config.a2a.auth_enabled,
+        agent_directory,
         metrics_handle,
+        agent_name,
+        agent_model,
+        mcp_server_count,
+        features,
+        thinking,
+        agent_count,
+        auth_enabled,
+        adapters: adapter_names,
+        coding_backend,
+        web_search,
     });
 
     let listener =
@@ -602,6 +744,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     // 14. Executor + worker pool
     let memory_for_worker = memory.clone();
     let memory_lock_for_worker = memory_lock.clone();
+
     let executor = Arc::new(orka_agent::GraphExecutor::new(orka_agent::ExecutorDeps {
         skills: skills.clone(),
         memory,
@@ -614,6 +757,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         templates,
         coding_runtime,
         guardrail,
+        checkpoint_store,
     }));
 
     let dispatcher = Arc::new(GraphDispatcher::new(

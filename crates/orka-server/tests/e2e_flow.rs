@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 /// End-to-end test: adapter → bus(inbound) → gateway → queue → worker →
 /// bus(outbound)
 ///

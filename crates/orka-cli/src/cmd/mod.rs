@@ -1,9 +1,9 @@
 pub mod a2a;
-pub mod doctor;
 pub mod chat;
 pub mod config;
 pub mod dashboard;
 pub mod dlq;
+pub mod doctor;
 pub mod experience;
 pub mod graph;
 pub mod mcp_serve;

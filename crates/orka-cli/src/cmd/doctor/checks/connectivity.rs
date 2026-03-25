@@ -36,8 +36,9 @@ impl DoctorCheck for ConRedisReachable {
                 let ms = start.elapsed().as_millis();
                 CheckOutcome::pass(format!("{url} ({ms}ms)"))
             }
-            Err(e) => CheckOutcome::fail(format!("cannot connect to {url}: {e}"))
-                .with_hint("Ensure Redis is running. Start it with `redis-server` or `docker run redis`."),
+            Err(e) => CheckOutcome::fail(format!("cannot connect to {url}: {e}")).with_hint(
+                "Ensure Redis is running. Start it with `redis-server` or `docker run redis`.",
+            ),
         }
     }
 
@@ -69,10 +70,7 @@ impl DoctorCheck for ConRedisVersion {
 
         match redis_version(&url).await {
             Ok(version) => {
-                let parts: Vec<u32> = version
-                    .split('.')
-                    .filter_map(|p| p.parse().ok())
-                    .collect();
+                let parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
                 let major = parts.first().copied().unwrap_or(0);
                 if major >= 7 {
                     CheckOutcome::pass(format!("v{version}"))
@@ -121,10 +119,9 @@ impl DoctorCheck for ConQdrantReachable {
                 let ms = start.elapsed().as_millis();
                 CheckOutcome::pass(format!("{url} ({ms}ms)"))
             }
-            Err(e) => CheckOutcome::fail(format!("cannot connect to {url}: {e}"))
-                .with_hint(
-                    "Ensure Qdrant is running. Start with `docker run -p 6334:6334 qdrant/qdrant`.",
-                ),
+            Err(e) => CheckOutcome::fail(format!("cannot connect to {url}: {e}")).with_hint(
+                "Ensure Qdrant is running. Start with `docker run -p 6334:6334 qdrant/qdrant`.",
+            ),
         }
     }
 
@@ -180,9 +177,7 @@ async fn redis_ping(url: &str) -> Result<(), Box<dyn std::error::Error + Send + 
     .await
     .map_err(|_| "connection timed out")??;
 
-    redis::cmd("PING")
-        .query_async::<String>(&mut conn)
-        .await?;
+    redis::cmd("PING").query_async::<String>(&mut conn).await?;
     Ok(())
 }
 

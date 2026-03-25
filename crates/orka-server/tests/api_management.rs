@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! Tests for the management API endpoints.
 //!
 //! Uses `tower::ServiceExt::oneshot` — no TCP listener required.

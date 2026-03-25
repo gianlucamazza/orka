@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! End-to-end HTTP round-trip test: POST message → WebSocket reply.
 //!
 //! Tests the full message lifecycle at the HTTP level:

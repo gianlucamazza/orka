@@ -1,3 +1,6 @@
+//! Server binary entrypoint for bootstrapping the Orka HTTP service.
+#![allow(unreachable_pub)]
+
 mod adapters;
 mod bootstrap;
 mod env_watcher;

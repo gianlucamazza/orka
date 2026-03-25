@@ -11,7 +11,7 @@ use crate::{
 
 /// Authenticator that validates API keys by comparing SHA-256 hashes.
 pub struct ApiKeyAuthenticator {
-    /// Maps key_hash → (name, scopes)
+    /// Maps `key_hash` → (name, scopes)
     keys: HashMap<String, (String, Vec<String>)>,
 }
 

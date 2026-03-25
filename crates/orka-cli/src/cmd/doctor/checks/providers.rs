@@ -30,22 +30,20 @@ impl DoctorCheck for PrvAtLeastOneProvider {
         };
 
         if config.llm.providers.is_empty() {
-            CheckOutcome::fail("no LLM providers configured")
-                .with_hint(
-                    "Add at least one [[llm.providers]] entry to orka.toml. \
+            CheckOutcome::fail("no LLM providers configured").with_hint(
+                "Add at least one [[llm.providers]] entry to orka.toml. \
                      Example: provider = \"anthropic\", api_key_env = \"ANTHROPIC_API_KEY\".",
-                )
+            )
         } else {
-            CheckOutcome::pass(format!("{} provider(s)", config.llm.providers.len()))
-                .with_detail(
-                    config
-                        .llm
-                        .providers
-                        .iter()
-                        .map(|p| format!("{} ({})", p.name, p.provider))
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                )
+            CheckOutcome::pass(format!("{} provider(s)", config.llm.providers.len())).with_detail(
+                config
+                    .llm
+                    .providers
+                    .iter()
+                    .map(|p| format!("{} ({})", p.name, p.provider))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            )
         }
     }
 }
@@ -117,7 +115,8 @@ impl DoctorCheck for PrvApiKeysResolvable {
     }
 }
 
-/// Resolve where a provider's API key comes from. Returns None if no source is configured.
+/// Resolve where a provider's API key comes from. Returns None if no source is
+/// configured.
 fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<String> {
     // 1. Inline key
     if provider.api_key.as_deref().is_some_and(|k| !k.is_empty()) {
@@ -146,8 +145,13 @@ fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<St
         return Some(format!("env:{env_name} (default)"));
     }
 
-    // 4. Secret store path configured (we can't resolve it without Redis connection)
-    if provider.api_key_secret.as_deref().is_some_and(|s| !s.is_empty()) {
+    // 4. Secret store path configured (we can't resolve it without Redis
+    //    connection)
+    if provider
+        .api_key_secret
+        .as_deref()
+        .is_some_and(|s| !s.is_empty())
+    {
         return Some("secret store (requires Redis)".to_string());
     }
 
@@ -335,9 +339,8 @@ fn check_web_api_key(
         return CheckOutcome::pass(format!("{provider}: env:{default_env} (default)"));
     }
 
-    CheckOutcome::fail(format!("{provider}: no API key found"))
-        .with_hint(format!(
-            "Set web.api_key_env = \"{default_env}\" and export the variable, \
+    CheckOutcome::fail(format!("{provider}: no API key found")).with_hint(format!(
+        "Set web.api_key_env = \"{default_env}\" and export the variable, \
              or set web.search_provider = \"none\" to disable web search."
-        ))
+    ))
 }

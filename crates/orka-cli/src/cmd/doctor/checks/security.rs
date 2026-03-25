@@ -26,14 +26,16 @@ impl DoctorCheck for SecNoInlineKeys {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        // This duplicates CFG-005 logic intentionally: SEC checks are about security posture,
-        // CFG checks are about config validity. Having both makes filtering by category useful.
+        // This duplicates CFG-005 logic intentionally: SEC checks are about security
+        // posture, CFG checks are about config validity. Having both makes
+        // filtering by category useful.
         let raw = match &ctx.config_raw {
             Some(r) => r,
             None => return CheckOutcome::skip("config file not readable"),
         };
 
-        // Scan for lines with api_key = "..." that contain long strings (likely real keys)
+        // Scan for lines with api_key = "..." that contain long strings (likely real
+        // keys)
         let mut suspicious = Vec::new();
         for (i, line) in raw.lines().enumerate() {
             let trimmed = line.trim();
@@ -185,8 +187,9 @@ impl DoctorCheck for SecWorkspaceDirs {
             if !not_writable.is_empty() {
                 msg_parts.push(format!("not writable: {}", not_writable.join(", ")));
             }
-            CheckOutcome::fail(msg_parts.join("; "))
-                .with_hint("Create missing directories and ensure they are writable by the orka process.")
+            CheckOutcome::fail(msg_parts.join("; ")).with_hint(
+                "Create missing directories and ensure they are writable by the orka process.",
+            )
         }
     }
 }
@@ -234,8 +237,9 @@ impl DoctorCheck for SecSudoConfig {
             if !sudoers_ok {
                 missing.push(SUDOERS);
             }
-            CheckOutcome::fail(format!("missing: {}", missing.join(", ")))
-                .with_hint("Run scripts/install.sh to install the required sudo configuration files.")
+            CheckOutcome::fail(format!("missing: {}", missing.join(", "))).with_hint(
+                "Run scripts/install.sh to install the required sudo configuration files.",
+            )
         }
     }
 
@@ -280,11 +284,10 @@ impl DoctorCheck for SecNoNewPrivileges {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if stdout.contains("NoNewPrivileges=yes") {
-                    CheckOutcome::fail("NoNewPrivileges=yes — sudo will not work")
-                        .with_hint(
-                            "Install the systemd drop-in with scripts/install.sh to disable \
+                    CheckOutcome::fail("NoNewPrivileges=yes — sudo will not work").with_hint(
+                        "Install the systemd drop-in with scripts/install.sh to disable \
                              NoNewPrivileges for orka-server.service.",
-                        )
+                    )
                 } else if stdout.contains("NoNewPrivileges=no") {
                     CheckOutcome::pass("NoNewPrivileges=no (sudo allowed)")
                 } else {

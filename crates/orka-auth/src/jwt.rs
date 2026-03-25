@@ -73,9 +73,8 @@ impl JwtAuthenticator {
 #[async_trait]
 impl Authenticator for JwtAuthenticator {
     async fn authenticate(&self, creds: &Credentials) -> Result<AuthIdentity> {
-        let token = match creds {
-            Credentials::Bearer(t) => t,
-            _ => return Err(Error::Auth("expected Bearer token".into())),
+        let Credentials::Bearer(token) = creds else {
+            return Err(Error::Auth("expected Bearer token".into()));
         };
 
         let token_data = decode::<Claims>(token, &self.decoding_key, &self.validation)
@@ -90,7 +89,7 @@ impl Authenticator for JwtAuthenticator {
         let scopes = if let Some(scope_str) = claims.scope {
             scope_str
                 .split_whitespace()
-                .map(|s| s.to_string())
+                .map(ToString::to_string)
                 .collect()
         } else {
             claims.scopes.unwrap_or_default()

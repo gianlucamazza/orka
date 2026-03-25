@@ -625,6 +625,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unsafe_code)]
     fn hint_respects_no_color() {
         let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let mut hinter = OrkaHinter::new();

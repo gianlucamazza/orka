@@ -69,9 +69,7 @@ fn render_text(report: &DoctorReport, verbose: bool) {
                 if !outcome.message.is_empty() {
                     println!("            {}", outcome.message.dimmed());
                 }
-                if verbose
-                    && let Some(detail) = &outcome.detail
-                {
+                if verbose && let Some(detail) = &outcome.detail {
                     println!("            {}", detail.dimmed());
                 }
                 if outcome.status == CheckStatus::Fail
@@ -169,7 +167,7 @@ fn render_markdown(report: &DoctorReport) {
 
 /// Print the list of all available checks.
 pub fn list_checks(checks: &[(CheckMeta, &str)]) {
-    use comfy_table::{modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Table};
+    use comfy_table::{Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
 
     let mut table = Table::new();
     table

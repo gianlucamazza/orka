@@ -1,9 +1,9 @@
-//! Build script for orka-server: embeds git SHA and build date.
+//! Build script for orka-cli: embeds git SHA and build date.
 
 fn main() {
     // Trigger rebuild when git state changes.
     // Use CARGO_MANIFEST_DIR to resolve paths relative to workspace root (2 levels
-    // up from crates/orka-server/).
+    // up from crates/orka-cli/).
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let git_head = manifest_dir.join("../../.git/HEAD");
     let git_refs = manifest_dir.join("../../.git/refs/");

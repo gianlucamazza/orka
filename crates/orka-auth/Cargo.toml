@@ -30,3 +30,6 @@ chrono.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"
+
+[lints]
+workspace = true

@@ -182,7 +182,8 @@ impl DoctorCheck for CfgNoDeprecated {
             None => return CheckOutcome::skip("config file not readable"),
         };
 
-        // Look for inline api_key values that look like actual keys (not empty, not a path)
+        // Look for inline api_key values that look like actual keys (not empty, not a
+        // path)
         let mut issues = Vec::new();
         if let Ok(doc) = raw.parse::<toml_edit::DocumentMut>() {
             scan_inline_keys(&doc, &mut issues);
@@ -222,10 +223,7 @@ fn scan_inline_keys(doc: &toml_edit::DocumentMut, issues: &mut Vec<String>) {
             if let Some(key) = provider.get("api_key").and_then(|v| v.as_str())
                 && !key.is_empty()
             {
-                let name = provider
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?");
+                let name = provider.get("name").and_then(|v| v.as_str()).unwrap_or("?");
                 issues.push(format!("llm.providers[{i}] ({name}) api_key"));
             }
         }
@@ -266,12 +264,9 @@ impl DoctorCheck for CfgAgentDefs {
         if empty_ids.is_empty() {
             CheckOutcome::pass(format!("{} agent(s) defined", config.agents.len()))
         } else {
-            CheckOutcome::fail(format!(
-                "{} agent(s) have empty id",
-                empty_ids.len()
-            ))
-            .with_detail(empty_ids.join(", "))
-            .with_hint("Each [[agents]] entry must have a non-empty id field.")
+            CheckOutcome::fail(format!("{} agent(s) have empty id", empty_ids.len()))
+                .with_detail(empty_ids.join(", "))
+                .with_hint("Each [[agents]] entry must have a non-empty id field.")
         }
     }
 }
@@ -302,10 +297,7 @@ impl DoctorCheck for CfgGraphPresent {
         }
 
         if config.graph.is_some() {
-            CheckOutcome::pass(format!(
-                "[graph] present ({} agents)",
-                config.agents.len()
-            ))
+            CheckOutcome::pass(format!("[graph] present ({} agents)", config.agents.len()))
         } else {
             CheckOutcome::fail(format!(
                 "{} agents defined but no [graph] section",

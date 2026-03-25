@@ -1,6 +1,6 @@
 use crate::cmd::doctor::{
-    checks::{config::*, connectivity::*, environment::*, providers::*, security::*},
     DoctorCheck,
+    checks::{config::*, connectivity::*, environment::*, providers::*, security::*},
 };
 
 /// Build the ordered list of all registered doctor checks.

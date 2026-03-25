@@ -16,6 +16,14 @@ tracing.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 async-trait.workspace = true
+thiserror.workspace = true
+deadpool-redis.workspace = true
+redis.workspace = true
+tokio-stream.workspace = true
+tokio-util.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+utoipa.workspace = true
 
 [dev-dependencies]
 orka-core.workspace = true
@@ -24,4 +32,6 @@ tokio = { workspace = true, features = ["test-util", "macros"] }
 axum = { workspace = true }
 tower = { workspace = true }
 http.workspace = true
-insta.workspace = true
+
+[lints]
+workspace = true
