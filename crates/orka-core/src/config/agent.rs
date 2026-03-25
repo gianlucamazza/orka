@@ -2,7 +2,10 @@
 
 use serde::Deserialize;
 
-use crate::config::{defaults, primitives::GraphExecutionMode};
+use crate::config::{
+    defaults,
+    primitives::{GraphExecutionMode, HistoryFilter, NodeKindDef},
+};
 
 /// Per-agent runtime configuration.
 #[derive(Debug, Clone, Deserialize)]
@@ -23,6 +26,14 @@ pub struct AgentConfig {
     /// Maximum tokens per response.
     #[serde(default = "defaults::default_max_tokens")]
     pub max_tokens: u32,
+    /// Thinking/reasoning effort level: `"low"`, `"medium"`, `"high"`, or
+    /// `"max"`.
+    ///
+    /// Enables Anthropic adaptive thinking (Claude 4.6+) or maps to OpenAI
+    /// `reasoning_effort` depending on the provider. `"max"` is only available
+    /// on Claude Opus 4.6+. Omit to disable thinking entirely.
+    #[serde(default)]
+    pub thinking: Option<String>,
     /// Maximum conversation iterations.
     #[serde(default = "defaults::default_max_iterations")]
     pub max_iterations: usize,
@@ -35,6 +46,16 @@ pub struct AgentConfig {
     /// Denied tools (takes precedence).
     #[serde(default)]
     pub denied_tools: Vec<String>,
+    /// How to filter conversation history when this agent receives a handoff.
+    ///
+    /// `"full"` (default) passes the entire history. `"last_n"` passes the
+    /// last `history_filter_n` messages. `"none"` starts with an empty
+    /// context.
+    #[serde(default)]
+    pub history_filter: HistoryFilter,
+    /// Number of messages to keep when `history_filter = "last_n"`.
+    #[serde(default)]
+    pub history_filter_n: Option<usize>,
 }
 
 impl Default for AgentConfig {
@@ -49,6 +70,9 @@ impl Default for AgentConfig {
             tool_result_max_chars: defaults::default_tool_result_max_chars(),
             allowed_tools: Vec::new(),
             denied_tools: Vec::new(),
+            thinking: None,
+            history_filter: HistoryFilter::default(),
+            history_filter_n: None,
         }
     }
 }
@@ -59,6 +83,11 @@ impl Default for AgentConfig {
 pub struct AgentDef {
     /// Agent identifier.
     pub id: String,
+    /// Node kind in the graph (default: `agent`).
+    ///
+    /// Valid values: `"agent"`, `"router"`, `"fan_out"`, `"fan_in"`.
+    #[serde(default)]
+    pub kind: NodeKindDef,
     /// Agent configuration.
     #[serde(flatten)]
     pub config: AgentConfig,
@@ -68,6 +97,12 @@ pub struct AgentDef {
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
 pub struct GraphDef {
+    /// Explicit entry-point agent ID.
+    ///
+    /// When set, execution begins at this agent instead of the first entry in
+    /// `[[agents]]`.
+    #[serde(default)]
+    pub entry: Option<String>,
     /// Execution mode for the graph.
     #[serde(default)]
     pub execution_mode: GraphExecutionMode,
@@ -82,6 +117,7 @@ pub struct GraphDef {
 impl Default for GraphDef {
     fn default() -> Self {
         Self {
+            entry: None,
             execution_mode: GraphExecutionMode::default(),
             max_hops: defaults::default_max_hops(),
             edges: Vec::new(),
@@ -113,6 +149,7 @@ impl AgentDef {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
+            kind: NodeKindDef::default(),
             config: AgentConfig::default(),
         }
     }

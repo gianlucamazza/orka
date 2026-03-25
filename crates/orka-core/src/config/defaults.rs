@@ -48,6 +48,11 @@ pub fn default_redis_url() -> String {
     "redis://127.0.0.1:6379".to_string()
 }
 
+/// Default Qdrant vector store URL.
+pub fn default_qdrant_url() -> String {
+    "http://localhost:6333".to_string()
+}
+
 /// Default log level.
 pub fn default_log_level() -> String {
     "info".to_string()
@@ -203,16 +208,6 @@ pub const fn default_codex_enabled() -> bool {
     false
 }
 
-/// Default coding delegate tool.
-pub fn default_coding_default_tool() -> String {
-    "auto".to_string()
-}
-
-/// Default coding delegate routing policy.
-pub fn default_coding_selection_policy() -> String {
-    "availability".to_string()
-}
-
 /// Default coding delegate context injection.
 pub const fn default_coding_inject_workspace_context() -> bool {
     true
@@ -276,6 +271,31 @@ pub const fn default_webhook_port() -> u16 {
 /// Default scheduler enabled state.
 pub const fn default_scheduler_enabled() -> bool {
     false
+}
+
+/// Default scheduler poll interval in seconds.
+pub const fn default_scheduler_poll_interval_secs() -> u64 {
+    30
+}
+
+/// Default maximum number of concurrent scheduler tasks.
+pub const fn default_scheduler_max_concurrent() -> usize {
+    4
+}
+
+/// Default LLM request timeout in seconds.
+pub const fn default_llm_timeout_secs() -> u64 {
+    30
+}
+
+/// Default LLM maximum tokens per response.
+pub const fn default_llm_max_tokens() -> u32 {
+    8192
+}
+
+/// Default LLM maximum retry attempts on transient failures.
+pub const fn default_llm_max_retries() -> u32 {
+    2
 }
 
 /// Default vector store collection name.
@@ -380,7 +400,7 @@ pub const fn default_max_hops() -> usize {
 
 /// Default config version.
 pub const fn default_config_version() -> u32 {
-    5
+    6
 }
 
 /// Default guardrails enabled state.

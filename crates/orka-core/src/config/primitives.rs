@@ -35,6 +35,39 @@ impl GraphExecutionMode {
     }
 }
 
+/// Node behaviour in a multi-agent graph.
+///
+/// Serialized as: `"agent"`, `"router"`, `"fan_out"`, `"fan_in"`.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeKindDef {
+    /// Standard agent: runs the LLM tool loop, can hand off to other agents.
+    #[default]
+    Agent,
+    /// Evaluates outgoing edge conditions without calling the LLM.
+    Router,
+    /// Dispatches to all successors in parallel.
+    FanOut,
+    /// Waits for predecessors to complete, then synthesizes results via LLM.
+    FanIn,
+}
+
+/// Strategy for filtering conversation history when an agent receives a
+/// handoff.
+///
+/// For `last_n` use the companion `history_filter_n` field to set the count.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryFilter {
+    /// Pass the full conversation history to the receiving agent (default).
+    #[default]
+    Full,
+    /// Pass only the last N messages (set `history_filter_n` to N).
+    LastN,
+    /// Start with an empty history — the receiving agent gets a fresh context.
+    None,
+}
+
 /// Log level filter options.
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

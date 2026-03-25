@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use crate::config::defaults;
 
@@ -152,19 +152,31 @@ pub struct PluginConfig {
     pub plugins: HashMap<String, PluginInstanceConfig>,
 }
 
-/// Plugin capabilities.
+/// Plugin capabilities (deny-by-default).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[non_exhaustive]
 pub struct PluginCapabilities {
-    /// Allow filesystem access.
-    #[serde(default)]
-    pub filesystem: bool,
-    /// Allow network access.
+    /// Host filesystem paths to pre-open for the plugin.
+    ///
+    /// Accepts either a boolean shorthand or an explicit path list:
+    /// - `true`  → equivalent to `["."]` (current working directory)
+    /// - `false` → empty list (no filesystem access)
+    /// - `["/data", "/tmp"]` → explicit list of allowed paths
+    ///
+    /// Default: empty (deny all).
+    #[serde(default, deserialize_with = "deserialize_fs_paths")]
+    pub filesystem: Vec<String>,
+    /// Allow outbound TCP/UDP network access.
+    ///
+    /// Default: `false`.
     #[serde(default)]
     pub network: bool,
-    /// Allow execution of subprocesses.
+    /// Environment variable names the plugin is allowed to read from the host.
+    ///
+    /// Only the listed variables are injected; unlisted variables are invisible
+    /// to the plugin. Default: empty (deny all).
     #[serde(default)]
-    pub subprocess: bool,
+    pub env: Vec<String>,
 }
 
 /// Per-plugin instance configuration.
@@ -174,13 +186,42 @@ pub struct PluginInstanceConfig {
     /// Whether this plugin is enabled.
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// Plugin-specific configuration.
-    #[serde(flatten)]
+    /// Capability overrides for this plugin.
+    ///
+    /// When present, each field replaces the corresponding global default from
+    /// `[plugins.capabilities]`. Omitted fields fall back to the global value.
+    #[serde(default)]
+    pub capabilities: Option<PluginCapabilities>,
+    /// Arbitrary plugin-specific key-value configuration.
+    ///
+    /// Passed through to the plugin at runtime; Orka does not interpret these
+    /// values. Configure under `[plugins.plugins.<name>.config]` in TOML.
+    #[serde(default)]
     pub config: HashMap<String, serde_json::Value>,
 }
 
 const fn default_true() -> bool {
     true
+}
+
+/// Deserialize `filesystem` as either a `bool` (backward-compat shorthand) or
+/// an explicit `Vec<String>` list of host paths.
+fn deserialize_fs_paths<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum BoolOrPaths {
+        Bool(bool),
+        Paths(Vec<String>),
+    }
+
+    match BoolOrPaths::deserialize(deserializer)? {
+        BoolOrPaths::Bool(true) => Ok(vec![".".to_string()]),
+        BoolOrPaths::Bool(false) => Ok(vec![]),
+        BoolOrPaths::Paths(paths) => Ok(paths),
+    }
 }
 
 #[cfg(test)]
@@ -207,16 +248,67 @@ mod tests {
     }
 
     #[test]
-    fn plugin_capabilities_default() {
+    fn plugin_capabilities_default_denies_all() {
         let caps = PluginCapabilities::default();
-        assert!(!caps.filesystem);
+        assert!(caps.filesystem.is_empty());
         assert!(!caps.network);
-        assert!(!caps.subprocess);
+        assert!(caps.env.is_empty());
+    }
+
+    #[test]
+    fn deserialize_fs_paths_from_bool_true() {
+        let caps: PluginCapabilities =
+            toml::from_str("filesystem = true\nnetwork = false").unwrap();
+        assert_eq!(caps.filesystem, vec!["."]);
+    }
+
+    #[test]
+    fn deserialize_fs_paths_from_bool_false() {
+        let caps: PluginCapabilities =
+            toml::from_str("filesystem = false\nnetwork = false").unwrap();
+        assert!(caps.filesystem.is_empty());
+    }
+
+    #[test]
+    fn deserialize_fs_paths_from_list() {
+        let caps: PluginCapabilities = toml::from_str(r#"filesystem = ["/data", "/tmp"]"#).unwrap();
+        assert_eq!(caps.filesystem, vec!["/data", "/tmp"]);
+    }
+
+    #[test]
+    fn plugin_capabilities_with_env() {
+        let caps: PluginCapabilities = toml::from_str(r#"env = ["API_KEY", "DB_URL"]"#).unwrap();
+        assert_eq!(caps.env, vec!["API_KEY", "DB_URL"]);
     }
 
     #[test]
     fn plugin_instance_enabled_by_default() {
-        let config: PluginInstanceConfig = serde_json::from_str("{}").unwrap();
+        let config: PluginInstanceConfig = toml::from_str("").unwrap();
         assert!(config.enabled);
+        assert!(config.capabilities.is_none());
+        assert!(config.config.is_empty());
+    }
+
+    #[test]
+    fn plugin_instance_with_capability_overrides() {
+        let config: PluginInstanceConfig = toml::from_str(
+            r#"
+enabled = true
+[capabilities]
+network = true
+env = ["SPECIAL_VAR"]
+"#,
+        )
+        .unwrap();
+        let caps = config.capabilities.unwrap();
+        assert!(caps.network);
+        assert_eq!(caps.env, vec!["SPECIAL_VAR"]);
+        assert!(caps.filesystem.is_empty());
+    }
+
+    #[test]
+    fn plugin_instance_without_overrides() {
+        let config: PluginInstanceConfig = toml::from_str("enabled = true").unwrap();
+        assert!(config.capabilities.is_none());
     }
 }

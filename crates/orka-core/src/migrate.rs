@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use toml_edit::{Array, ArrayOfTables, DocumentMut, Item, Table, value};
 
 /// The config version that this build of Orka expects.
-pub const CURRENT_CONFIG_VERSION: u32 = 5;
+pub const CURRENT_CONFIG_VERSION: u32 = 6;
 
 /// Result of a successful migration.
 #[derive(Debug, Clone)]
@@ -67,6 +67,7 @@ const MIGRATIONS: &[(u32, MigrateFn)] = &[
     (3, migrate_v2_to_v3),
     (4, migrate_v3_to_v4),
     (5, migrate_v4_to_v5),
+    (6, migrate_v5_to_v6),
 ];
 
 /// Read `config_version` from a parsed TOML document. Returns 0 if absent.
@@ -144,6 +145,7 @@ pub fn inspect_config_issues(raw: &str) -> Result<Vec<String>, MigrationError> {
     inspect_os_warnings(&doc, &mut warnings);
     inspect_http_warnings(&doc, &mut warnings);
     inspect_scheduler_warnings(&doc, &mut warnings);
+    inspect_plugins_warnings(&doc, &mut warnings);
 
     Ok(warnings)
 }
@@ -264,8 +266,6 @@ fn migrate_v3_to_v4(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
             &[
                 ("timezone", "[agent].timezone"),
                 ("heartbeat_interval_secs", "[agent].heartbeat_interval_secs"),
-                ("thinking_budget_tokens", "[agent].thinking_budget_tokens"),
-                ("reasoning_effort", "[agent].reasoning_effort"),
             ],
             warnings,
         );
@@ -479,6 +479,37 @@ fn migrate_v4_to_v5(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result
     Ok(())
 }
 
+/// v5 → v6: remove the `subprocess` capability from `[plugins.capabilities]`
+/// (WASI Component Model does not support subprocess spawning) and normalize
+/// `filesystem = true/false` to an array for clarity.
+fn migrate_v5_to_v6(doc: &mut DocumentMut, warnings: &mut Vec<String>) -> Result<(), String> {
+    // Navigate to [plugins.capabilities] if it exists.
+    let has_subprocess = doc
+        .get("plugins")
+        .and_then(|p| p.get("capabilities"))
+        .and_then(|c| c.get("subprocess"))
+        .is_some();
+
+    if has_subprocess {
+        if let Some(caps) = doc
+            .get_mut("plugins")
+            .and_then(|p| p.as_table_mut())
+            .and_then(|t| t.get_mut("capabilities"))
+            .and_then(|c| c.as_table_mut())
+        {
+            caps.remove("subprocess");
+        }
+        warnings.push(
+            "Removed `plugins.capabilities.subprocess`: WASI Component Model does not support \
+             subprocess spawning. Remove this key from your config to silence this warning."
+                .into(),
+        );
+    }
+
+    doc.insert("config_version", value(6i64));
+    Ok(())
+}
+
 /// Inspect `[[agents]]` entries for unknown or legacy keys.
 /// Also warns if the legacy `[agent]` table is still present (should have been
 /// promoted by the v4→v5 migration).
@@ -500,10 +531,15 @@ fn inspect_agents_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
         "model",
         "temperature",
         "max_tokens",
+        "thinking",
         "max_iterations",
         "tool_result_max_chars",
         "allowed_tools",
         "denied_tools",
+        // Added in multi-agent graph improvements
+        "kind",
+        "history_filter",
+        "history_filter_n",
     ];
     let known: BTreeSet<&str> = entry_allowed.iter().copied().collect();
 
@@ -940,6 +976,33 @@ fn inspect_scheduler_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
     inspect_table_keys(doc, &["scheduler"], &allowed, &aliases, &removed, warnings);
 }
 
+fn inspect_plugins_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
+    // Top-level [plugins] keys.
+    let allowed = ["dir", "capabilities", "plugins"];
+    let aliases: [(&str, &str); 0] = [];
+    let removed = [(
+        "subprocess",
+        "config key [plugins].subprocess is not part of the current schema and may be ignored",
+    )];
+    inspect_table_keys(doc, &["plugins"], &allowed, &aliases, &removed, warnings);
+
+    // [plugins.capabilities] keys (v5 had `subprocess` here).
+    let caps_allowed = ["filesystem", "network", "env"];
+    let caps_removed = [(
+        "subprocess",
+        "config key [plugins.capabilities].subprocess was removed in v6 \
+         (WASI Component Model does not support subprocess spawning)",
+    )];
+    inspect_table_keys(
+        doc,
+        &["plugins", "capabilities"],
+        &caps_allowed,
+        &[],
+        &caps_removed,
+        warnings,
+    );
+}
+
 fn rename_key(
     table: &mut Table,
     legacy_key: &str,
@@ -1039,17 +1102,17 @@ port = 8080
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 0);
-        assert_eq!(result.to_version, 5);
+        assert_eq!(result.to_version, 6);
         assert!(!result.warnings.is_empty());
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 5);
+        assert_eq!(read_version(&doc), 6);
     }
 
     #[test]
     fn current_version_is_noop() {
         let raw = r#"
-config_version = 5
+config_version = 6
 
 [server]
 host = "127.0.0.1"
@@ -1065,7 +1128,7 @@ host = "127.0.0.1"
         let err = migrate_if_needed(raw).unwrap_err();
         assert!(matches!(
             err,
-            MigrationError::FutureVersion { found: 999, max: 5 }
+            MigrationError::FutureVersion { found: 999, max: 6 }
         ));
         let msg = err.to_string();
         assert!(msg.contains("999"));
@@ -1086,7 +1149,7 @@ permission_level = "read-only"
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 1);
-        assert_eq!(result.to_version, 5);
+        assert_eq!(result.to_version, 6);
         // v1→v2 emits 1 warning (added [agent]+[tools]+[os.sudo]); v4→v5 adds 1 more
         assert!(!result.warnings.is_empty());
         assert!(result.warnings[0].contains("[agent]"));
@@ -1094,7 +1157,7 @@ permission_level = "read-only"
         assert!(result.warnings[0].contains("[os.sudo]"));
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 5);
+        assert_eq!(read_version(&doc), 6);
 
         // [[agents]] promoted from legacy [agent]
         let agents = doc
@@ -1144,7 +1207,7 @@ password_required = false
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 1);
-        assert_eq!(result.to_version, 5);
+        assert_eq!(result.to_version, 6);
         // v4→v5 emits one migration warning (promoting [agent] → [[agents]])
         assert!(
             result
@@ -1206,11 +1269,11 @@ enabled = true
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 2);
-        assert_eq!(result.to_version, 5);
+        assert_eq!(result.to_version, 6);
         assert!(result.warnings.is_empty());
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 5);
+        assert_eq!(read_version(&doc), 6);
         assert_eq!(doc["os"]["claude_code"]["enabled"].as_bool(), Some(true));
     }
 
@@ -1224,11 +1287,11 @@ enabled = false
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 2);
-        assert_eq!(result.to_version, 5);
+        assert_eq!(result.to_version, 6);
         assert!(result.warnings.is_empty());
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 5);
+        assert_eq!(read_version(&doc), 6);
         assert_eq!(doc["os"]["claude_code"]["enabled"].as_bool(), Some(false));
     }
 
@@ -1242,7 +1305,7 @@ host = "127.0.0.1"
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 2);
-        assert_eq!(result.to_version, 5);
+        assert_eq!(result.to_version, 6);
         assert!(
             result.warnings.is_empty(),
             "unexpected warnings: {:?}",
@@ -1250,7 +1313,7 @@ host = "127.0.0.1"
         );
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 5);
+        assert_eq!(read_version(&doc), 6);
     }
 
     #[test]
@@ -1283,10 +1346,10 @@ port = 8080
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 0);
-        assert_eq!(result.to_version, 5);
+        assert_eq!(result.to_version, 6);
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 5);
+        assert_eq!(read_version(&doc), 6);
         // v1→v2 adds [tools]; v4→v5 promotes [agent] → [[agents]]
         assert!(doc.get("agents").is_some());
         assert!(doc.get("tools").is_some());
@@ -1295,14 +1358,14 @@ port = 8080
     #[test]
     fn inspect_config_issues_reports_legacy_and_unknown_keys() {
         // config_version = 5, [[agents]] with unknown fields (display_name,
-        // thinking_budget_tokens)
+        // some_bogus_field)
         let raw = r#"
 config_version = 5
 
 [[agents]]
 id = "orka-default"
 display_name = "Orka"
-thinking_budget_tokens = 10000
+some_bogus_field = true
 
 [graph]
 
@@ -1344,8 +1407,8 @@ require_confirmation = true
         assert!(
             warnings
                 .iter()
-                .any(|w| w.contains("[[agents]][0].thinking_budget_tokens")),
-            "missing [[agents]][0].thinking_budget_tokens warning; got: {warnings:?}"
+                .any(|w| w.contains("[[agents]][0].some_bogus_field")),
+            "missing [[agents]][0].some_bogus_field warning; got: {warnings:?}"
         );
         assert!(warnings.iter().any(|w| w.contains("[auth].enabled")));
         assert!(warnings.iter().any(|w| w.contains("[auth].api_key_header")));
@@ -1386,6 +1449,7 @@ model = "claude-sonnet-4-6"
 max_tokens = 8192
 max_iterations = 10
 tool_result_max_chars = 1000
+thinking = "high"
 
 [graph]
 
@@ -1458,10 +1522,10 @@ max_concurrent = 4
         let (migrated, result) = migrate_if_needed(raw).unwrap();
         let result = result.expect("should have migration result");
         assert_eq!(result.from_version, 3);
-        assert_eq!(result.to_version, 5);
+        assert_eq!(result.to_version, 6);
 
         let doc: DocumentMut = migrated.parse().unwrap();
-        assert_eq!(read_version(&doc), 5);
+        assert_eq!(read_version(&doc), 6);
         // v3→v4 cleaned [agent] fields; v4→v5 promoted [agent] → [[agents]]
         let agents = doc
             .get("agents")
@@ -1470,7 +1534,7 @@ max_concurrent = 4
         let agent = agents.iter().next().expect("at least one agent");
         assert_eq!(agent["name"].as_str(), Some("Orka"));
         assert!(agent.get("display_name").is_none());
-        assert!(agent.get("thinking_budget_tokens").is_none());
+        assert_eq!(agent["thinking_budget_tokens"].as_integer(), Some(10000));
         assert!(doc["auth"].get("enabled").is_none());
         assert!(doc["auth"].get("api_key_header").is_none());
         assert!(doc["tools"].get("disabled").is_none());
@@ -1499,5 +1563,75 @@ max_concurrent = 4
         assert!(doc["http"].get("max_response_bytes").is_none());
         assert!(doc["scheduler"].get("poll_interval_secs").is_none());
         assert!(doc["scheduler"].get("max_concurrent").is_none());
+    }
+
+    #[test]
+    fn v5_to_v6_strips_subprocess() {
+        let raw = r#"config_version = 5
+
+[plugins]
+dir = "plugins"
+
+[plugins.capabilities]
+filesystem = true
+network = false
+subprocess = true
+"#;
+        let (migrated, result) = migrate_if_needed(raw).unwrap();
+        let result = result.expect("should have migration result");
+        assert_eq!(result.from_version, 5);
+        assert_eq!(result.to_version, 6);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].contains("subprocess"));
+
+        let doc: DocumentMut = migrated.parse().unwrap();
+        assert_eq!(read_version(&doc), 6);
+        let caps = doc["plugins"]["capabilities"].as_table().unwrap();
+        assert!(
+            caps.get("subprocess").is_none(),
+            "subprocess should be removed"
+        );
+        assert!(caps.get("filesystem").is_some(), "filesystem preserved");
+        assert!(caps.get("network").is_some(), "network preserved");
+    }
+
+    #[test]
+    fn v5_to_v6_noop_without_subprocess() {
+        let raw = r#"config_version = 5
+
+[plugins]
+dir = "plugins"
+
+[plugins.capabilities]
+filesystem = false
+network = false
+"#;
+        let (migrated, result) = migrate_if_needed(raw).unwrap();
+        let result = result.expect("should have migration result");
+        assert_eq!(result.from_version, 5);
+        assert_eq!(result.to_version, 6);
+        assert!(
+            result.warnings.is_empty(),
+            "no warnings expected: {:?}",
+            result.warnings
+        );
+
+        let doc: DocumentMut = migrated.parse().unwrap();
+        assert_eq!(read_version(&doc), 6);
+    }
+
+    #[test]
+    fn inspect_plugins_warns_on_subprocess() {
+        let raw = r#"
+config_version = 6
+
+[plugins.capabilities]
+subprocess = true
+"#;
+        let warnings = inspect_config_issues(raw).unwrap();
+        assert!(
+            warnings.iter().any(|w| w.contains("subprocess")),
+            "expected subprocess warning; got: {warnings:?}"
+        );
     }
 }

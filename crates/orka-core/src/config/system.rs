@@ -1,13 +1,106 @@
 //! System integration configuration (OS, Scheduler).
 
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     Error, Result,
     config::{defaults, primitives::OsPermissionLevel},
 };
+
+/// Coding orchestration provider selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodingProvider {
+    /// Choose provider automatically based on availability or policy.
+    #[default]
+    Auto,
+    /// Prefer Claude Code as the coding backend.
+    ClaudeCode,
+    /// Prefer Codex as the coding backend.
+    Codex,
+}
+
+impl fmt::Display for CodingProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Auto => f.write_str("auto"),
+            Self::ClaudeCode => f.write_str("claude_code"),
+            Self::Codex => f.write_str("codex"),
+        }
+    }
+}
+
+/// Routing policy when `default_provider` is `Auto`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodingSelectionPolicy {
+    /// Prefer whichever provider is available; fall back to the other.
+    #[default]
+    Availability,
+    /// Try Claude Code first, fall back to Codex.
+    PreferClaude,
+    /// Try Codex first, fall back to Claude Code.
+    PreferCodex,
+}
+
+impl fmt::Display for CodingSelectionPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Availability => f.write_str("availability"),
+            Self::PreferClaude => f.write_str("prefer_claude"),
+            Self::PreferCodex => f.write_str("prefer_codex"),
+        }
+    }
+}
+
+/// Codex sandbox isolation level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SandboxMode {
+    /// Read-only filesystem access.
+    ReadOnly,
+    /// Allow writes inside the workspace directory.
+    WorkspaceWrite,
+    /// Full filesystem access — use with caution.
+    DangerFullAccess,
+}
+
+impl fmt::Display for SandboxMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ReadOnly => f.write_str("read-only"),
+            Self::WorkspaceWrite => f.write_str("workspace-write"),
+            Self::DangerFullAccess => f.write_str("danger-full-access"),
+        }
+    }
+}
+
+/// Codex approval policy for executing commands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApprovalPolicy {
+    /// Treat all commands as untrusted; prompt for every execution.
+    Untrusted,
+    /// Prompt only when a command fails.
+    OnFailure,
+    /// Prompt when the user explicitly requests it.
+    OnRequest,
+    /// Never prompt; approve all commands automatically.
+    Never,
+}
+
+impl fmt::Display for ApprovalPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Untrusted => f.write_str("untrusted"),
+            Self::OnFailure => f.write_str("on-failure"),
+            Self::OnRequest => f.write_str("on-request"),
+            Self::Never => f.write_str("never"),
+        }
+    }
+}
 
 /// Linux OS integration configuration.
 #[derive(Debug, Clone, Deserialize)]
@@ -67,11 +160,11 @@ pub struct CodingConfig {
     pub enabled: bool,
     /// Which coding tool should be treated as the orchestrator-selected
     /// default.
-    #[serde(default = "defaults::default_coding_default_tool")]
-    pub default_provider: String,
-    /// Routing policy when `default_provider = "auto"`.
-    #[serde(default = "defaults::default_coding_selection_policy")]
-    pub selection_policy: String,
+    #[serde(default)]
+    pub default_provider: CodingProvider,
+    /// Routing policy when `default_provider` is `Auto`.
+    #[serde(default)]
+    pub selection_policy: CodingSelectionPolicy,
     /// Inject workspace context into delegated coding prompts.
     #[serde(default = "defaults::default_coding_inject_workspace_context")]
     pub inject_workspace_context: bool,
@@ -90,8 +183,8 @@ impl Default for CodingConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            default_provider: defaults::default_coding_default_tool(),
-            selection_policy: defaults::default_coding_selection_policy(),
+            default_provider: CodingProvider::default(),
+            selection_policy: CodingSelectionPolicy::default(),
             inject_workspace_context: defaults::default_coding_inject_workspace_context(),
             require_verification: defaults::default_coding_require_verification(),
             allow_working_dir_override: defaults::default_coding_allow_working_dir_override(),
@@ -103,26 +196,6 @@ impl Default for CodingConfig {
 impl CodingConfig {
     /// Validate coding delegation orchestration settings.
     pub fn validate(&self) -> Result<()> {
-        if !matches!(
-            self.default_provider.as_str(),
-            "auto" | "claude_code" | "codex"
-        ) {
-            return Err(Error::Config(format!(
-                "os.coding.default_provider must be one of auto/claude_code/codex, got '{}'",
-                self.default_provider
-            )));
-        }
-
-        if !matches!(
-            self.selection_policy.as_str(),
-            "availability" | "prefer_claude" | "prefer_codex"
-        ) {
-            return Err(Error::Config(format!(
-                "os.coding.selection_policy must be one of availability/prefer_claude/prefer_codex, got '{}'",
-                self.selection_policy
-            )));
-        }
-
         self.providers.validate()?;
 
         if self.enabled && !self.providers.claude_code.enabled && !self.providers.codex.enabled {
@@ -229,9 +302,9 @@ pub struct CodexConfig {
     #[serde(default = "defaults::default_coding_timeout_secs")]
     pub timeout_secs: u64,
     /// Sandbox mode passed to Codex exec.
-    pub sandbox_mode: Option<String>,
+    pub sandbox_mode: Option<SandboxMode>,
     /// Approval policy passed to Codex.
-    pub approval_policy: Option<String>,
+    pub approval_policy: Option<ApprovalPolicy>,
     /// Allow Codex to modify files.
     #[serde(default)]
     pub allow_file_modifications: bool,
@@ -263,25 +336,6 @@ impl CodexConfig {
                 "os.coding.providers.codex.timeout_secs must be greater than zero".into(),
             ));
         }
-
-        if let Some(mode) = self.sandbox_mode.as_deref()
-            && !matches!(mode, "read-only" | "workspace-write" | "danger-full-access")
-        {
-            return Err(Error::Config(format!(
-                "os.coding.providers.codex.sandbox_mode must be one of read-only/workspace-write/danger-full-access, got '{}'",
-                mode
-            )));
-        }
-
-        if let Some(policy) = self.approval_policy.as_deref()
-            && !matches!(policy, "untrusted" | "on-failure" | "on-request" | "never")
-        {
-            return Err(Error::Config(format!(
-                "os.coding.providers.codex.approval_policy must be one of untrusted/on-failure/on-request/never, got '{}'",
-                policy
-            )));
-        }
-
         Ok(())
     }
 }
@@ -322,6 +376,12 @@ pub struct SchedulerConfig {
     /// Enable scheduler.
     #[serde(default = "defaults::default_scheduler_enabled")]
     pub enabled: bool,
+    /// How often (in seconds) to poll for due tasks.
+    #[serde(default = "defaults::default_scheduler_poll_interval_secs")]
+    pub poll_interval_secs: u64,
+    /// Maximum number of tasks to execute concurrently.
+    #[serde(default = "defaults::default_scheduler_max_concurrent")]
+    pub max_concurrent: usize,
     /// Scheduled jobs.
     #[serde(default)]
     pub jobs: Vec<ScheduledJob>,
@@ -331,6 +391,8 @@ impl Default for SchedulerConfig {
     fn default() -> Self {
         Self {
             enabled: defaults::default_scheduler_enabled(),
+            poll_interval_secs: defaults::default_scheduler_poll_interval_secs(),
+            max_concurrent: defaults::default_scheduler_max_concurrent(),
             jobs: Vec::new(),
         }
     }
@@ -385,23 +447,42 @@ mod tests {
     }
 
     #[test]
-    fn coding_validation_rejects_invalid_default_provider() {
-        let config = CodingConfig {
-            default_provider: "invalid".into(),
-            ..Default::default()
-        };
-
-        assert!(config.validate().is_err());
+    fn coding_provider_serde_roundtrip() {
+        let toml = r#"default_provider = "claude_code""#;
+        let config: CodingConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.default_provider, CodingProvider::ClaudeCode);
     }
 
     #[test]
-    fn codex_validation_rejects_invalid_sandbox_mode() {
-        let config = CodexConfig {
-            enabled: true,
-            sandbox_mode: Some("invalid".into()),
-            ..Default::default()
-        };
+    fn coding_provider_rejects_invalid() {
+        let toml = r#"default_provider = "invalid_value""#;
+        assert!(toml::from_str::<CodingConfig>(toml).is_err());
+    }
 
-        assert!(config.validate().is_err());
+    #[test]
+    fn sandbox_mode_serde_roundtrip() {
+        let toml = r#"sandbox_mode = "workspace-write""#;
+        let config: CodexConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.sandbox_mode, Some(SandboxMode::WorkspaceWrite));
+    }
+
+    #[test]
+    fn sandbox_mode_rejects_invalid() {
+        let toml = r#"sandbox_mode = "invalid""#;
+        assert!(toml::from_str::<CodexConfig>(toml).is_err());
+    }
+
+    #[test]
+    fn approval_policy_serde_roundtrip() {
+        let toml = r#"approval_policy = "on-failure""#;
+        let config: CodexConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.approval_policy, Some(ApprovalPolicy::OnFailure));
+    }
+
+    #[test]
+    fn coding_provider_display() {
+        assert_eq!(CodingProvider::Auto.to_string(), "auto");
+        assert_eq!(CodingProvider::ClaudeCode.to_string(), "claude_code");
+        assert_eq!(CodingProvider::Codex.to_string(), "codex");
     }
 }

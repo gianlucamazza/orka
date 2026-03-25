@@ -289,6 +289,7 @@ impl OrkaConfig {
         if self.agents.is_empty() {
             self.agents.push(AgentDef {
                 id: defaults::default_agent_id(),
+                kind: NodeKindDef::default(),
                 config: AgentConfig::default(),
             });
             self.graph.get_or_insert_with(GraphDef::default);
@@ -325,6 +326,64 @@ impl OrkaConfig {
                 "os.permission_level must be one of read-only/interact/write/execute/admin, got: '{:?}'",
                 self.os.permission_level
             )));
+        }
+
+        for agent_def in &self.agents {
+            if let Some(ref thinking) = agent_def.config.thinking
+                && !matches!(
+                    thinking.to_lowercase().as_str(),
+                    "low" | "medium" | "high" | "max"
+                )
+            {
+                return Err(crate::Error::Config(format!(
+                    "[[agents]] id={}: thinking must be one of: low, medium, high, max (got: '{thinking}')",
+                    agent_def.id
+                )));
+            }
+        }
+
+        // --- Graph topology validation ---
+        if let Some(ref graph_def) = self.graph {
+            // entry must reference an existing agent
+            if let Some(ref entry) = graph_def.entry
+                && !self.agents.iter().any(|a| &a.id == entry)
+            {
+                return Err(crate::Error::Config(format!(
+                    "graph.entry '{entry}' does not match any [[agents]] id"
+                )));
+            }
+
+            // Entry node cannot be fan_in (nothing to aggregate on first hop)
+            let entry_id = graph_def
+                .entry
+                .as_deref()
+                .or_else(|| self.agents.first().map(|a| a.id.as_str()));
+            if let Some(eid) = entry_id
+                && let Some(entry_def) = self.agents.iter().find(|a| a.id == eid)
+                && entry_def.kind == NodeKindDef::FanIn
+            {
+                return Err(crate::Error::Config(format!(
+                    "entry node '{eid}' cannot be `fan_in` — nothing to aggregate"
+                )));
+            }
+
+            for agent_def in &self.agents {
+                let id = &agent_def.id;
+                let outgoing_count = graph_def.edges.iter().filter(|e| &e.from == id).count();
+                match agent_def.kind {
+                    NodeKindDef::Router if outgoing_count == 0 => {
+                        return Err(crate::Error::Config(format!(
+                            "[[agents]] id={id}: `router` node must have at least one outgoing edge"
+                        )));
+                    }
+                    NodeKindDef::FanOut if outgoing_count < 2 => {
+                        return Err(crate::Error::Config(format!(
+                            "[[agents]] id={id}: `fan_out` node must have at least 2 outgoing edges (has {outgoing_count})"
+                        )));
+                    }
+                    _ => {}
+                }
+            }
         }
 
         // Validate multi-workspace entries

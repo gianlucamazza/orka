@@ -36,3 +36,4 @@ zeroize.workspace = true
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 futures-util = { workspace = true }
+toml = { workspace = true }

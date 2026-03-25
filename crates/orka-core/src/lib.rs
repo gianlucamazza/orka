@@ -48,6 +48,8 @@ pub mod types;
 pub mod retry;
 /// Streaming infrastructure for real-time LLM response delivery.
 pub mod stream;
+/// Shared utility functions (e.g., string helpers).
+pub mod util;
 
 /// Configuration types for the Orka platform.
 #[cfg(feature = "config")]
@@ -74,3 +76,4 @@ pub use types::{
     OutboundMessage, Payload, Priority, RunId, SecretValue, Session, SessionId, SkillBudget,
     SkillContext, SkillInput, SkillOutput, SkillSchema, TraceContext, backoff_delay,
 };
+pub use util::truncate_tool_result;
