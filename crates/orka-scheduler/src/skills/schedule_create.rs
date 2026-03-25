@@ -168,3 +168,91 @@ impl Skill for ScheduleCreateSkill {
         })))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use orka_core::{SkillInput, traits::Skill};
+
+    use super::*;
+    use crate::InMemoryScheduleStore;
+
+    fn args(json: serde_json::Value) -> SkillInput {
+        let map = json
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect::<HashMap<_, _>>();
+        SkillInput::new(map)
+    }
+
+    #[tokio::test]
+    async fn create_cron_schedule_succeeds() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skill = ScheduleCreateSkill::new(store.clone());
+
+        let input = args(serde_json::json!({
+            "name": "daily-report",
+            "cron": "0 0 9 * * *",
+        }));
+        let output = skill.execute(input).await.unwrap();
+
+        assert_eq!(output.data["created"], true);
+        assert_eq!(output.data["name"], "daily-report");
+        assert!(output.data["id"].as_str().is_some());
+
+        let schedules = store.list(false).await.unwrap();
+        assert_eq!(schedules.len(), 1);
+        assert_eq!(schedules[0].name, "daily-report");
+        assert!(schedules[0].cron.is_some());
+    }
+
+    #[tokio::test]
+    async fn create_one_shot_schedule_succeeds() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skill = ScheduleCreateSkill::new(store.clone());
+
+        let input = args(serde_json::json!({
+            "name": "one-time-task",
+            "run_at": "2099-06-15T10:00:00Z",
+            "skill": "send_email",
+        }));
+        let output = skill.execute(input).await.unwrap();
+
+        assert_eq!(output.data["created"], true);
+
+        let schedules = store.list(false).await.unwrap();
+        assert_eq!(schedules.len(), 1);
+        assert!(schedules[0].next_run > 0);
+        assert_eq!(schedules[0].skill.as_deref(), Some("send_email"));
+    }
+
+    #[tokio::test]
+    async fn create_missing_name_fails() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skill = ScheduleCreateSkill::new(store);
+        let input = args(serde_json::json!({"cron": "0 * * * * *"}));
+        assert!(skill.execute(input).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn create_missing_cron_and_run_at_fails() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skill = ScheduleCreateSkill::new(store);
+        let input = args(serde_json::json!({"name": "no-trigger"}));
+        assert!(skill.execute(input).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn create_invalid_cron_fails() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skill = ScheduleCreateSkill::new(store);
+        let input = args(serde_json::json!({
+            "name": "bad-cron",
+            "cron": "not-a-cron",
+        }));
+        assert!(skill.execute(input).await.is_err());
+    }
+}

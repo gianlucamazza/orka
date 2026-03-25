@@ -76,3 +76,91 @@ impl Skill for ScheduleDeleteSkill {
         })))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use chrono::Utc;
+    use orka_core::{SkillInput, traits::Skill};
+
+    use super::*;
+    use crate::{InMemoryScheduleStore, types::Schedule};
+
+    fn args(json: serde_json::Value) -> SkillInput {
+        let map = json
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect::<HashMap<_, _>>();
+        SkillInput::new(map)
+    }
+
+    async fn store_with_schedule(id: &str, name: &str) -> Arc<InMemoryScheduleStore> {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        store
+            .add(&Schedule {
+                id: id.to_string(),
+                name: name.to_string(),
+                cron: None,
+                run_at: Some("2099-01-01T00:00:00Z".into()),
+                timezone: None,
+                skill: None,
+                args: None,
+                message: None,
+                next_run: 4102444800,
+                created_at: Utc::now().to_rfc3339(),
+                completed: false,
+            })
+            .await
+            .unwrap();
+        store
+    }
+
+    #[tokio::test]
+    async fn delete_by_id_succeeds() {
+        let store = store_with_schedule("sched-1", "my-task").await;
+        let skill = ScheduleDeleteSkill::new(store.clone());
+
+        let output = skill
+            .execute(args(serde_json::json!({"id": "sched-1"})))
+            .await
+            .unwrap();
+        assert_eq!(output.data["deleted"], true);
+        assert!(store.list(true).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_by_name_succeeds() {
+        let store = store_with_schedule("sched-2", "named-task").await;
+        let skill = ScheduleDeleteSkill::new(store.clone());
+
+        let output = skill
+            .execute(args(serde_json::json!({"name": "named-task"})))
+            .await
+            .unwrap();
+        assert_eq!(output.data["deleted"], true);
+        assert!(store.list(true).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_name_returns_not_found() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skill = ScheduleDeleteSkill::new(store);
+
+        let output = skill
+            .execute(args(serde_json::json!({"name": "ghost"})))
+            .await
+            .unwrap();
+        assert_eq!(output.data["deleted"], false);
+        assert!(output.data["reason"].as_str().unwrap().contains("ghost"));
+    }
+
+    #[tokio::test]
+    async fn delete_missing_id_and_name_fails() {
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let skill = ScheduleDeleteSkill::new(store);
+        assert!(skill.execute(args(serde_json::json!({}))).await.is_err());
+    }
+}
