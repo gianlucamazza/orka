@@ -111,6 +111,7 @@ fn make_deps(llm: Arc<dyn LlmClient>) -> ExecutorDeps {
         soft_skills: None,
         templates: None,
         coding_runtime: None,
+        guardrail: None,
     }
 }
 
@@ -126,6 +127,7 @@ fn make_deps_no_llm() -> ExecutorDeps {
         soft_skills: None,
         templates: None,
         coding_runtime: None,
+        guardrail: None,
     }
 }
 

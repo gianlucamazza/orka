@@ -2,16 +2,18 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use orka_core::{DomainEvent, DomainEventKind, SkillInput};
+use orka_core::{DomainEvent, DomainEventKind, SkillInput, truncate_tool_result};
 use orka_llm::{
     client::{
-        ChatContent, ChatMessage, CompletionOptions, ContentBlock, ContentBlockInput,
-        LlmToolStream, StreamEvent, ToolCall, ToolDefinition, Usage,
+        ChatContent, ChatMessage, CompletionOptions, ContentBlock, ContentBlockInput, ToolCall,
+        ToolDefinition,
     },
+    consume_stream,
     context::{
         TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
         truncate_history_with_hint,
     },
+    infer_provider,
 };
 use orka_prompts::pipeline::PipelineConfig;
 use tracing::{Instrument, debug, info, info_span, warn};
@@ -36,152 +38,59 @@ pub struct AgentNodeResult {
     pub iterations: usize,
 }
 
-/// Truncate a tool result string if it exceeds the configured limit.
-/// Infer LLM provider name from model string for observability.
-fn infer_provider(model: &str) -> String {
-    if model.contains("claude") {
-        "anthropic".into()
-    } else if model.contains("gpt") || model.contains("o1") || model.contains("o3") {
-        "openai".into()
-    } else if model.contains("gemini") {
-        "google".into()
+/// Parse a handoff from a tool call issued by the LLM.
+///
+/// `call.name` must be `"transfer_to_agent"` or `"delegate_to_agent"`.
+pub(crate) fn parse_handoff(
+    from: &crate::agent::AgentId,
+    call: &orka_llm::client::ToolCall,
+) -> Handoff {
+    let to = call
+        .input
+        .get("agent_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let reason = call
+        .input
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let context_transfer: HashMap<String, serde_json::Value> = call
+        .input
+        .get("context")
+        .and_then(|v| v.as_object())
+        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+    let mode = if call.name == "transfer_to_agent" {
+        HandoffMode::Transfer
     } else {
-        "unknown".into()
+        HandoffMode::Delegate
+    };
+    Handoff {
+        from: from.clone(),
+        to: crate::agent::AgentId::from(to),
+        reason,
+        context_transfer,
+        mode,
     }
 }
 
-fn truncate_tool_result(content: &str, max_chars: usize) -> String {
-    if content.len() <= max_chars {
-        return content.to_string();
-    }
-    // Walk back from max_chars to find a valid UTF-8 char boundary.
-    // Equivalent to str::floor_char_boundary (stable since 1.91), which
-    // exceeds our MSRV of 1.85.
-    let mut boundary = max_chars;
-    while !content.is_char_boundary(boundary) {
-        boundary -= 1;
-    }
-    let truncated = &content[..boundary];
-    format!(
-        "{truncated}\n\n[truncated, showing first {boundary} chars of {} total]",
-        content.len()
-    )
-}
-
-/// Consume a streaming LLM response, rebuilding a `CompletionResponse`.
-pub async fn consume_stream(
-    mut stream: LlmToolStream,
-    session_id: &orka_core::SessionId,
-    stream_registry: &orka_core::StreamRegistry,
-    channel: &str,
-    reply_to: Option<&orka_core::MessageId>,
-) -> orka_core::Result<orka_llm::client::CompletionResponse> {
-    use futures_util::StreamExt;
-    use orka_core::stream::{StreamChunk, StreamChunkKind};
-
-    let mut text = String::new();
-    let mut thinking = String::new();
-    let mut tool_calls: Vec<ToolCall> = Vec::new();
-    let mut current_tool_id: Option<String> = None;
-    let mut current_tool_name: Option<String> = None;
-    let mut current_tool_input = String::new();
-    let mut usage = Usage::default();
-    let mut stop_reason = None;
-
-    while let Some(event) = stream.next().await {
-        let event = event?;
-        match event {
-            StreamEvent::ThinkingDelta(delta) => {
-                stream_registry.send(StreamChunk::new(
-                    *session_id,
-                    channel.to_string(),
-                    reply_to.copied(),
-                    StreamChunkKind::ThinkingDelta(delta.clone()),
-                ));
-                thinking.push_str(&delta);
-            }
-            StreamEvent::TextDelta(delta) => {
-                stream_registry.send(StreamChunk::new(
-                    *session_id,
-                    channel.to_string(),
-                    reply_to.copied(),
-                    StreamChunkKind::Delta(delta.clone()),
-                ));
-                text.push_str(&delta);
-            }
-            StreamEvent::ToolUseStart { id, name } => {
-                stream_registry.send(StreamChunk::new(
-                    *session_id,
-                    channel.to_string(),
-                    reply_to.copied(),
-                    StreamChunkKind::ToolStart {
-                        name: name.clone(),
-                        id: id.clone(),
-                    },
-                ));
-                current_tool_id = Some(id);
-                current_tool_name = Some(name);
-                current_tool_input.clear();
-            }
-            StreamEvent::ToolUseInputDelta(delta) => {
-                current_tool_input.push_str(&delta);
-            }
-            StreamEvent::ToolUseEnd { id, input } => {
-                let name = current_tool_name.take().unwrap_or_default();
-                let final_input = if input != serde_json::Value::Null {
-                    input
-                } else {
-                    serde_json::from_str(&current_tool_input).unwrap_or_else(|e| {
-                        warn!(%e, tool = %name, "malformed tool input JSON, using empty object");
-                        serde_json::Value::Object(Default::default())
-                    })
-                };
-                stream_registry.send(StreamChunk::new(
-                    *session_id,
-                    channel.to_string(),
-                    reply_to.copied(),
-                    StreamChunkKind::ToolEnd {
-                        id: id.clone(),
-                        success: true,
-                    },
-                ));
-                tool_calls.push(ToolCall::new(id, name, final_input));
-                current_tool_id = None;
-                current_tool_input.clear();
-            }
-            StreamEvent::Usage(u) => usage = u,
-            StreamEvent::Stop(reason) => stop_reason = Some(reason),
-            other => {
-                debug!(?other, "unhandled stream event");
-            }
-        }
-    }
-
-    if let Some(id) = current_tool_id {
-        stream_registry.send(StreamChunk::new(
-            *session_id,
-            channel.to_string(),
-            reply_to.copied(),
-            StreamChunkKind::ToolEnd { id, success: false },
-        ));
-    }
-
-    let mut blocks = Vec::new();
-    if !thinking.is_empty() {
-        blocks.push(ContentBlock::Thinking(thinking));
-    }
-    if !text.is_empty() {
-        blocks.push(ContentBlock::Text(text));
-    }
-    for call in tool_calls {
-        blocks.push(ContentBlock::ToolUse(call));
-    }
-
-    Ok(orka_llm::client::CompletionResponse::new(
-        blocks,
-        usage,
-        stop_reason,
-    ))
+/// Build a self-correction hint when a tool has failed too many times
+/// consecutively.  Returns `None` if no tool has reached the threshold.
+pub(crate) fn build_tool_error_hint(
+    counts: &HashMap<String, u32>,
+    max_retries: u32,
+) -> Option<String> {
+    counts.iter().find_map(|(name, &count)| {
+        (count >= max_retries).then(|| {
+            format!(
+                "Tool '{name}' has failed {count} consecutive times. \
+                 Consider an alternative approach."
+            )
+        })
+    })
 }
 
 /// Execute a single agent's LLM tool loop.
@@ -509,7 +418,41 @@ pub async fn run_agent_node(
     let max_result_chars: usize = 50_000;
     let skill_timeout = std::time::Duration::from_secs(agent.skill_timeout_secs);
 
-    let mut messages = ctx.messages().await;
+    let mut messages = {
+        use orka_core::config::HistoryFilter;
+        let raw = ctx.messages().await;
+        match (agent.history_filter, agent.history_filter_n) {
+            (HistoryFilter::None, _) => Vec::new(),
+            (HistoryFilter::LastN, Some(n)) if raw.len() > n => raw[raw.len() - n..].to_vec(),
+            _ => raw,
+        }
+    };
+    // Input guardrail: check the trigger text before entering the LLM loop.
+    // A Block terminates this node immediately; Modify replaces the trigger.
+    if let Some(ref guardrail) = deps.guardrail {
+        use orka_core::traits::GuardrailDecision;
+        let session = orka_core::Session::new(&ctx.trigger.channel, "");
+        match guardrail.check_input(&trigger_text, &session).await {
+            Ok(GuardrailDecision::Block(reason)) => {
+                warn!(agent = %agent.id, %reason, "input blocked by guardrail");
+                return Ok(AgentNodeResult {
+                    response: Some(format!("Input blocked: {reason}")),
+                    handoff: None,
+                    iterations: 0,
+                });
+            }
+            Ok(GuardrailDecision::Modify(filtered)) => {
+                // Swap the last user message with the filtered version
+                if let Some(last) = messages.last_mut()
+                    && matches!(last.role, orka_llm::client::Role::User)
+                {
+                    *last = orka_llm::client::ChatMessage::user(filtered);
+                }
+            }
+            _ => {}
+        }
+    }
+
     let mut iterations = 0usize;
     let mut final_response: Option<String> = None;
     let mut handoff: Option<Handoff> = None;
@@ -699,46 +642,9 @@ pub async fn run_agent_node(
         }
 
         if let Some(ref hc) = handoff_call {
-            // Parse handoff parameters
-            let target_id_str = hc
-                .input
-                .get("agent_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let reason = hc
-                .input
-                .get("reason")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let context_map: HashMap<String, serde_json::Value> = hc
-                .input
-                .get("context")
-                .and_then(|v| v.as_object())
-                .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-                .unwrap_or_default();
-
-            let mode = if hc.name == "transfer_to_agent" {
-                HandoffMode::Transfer
-            } else {
-                HandoffMode::Delegate
-            };
-
-            info!(
-                from = %agent.id,
-                to = %target_id_str,
-                ?mode,
-                "agent handoff"
-            );
-
-            handoff = Some(Handoff {
-                from: agent.id.clone(),
-                to: crate::agent::AgentId::from(target_id_str),
-                reason,
-                context_transfer: context_map,
-                mode,
-            });
+            let h = parse_handoff(&agent.id, hc);
+            info!(from = %agent.id, to = %h.to, mode = ?h.mode, "agent handoff");
+            handoff = Some(h);
 
             // Push the assistant message with the handoff tool call
             let mut blocks = Vec::new();
@@ -822,6 +728,30 @@ pub async fn run_agent_node(
         let mut join_set = tokio::task::JoinSet::new();
 
         for call in &skill_calls {
+            // Tool-input guardrail: check serialized args before execution.
+            // Blocked calls return an error result to the LLM without execution.
+            if let Some(ref guardrail) = deps.guardrail {
+                use orka_core::traits::GuardrailDecision;
+                let session = orka_core::Session::new(&ctx.trigger.channel, "");
+                let input_json = call.input.to_string();
+                match guardrail.check_input(&input_json, &session).await {
+                    Ok(GuardrailDecision::Block(reason)) => {
+                        warn!(skill = %call.name, %reason, "tool input blocked by guardrail");
+                        results_map.insert(
+                            call.id.clone(),
+                            (format!("Tool input blocked by guardrail: {reason}"), true),
+                        );
+                        continue;
+                    }
+                    Ok(GuardrailDecision::Modify(modified)) => {
+                        // Use modified args — the call is reconstructed below via call_input
+                        // We fall through; the override will be handled in the spawn
+                        let _ = modified; // TODO: thread modified args through spawn
+                    }
+                    _ => {}
+                }
+            }
+
             let call_id = call.id.clone();
             let call_name = call.name.clone();
             let call_input = call.input.clone();
@@ -957,16 +887,7 @@ pub async fn run_agent_node(
             }
         }
 
-        let mut hint_text: Option<String> = None;
-        for (tool_name, count) in &tool_error_counts {
-            if *count >= max_tool_retries {
-                hint_text = Some(format!(
-                    "Tool '{tool_name}' has failed {count} consecutive times. Consider an alternative approach."
-                ));
-                break;
-            }
-        }
-        if let Some(hint) = hint_text {
+        if let Some(hint) = build_tool_error_hint(&tool_error_counts, max_tool_retries) {
             result_blocks.push(ContentBlockInput::Text { text: hint });
         }
 
@@ -996,9 +917,256 @@ pub async fn run_agent_node(
 
     ctx.set_messages(messages).await;
 
+    // Output guardrail: filter the final text response before returning.
+    let final_response = match (final_response, &deps.guardrail) {
+        (Some(text), Some(guardrail)) => {
+            use orka_core::traits::GuardrailDecision;
+            let session = orka_core::Session::new(&ctx.trigger.channel, "");
+            match guardrail.check_output(&text, &session).await {
+                Ok(GuardrailDecision::Allow) | Err(_) => Some(text),
+                Ok(GuardrailDecision::Block(reason)) => {
+                    warn!(agent = %agent.id, %reason, "output blocked by guardrail");
+                    Some(format!("Response blocked by content policy: {reason}"))
+                }
+                Ok(GuardrailDecision::Modify(filtered)) => Some(filtered),
+                Ok(other) => {
+                    warn!(?other, "unhandled guardrail decision, passing through");
+                    Some(text)
+                }
+            }
+        }
+        (resp, _) => resp,
+    };
+
     Ok(AgentNodeResult {
         response: final_response,
         handoff,
         iterations,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use orka_core::{
+        Envelope, SessionId, StreamRegistry,
+        testing::{InMemoryEventSink, InMemoryMemoryStore, InMemorySecretManager},
+    };
+    use orka_llm::{
+        client::StopReason,
+        testing::{CompletionResponseBuilder, MockLlmClient},
+    };
+    use orka_skills::SkillRegistry;
+
+    use super::*;
+    use crate::{
+        agent::{Agent, AgentId},
+        context::ExecutionContext,
+        executor::ExecutorDeps,
+        graph::AgentGraph,
+        handoff::HandoffMode,
+    };
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    fn minimal_deps(mock: MockLlmClient) -> ExecutorDeps {
+        ExecutorDeps {
+            skills: Arc::new(SkillRegistry::new()),
+            memory: Arc::new(InMemoryMemoryStore::new()),
+            secrets: Arc::new(InMemorySecretManager::new()),
+            llm: Some(Arc::new(mock)),
+            event_sink: Arc::new(InMemoryEventSink::new()),
+            stream_registry: StreamRegistry::new(),
+            experience: None,
+            soft_skills: None,
+            templates: None,
+            coding_runtime: None,
+            guardrail: None,
+        }
+    }
+
+    fn minimal_ctx() -> ExecutionContext {
+        ExecutionContext::new(Envelope::text("ch", SessionId::new(), "hello"))
+    }
+
+    fn minimal_graph(agent_id: &AgentId) -> AgentGraph {
+        AgentGraph::new("test-graph", agent_id.clone())
+    }
+
+    // ── Unit tests: pure helpers ──────────────────────────────────────────────
+
+    #[test]
+    fn parse_handoff_sets_transfer_mode() {
+        let from = AgentId::new("a");
+        let call = orka_llm::client::ToolCall::new(
+            "id1",
+            "transfer_to_agent",
+            serde_json::json!({"agent_id": "b", "reason": "needs it"}),
+        );
+        let h = parse_handoff(&from, &call);
+        assert_eq!(h.from, from);
+        assert_eq!(h.to, AgentId::from("b"));
+        assert_eq!(h.reason, "needs it");
+        assert_eq!(h.mode, HandoffMode::Transfer);
+    }
+
+    #[test]
+    fn parse_handoff_sets_delegate_mode() {
+        let from = AgentId::new("a");
+        let call = orka_llm::client::ToolCall::new(
+            "id2",
+            "delegate_to_agent",
+            serde_json::json!({"agent_id": "c", "reason": "sub-task"}),
+        );
+        let h = parse_handoff(&from, &call);
+        assert_eq!(h.mode, HandoffMode::Delegate);
+        assert_eq!(h.to, AgentId::from("c"));
+    }
+
+    #[test]
+    fn parse_handoff_transfers_context_map() {
+        let from = AgentId::new("a");
+        let call = orka_llm::client::ToolCall::new(
+            "id3",
+            "transfer_to_agent",
+            serde_json::json!({
+                "agent_id": "b",
+                "reason": "r",
+                "context": {"key": "value"}
+            }),
+        );
+        let h = parse_handoff(&from, &call);
+        assert_eq!(
+            h.context_transfer.get("key"),
+            Some(&serde_json::json!("value"))
+        );
+    }
+
+    #[test]
+    fn build_tool_error_hint_returns_none_below_threshold() {
+        let mut counts = HashMap::new();
+        counts.insert("my_tool".to_string(), 1u32);
+        assert!(build_tool_error_hint(&counts, 2).is_none());
+    }
+
+    #[test]
+    fn build_tool_error_hint_returns_some_at_threshold() {
+        let mut counts = HashMap::new();
+        counts.insert("my_tool".to_string(), 2u32);
+        let hint = build_tool_error_hint(&counts, 2).expect("expected hint");
+        assert!(hint.contains("my_tool"));
+        assert!(hint.contains("2"));
+    }
+
+    #[test]
+    fn build_tool_error_hint_returns_none_for_empty_counts() {
+        assert!(build_tool_error_hint(&HashMap::new(), 2).is_none());
+    }
+
+    // ── Integration tests: run_agent_node ────────────────────────────────────
+
+    #[tokio::test]
+    async fn simple_text_response() {
+        let mock = MockLlmClient::new().with_tool_response(
+            CompletionResponseBuilder::new()
+                .text("Hello from mock!")
+                .stop_reason(StopReason::EndTurn)
+                .build(),
+        );
+        let agent = Agent::new(AgentId::new("test"), "Test");
+        let ctx = minimal_ctx();
+        let deps = minimal_deps(mock);
+        let graph = minimal_graph(&agent.id);
+
+        let result = run_agent_node(&agent, &ctx, &deps, &graph).await.unwrap();
+
+        assert_eq!(result.response, Some("Hello from mock!".to_string()));
+        assert!(result.handoff.is_none());
+        assert_eq!(result.iterations, 1);
+    }
+
+    #[tokio::test]
+    async fn no_llm_returns_fallback_message() {
+        let deps = ExecutorDeps {
+            skills: Arc::new(SkillRegistry::new()),
+            memory: Arc::new(InMemoryMemoryStore::new()),
+            secrets: Arc::new(InMemorySecretManager::new()),
+            llm: None,
+            event_sink: Arc::new(InMemoryEventSink::new()),
+            stream_registry: StreamRegistry::new(),
+            experience: None,
+            soft_skills: None,
+            templates: None,
+            coding_runtime: None,
+            guardrail: None,
+        };
+        let agent = Agent::new(AgentId::new("test"), "Test");
+        let ctx = minimal_ctx();
+        let graph = minimal_graph(&agent.id);
+
+        let result = run_agent_node(&agent, &ctx, &deps, &graph).await.unwrap();
+
+        assert!(result.response.is_some());
+        assert_eq!(result.iterations, 0);
+    }
+
+    #[tokio::test]
+    async fn handoff_detection_transfer() {
+        let mock = MockLlmClient::new().with_tool_response(
+            CompletionResponseBuilder::new()
+                .tool_use(
+                    "hid1",
+                    "transfer_to_agent",
+                    serde_json::json!({"agent_id": "specialist", "reason": "complex query"}),
+                )
+                .stop_reason(StopReason::ToolUse)
+                .build(),
+        );
+        let agent = Agent::new(AgentId::new("main"), "Main");
+        let ctx = minimal_ctx();
+        let deps = minimal_deps(mock);
+        let graph = minimal_graph(&agent.id);
+
+        let result = run_agent_node(&agent, &ctx, &deps, &graph).await.unwrap();
+
+        let handoff = result.handoff.expect("expected a handoff");
+        assert_eq!(handoff.to, AgentId::from("specialist"));
+        assert_eq!(handoff.reason, "complex query");
+        assert_eq!(handoff.mode, HandoffMode::Transfer);
+    }
+
+    #[tokio::test]
+    async fn max_iterations_cap() {
+        // Queue enough tool-call responses to saturate max_iterations.
+        // The skill registry is empty so every tool call returns an error,
+        // keeping the loop running until it hits the cap.
+        let tool_resp = CompletionResponseBuilder::new()
+            .tool_use("id1", "nonexistent", serde_json::json!({}))
+            .stop_reason(StopReason::ToolUse)
+            .build();
+        let mock = (0..5).fold(MockLlmClient::new(), |m, _| {
+            m.with_tool_response(tool_resp.clone())
+        });
+
+        let mut agent = Agent::new(AgentId::new("test"), "Test");
+        agent.max_iterations = 3;
+
+        let ctx = minimal_ctx();
+        let deps = minimal_deps(mock);
+        let graph = minimal_graph(&agent.id);
+
+        let result = run_agent_node(&agent, &ctx, &deps, &graph).await.unwrap();
+
+        assert_eq!(result.iterations, 3);
+        let response = result.response.unwrap_or_default();
+        assert!(
+            response.contains("maximum"),
+            "expected max-iterations message, got: {response}"
+        );
+    }
 }

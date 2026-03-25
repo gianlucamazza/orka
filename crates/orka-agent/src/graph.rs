@@ -127,6 +127,11 @@ impl AgentGraph {
         self.nodes.get(id)
     }
 
+    /// Look up a node mutably by agent id.
+    pub fn get_node_mut(&mut self, id: &AgentId) -> Option<&mut GraphNode> {
+        self.nodes.get_mut(id)
+    }
+
     /// Get outgoing edges from a node, sorted by priority.
     pub fn outgoing_edges(&self, from: &AgentId) -> Vec<&Edge> {
         let mut edges: Vec<&Edge> = self

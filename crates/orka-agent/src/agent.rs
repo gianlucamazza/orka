@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use orka_core::config::HistoryFilter;
 use orka_llm::ThinkingConfig;
 use orka_prompts::{
     pipeline::{BuildContext, PipelineConfig, SystemPromptPipeline},
@@ -186,6 +187,11 @@ pub struct Agent {
     /// Enable progressive tool disclosure (start with synthetic discovery tools
     /// only).
     pub progressive_disclosure: bool,
+    /// Strategy for filtering conversation history when this agent receives a
+    /// handoff.
+    pub history_filter: HistoryFilter,
+    /// Number of messages to keep when `history_filter` is `LastN`.
+    pub history_filter_n: Option<usize>,
 }
 
 impl Agent {
@@ -203,6 +209,8 @@ impl Agent {
             skill_max_output_bytes: None,
             skill_max_duration_ms: None,
             progressive_disclosure: false,
+            history_filter: HistoryFilter::default(),
+            history_filter_n: None,
         }
     }
 }

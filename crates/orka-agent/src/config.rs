@@ -1,6 +1,7 @@
 //! Translates `OrkaConfig` into `Agent` and `AgentGraph` objects.
 
-use orka_core::config::{AgentDef, OrkaConfig};
+use orka_core::config::{AgentDef, NodeKindDef, OrkaConfig};
+use orka_llm::{ThinkingConfig, ThinkingEffort};
 use orka_workspace::WorkspaceRegistry;
 
 use crate::{
@@ -27,11 +28,12 @@ pub async fn build_graph_from_config(
         )
     })?;
 
-    // Use first agent as entry point (new simplified model)
-    let entry_id = config
-        .agents
-        .first()
-        .map(|a| AgentId::from(a.id.as_str()))
+    // Entry point: explicit `graph.entry` overrides first agent in array
+    let entry_id = graph_def
+        .entry
+        .as_deref()
+        .map(AgentId::from)
+        .or_else(|| config.agents.first().map(|a| AgentId::from(a.id.as_str())))
         .unwrap_or_else(|| AgentId::from("default"));
 
     // Build graph with max_hops from config
@@ -40,10 +42,13 @@ pub async fn build_graph_from_config(
     // Build nodes from agent definitions
     for agent_def in &config.agents {
         let agent = build_agent_from_def(agent_def, workspace_registry).await;
-        graph.add_node(GraphNode {
-            agent,
-            kind: NodeKind::Agent,
-        });
+        let kind = match agent_def.kind {
+            NodeKindDef::Agent => NodeKind::Agent,
+            NodeKindDef::Router => NodeKind::Router,
+            NodeKindDef::FanOut => NodeKind::FanOut,
+            NodeKindDef::FanIn => NodeKind::FanIn,
+        };
+        graph.add_node(GraphNode { agent, kind });
     }
 
     // Build edges from graph definition
@@ -88,6 +93,29 @@ pub async fn build_graph_from_config(
         );
     }
 
+    // Derive handoff_targets for Agent-kind nodes from their outgoing edges.
+    // Router / FanOut / FanIn nodes use structural routing and must not receive
+    // handoff tools.
+    let agent_ids: Vec<AgentId> = config
+        .agents
+        .iter()
+        .filter(|a| a.kind == NodeKindDef::Agent)
+        .map(|a| AgentId::from(a.id.as_str()))
+        .collect();
+
+    for agent_id in agent_ids {
+        let targets: Vec<AgentId> = graph
+            .outgoing_edges(&agent_id)
+            .into_iter()
+            .map(|e| e.target.clone())
+            .collect();
+        if !targets.is_empty()
+            && let Some(node) = graph.get_node_mut(&agent_id)
+        {
+            node.agent.handoff_targets = targets;
+        }
+    }
+
     Ok(graph)
 }
 
@@ -117,13 +145,35 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
     agent.system_prompt = system_prompt;
     agent.max_iterations = cfg.max_iterations;
 
+    let thinking = cfg.thinking.as_deref().map(|effort| {
+        let level = match effort.to_lowercase().as_str() {
+            "low" => ThinkingEffort::Low,
+            "medium" => ThinkingEffort::Medium,
+            "high" => ThinkingEffort::High,
+            "max" => ThinkingEffort::Max,
+            other => {
+                tracing::warn!(
+                    agent = %def.id,
+                    value = %other,
+                    "unknown thinking effort value, falling back to medium"
+                );
+                ThinkingEffort::Medium
+            }
+        };
+        ThinkingConfig::Adaptive { effort: level }
+    });
+
     // Use simplified LLM config
     agent.llm_config = AgentLlmConfig {
         model: Some(cfg.model.clone()),
         max_tokens: Some(cfg.max_tokens),
         temperature: Some(cfg.temperature),
+        thinking,
         ..Default::default()
     };
+
+    agent.history_filter = cfg.history_filter;
+    agent.history_filter_n = cfg.history_filter_n;
 
     // Use allowed/denied tools from config
     agent.tools = if cfg.allowed_tools.is_empty() && cfg.denied_tools.is_empty() {
@@ -237,6 +287,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn node_kind_router_maps_correctly() {
+        use orka_core::config::NodeKindDef;
+        use crate::graph::NodeKind;
+
+        let mut config = base_config();
+        let mut router = agent_def("router");
+        router.kind = NodeKindDef::Router;
+        let worker = agent_def("worker");
+        let mut graph_def = GraphDef::default();
+        graph_def.edges = vec![EdgeDef::new("router", "worker")];
+        config.agents = vec![router, worker];
+        config.graph = Some(graph_def);
+
+        let registry = make_registry();
+        let graph = super::build_graph_from_config(&config, &registry)
+            .await
+            .expect("build failed");
+
+        let router_id = crate::agent::AgentId::new("router");
+        let node = graph.get_node(&router_id).expect("router node missing");
+        assert!(matches!(node.kind, NodeKind::Router));
+        // Router nodes must not get handoff targets
+        assert!(node.agent.handoff_targets.is_empty());
+    }
+
+    #[tokio::test]
+    async fn entry_from_config_overrides_first_agent() {
+        let mut config = base_config();
+        config.agents = vec![agent_def("a"), agent_def("b")];
+        let mut graph_def = GraphDef::default();
+        graph_def.entry = Some("b".to_string());
+        graph_def.edges = vec![EdgeDef::new("b", "a")];
+        config.graph = Some(graph_def);
+
+        let registry = make_registry();
+        let graph = super::build_graph_from_config(&config, &registry)
+            .await
+            .expect("build failed");
+
+        assert_eq!(graph.entry, crate::agent::AgentId::new("b"));
+    }
+
+    #[tokio::test]
+    async fn handoff_targets_derived_for_agent_nodes() {
+        let mut config = base_config();
+        config.agents = vec![agent_def("src"), agent_def("dst")];
+        let mut graph_def = GraphDef::default();
+        graph_def.edges = vec![EdgeDef::new("src", "dst")];
+        config.graph = Some(graph_def);
+
+        let registry = make_registry();
+        let graph = super::build_graph_from_config(&config, &registry)
+            .await
+            .expect("build failed");
+
+        let src_id = crate::agent::AgentId::new("src");
+        let node = graph.get_node(&src_id).expect("src missing");
+        assert_eq!(node.agent.handoff_targets, vec![crate::agent::AgentId::new("dst")]);
+    }
+
+    #[tokio::test]
+    async fn node_kind_fan_out_maps_correctly() {
+        use orka_core::config::NodeKindDef;
+        use crate::graph::NodeKind;
+
+        let mut config = base_config();
+        let mut fanout = agent_def("fanout");
+        fanout.kind = NodeKindDef::FanOut;
+        let mut graph_def = GraphDef::default();
+        graph_def.edges = vec![
+            EdgeDef::new("fanout", "worker_a"),
+            EdgeDef::new("fanout", "worker_b"),
+        ];
+        config.agents = vec![fanout, agent_def("worker_a"), agent_def("worker_b")];
+        config.graph = Some(graph_def);
+
+        let registry = make_registry();
+        let graph = super::build_graph_from_config(&config, &registry)
+            .await
+            .expect("build failed");
+
+        let fanout_id = crate::agent::AgentId::new("fanout");
+        let node = graph.get_node(&fanout_id).expect("fanout missing");
+        assert!(matches!(node.kind, NodeKind::FanOut));
+        // FanOut nodes must not get handoff targets
+        assert!(node.agent.handoff_targets.is_empty());
+    }
+
+    #[tokio::test]
     async fn agents_without_graph_section_returns_error() {
         let mut config = base_config();
         config.agents = vec![agent_def("solo")];
@@ -244,5 +383,41 @@ mod tests {
         let registry = make_registry();
         let result = super::build_graph_from_config(&config, &registry).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn thinking_effort_high_builds_adaptive_config() {
+        let mut def = agent_def("thinker");
+        def.config.thinking = Some("high".to_string());
+        let registry = make_registry();
+        let agent = super::build_agent_from_def(&def, &registry).await;
+        assert!(matches!(
+            agent.llm_config.thinking,
+            Some(orka_llm::ThinkingConfig::Adaptive {
+                effort: orka_llm::ThinkingEffort::High
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn thinking_effort_max_builds_adaptive_config() {
+        let mut def = agent_def("thinker");
+        def.config.thinking = Some("max".to_string());
+        let registry = make_registry();
+        let agent = super::build_agent_from_def(&def, &registry).await;
+        assert!(matches!(
+            agent.llm_config.thinking,
+            Some(orka_llm::ThinkingConfig::Adaptive {
+                effort: orka_llm::ThinkingEffort::Max
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn thinking_absent_leaves_thinking_none() {
+        let def = agent_def("plain");
+        let registry = make_registry();
+        let agent = super::build_agent_from_def(&def, &registry).await;
+        assert!(agent.llm_config.thinking.is_none());
     }
 }

@@ -1,5 +1,6 @@
 [package]
 name = "orka-agent"
+description = "Agent orchestration, multi-agent graph execution, and tool dispatch"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

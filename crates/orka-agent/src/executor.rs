@@ -4,7 +4,7 @@ use std::{path::Path, sync::Arc, time::Instant};
 
 use orka_core::{
     DomainEvent, DomainEventKind, OutboundMessage, Payload,
-    traits::{EventSink, MemoryStore, SecretManager},
+    traits::{EventSink, Guardrail, MemoryStore, SecretManager},
 };
 use orka_experience::ExperienceService;
 use orka_llm::client::LlmClient;
@@ -154,6 +154,9 @@ pub struct ExecutorDeps {
     pub templates: Option<Arc<TemplateRegistry>>,
     /// Runtime status for Orka's coding delegation layer.
     pub coding_runtime: Option<CodingRuntimeStatus>,
+    /// Optional guardrail applied to input, tool calls, and output within
+    /// every agent node in this graph.
+    pub guardrail: Option<Arc<dyn Guardrail>>,
 }
 
 /// Result of a complete graph execution.
@@ -353,6 +356,21 @@ impl GraphExecutor {
                                     to = %handoff.to,
                                     "agent transfer"
                                 );
+                                // Inject structured context provided by the
+                                // source agent so the target has visibility
+                                if !handoff.context_transfer.is_empty()
+                                    && let Ok(json) = serde_json::to_string_pretty(
+                                        &handoff.context_transfer,
+                                    )
+                                {
+                                    ctx.push_message(orka_llm::client::ChatMessage::user(
+                                        format!(
+                                            "[Handoff context from {}]: {json}",
+                                            handoff.from
+                                        ),
+                                    ))
+                                    .await;
+                                }
                                 current_id = handoff.to;
                                 continue;
                             }
@@ -363,6 +381,19 @@ impl GraphExecutor {
                                     to = %handoff.to,
                                     "agent delegate"
                                 );
+                                if !handoff.context_transfer.is_empty()
+                                    && let Ok(json) = serde_json::to_string_pretty(
+                                        &handoff.context_transfer,
+                                    )
+                                {
+                                    ctx.push_message(orka_llm::client::ChatMessage::user(
+                                        format!(
+                                            "[Handoff context from {}]: {json}",
+                                            handoff.from
+                                        ),
+                                    ))
+                                    .await;
+                                }
                                 let target_node = match graph.get_node(&handoff.to) {
                                     Some(n) => n,
                                     None => {
