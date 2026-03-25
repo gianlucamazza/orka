@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use axum::{extract::Path, response::IntoResponse};
-use orka_core::traits::PriorityQueue;
+use orka_core::traits::DeadLetterQueue;
 
-pub(super) fn routes(queue: Arc<dyn PriorityQueue>) -> axum::Router {
+pub(super) fn routes(queue: Arc<dyn DeadLetterQueue>) -> axum::Router {
     let q1 = queue.clone();
     let q2 = queue.clone();
     let q3 = queue;
@@ -18,7 +18,7 @@ pub(super) fn routes(queue: Arc<dyn PriorityQueue>) -> axum::Router {
                 move || {
                     let q = q.clone();
                     async move {
-                        match q.list_dlq().await {
+                        match q.list().await {
                             Ok(items) => {
                                 let json: Vec<serde_json::Value> = items
                                     .iter()
@@ -48,7 +48,7 @@ pub(super) fn routes(queue: Arc<dyn PriorityQueue>) -> axum::Router {
                 move || {
                     let q = q.clone();
                     async move {
-                        match q.purge_dlq().await {
+                        match q.purge().await {
                             Ok(count) => {
                                 axum::Json(serde_json::json!({ "purged": count })).into_response()
                             }
@@ -76,7 +76,7 @@ pub(super) fn routes(queue: Arc<dyn PriorityQueue>) -> axum::Router {
                                     .into_response();
                             }
                         };
-                        match q.replay_dlq(&msg_id).await {
+                        match q.replay(&msg_id).await {
                             Ok(true) => {
                                 axum::Json(serde_json::json!({ "replayed": true })).into_response()
                             }

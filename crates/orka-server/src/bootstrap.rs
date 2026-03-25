@@ -7,10 +7,10 @@ use anyhow::Context;
 use orka_bus::create_bus;
 use orka_core::{OutboundMessage, Payload, config::OrkaConfig};
 use orka_gateway::Gateway;
-use orka_queue::create_queue;
+use orka_queue::{QueueBundle, create_queue};
 use orka_server::router::{BUILD_DATE, GIT_SHA, RouterParams, VERSION, build_router};
 use orka_session::create_session_store;
-use orka_worker::{CommandRegistry, WorkerPoolGraph};
+use orka_worker::{CommandRegistry, GraphDispatcher, WorkerPool};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -28,22 +28,22 @@ fn select_coding_backend(
     config: &orka_core::config::CodingConfig,
     claude_available: bool,
     codex_available: bool,
-) -> Option<&'static str> {
-    match config.default_provider.as_str() {
-        "claude_code" => claude_available.then_some("claude_code"),
-        "codex" => codex_available.then_some("codex"),
-        "auto" => match config.selection_policy.as_str() {
-            "prefer_claude" => claude_available
-                .then_some("claude_code")
-                .or_else(|| codex_available.then_some("codex")),
-            "prefer_codex" => codex_available
-                .then_some("codex")
-                .or_else(|| claude_available.then_some("claude_code")),
-            _ => claude_available
-                .then_some("claude_code")
-                .or_else(|| codex_available.then_some("codex")),
+) -> Option<orka_core::config::CodingProvider> {
+    use orka_core::config::{CodingProvider, CodingSelectionPolicy};
+    match config.default_provider {
+        CodingProvider::ClaudeCode => claude_available.then_some(CodingProvider::ClaudeCode),
+        CodingProvider::Codex => codex_available.then_some(CodingProvider::Codex),
+        CodingProvider::Auto => match config.selection_policy {
+            CodingSelectionPolicy::PreferClaude => claude_available
+                .then_some(CodingProvider::ClaudeCode)
+                .or_else(|| codex_available.then_some(CodingProvider::Codex)),
+            CodingSelectionPolicy::PreferCodex => codex_available
+                .then_some(CodingProvider::Codex)
+                .or_else(|| claude_available.then_some(CodingProvider::ClaudeCode)),
+            CodingSelectionPolicy::Availability => claude_available
+                .then_some(CodingProvider::ClaudeCode)
+                .or_else(|| codex_available.then_some(CodingProvider::Codex)),
         },
-        _ => None,
     }
 }
 
@@ -99,9 +99,12 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     // 3. Create infra
     let bus = create_bus(&config).context("failed to create message bus")?;
     let sessions = create_session_store(&config).context("failed to create session store")?;
-    let queue = create_queue(&config).context("failed to create priority queue")?;
-    let memory =
-        orka_memory::create_memory_store(&config).context("failed to create memory store")?;
+    let QueueBundle { queue, dlq } =
+        create_queue(&config).context("failed to create priority queue")?;
+    let orka_memory::MemoryBundle {
+        store: memory,
+        lock: memory_lock,
+    } = orka_memory::create_memory_store(&config).context("failed to create memory store")?;
     info!("memory store ready");
     let secrets =
         orka_secrets::create_secret_manager(&config).context("failed to create secret manager")?;
@@ -288,8 +291,9 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         let codex_available = config.os.coding.providers.codex.enabled && caps.codex.available;
         let selected_backend =
             select_coding_backend(&config.os.coding, claude_code_available, codex_available);
+        use orka_core::config::CodingProvider;
         let (file_modifications_allowed, command_execution_allowed) = match selected_backend {
-            Some("claude_code") => (
+            Some(CodingProvider::ClaudeCode) => (
                 config
                     .os
                     .coding
@@ -303,7 +307,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                     .claude_code
                     .allow_command_execution,
             ),
-            Some("codex") => (
+            Some(CodingProvider::Codex) => (
                 config.os.coding.providers.codex.allow_file_modifications,
                 config.os.coding.providers.codex.allow_command_execution,
             ),
@@ -311,11 +315,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         };
         coding_runtime = Some(orka_agent::executor::CodingRuntimeStatus {
             tool_available: config.os.coding.enabled && (claude_code_available || codex_available),
-            default_provider: config.os.coding.default_provider.clone(),
-            selection_policy: config.os.coding.selection_policy.clone(),
+            default_provider: config.os.coding.default_provider.to_string(),
+            selection_policy: config.os.coding.selection_policy.to_string(),
             claude_code_available,
             codex_available,
-            selected_backend: selected_backend.map(str::to_string),
+            selected_backend: selected_backend.map(|p| p.to_string()),
             file_modifications_allowed,
             command_execution_allowed,
             allowed_paths: config.os.allowed_paths.clone(),
@@ -561,6 +565,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
 
     let health_app = build_router(RouterParams {
         queue: queue.clone(),
+        dlq: dlq.clone(),
         skills: skills.clone(),
         soft_skills: soft_skills.clone(),
         sessions: sessions.clone(),
@@ -596,6 +601,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
 
     // 14. Executor + worker pool
     let memory_for_worker = memory.clone();
+    let memory_lock_for_worker = memory_lock.clone();
     let executor = Arc::new(orka_agent::GraphExecutor::new(orka_agent::ExecutorDeps {
         skills: skills.clone(),
         memory,
@@ -607,21 +613,27 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         soft_skills,
         templates,
         coding_runtime,
+        guardrail,
     }));
 
-    let worker_pool = WorkerPoolGraph::new(
+    let dispatcher = Arc::new(GraphDispatcher::new(
+        executor,
+        graph,
+        Some(memory_for_worker),
+        Some(commands.clone()),
+    ));
+    let worker_pool = WorkerPool::new(
         queue.clone(),
         sessions.clone(),
         bus.clone(),
-        executor,
-        graph,
+        dispatcher,
         event_sink.clone(),
         config.worker.concurrency,
         config.queue.max_retries,
     )
     .with_retry_delay(config.worker.retry_base_delay_ms)
-    .with_memory(memory_for_worker)
-    .with_commands(commands.clone());
+    .with_session_lock(memory_lock_for_worker)
+    .with_dlq(dlq.clone());
     let worker_cancel = shutdown.clone();
     let worker_handle = tokio::spawn(async move {
         if let Err(e) = worker_pool.run(worker_cancel).await {
@@ -629,13 +641,13 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         }
     });
 
-    // 14. Scheduler loop
+    // 15. Scheduler loop
     let _scheduler_handle = if let Some(store) = scheduler_store {
         let scheduler = orka_scheduler::Scheduler::new(
             store,
             Arc::new(SchedulerSkillRegistryAdapter(skills.clone())),
-            30,
-            4,
+            config.scheduler.poll_interval_secs,
+            config.scheduler.max_concurrent,
         );
         let scheduler_cancel = shutdown.clone();
         Some(tokio::spawn(async move {
@@ -645,7 +657,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         None
     };
 
-    // 15. Distillation loop
+    // 16. Distillation loop
     let _distillation_handle = if let Some(ref exp) = experience_service {
         let interval_secs = config.experience.distillation_interval_secs;
         if interval_secs > 0 {
@@ -691,7 +703,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         None
     };
 
-    // 16. Outbound bridge: bus "outbound" → route to correct adapter by channel
+    // 17. Outbound bridge: bus "outbound" → route to correct adapter by channel
     let mut outbound_rx = bus.subscribe("outbound").await?;
     let adapters_out = adapters.clone();
     let outbound_cancel = shutdown.clone();
@@ -734,7 +746,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         }
     });
 
-    // 17. Signal ready + wait for shutdown
+    // 18. Signal ready + wait for shutdown
     let _ = sd_notify::notify(true, &[sd_notify::NotifyState::Ready]);
     info!(
         listen = %format_args!("{}:{}", config.server.host, config.server.port),
@@ -747,7 +759,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         _ = sigterm.recv() => info!("received SIGTERM"),
     }
 
-    // 18. Graceful shutdown
+    // 19. Graceful shutdown
     let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
     info!("shutting down...");
     for adapter in &adapters {

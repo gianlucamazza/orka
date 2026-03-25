@@ -55,7 +55,7 @@ pub(crate) fn create_experience_service(
                 .max_tokens
                 .unwrap_or(config.llm.default_max_tokens),
             first_provider.max_retries.unwrap_or(2),
-            "2023-06-01".into(),
+            orka_llm::ANTHROPIC_API_VERSION.into(),
             first_provider.base_url.clone(),
         )),
     };
@@ -71,7 +71,7 @@ pub(crate) fn create_experience_service(
                 orka_knowledge::embeddings::openai::OpenAiEmbeddingProvider::new(
                     api_key,
                     config.knowledge.embeddings.model.clone(),
-                    1536,
+                    orka_knowledge::embeddings::OPENAI_EMBEDDING_DIMS,
                 ),
             )
         }
@@ -83,7 +83,7 @@ pub(crate) fn create_experience_service(
                     .vector_store
                     .dimension
                     .try_into()
-                    .unwrap_or(384),
+                    .unwrap_or(orka_knowledge::embeddings::LOCAL_EMBEDDING_DIMS),
             )
             .map_err(|e| anyhow::anyhow!("failed to create local embedding provider: {e}"))?,
         ),
@@ -97,7 +97,7 @@ pub(crate) fn create_experience_service(
                 .vector_store
                 .url
                 .as_deref()
-                .unwrap_or("http://localhost:6333"),
+                .unwrap_or(&orka_core::config::defaults::default_qdrant_url()),
         )
         .map_err(|e| anyhow::anyhow!("failed to create Qdrant store: {e}"))?,
     );

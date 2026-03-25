@@ -24,7 +24,7 @@ use orka_core::{
     traits::MessageBus,
 };
 use orka_gateway::Gateway;
-use orka_worker::{EchoHandler, WorkerPool};
+use orka_worker::{EchoHandler, HandlerDispatcher, WorkerPool};
 use orka_workspace::WorkspaceLoader;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -65,7 +65,7 @@ async fn start_pipeline() -> (
     });
 
     // 2. Start worker pool with EchoHandler
-    let handler: Arc<dyn orka_worker::AgentHandler> = Arc::new(EchoHandler);
+    let handler = Arc::new(HandlerDispatcher::new(Arc::new(EchoHandler)));
     let worker_pool = WorkerPool::new(
         queue.clone(),
         sessions.clone(),

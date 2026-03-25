@@ -48,8 +48,10 @@ pub fn test_router() -> axum::Router {
     let mut skills = SkillRegistry::new();
     skills.register(Arc::new(EchoSkill));
 
+    let q = Arc::new(InMemoryQueue::new());
     build_router(RouterParams {
-        queue: Arc::new(InMemoryQueue::new()),
+        queue: q.clone(),
+        dlq: q,
         skills: Arc::new(skills),
         soft_skills: None,
         sessions: Arc::new(InMemorySessionStore::new()),
@@ -84,8 +86,10 @@ pub fn test_router_with_auth(key: &str) -> axum::Router {
     let authenticator = Arc::new(ApiKeyAuthenticator::new(&entries));
     let auth_layer = Some(AuthLayer::new(authenticator, auth_cfg));
 
+    let q = Arc::new(InMemoryQueue::new());
     build_router(RouterParams {
-        queue: Arc::new(InMemoryQueue::new()),
+        queue: q.clone(),
+        dlq: q,
         skills: Arc::new(skills),
         soft_skills: None,
         sessions: Arc::new(InMemorySessionStore::new()),

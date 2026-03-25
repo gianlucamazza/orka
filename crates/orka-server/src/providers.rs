@@ -119,10 +119,13 @@ pub(crate) async fn build_llm_clients(
                     Arc::new(orka_llm::AnthropicClient::with_options(
                         k,
                         model,
-                        pc.timeout_secs.unwrap_or(30),
-                        pc.max_tokens.unwrap_or(8192),
-                        pc.max_retries.unwrap_or(2),
-                        "2023-06-01".into(),
+                        pc.timeout_secs
+                            .unwrap_or(orka_core::config::defaults::default_llm_timeout_secs()),
+                        pc.max_tokens
+                            .unwrap_or(orka_core::config::defaults::default_llm_max_tokens()),
+                        pc.max_retries
+                            .unwrap_or(orka_core::config::defaults::default_llm_max_retries()),
+                        orka_llm::ANTHROPIC_API_VERSION.into(),
                         pc.base_url.clone(),
                     )) as Arc<dyn orka_llm::LlmClient>
                 })
@@ -141,9 +144,12 @@ pub(crate) async fn build_llm_clients(
                     Arc::new(orka_llm::OpenAiClient::with_options(
                         k,
                         model,
-                        pc.timeout_secs.unwrap_or(30),
-                        pc.max_tokens.unwrap_or(8192),
-                        pc.max_retries.unwrap_or(2),
+                        pc.timeout_secs
+                            .unwrap_or(orka_core::config::defaults::default_llm_timeout_secs()),
+                        pc.max_tokens
+                            .unwrap_or(orka_core::config::defaults::default_llm_max_tokens()),
+                        pc.max_retries
+                            .unwrap_or(orka_core::config::defaults::default_llm_max_retries()),
                         url,
                     )) as Arc<dyn orka_llm::LlmClient>
                 })

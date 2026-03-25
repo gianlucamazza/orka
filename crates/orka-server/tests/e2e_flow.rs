@@ -12,7 +12,7 @@ use orka_core::{
     traits::{MessageBus, PriorityQueue},
 };
 use orka_gateway::Gateway;
-use orka_worker::{EchoHandler, WorkerPool};
+use orka_worker::{EchoHandler, HandlerDispatcher, WorkerPool};
 use tokio_util::sync::CancellationToken;
 
 #[tokio::test]
@@ -48,7 +48,7 @@ async fn full_message_flow_echo() {
     });
 
     // 5. Start worker pool with EchoHandler (1 worker, 0 retries)
-    let handler: Arc<dyn orka_worker::AgentHandler> = Arc::new(EchoHandler);
+    let handler = Arc::new(HandlerDispatcher::new(Arc::new(EchoHandler)));
     let worker_pool = WorkerPool::new(
         queue.clone(),
         sessions.clone(),

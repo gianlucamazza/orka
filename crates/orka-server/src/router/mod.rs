@@ -14,7 +14,7 @@ use std::sync::Arc;
 use orka_a2a::A2aState;
 use orka_agent::AgentGraph;
 use orka_auth::AuthLayer;
-use orka_core::traits::{PriorityQueue, SessionStore};
+use orka_core::traits::{DeadLetterQueue, PriorityQueue, SessionStore};
 use orka_experience::ExperienceService;
 use orka_observe::metrics::PrometheusHandle;
 use orka_scheduler::ScheduleStore;
@@ -92,8 +92,10 @@ pub async fn security_headers(
 
 /// All dependencies needed to build the server's HTTP router.
 pub struct RouterParams {
-    /// Priority queue (for health checks and DLQ endpoints).
+    /// Priority queue (for health checks).
     pub queue: Arc<dyn PriorityQueue>,
+    /// Dead-letter queue (for DLQ API endpoints).
+    pub dlq: Arc<dyn DeadLetterQueue>,
     /// Registered skills (for /api/v1/skills* and eval endpoints).
     pub skills: Arc<SkillRegistry>,
     /// Soft skill registry (for /api/v1/soft-skills).
@@ -133,6 +135,7 @@ pub struct RouterParams {
 pub fn build_router(p: RouterParams) -> axum::Router {
     let RouterParams {
         queue,
+        dlq,
         skills,
         soft_skills,
         sessions,
@@ -183,7 +186,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
 
     // --- Protected API routes ---
 
-    let api_routes = dlq::routes(queue)
+    let api_routes = dlq::routes(dlq)
         .merge(schedules::routes(scheduler_store))
         .merge(management::routes(
             skills,
