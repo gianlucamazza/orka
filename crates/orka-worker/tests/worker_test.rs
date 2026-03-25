@@ -5,7 +5,7 @@ use orka_core::{
     testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
     traits::{MessageBus, PriorityQueue, SessionStore},
 };
-use orka_worker::{EchoHandler, WorkerPool};
+use orka_worker::{EchoHandler, HandlerDispatcher, WorkerPool};
 use tokio_util::sync::CancellationToken;
 
 #[tokio::test]
@@ -28,7 +28,7 @@ async fn worker_pool_echo_handler() {
     queue.push(&envelope).await.unwrap();
 
     // Start the worker pool
-    let handler = Arc::new(EchoHandler);
+    let handler = Arc::new(HandlerDispatcher::new(Arc::new(EchoHandler)));
     let event_sink = Arc::new(InMemoryEventSink::new());
     let pool = WorkerPool::new(
         queue.clone(),

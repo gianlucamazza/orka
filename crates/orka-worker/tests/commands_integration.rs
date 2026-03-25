@@ -13,7 +13,7 @@ use orka_core::{
 };
 use orka_skills::SkillRegistry;
 use orka_worker::{
-    EchoHandler, WorkerPool,
+    EchoHandler, HandlerDispatcher, WorkerPool,
     commands::{CommandRegistry, register_all},
 };
 use tokio_util::sync::CancellationToken;
@@ -92,7 +92,7 @@ async fn run_pool_with_envelope(envelope: Envelope, session: Session) -> Vec<Env
         queue.clone(),
         sessions.clone(),
         bus.clone(),
-        Arc::new(EchoHandler),
+        Arc::new(HandlerDispatcher::new(Arc::new(EchoHandler))),
         event_sink,
         1,
         0,
@@ -154,7 +154,7 @@ async fn cancel_command_responds_when_no_active_operation() {
         queue.clone(),
         sessions.clone(),
         bus.clone(),
-        Arc::new(EchoHandler),
+        Arc::new(HandlerDispatcher::new(Arc::new(EchoHandler))),
         event_sink,
         1,
         0,

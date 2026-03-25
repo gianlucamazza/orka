@@ -12,7 +12,7 @@ use orka_core::{
     testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
     traits::{MessageBus, PriorityQueue, SessionStore},
 };
-use orka_worker::{AgentHandler, WorkerPool};
+use orka_worker::{AgentHandler, HandlerDispatcher, WorkerPool};
 use tokio_util::sync::CancellationToken;
 
 /// Handler that always fails.
@@ -71,11 +71,11 @@ async fn handler_ok_no_retry() {
     let session = Session::new("ch", "u1");
     sessions.put(&session).await.unwrap();
     let envelope = Envelope::text("ch", session.id, "hello");
-    queue.push(&envelope).await.unwrap();
+    PriorityQueue::push(&*queue, &envelope).await.unwrap();
 
     let mut outbound_rx = bus.subscribe("outbound").await.unwrap();
 
-    let handler = Arc::new(FailNTimesHandler::new(0)); // never fails
+    let handler = Arc::new(HandlerDispatcher::new(Arc::new(FailNTimesHandler::new(0)))); // never fails
     let pool = WorkerPool::new(queue.clone(), sessions, bus, handler, event_sink, 1, 3);
     let cancel = CancellationToken::new();
     let c2 = cancel.clone();
@@ -105,10 +105,10 @@ async fn handler_failure_retries_then_dlq() {
     let session = Session::new("ch", "u1");
     sessions.put(&session).await.unwrap();
     let envelope = Envelope::text("ch", session.id, "hello");
-    queue.push(&envelope).await.unwrap();
+    PriorityQueue::push(&*queue, &envelope).await.unwrap();
 
     let max_retries = 3;
-    let handler = Arc::new(AlwaysFailHandler);
+    let handler = Arc::new(HandlerDispatcher::new(Arc::new(AlwaysFailHandler)));
     // Use 10ms base delay for fast tests (10ms, 30ms, 90ms)
     let pool = WorkerPool::new(
         queue.clone(),
@@ -119,7 +119,8 @@ async fn handler_failure_retries_then_dlq() {
         1,
         max_retries,
     )
-    .with_retry_delay(10);
+    .with_retry_delay(10)
+    .with_dlq(queue.clone());
     let cancel = CancellationToken::new();
     let c2 = cancel.clone();
     let h = tokio::spawn(async move { pool.run(c2).await });
@@ -146,12 +147,12 @@ async fn handler_fails_then_succeeds_with_retry() {
     let session = Session::new("ch", "u1");
     sessions.put(&session).await.unwrap();
     let envelope = Envelope::text("ch", session.id, "hello");
-    queue.push(&envelope).await.unwrap();
+    PriorityQueue::push(&*queue, &envelope).await.unwrap();
 
     let mut outbound_rx = bus.subscribe("outbound").await.unwrap();
 
     // Fails twice, then succeeds on 3rd attempt
-    let handler = Arc::new(FailNTimesHandler::new(2));
+    let handler = Arc::new(HandlerDispatcher::new(Arc::new(FailNTimesHandler::new(2))));
     // Use 10ms base delay for fast tests
     let pool = WorkerPool::new(queue.clone(), sessions, bus, handler, event_sink, 1, 3)
         .with_retry_delay(10);

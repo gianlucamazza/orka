@@ -1,3 +1,7 @@
+mod conversation;
+mod tool_exec;
+mod tool_meta;
+
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
@@ -6,17 +10,16 @@ use std::{
 
 use async_trait::async_trait;
 use orka_core::{
-    CommandArgs, DomainEvent, DomainEventKind, Envelope, ErrorCategory, MemoryEntry, MessageId,
-    OutboundMessage, Payload, Result, Session, SessionId, SkillInput,
+    CommandArgs, DomainEvent, DomainEventKind, Envelope, MemoryEntry, OutboundMessage, Payload,
+    Result, Session, SessionId,
     config::AgentConfig,
     traits::{EventSink, Guardrail, MemoryStore, SecretManager},
 };
 use orka_experience::ExperienceService;
 use orka_llm::{
     client::{
-        ChatContent, ChatMessage, CompletionOptions, CompletionResponse, ContentBlock,
-        ContentBlockInput, LlmClient, LlmToolStream, StopReason, StreamEvent, ToolCall,
-        ToolDefinition, Usage,
+        ChatContent, ChatMessage, CompletionOptions, ContentBlock, ContentBlockInput, LlmClient,
+        StopReason, ToolCall, ToolDefinition,
     },
     context::{
         TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
@@ -33,81 +36,6 @@ use crate::{
     handler::AgentHandler,
     stream::{StreamChunk, StreamChunkKind, StreamRegistry},
 };
-
-/// Truncate a tool result string if it exceeds the configured limit.
-fn truncate_tool_result(content: &str, max_chars: usize) -> String {
-    if content.len() <= max_chars {
-        return content.to_string();
-    }
-    let boundary = content.floor_char_boundary(max_chars);
-    let truncated = &content[..boundary];
-    format!(
-        "{truncated}\n\n[truncated, showing first {boundary} chars of {} total]",
-        content.len()
-    )
-}
-
-/// Derive a category tag and human-readable input summary from the tool name
-/// and its JSON input.
-fn tool_metadata(name: &str, input: &serde_json::Value) -> (Option<String>, Option<String>) {
-    match name {
-        "web_search" => {
-            let summary = input
-                .get("query")
-                .and_then(|v| v.as_str())
-                .map(|q| format!("query: '{q}'"));
-            (Some("search".into()), summary)
-        }
-        "http_request" => {
-            let method = input
-                .get("method")
-                .and_then(|v| v.as_str())
-                .unwrap_or("GET");
-            let summary = input
-                .get("url")
-                .and_then(|v| v.as_str())
-                .map(|u| format!("{method} {u}"));
-            (Some("http".into()), summary)
-        }
-        "sandbox" | "code_exec" | "code_interpreter" => (Some("code".into()), None),
-        n if n.starts_with("memory_") || n.starts_with("doc_") => (Some("memory".into()), None),
-        n if n.starts_with("schedule_") => (Some("schedule".into()), None),
-        _ => (None, None),
-    }
-}
-
-/// Produce a brief output summary for known tools.
-fn summarize_result(name: &str, content: &str, is_error: bool) -> Option<String> {
-    if is_error {
-        // Truncate long error messages
-        let msg = if content.len() > 80 {
-            format!("{}…", &content[..80])
-        } else {
-            content.to_string()
-        };
-        return Some(msg);
-    }
-    match name {
-        "web_search" => {
-            // Try to count results from JSON array
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(content)
-                && let Some(arr) = v.as_array()
-            {
-                return Some(format!("Found {} results", arr.len()));
-            }
-            Some("Search complete".into())
-        }
-        "http_request" => {
-            let len = content.len();
-            if len > 1024 {
-                Some(format!("{:.1} KB response", len as f64 / 1024.0))
-            } else {
-                Some(format!("{len} bytes"))
-            }
-        }
-        _ => None,
-    }
-}
 
 /// Configuration parameters for [`WorkspaceHandler`], grouped to reduce
 /// constructor arguments.
@@ -169,23 +97,23 @@ impl CommandRateLimiter {
 /// LLM-powered agent handler with tool-use loops, guardrails, and experience
 /// learning.
 pub struct WorkspaceHandler {
-    workspace_registry: Arc<WorkspaceRegistry>,
-    skills: Arc<SkillRegistry>,
-    memory: Arc<dyn MemoryStore>,
-    secrets: Arc<dyn SecretManager>,
-    llm: Option<Arc<dyn LlmClient>>,
-    event_sink: Arc<dyn EventSink>,
-    agent_config: AgentConfig,
-    disabled_tools: HashSet<String>,
-    default_context_window: u32,
-    guardrail: Option<Arc<dyn Guardrail>>,
-    commands: Arc<CommandRegistry>,
-    stream_registry: StreamRegistry,
-    experience: Option<Arc<ExperienceService>>,
+    pub(super) workspace_registry: Arc<WorkspaceRegistry>,
+    pub(super) skills: Arc<SkillRegistry>,
+    pub(super) memory: Arc<dyn MemoryStore>,
+    pub(super) secrets: Arc<dyn SecretManager>,
+    pub(super) llm: Option<Arc<dyn LlmClient>>,
+    pub(super) event_sink: Arc<dyn EventSink>,
+    pub(super) agent_config: AgentConfig,
+    pub(super) disabled_tools: HashSet<String>,
+    pub(super) default_context_window: u32,
+    pub(super) guardrail: Option<Arc<dyn Guardrail>>,
+    pub(super) commands: Arc<CommandRegistry>,
+    pub(super) stream_registry: StreamRegistry,
+    pub(super) experience: Option<Arc<ExperienceService>>,
     /// Per-session rate limiter for slash commands (10 per minute by default).
     command_rate_limiter: CommandRateLimiter,
     /// Shared cancellation tokens from the worker pool (used by `/cancel`).
-    session_cancel_tokens: Option<crate::SessionCancelTokens>,
+    pub(super) session_cancel_tokens: Option<crate::SessionCancelTokens>,
 }
 
 impl WorkspaceHandler {
@@ -361,7 +289,7 @@ impl WorkspaceHandler {
     /// Handle a built-in workspace tool call. Returns `Some(result)` if the
     /// tool was handled, or `None` if it should be dispatched to the skill
     /// registry.
-    async fn handle_builtin_tool(
+    pub(super) async fn handle_builtin_tool(
         &self,
         call: &ToolCall,
         session: &Session,
@@ -426,232 +354,6 @@ impl WorkspaceHandler {
             }
             _ => None,
         }
-    }
-
-    /// Execute tool calls in parallel, emitting streaming events and domain
-    /// events. Returns content blocks with tool results in the original
-    /// call order. Built-in workspace tools are intercepted before
-    /// dispatching to the skill registry.
-    async fn execute_tool_calls(
-        &self,
-        tool_calls: &[ToolCall],
-        envelope: &Envelope,
-        session: &Session,
-        current_workspace: &str,
-    ) -> (Vec<ContentBlockInput>, Vec<Option<ErrorCategory>>) {
-        let mut join_set = tokio::task::JoinSet::new();
-        // Track which calls are handled as built-in (index → result)
-        let mut builtin_results: HashMap<usize, (String, bool)> = HashMap::new();
-
-        for (idx, call) in tool_calls.iter().enumerate() {
-            // Check for built-in workspace tools first
-            if let Some(result) = self
-                .handle_builtin_tool(call, session, current_workspace)
-                .await
-            {
-                info!(tool = %call.name, id = %call.id, "handled built-in workspace tool");
-                builtin_results.insert(idx, result);
-                continue;
-            }
-
-            // Tool input guardrail: check serialized args before executing the skill.
-            // Blocked calls are returned to the LLM as an error result (no execution).
-            // Modified args replace the original input for the spawned task.
-            let mut call_input_override: Option<serde_json::Value> = None;
-            if let Some(ref guardrail) = self.guardrail {
-                let input_json = call.input.to_string();
-                match guardrail.check_input(&input_json, session).await {
-                    Ok(orka_core::traits::GuardrailDecision::Block(reason)) => {
-                        warn!(skill = %call.name, %reason, "tool input blocked by guardrail");
-                        builtin_results.insert(
-                            idx,
-                            (format!("Tool input blocked by guardrail: {reason}"), true),
-                        );
-                        continue;
-                    }
-                    Ok(orka_core::traits::GuardrailDecision::Modify(modified)) => {
-                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&modified) {
-                            call_input_override = Some(v);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            info!(skill = %call.name, id = %call.id, "invoking skill via tool call");
-
-            self.event_sink
-                .emit(DomainEvent::new(DomainEventKind::SkillInvoked {
-                    skill_name: call.name.clone(),
-                    message_id: envelope.id,
-                    input_args: match &call.input {
-                        serde_json::Value::Object(map) => {
-                            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-                        }
-                        _ => HashMap::new(),
-                    },
-                    caller_id: None,
-                }))
-                .await;
-
-            let (category, input_summary) = tool_metadata(&call.name, &call.input);
-            self.stream_registry.send(StreamChunk::new(
-                envelope.session_id,
-                envelope.channel.clone(),
-                Some(envelope.id),
-                StreamChunkKind::ToolExecStart {
-                    name: call.name.clone(),
-                    id: call.id.clone(),
-                    input_summary,
-                    category,
-                },
-            ));
-
-            let call_id = call.id.clone();
-            let call_name = call.name.clone();
-            let call_name_for_summary = call.name.clone();
-            let call_input = call_input_override.unwrap_or_else(|| call.input.clone());
-            let skills = self.skills.clone();
-            let event_sink = self.event_sink.clone();
-            let message_id = envelope.id;
-            let secrets = self.secrets.clone();
-            let skill_timeout = std::time::Duration::from_secs(30); // Default timeout
-            let max_result_chars = 10000; // Default max chars
-            let user_cwd = envelope
-                .metadata
-                .get("workspace:cwd")
-                .and_then(|v| v.as_str())
-                .map(String::from);
-
-            join_set.spawn(async move {
-                let args: HashMap<String, serde_json::Value> = match call_input {
-                    serde_json::Value::Object(map) => map.into_iter().collect(),
-                    _ => HashMap::new(),
-                };
-
-                let start = std::time::Instant::now();
-                let skill_input = SkillInput::new(args).with_context(
-                    orka_core::SkillContext::new(secrets, Some(event_sink.clone()))
-                        .with_user_cwd(user_cwd),
-                );
-                let result = match tokio::time::timeout(
-                    skill_timeout,
-                    skills.invoke(&call_name, skill_input),
-                )
-                .await
-                {
-                    Ok(r) => r,
-                    Err(_) => Err(orka_core::Error::Skill(format!(
-                        "skill '{call_name}' timed out after {}s",
-                        skill_timeout.as_secs()
-                    ))),
-                };
-                let duration_ms = start.elapsed().as_millis() as u64;
-
-                let error_category = match &result {
-                    Err(e) => Some(e.category()),
-                    Ok(_) => None,
-                };
-                let (content, is_error) = match &result {
-                    Ok(output) => {
-                        let raw = output.data.to_string();
-                        (truncate_tool_result(&raw, max_result_chars), false)
-                    }
-                    Err(e) => (format!("Error: {e}"), true),
-                };
-
-                let output_preview = match &result {
-                    Ok(output) => {
-                        let s = output.data.to_string();
-                        Some(s.chars().take(1024).collect::<String>())
-                    }
-                    Err(_) => None,
-                };
-                let error_message = match &result {
-                    Err(e) => Some(e.to_string()),
-                    Ok(_) => None,
-                };
-
-                event_sink
-                    .emit(DomainEvent::new(DomainEventKind::SkillCompleted {
-                        skill_name: call_name,
-                        message_id,
-                        duration_ms,
-                        success: !is_error,
-                        error_category,
-                        output_preview,
-                        error_message,
-                    }))
-                    .await;
-
-                let error_msg = if is_error {
-                    Some(content.clone())
-                } else {
-                    None
-                };
-                let result_summary = summarize_result(&call_name_for_summary, &content, is_error);
-                (
-                    call_id,
-                    content,
-                    is_error,
-                    duration_ms,
-                    error_msg,
-                    result_summary,
-                    error_category,
-                )
-            });
-        }
-
-        // Collect results and emit ToolExecEnd chunks
-        let mut results_map: HashMap<String, (String, bool, Option<ErrorCategory>)> =
-            HashMap::new();
-        while let Some(res) = join_set.join_next().await {
-            if let Ok((
-                call_id,
-                content,
-                is_error,
-                duration_ms,
-                error_msg,
-                result_summary,
-                error_category,
-            )) = res
-            {
-                self.stream_registry.send(StreamChunk::new(
-                    envelope.session_id,
-                    envelope.channel.clone(),
-                    Some(envelope.id),
-                    StreamChunkKind::ToolExecEnd {
-                        id: call_id.clone(),
-                        success: !is_error,
-                        duration_ms,
-                        error: error_msg,
-                        result_summary,
-                    },
-                ));
-                results_map.insert(call_id, (content, is_error, error_category));
-            }
-        }
-
-        // Build result blocks in original order, merging built-in and skill results
-        let mut blocks = Vec::with_capacity(tool_calls.len());
-        let mut categories = Vec::with_capacity(tool_calls.len());
-        for (idx, call) in tool_calls.iter().enumerate() {
-            let (content, is_error, category) =
-                if let Some((content, is_error)) = builtin_results.remove(&idx) {
-                    (content, is_error, None)
-                } else {
-                    results_map
-                        .remove(&call.id)
-                        .unwrap_or_else(|| ("Error: task failed".to_string(), true, None))
-                };
-            blocks.push(ContentBlockInput::ToolResult {
-                tool_use_id: call.id.clone(),
-                content,
-                is_error,
-            });
-            categories.push(category);
-        }
-        (blocks, categories)
     }
 
     /// Compact oversized tool results — delegates to the shared
@@ -725,252 +427,6 @@ impl WorkspaceHandler {
         if let Err(e) = self.memory.store(token_key, token_entry, None).await {
             warn!(%e, key = %token_key, "failed to persist token usage");
         }
-    }
-
-    /// Produce a plain-text transcript excerpt from a slice of messages.
-    fn build_transcript(messages: &[ChatMessage]) -> String {
-        let mut transcript = String::new();
-        for msg in messages {
-            let text = match &msg.content {
-                ChatContent::Text(t) => t.clone(),
-                ChatContent::Blocks(blocks) => {
-                    let mut parts = Vec::new();
-                    for b in blocks {
-                        match b {
-                            ContentBlockInput::Text { text } => parts.push(text.clone()),
-                            ContentBlockInput::ToolUse { name, .. } => {
-                                parts.push(format!("[called {name}]"))
-                            }
-                            ContentBlockInput::ToolResult { content, .. } => {
-                                // Keep tool results brief in the transcript.
-                                let excerpt = if content.len() > 200 {
-                                    format!("{}…", &content[..200])
-                                } else {
-                                    content.clone()
-                                };
-                                parts.push(format!("[result: {excerpt}]"))
-                            }
-                            _ => continue,
-                        }
-                    }
-                    if parts.is_empty() {
-                        "[tool interaction]".to_string()
-                    } else {
-                        parts.join(" ")
-                    }
-                }
-                _ => "[unsupported content]".to_string(),
-            };
-            transcript.push_str(&format!("{}: {}\n", msg.role, text));
-        }
-        transcript
-    }
-
-    /// Build a minimal summary from user-text messages when LLM summarisation
-    /// is unavailable.
-    fn fallback_summary(messages: &[ChatMessage]) -> String {
-        use orka_llm::client::Role;
-        let bullets: Vec<String> = messages
-            .iter()
-            .filter(|m| m.role == Role::User)
-            .filter_map(|m| match &m.content {
-                ChatContent::Text(t) if !t.is_empty() => {
-                    Some(format!("- {}", t.chars().take(120).collect::<String>()))
-                }
-                ChatContent::Blocks(blocks) => {
-                    let text: String = blocks
-                        .iter()
-                        .filter_map(|b| {
-                            if let ContentBlockInput::Text { text } = b {
-                                Some(text.as_str())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    if text.is_empty() {
-                        None
-                    } else {
-                        Some(format!("- {}", text.chars().take(120).collect::<String>()))
-                    }
-                }
-                _ => None,
-            })
-            .collect();
-
-        if bullets.is_empty() {
-            format!("[{} messages truncated]", messages.len())
-        } else {
-            format!(
-                "Previous conversation (auto-summarized):\n{}",
-                bullets.join("\n")
-            )
-        }
-    }
-
-    /// Summarise a slice of messages, optionally updating an existing rolling
-    /// summary.
-    ///
-    /// When `existing_summary` is provided the LLM is asked to update it with
-    /// the new turns, preserving user goals and unresolved tasks
-    /// (incremental rolling pattern).
-    async fn summarize_messages(
-        llm: &Arc<dyn LlmClient>,
-        messages: &[ChatMessage],
-        model: Option<&str>,
-        existing_summary: Option<&str>,
-    ) -> String {
-        use orka_llm::client::ChatMessage;
-
-        let transcript = Self::build_transcript(messages);
-
-        let prompt_text = if let Some(old) = existing_summary {
-            format!(
-                "Update this existing summary with the new conversation turns. \
-                 Preserve user goals, constraints, and unresolved tasks.\n\n\
-                 Existing summary:\n{old}\n\nNew turns:\n{transcript}"
-            )
-        } else {
-            format!(
-                "Summarize the following conversation concisely, preserving \
-                 key facts, decisions, and context:\n\n{transcript}"
-            )
-        };
-
-        let summary_prompt = vec![ChatMessage::user(prompt_text)];
-
-        let mut options = CompletionOptions::default();
-        options.model = model.map(|s| s.to_string());
-        options.max_tokens = Some(1024);
-
-        match llm
-            .complete_with_options(
-                summary_prompt,
-                "You are a conversation summarizer. Be concise.",
-                options,
-            )
-            .await
-        {
-            Ok(summary) => summary,
-            Err(e) => {
-                tracing::warn!(%e, "failed to summarize conversation, using fallback");
-                Self::fallback_summary(messages)
-            }
-        }
-    }
-
-    /// Consume a streaming LLM response, emitting `StreamChunk`s to the
-    /// registry and reconstructing a `CompletionResponse` from the events.
-    async fn consume_stream(
-        mut stream: LlmToolStream,
-        stream_registry: &StreamRegistry,
-        session_id: &SessionId,
-        channel: &str,
-        reply_to: Option<&MessageId>,
-    ) -> Result<CompletionResponse> {
-        use futures_util::StreamExt;
-
-        let mut text = String::new();
-        let mut thinking = String::new();
-        let mut tool_calls: Vec<ToolCall> = Vec::new();
-        let mut current_tool_id: Option<String> = None;
-        let mut current_tool_name: Option<String> = None;
-        let mut current_tool_input = String::new();
-        let mut usage = Usage::default();
-        let mut stop_reason = None;
-
-        while let Some(event) = stream.next().await {
-            let event = event?;
-            match event {
-                StreamEvent::ThinkingDelta(delta) => {
-                    stream_registry.send(StreamChunk::new(
-                        *session_id,
-                        channel.to_string(),
-                        reply_to.copied(),
-                        StreamChunkKind::ThinkingDelta(delta.clone()),
-                    ));
-                    thinking.push_str(&delta);
-                }
-                StreamEvent::TextDelta(delta) => {
-                    stream_registry.send(StreamChunk::new(
-                        *session_id,
-                        channel.to_string(),
-                        reply_to.copied(),
-                        StreamChunkKind::Delta(delta.clone()),
-                    ));
-                    text.push_str(&delta);
-                }
-                StreamEvent::ToolUseStart { id, name } => {
-                    stream_registry.send(StreamChunk::new(
-                        *session_id,
-                        channel.to_string(),
-                        reply_to.copied(),
-                        StreamChunkKind::ToolStart {
-                            name: name.clone(),
-                            id: id.clone(),
-                        },
-                    ));
-                    current_tool_id = Some(id);
-                    current_tool_name = Some(name);
-                    current_tool_input.clear();
-                }
-                StreamEvent::ToolUseInputDelta(delta) => {
-                    current_tool_input.push_str(&delta);
-                }
-                StreamEvent::ToolUseEnd { id, input } => {
-                    let name = current_tool_name.take().unwrap_or_default();
-                    let final_input = if input != serde_json::Value::Null {
-                        input
-                    } else {
-                        serde_json::from_str(&current_tool_input).unwrap_or_else(|e| {
-                            warn!(%e, tool = %name, "malformed tool input JSON, using empty object");
-                            serde_json::Value::Object(Default::default())
-                        })
-                    };
-                    stream_registry.send(StreamChunk::new(
-                        *session_id,
-                        channel.to_string(),
-                        reply_to.copied(),
-                        StreamChunkKind::ToolEnd {
-                            id: id.clone(),
-                            success: true,
-                        },
-                    ));
-                    tool_calls.push(ToolCall::new(id, name, final_input));
-                    current_tool_id = None;
-                    current_tool_input.clear();
-                }
-                StreamEvent::Usage(u) => usage = u,
-                StreamEvent::Stop(reason) => stop_reason = Some(reason),
-                other => {
-                    tracing::debug!(?other, "unhandled stream event");
-                }
-            }
-        }
-
-        // If we were mid-tool when the stream ended, treat it as incomplete
-        if let Some(id) = current_tool_id {
-            stream_registry.send(StreamChunk::new(
-                *session_id,
-                channel.to_string(),
-                reply_to.copied(),
-                StreamChunkKind::ToolEnd { id, success: false },
-            ));
-        }
-
-        let mut blocks = Vec::new();
-        if !thinking.is_empty() {
-            blocks.push(ContentBlock::Thinking(thinking));
-        }
-        if !text.is_empty() {
-            blocks.push(ContentBlock::Text(text));
-        }
-        for call in tool_calls {
-            blocks.push(ContentBlock::ToolUse(call));
-        }
-
-        Ok(CompletionResponse::new(blocks, usage, stop_reason))
     }
 }
 
@@ -1416,10 +872,10 @@ impl AgentHandler for WorkspaceHandler {
                         break;
                     }
                 };
-                let completion = match Self::consume_stream(
+                let completion = match orka_llm::consume_stream(
                     stream,
-                    &self.stream_registry,
                     &envelope.session_id,
+                    &self.stream_registry,
                     &envelope.channel,
                     Some(&envelope.id),
                 )
@@ -1448,13 +904,7 @@ impl AgentHandler for WorkspaceHandler {
                     .emit(DomainEvent::new(DomainEventKind::LlmCompleted {
                         message_id: envelope.id,
                         model: llm_model.clone(),
-                        provider: if llm_model.contains("claude") {
-                            "anthropic".into()
-                        } else if llm_model.contains("gpt") || llm_model.contains("o1") {
-                            "openai".into()
-                        } else {
-                            "unknown".into()
-                        },
+                        provider: orka_llm::infer_provider(&llm_model),
                         input_tokens: completion.usage.input_tokens,
                         output_tokens: completion.usage.output_tokens,
                         reasoning_tokens: completion.usage.reasoning_tokens,
@@ -2102,35 +1552,10 @@ mod tests {
         assert!(result.is_none());
     }
 
-    // --- Pure helper tests ---
-
-    #[test]
-    fn truncate_short_content_unchanged() {
-        let s = "short content";
-        assert_eq!(truncate_tool_result(s, 100), s);
-    }
-
-    #[test]
-    fn truncate_long_content_shows_boundary() {
-        let s = "a".repeat(1000);
-        let result = truncate_tool_result(&s, 100);
-        assert!(result.contains("[truncated"));
-        assert!(result.contains("1000 total"));
-        assert!(result.len() < s.len());
-    }
-
-    #[test]
-    fn truncate_multibyte_respects_char_boundary() {
-        // 4-byte emoji repeated; truncation must not panic
-        let s = "🦀".repeat(100);
-        let result = truncate_tool_result(&s, 50);
-        assert!(result.contains("[truncated"));
-    }
-
     #[test]
     fn tool_metadata_web_search() {
         let input = serde_json::json!({"query": "rust async"});
-        let (cat, summary) = tool_metadata("web_search", &input);
+        let (cat, summary) = tool_meta::tool_metadata("web_search", &input);
         assert_eq!(cat.as_deref(), Some("search"));
         assert!(summary.unwrap().contains("rust async"));
     }
@@ -2138,14 +1563,14 @@ mod tests {
     #[test]
     fn tool_metadata_http_request() {
         let input = serde_json::json!({"method": "POST", "url": "https://api.example.com"});
-        let (cat, summary) = tool_metadata("http_request", &input);
+        let (cat, summary) = tool_meta::tool_metadata("http_request", &input);
         assert_eq!(cat.as_deref(), Some("http"));
         assert!(summary.unwrap().contains("POST https://api.example.com"));
     }
 
     #[test]
     fn tool_metadata_unknown_tool() {
-        let (cat, summary) = tool_metadata("custom_tool", &serde_json::json!({}));
+        let (cat, summary) = tool_meta::tool_metadata("custom_tool", &serde_json::json!({}));
         assert!(cat.is_none());
         assert!(summary.is_none());
     }
@@ -2153,7 +1578,7 @@ mod tests {
     #[test]
     fn summarize_result_error_truncates() {
         let long_err = "x".repeat(200);
-        let result = summarize_result("any_tool", &long_err, true).unwrap();
+        let result = tool_meta::summarize_result("any_tool", &long_err, true).unwrap();
         assert!(result.len() < 100);
         assert!(result.ends_with('…'));
     }
@@ -2161,7 +1586,7 @@ mod tests {
     #[test]
     fn summarize_result_web_search_counts() {
         let json_array = r#"[{"title":"a"},{"title":"b"}]"#;
-        let result = summarize_result("web_search", json_array, false).unwrap();
+        let result = tool_meta::summarize_result("web_search", json_array, false).unwrap();
         assert_eq!(result, "Found 2 results");
     }
 
