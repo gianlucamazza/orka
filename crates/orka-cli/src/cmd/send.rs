@@ -44,37 +44,42 @@ pub async fn run(
     eprintln!("{}", "Waiting for reply...".dimmed());
 
     let mut renderer = MarkdownRenderer::default();
+    let idle_dur = std::time::Duration::from_secs(timeout_secs);
 
-    let ws_result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), async {
-        let ws = client.ws_connect(&sid).await?;
-        let (_write, read) = ws.split();
-        let resp = client.send_message(text, &sid, metadata).await?;
-        if let Some(msg_id) = resp.get("message_id").and_then(|v| v.as_str()) {
-            eprintln!("{} {}", "Message ID:".bold(), msg_id.dimmed());
-        }
-        stream_reply(read, &mut renderer).await
-    })
-    .await;
+    let ws = client.ws_connect(&sid).await?;
+    let (_write, read) = ws.split();
+    let resp = client.send_message(text, &sid, metadata).await?;
+    if let Some(msg_id) = resp.get("message_id").and_then(|v| v.as_str()) {
+        eprintln!("{} {}", "Message ID:".bold(), msg_id.dimmed());
+    }
 
-    match ws_result {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            tracing::debug!("WS error: {e}");
-            eprintln!("{}", "No reply received (connection error).".dimmed());
-        }
-        Err(_) => {
-            eprintln!(
-                "{}",
-                format!("No reply received after {timeout_secs}s (use --timeout to increase).")
+    match stream_reply(read, &mut renderer, idle_dur).await {
+        Ok(()) => {}
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.starts_with("idle:") {
+                eprintln!(
+                    "{}",
+                    format!(
+                        "No response after {timeout_secs}s of inactivity (use --timeout to increase)."
+                    )
                     .dimmed()
-            );
+                );
+            } else {
+                tracing::debug!("WS error: {e}");
+                eprintln!("{}", "No reply received (connection error).".dimmed());
+            }
         }
     }
 
     Ok(())
 }
 
-async fn stream_reply<S>(mut read: S, renderer: &mut MarkdownRenderer) -> Result<()>
+async fn stream_reply<S>(
+    mut read: S,
+    renderer: &mut MarkdownRenderer,
+    idle_timeout: std::time::Duration,
+) -> Result<()>
 where
     S: futures_util::Stream<
             Item = std::result::Result<
@@ -86,8 +91,19 @@ where
     let mut got_content = false;
     let mut thinking_shown = false;
 
-    while let Some(msg) = read.next().await {
-        let msg = msg?;
+    loop {
+        let msg = match tokio::time::timeout(idle_timeout, read.next()).await {
+            Ok(Some(Ok(msg))) => msg,
+            Ok(Some(Err(e))) => return Err(e.into()),
+            Ok(None) => break,
+            Err(_) => {
+                return Err(format!(
+                    "idle: no activity for {}s",
+                    idle_timeout.as_secs()
+                )
+                .into())
+            }
+        };
         if !msg.is_text() {
             continue;
         }
