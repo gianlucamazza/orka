@@ -68,18 +68,18 @@ impl ScheduleStore for RedisScheduleStore {
         let data = serde_json::to_string(schedule)
             .map_err(|e| orka_core::Error::Scheduler(format!("serialization failed: {e}")))?;
 
-        // Store schedule data
         let data_key = format!("{SCHEDULE_DATA_PREFIX}{}", schedule.id);
-        let _: () = conn.set(&data_key, &data).await.map_err(|e| {
-            orka_core::Error::Scheduler(format!("failed to store schedule data: {e}"))
-        })?;
 
-        // Add to sorted set with next_run as score
-        let _: () = conn
+        redis::pipe()
+            .atomic()
+            .set(&data_key, &data)
+            .ignore()
             .zadd(SCHEDULE_KEY, &schedule.id, schedule.next_run as f64)
+            .ignore()
+            .query_async::<()>(&mut *conn)
             .await
             .map_err(|e| {
-                orka_core::Error::Scheduler(format!("failed to add to sorted set: {e}"))
+                orka_core::Error::Scheduler(format!("failed to store schedule: {e}"))
             })?;
 
         Ok(())
@@ -91,14 +91,18 @@ impl ScheduleStore for RedisScheduleStore {
                 orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
             })?;
 
-        let removed: i64 = conn.zrem(SCHEDULE_KEY, id).await.map_err(|e| {
-            orka_core::Error::Scheduler(format!("failed to remove from sorted set: {e}"))
-        })?;
-
         let data_key = format!("{SCHEDULE_DATA_PREFIX}{id}");
-        let _: () = conn.del(&data_key).await.map_err(|e| {
-            orka_core::Error::Scheduler(format!("failed to remove schedule data: {e}"))
-        })?;
+
+        let (removed,): (i64,) = redis::pipe()
+            .atomic()
+            .zrem(SCHEDULE_KEY, id)
+            .del(&data_key)
+            .ignore()
+            .query_async(&mut *conn)
+            .await
+            .map_err(|e| {
+                orka_core::Error::Scheduler(format!("failed to remove schedule: {e}"))
+            })?;
 
         Ok(removed > 0)
     }

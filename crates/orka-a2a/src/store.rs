@@ -131,16 +131,17 @@ impl TaskStore for RedisTaskStore {
             .map_err(|e| A2aError::Internal(format!("serialization failed: {e}")))?;
 
         let data_key = format!("{TASK_KEY_PREFIX}{}", task.id);
-        let _: () = conn
+        let score = task.created_at.timestamp_millis() as f64;
+
+        redis::pipe()
+            .atomic()
             .set(&data_key, &data)
+            .ignore()
+            .zadd(TASK_INDEX_KEY, &task.id, score)
+            .ignore()
+            .query_async::<()>(&mut *conn)
             .await
             .map_err(|e| A2aError::Internal(format!("failed to store task: {e}")))?;
-
-        let score = task.created_at.timestamp_millis() as f64;
-        let _: () = conn
-            .zadd(TASK_INDEX_KEY, &task.id, score)
-            .await
-            .map_err(|e| A2aError::Internal(format!("failed to index task: {e}")))?;
 
         Ok(())
     }
@@ -175,16 +176,16 @@ impl TaskStore for RedisTaskStore {
             .await
             .map_err(|e| A2aError::Internal(format!("Redis connection failed: {e}")))?;
 
-        let removed: i64 = conn
-            .zrem(TASK_INDEX_KEY, id)
-            .await
-            .map_err(|e| A2aError::Internal(format!("failed to remove from index: {e}")))?;
-
         let data_key = format!("{TASK_KEY_PREFIX}{id}");
-        let _: () = conn
+
+        let (removed,): (i64,) = redis::pipe()
+            .atomic()
+            .zrem(TASK_INDEX_KEY, id)
             .del(&data_key)
+            .ignore()
+            .query_async(&mut *conn)
             .await
-            .map_err(|e| A2aError::Internal(format!("failed to delete task data: {e}")))?;
+            .map_err(|e| A2aError::Internal(format!("failed to delete task: {e}")))?;
 
         Ok(removed > 0)
     }

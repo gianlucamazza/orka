@@ -259,14 +259,15 @@ impl ResearchStore for RedisResearchStore {
         let id = campaign.id.clone();
         self.with_conn(move |conn| {
             Box::pin(async move {
-                let _: () = conn
+                redis::pipe()
+                    .atomic()
                     .set(campaign_key(&id), payload)
+                    .ignore()
+                    .sadd(CAMPAIGN_IDS_KEY, &id)
+                    .ignore()
+                    .query_async::<()>(conn)
                     .await
                     .map_err(|e| Error::Research(format!("failed to store campaign: {e}")))?;
-                let _: () = conn
-                    .sadd(CAMPAIGN_IDS_KEY, &id)
-                    .await
-                    .map_err(|e| Error::Research(format!("failed to index campaign: {e}")))?;
                 Ok(())
             })
         })
@@ -317,14 +318,14 @@ impl ResearchStore for RedisResearchStore {
         let id = id.to_string();
         self.with_conn(move |conn| {
             Box::pin(async move {
-                let removed: i64 = conn
+                let (removed,): (i64,) = redis::pipe()
+                    .atomic()
                     .del(campaign_key(&id))
+                    .srem(CAMPAIGN_IDS_KEY, &id)
+                    .ignore()
+                    .query_async(conn)
                     .await
                     .map_err(|e| Error::Research(format!("failed to delete campaign: {e}")))?;
-                let _: () = conn
-                    .srem(CAMPAIGN_IDS_KEY, &id)
-                    .await
-                    .map_err(|e| Error::Research(format!("failed to deindex campaign: {e}")))?;
                 Ok(removed > 0)
             })
         })
@@ -337,20 +338,17 @@ impl ResearchStore for RedisResearchStore {
         let campaign_id = run.campaign_id.clone();
         self.with_conn(move |conn| {
             Box::pin(async move {
-                let _: () = conn
+                redis::pipe()
+                    .atomic()
                     .set(run_key(&id), payload)
+                    .ignore()
+                    .sadd(RUN_IDS_KEY, &id)
+                    .ignore()
+                    .sadd(campaign_runs_key(&campaign_id), &id)
+                    .ignore()
+                    .query_async::<()>(conn)
                     .await
                     .map_err(|e| Error::Research(format!("failed to store run: {e}")))?;
-                let _: () = conn
-                    .sadd(RUN_IDS_KEY, &id)
-                    .await
-                    .map_err(|e| Error::Research(format!("failed to index run: {e}")))?;
-                let _: () = conn
-                    .sadd(campaign_runs_key(&campaign_id), &id)
-                    .await
-                    .map_err(|e| {
-                        Error::Research(format!("failed to index run by campaign: {e}"))
-                    })?;
                 Ok(())
             })
         })
@@ -404,27 +402,23 @@ impl ResearchStore for RedisResearchStore {
     }
 
     async fn delete_run(&self, id: &str) -> Result<bool> {
-        // Load first to get campaign_id for secondary index cleanup
-        let run = self.get_run(id).await?;
+        // Load first to get campaign_id for secondary index cleanup.
+        let campaign_id = self.get_run(id).await?.map(|r| r.campaign_id);
         let id = id.to_string();
         self.with_conn(move |conn| {
             Box::pin(async move {
-                let removed: i64 = conn
+                let mut pipe = redis::pipe();
+                pipe.atomic()
                     .del(run_key(&id))
+                    .srem(RUN_IDS_KEY, &id)
+                    .ignore();
+                if let Some(ref cid) = campaign_id {
+                    pipe.srem(campaign_runs_key(cid), &id).ignore();
+                }
+                let (removed,): (i64,) = pipe
+                    .query_async(conn)
                     .await
                     .map_err(|e| Error::Research(format!("failed to delete run: {e}")))?;
-                let _: () = conn
-                    .srem(RUN_IDS_KEY, &id)
-                    .await
-                    .map_err(|e| Error::Research(format!("failed to deindex run: {e}")))?;
-                if let Some(run) = run {
-                    let _: () = conn
-                        .srem(campaign_runs_key(&run.campaign_id), &id)
-                        .await
-                        .map_err(|e| {
-                            Error::Research(format!("failed to deindex run by campaign: {e}"))
-                        })?;
-                }
                 Ok(removed > 0)
             })
         })
@@ -437,20 +431,17 @@ impl ResearchStore for RedisResearchStore {
         let campaign_id = candidate.campaign_id.clone();
         self.with_conn(move |conn| {
             Box::pin(async move {
-                let _: () = conn
+                redis::pipe()
+                    .atomic()
                     .set(candidate_key(&id), payload)
+                    .ignore()
+                    .sadd(CANDIDATE_IDS_KEY, &id)
+                    .ignore()
+                    .sadd(campaign_candidates_key(&campaign_id), &id)
+                    .ignore()
+                    .query_async::<()>(conn)
                     .await
                     .map_err(|e| Error::Research(format!("failed to store candidate: {e}")))?;
-                let _: () = conn
-                    .sadd(CANDIDATE_IDS_KEY, &id)
-                    .await
-                    .map_err(|e| Error::Research(format!("failed to index candidate: {e}")))?;
-                let _: () = conn
-                    .sadd(campaign_candidates_key(&campaign_id), &id)
-                    .await
-                    .map_err(|e| {
-                        Error::Research(format!("failed to index candidate by campaign: {e}"))
-                    })?;
                 Ok(())
             })
         })
@@ -506,26 +497,22 @@ impl ResearchStore for RedisResearchStore {
     }
 
     async fn delete_candidate(&self, id: &str) -> Result<bool> {
-        let candidate = self.get_candidate(id).await?;
+        let campaign_id = self.get_candidate(id).await?.map(|c| c.campaign_id);
         let id = id.to_string();
         self.with_conn(move |conn| {
             Box::pin(async move {
-                let removed: i64 = conn
+                let mut pipe = redis::pipe();
+                pipe.atomic()
                     .del(candidate_key(&id))
+                    .srem(CANDIDATE_IDS_KEY, &id)
+                    .ignore();
+                if let Some(ref cid) = campaign_id {
+                    pipe.srem(campaign_candidates_key(cid), &id).ignore();
+                }
+                let (removed,): (i64,) = pipe
+                    .query_async(conn)
                     .await
                     .map_err(|e| Error::Research(format!("failed to delete candidate: {e}")))?;
-                let _: () = conn
-                    .srem(CANDIDATE_IDS_KEY, &id)
-                    .await
-                    .map_err(|e| Error::Research(format!("failed to deindex candidate: {e}")))?;
-                if let Some(candidate) = candidate {
-                    let _: () = conn
-                        .srem(campaign_candidates_key(&candidate.campaign_id), &id)
-                        .await
-                        .map_err(|e| {
-                            Error::Research(format!("failed to deindex candidate by campaign: {e}"))
-                        })?;
-                }
                 Ok(removed > 0)
             })
         })
@@ -538,25 +525,18 @@ impl ResearchStore for RedisResearchStore {
         let campaign_id = request.campaign_id.clone();
         self.with_conn(move |conn| {
             Box::pin(async move {
-                let _: () = conn
+                redis::pipe()
+                    .atomic()
                     .set(promotion_request_key(&id), payload)
+                    .ignore()
+                    .sadd(PROMOTION_REQUEST_IDS_KEY, &id)
+                    .ignore()
+                    .sadd(campaign_promotions_key(&campaign_id), &id)
+                    .ignore()
+                    .query_async::<()>(conn)
                     .await
                     .map_err(|e| {
                         Error::Research(format!("failed to store promotion request: {e}"))
-                    })?;
-                let _: () = conn
-                    .sadd(PROMOTION_REQUEST_IDS_KEY, &id)
-                    .await
-                    .map_err(|e| {
-                        Error::Research(format!("failed to index promotion request: {e}"))
-                    })?;
-                let _: () = conn
-                    .sadd(campaign_promotions_key(&campaign_id), &id)
-                    .await
-                    .map_err(|e| {
-                        Error::Research(format!(
-                            "failed to index promotion request by campaign: {e}"
-                        ))
                     })?;
                 Ok(())
             })
@@ -620,29 +600,27 @@ impl ResearchStore for RedisResearchStore {
     }
 
     async fn delete_promotion_request(&self, id: &str) -> Result<bool> {
-        let request = self.get_promotion_request(id).await?;
+        let campaign_id = self
+            .get_promotion_request(id)
+            .await?
+            .map(|r| r.campaign_id);
         let id = id.to_string();
         self.with_conn(move |conn| {
             Box::pin(async move {
-                let removed: i64 = conn.del(promotion_request_key(&id)).await.map_err(|e| {
-                    Error::Research(format!("failed to delete promotion request: {e}"))
-                })?;
-                let _: () = conn
+                let mut pipe = redis::pipe();
+                pipe.atomic()
+                    .del(promotion_request_key(&id))
                     .srem(PROMOTION_REQUEST_IDS_KEY, &id)
+                    .ignore();
+                if let Some(ref cid) = campaign_id {
+                    pipe.srem(campaign_promotions_key(cid), &id).ignore();
+                }
+                let (removed,): (i64,) = pipe
+                    .query_async(conn)
                     .await
                     .map_err(|e| {
-                        Error::Research(format!("failed to deindex promotion request: {e}"))
+                        Error::Research(format!("failed to delete promotion request: {e}"))
                     })?;
-                if let Some(request) = request {
-                    let _: () = conn
-                        .srem(campaign_promotions_key(&request.campaign_id), &id)
-                        .await
-                        .map_err(|e| {
-                            Error::Research(format!(
-                                "failed to deindex promotion request by campaign: {e}"
-                            ))
-                        })?;
-                }
                 Ok(removed > 0)
             })
         })

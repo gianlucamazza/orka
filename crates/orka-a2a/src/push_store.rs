@@ -104,15 +104,16 @@ impl PushNotificationStore for RedisPushNotificationStore {
             .map_err(|e| A2aError::Internal(format!("serialization failed: {e}")))?;
 
         let data_key = format!("{PUSH_KEY_PREFIX}{}", config.task_id);
-        let _: () = conn
+
+        redis::pipe()
+            .atomic()
             .set(&data_key, &data)
+            .ignore()
+            .sadd(PUSH_INDEX_KEY, &config.task_id)
+            .ignore()
+            .query_async::<()>(&mut *conn)
             .await
             .map_err(|e| A2aError::Internal(format!("failed to store push config: {e}")))?;
-
-        let _: () = conn
-            .sadd(PUSH_INDEX_KEY, &config.task_id)
-            .await
-            .map_err(|e| A2aError::Internal(format!("failed to index push config: {e}")))?;
 
         Ok(())
     }
@@ -177,14 +178,14 @@ impl PushNotificationStore for RedisPushNotificationStore {
             .await
             .map_err(|e| A2aError::Internal(format!("Redis connection failed: {e}")))?;
 
-        let removed: i64 = conn
-            .srem(PUSH_INDEX_KEY, task_id)
-            .await
-            .map_err(|e| A2aError::Internal(format!("failed to remove from index: {e}")))?;
-
         let data_key = format!("{PUSH_KEY_PREFIX}{task_id}");
-        let _: () = conn
+
+        let (removed,): (i64,) = redis::pipe()
+            .atomic()
+            .srem(PUSH_INDEX_KEY, task_id)
             .del(&data_key)
+            .ignore()
+            .query_async(&mut *conn)
             .await
             .map_err(|e| A2aError::Internal(format!("failed to delete push config: {e}")))?;
 
