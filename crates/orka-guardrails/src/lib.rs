@@ -48,6 +48,10 @@ pub fn create_guardrail(config: &GuardrailsConfig) -> Option<Arc<dyn Guardrail>>
     // Always add prompt injection detection for input protection
     chain = chain.add(Arc::new(PromptInjectionGuardrail::new()));
 
+    // Always add code safety filter to block dangerous shell patterns before
+    // any sandbox execution
+    chain = chain.add(Arc::new(CodeGuardrail::new()));
+
     // Regex block/redact patterns (from input rules)
     if !config.input.blocked_patterns.is_empty() || !config.input.redact_patterns.is_empty() {
         let mut rg = RegexGuardrail::new();
@@ -90,6 +94,10 @@ pub fn create_guardrail_with_llm(
 
     // Always add prompt injection detection
     chain = chain.add(Arc::new(PromptInjectionGuardrail::new()));
+
+    // Always add code safety filter to block dangerous shell patterns before
+    // any sandbox execution
+    chain = chain.add(Arc::new(CodeGuardrail::new()));
 
     // Regex block/redact patterns (from input rules)
     if !config.input.blocked_patterns.is_empty() || !config.input.redact_patterns.is_empty() {

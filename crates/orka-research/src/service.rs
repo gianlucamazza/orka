@@ -14,7 +14,7 @@ use orka_core::{
 use orka_scheduler::{ScheduleStore, types::Schedule};
 use orka_skills::SkillRegistry;
 use regex::Regex;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -456,7 +456,9 @@ impl ResearchService {
                     bg_run.error = Some(err.to_string());
                     bg_run.finished_at = Some(Utc::now());
                     if let Err(e) = this.store.put_run(&bg_run).await {
-                        warn!(run_id = %bg_run.id, %e, "failed to persist run failure");
+                        // The run will remain stuck in Running state in the
+                        // store, so log at error level for operator visibility.
+                        error!(run_id = %bg_run.id, %e, "failed to persist run failure — run will appear stuck in Running");
                     }
                     warn!(campaign_id = %campaign.id, run_id = %bg_run.id, %err, "research campaign run failed");
                 }
@@ -990,8 +992,9 @@ fn branch_matches_any(branch: &str, patterns: &[String]) -> bool {
 fn is_candidate_better(current: Option<f64>, candidate: Option<f64>) -> bool {
     match (current, candidate) {
         (_, Some(candidate)) => current.is_none_or(|existing| candidate > existing),
-        (None, None) => true,
-        (Some(_), None) => false,
+        // Candidate has no numeric metric: keep the existing best rather than
+        // flip-flopping on every run (covers both None,None and Some,None).
+        (_, None) => false,
     }
 }
 

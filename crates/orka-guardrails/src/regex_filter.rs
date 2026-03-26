@@ -4,6 +4,7 @@ use orka_core::{
     traits::{Guardrail, GuardrailDecision},
 };
 use regex::Regex;
+use tracing::warn;
 
 /// Regex-based guardrail that can redact or block matching patterns.
 pub struct RegexGuardrail {
@@ -31,8 +32,9 @@ impl RegexGuardrail {
     /// content.
     #[must_use]
     pub fn add_block_pattern(mut self, pattern: &str) -> Self {
-        if let Ok(re) = Regex::new(pattern) {
-            self.patterns.push((re, RegexAction::Block));
+        match Regex::new(pattern) {
+            Ok(re) => self.patterns.push((re, RegexAction::Block)),
+            Err(e) => warn!(pattern, %e, "guardrail: invalid block regex — pattern skipped"),
         }
         self
     }
@@ -40,9 +42,11 @@ impl RegexGuardrail {
     /// Add a regex pattern whose matches will be replaced with `replacement`.
     #[must_use]
     pub fn add_redact_pattern(mut self, pattern: &str, replacement: &str) -> Self {
-        if let Ok(re) = Regex::new(pattern) {
-            self.patterns
-                .push((re, RegexAction::Redact(replacement.to_string())));
+        match Regex::new(pattern) {
+            Ok(re) => self
+                .patterns
+                .push((re, RegexAction::Redact(replacement.to_string()))),
+            Err(e) => warn!(pattern, %e, "guardrail: invalid redact regex — pattern skipped"),
         }
         self
     }
