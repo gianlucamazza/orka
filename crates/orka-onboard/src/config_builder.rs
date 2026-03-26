@@ -5,7 +5,7 @@
 //! mutation is immediately validated by round-tripping through
 //! [`OrkaConfig`].
 
-use orka_core::{config::OrkaConfig, Error, Result};
+use orka_core::{Error, Result, config::OrkaConfig};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value};
 
 /// Known array-of-tables paths in the Orka config schema.
@@ -140,7 +140,7 @@ fn navigate_or_create<'a>(doc: &'a mut DocumentMut, path: &str) -> Result<&'a mu
         let table = item
             .as_table_mut()
             .ok_or_else(|| Error::Config(format!("expected table at path component '{part}'")))?;
-        if !table.contains_key(*part) {
+        if !table.contains_key(part) {
             table[*part] = Item::Table(Table::new());
         }
         item = &mut table[*part];
@@ -156,7 +156,7 @@ fn navigate_item_mut<'a>(item: &'a mut Item, parts: &[&str]) -> Result<&'a mut I
         let table = current
             .as_table_mut()
             .ok_or_else(|| Error::Config(format!("expected table at '{part}'")))?;
-        if !table.contains_key(*part) {
+        if !table.contains_key(part) {
             table[*part] = Item::Table(Table::new());
         }
         current = &mut table[*part];
@@ -174,20 +174,18 @@ fn json_to_item(value: &serde_json::Value) -> Option<Item> {
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 Some(toml_edit::value(i))
-            } else if let Some(f) = n.as_f64() {
-                Some(toml_edit::value(f))
             } else {
-                None
+                n.as_f64().map(toml_edit::value)
             }
         }
         serde_json::Value::String(s) => Some(toml_edit::value(s.as_str())),
         serde_json::Value::Array(arr) => {
             let mut toml_arr = Array::new();
             for v in arr {
-                if let Some(item) = json_to_item(v) {
-                    if let Ok(val) = item.into_value() {
-                        toml_arr.push(val);
-                    }
+                if let Some(item) = json_to_item(v)
+                    && let Ok(val) = item.into_value()
+                {
+                    toml_arr.push(val);
                 }
             }
             Some(Item::Value(Value::Array(toml_arr)))
@@ -195,10 +193,10 @@ fn json_to_item(value: &serde_json::Value) -> Option<Item> {
         serde_json::Value::Object(map) => {
             let mut inline = InlineTable::new();
             for (k, v) in map {
-                if let Some(item) = json_to_item(v) {
-                    if let Ok(val) = item.into_value() {
-                        inline.insert(k, val);
-                    }
+                if let Some(item) = json_to_item(v)
+                    && let Ok(val) = item.into_value()
+                {
+                    inline.insert(k, val);
                 }
             }
             Some(Item::Value(Value::InlineTable(inline)))

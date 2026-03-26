@@ -15,11 +15,7 @@ use orka_llm::{
 };
 use tracing::debug;
 
-use crate::{
-    config_builder::ConfigBuilder,
-    system_prompt::wizard_system_prompt,
-    tools::all_tools,
-};
+use crate::{config_builder::ConfigBuilder, system_prompt::wizard_system_prompt, tools::all_tools};
 
 // ── I/O trait ────────────────────────────────────────────────────────────────
 
@@ -133,12 +129,7 @@ impl OnboardSession {
 
             let stream = self
                 .client
-                .complete_stream_with_tools(
-                    &self.messages,
-                    &system,
-                    &tools,
-                    options.clone(),
-                )
+                .complete_stream_with_tools(&self.messages, &system, &tools, options.clone())
                 .await?;
 
             let result = consume_stream(stream, io).await?;
@@ -278,9 +269,7 @@ impl OnboardSession {
                     .input
                     .get("section")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        Error::Config("append_config: missing `section`".to_string())
-                    })?;
+                    .ok_or_else(|| Error::Config("append_config: missing `section`".to_string()))?;
                 let entry = call
                     .input
                     .get("entry")
@@ -337,7 +326,7 @@ impl OnboardSession {
                 let multi_select = call
                     .input
                     .get("multi_select")
-                    .and_then(|v| v.as_bool())
+                    .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
 
                 let answers = io
@@ -451,7 +440,7 @@ mod tests {
         }
     }
 
-    /// Minimal LlmClient stub that always returns an empty stream.
+    /// Minimal `LlmClient` stub that always returns an empty stream.
     struct NoOpClient;
 
     #[async_trait::async_trait]

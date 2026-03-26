@@ -14,8 +14,8 @@ use std::{io::Write as _, path::PathBuf, sync::Arc};
 use async_trait::async_trait;
 use colored::Colorize as _;
 use orka_llm::{
-    AnthropicClient, CompletionOptions, LlmClient, OllamaClient, OpenAiClient,
-    ANTHROPIC_API_VERSION,
+    ANTHROPIC_API_VERSION, AnthropicClient, CompletionOptions, LlmClient, OllamaClient,
+    OpenAiClient,
 };
 use orka_onboard::{BootstrapProvider, OnboardIo, OnboardSession};
 use orka_secrets::create_file_secret_manager;
@@ -186,9 +186,7 @@ fn provider_key(idx: usize) -> &'static str {
 }
 
 /// Phase 1: collect provider + API key, build and test the LLM client.
-fn phase1_bootstrap(
-    args: &InitArgs,
-) -> Result<(Arc<dyn LlmClient>, BootstrapProvider)> {
+fn phase1_bootstrap(args: &InitArgs) -> Result<(Arc<dyn LlmClient>, BootstrapProvider)> {
     // --- Provider selection ---
     let (p_key, api_key_input, base_url_input, model_input) =
         if let (Some(p), Some(k)) = (args.provider.as_deref(), args.api_key.as_deref()) {
@@ -207,14 +205,16 @@ fn phase1_bootstrap(
 
     // --- Resolve API key source ---
     // Check env var first, then use the interactively entered value.
-    let (api_key_value, api_key_secret, api_key_env) = resolve_key_source(
-        &p_key,
-        api_key_input.as_deref(),
-        &model,
-    );
+    let (api_key_value, api_key_secret, api_key_env) =
+        resolve_key_source(&p_key, api_key_input.as_deref(), &model);
 
     // --- Build client ---
-    let client = build_client(&p_key, &model, api_key_value.as_deref(), base_url.as_deref())?;
+    let client = build_client(
+        &p_key,
+        &model,
+        api_key_value.as_deref(),
+        base_url.as_deref(),
+    )?;
 
     // --- Test the connection ---
     println!("\n{}", "Testing LLM connection...".cyan());
@@ -284,10 +284,7 @@ fn interactive_phase1(
                 None // Will be resolved from env at runtime
             } else {
                 let key = dialoguer::Password::new()
-                    .with_prompt(format!(
-                        "API key (or set {} env var)",
-                        env_name
-                    ))
+                    .with_prompt(format!("API key (or set {} env var)", env_name))
                     .interact()?;
                 if key.is_empty() {
                     return Err("API key must not be empty".into());
@@ -308,8 +305,8 @@ fn interactive_phase1(
     };
 
     let base_url_input = if needs_base_url {
-        let default = default_base_url(&p_key)
-            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+        let default =
+            default_base_url(&p_key).unwrap_or_else(|| "https://api.openai.com/v1".to_string());
         let url: String = dialoguer::Input::new()
             .with_prompt("Base URL")
             .default(default)
@@ -319,7 +316,10 @@ fn interactive_phase1(
         args.base_url.clone()
     };
 
-    let default_m = args.model.clone().unwrap_or_else(|| default_model(&p_key).to_string());
+    let default_m = args
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model(&p_key).to_string());
     let model_input: String = dialoguer::Input::new()
         .with_prompt("Model")
         .default(default_m)
@@ -376,7 +376,14 @@ fn build_client(
             let url = base_url
                 .map(str::to_string)
                 .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-            Arc::new(OpenAiClient::with_options(key, model.to_string(), 120, 4096, 2, url))
+            Arc::new(OpenAiClient::with_options(
+                key,
+                model.to_string(),
+                120,
+                4096,
+                2,
+                url,
+            ))
         }
         "ollama" => {
             let url = base_url
@@ -491,9 +498,7 @@ impl OnboardIo for TerminalIo {
                         .with_prompt(question)
                         .items(opts)
                         .interact()
-                        .map_err(|e| {
-                            orka_core::Error::Config(format!("prompt error: {e}"))
-                        })?;
+                        .map_err(|e| orka_core::Error::Config(format!("prompt error: {e}")))?;
                     Ok(selections.into_iter().map(|i| opts[i].clone()).collect())
                 } else {
                     let idx = dialoguer::Select::new()
@@ -501,9 +506,7 @@ impl OnboardIo for TerminalIo {
                         .items(opts)
                         .default(0)
                         .interact()
-                        .map_err(|e| {
-                            orka_core::Error::Config(format!("prompt error: {e}"))
-                        })?;
+                        .map_err(|e| orka_core::Error::Config(format!("prompt error: {e}")))?;
                     Ok(vec![opts[idx].clone()])
                 }
             }
@@ -536,11 +539,7 @@ fn print_banner() {
     println!(
         "\n{}\n{}\n",
         "┌─────────────────────────────────┐".cyan(),
-        format!(
-            "│  {} orka init wizard  │",
-            "★".yellow()
-        )
-        .cyan()
+        format!("│  {} orka init wizard  │", "★".yellow()).cyan()
     );
     println!(
         "{}",

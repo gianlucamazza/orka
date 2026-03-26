@@ -1,5 +1,4 @@
 pub mod a2a;
-pub mod init;
 pub mod chat;
 pub mod config;
 pub mod dashboard;
@@ -7,6 +6,7 @@ pub mod dlq;
 pub mod doctor;
 pub mod experience;
 pub mod graph;
+pub mod init;
 pub mod mcp_serve;
 pub mod metrics;
 pub mod schedule;
