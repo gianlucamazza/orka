@@ -25,3 +25,6 @@ proptest-regressions/
 # Node / Bun
 node_modules/
 bun.lockb
+
+# Research worktrees (created at runtime)
+.orka-worktrees/
