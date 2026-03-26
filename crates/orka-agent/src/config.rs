@@ -20,6 +20,7 @@ use crate::{
 /// - `config.graph` is `Some` (auto-created for single-agent, required for
 ///   multi-agent)
 /// - Legacy `[agent]` has been promoted by the v4→v5 TOML migration
+#[allow(clippy::too_many_lines)]
 pub async fn build_graph_from_config(
     config: &OrkaConfig,
     workspace_registry: &WorkspaceRegistry,

@@ -5,6 +5,7 @@ use std::{path::Path, sync::Arc, time::Instant};
 use orka_checkpoint::{CheckpointStore, RunStatus};
 use orka_core::{
     DomainEvent, DomainEventKind, OutboundMessage, Payload,
+    stream::{StreamChunk, StreamChunkKind},
     traits::{EventSink, Guardrail, MemoryStore, SecretManager},
     types::MediaPayload,
 };
@@ -24,6 +25,7 @@ use crate::{
 
 /// Runtime status for Orka's coding delegation layer.
 #[derive(Debug, Clone, Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct CodingRuntimeStatus {
     /// Whether the public `coding_delegate` tool is currently usable.
     pub tool_available: bool,
@@ -199,7 +201,7 @@ impl ExecutionResult {
                 self.response,
                 Some(ctx.trigger.id),
             );
-            msg.metadata = ctx.trigger.metadata.clone();
+            msg.metadata.clone_from(&ctx.trigger.metadata);
             msg.metadata
                 .entry("source_channel".into())
                 .or_insert_with(|| serde_json::Value::String(ctx.trigger.channel.clone()));
@@ -213,7 +215,7 @@ impl ExecutionResult {
                 Payload::Media(attachment),
                 Some(ctx.trigger.id),
             );
-            media_msg.metadata = ctx.trigger.metadata.clone();
+            media_msg.metadata.clone_from(&ctx.trigger.metadata);
             media_msg
                 .metadata
                 .entry("source_channel".into())
@@ -322,7 +324,7 @@ impl GraphExecutor {
         };
 
         let starting_node = AgentId::new(resume_node_id.as_str());
-        let ctx = ExecutionContext::from_checkpoint(&checkpoint).await;
+        let ctx = ExecutionContext::from_checkpoint(&checkpoint);
 
         // Restore reducer strategies so fan-out writes merge correctly on resume.
         if !graph.reducers.is_empty() {
@@ -392,6 +394,7 @@ impl GraphExecutor {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn execute_inner(
         &self,
         graph: &AgentGraph,
@@ -424,10 +427,8 @@ impl GraphExecutor {
         let history_key = format!("history:{}", ctx.session_id);
         match self.deps.memory.recall(&history_key).await {
             Ok(Some(entry)) => {
-                if let Ok(msgs) =
-                    serde_json::from_value::<Vec<orka_llm::client::ChatMessage>>(entry.value)
-                {
-                    if !msgs.is_empty() {
+                match serde_json::from_value::<Vec<orka_llm::client::ChatMessage>>(entry.value) {
+                    Ok(msgs) if !msgs.is_empty() => {
                         // Prepend stored history, then append any current messages not
                         // already present (dedup by serialised value to avoid repeating the trigger).
                         let current = ctx.messages().await;
@@ -445,6 +446,9 @@ impl GraphExecutor {
                         ctx.set_messages(combined).await;
                         debug!(session_id = %ctx.session_id, "history.loaded_from_store");
                     }
+                    Ok(_) => {} // empty history, nothing to restore
+                    Err(e) => warn!(%e, session_id = %ctx.session_id,
+                        "history.deser_failed: schema may have changed, starting fresh"),
                 }
             }
             Ok(None) => {} // no history yet, fresh session
@@ -473,9 +477,7 @@ impl GraphExecutor {
                 break;
             }
 
-            let node = if let Some(n) = graph.get_node(&current_id) {
-                n
-            } else {
+            let Some(node) = graph.get_node(&current_id) else {
                 warn!(agent_id = %current_id, "graph node not found");
                 break;
             };
@@ -492,7 +494,6 @@ impl GraphExecutor {
                 NodeKind::Agent => {
                     // Emit AgentSwitch so adapters can show which agent is responding
                     {
-                        use orka_core::stream::{StreamChunk, StreamChunkKind};
                         self.deps.stream_registry.send(StreamChunk::new(
                             ctx.session_id,
                             ctx.trigger.channel.clone(),
@@ -560,13 +561,13 @@ impl GraphExecutor {
                         .await;
                         // Persist cross-session history so it survives the HITL pause.
                         let interrupted_messages = ctx.messages().await;
-                        if !interrupted_messages.is_empty() {
-                            if let Ok(value) = serde_json::to_value(&interrupted_messages) {
-                                let entry =
-                                    orka_core::MemoryEntry::new(history_key.clone(), value);
-                                if let Err(e) = self.deps.memory.store(&history_key, entry, None).await {
-                                    warn!(%e, session_id = %ctx.session_id, "history.persist_failed");
-                                }
+                        if !interrupted_messages.is_empty()
+                            && let Ok(value) = serde_json::to_value(&interrupted_messages)
+                        {
+                            let entry =
+                                orka_core::MemoryEntry::new(history_key.clone(), value);
+                            if let Err(e) = self.deps.memory.store(&history_key, entry, None).await {
+                                warn!(%e, session_id = %ctx.session_id, "history.persist_failed");
                             }
                         }
                         return Ok(ExecutionResult {
@@ -644,16 +645,13 @@ impl GraphExecutor {
                                     )))
                                     .await;
                                 }
-                                let target_node = if let Some(n) = graph.get_node(&handoff.to) {
-                                    n
-                                } else {
+                                let Some(target_node) = graph.get_node(&handoff.to) else {
                                     warn!(to = %handoff.to, "delegate target not found");
                                     current_id = graph.entry.clone();
                                     continue;
                                 };
                                 {
-                                    use orka_core::stream::{StreamChunk, StreamChunkKind};
-                                    self.deps.stream_registry.send(StreamChunk::new(
+                                                self.deps.stream_registry.send(StreamChunk::new(
                                         ctx.session_id,
                                         ctx.trigger.channel.clone(),
                                         Some(ctx.trigger.id),
@@ -795,8 +793,7 @@ impl GraphExecutor {
 
                         join_set.spawn(async move {
                             {
-                                use orka_core::stream::{StreamChunk, StreamChunkKind};
-                                deps.stream_registry.send(StreamChunk::new(
+                                        deps.stream_registry.send(StreamChunk::new(
                                     ctx.session_id,
                                     ctx.trigger.channel.clone(),
                                     Some(ctx.trigger.id),
@@ -828,7 +825,6 @@ impl GraphExecutor {
                     match fan_in_id {
                         Some(next_id) => {
                             current_id = next_id;
-                            continue;
                         }
                         None => break,
                     }
@@ -837,7 +833,6 @@ impl GraphExecutor {
                 NodeKind::FanIn => {
                     // FanIn: synthesise parallel results, then continue graph traversal.
                     {
-                        use orka_core::stream::{StreamChunk, StreamChunkKind};
                         self.deps.stream_registry.send(StreamChunk::new(
                             ctx.session_id,
                             ctx.trigger.channel.clone(),
@@ -871,7 +866,6 @@ impl GraphExecutor {
         }
 
         // Emit stream Done chunk
-        use orka_core::stream::{StreamChunk, StreamChunkKind};
         self.deps.stream_registry.send(StreamChunk::new(
             ctx.session_id,
             ctx.trigger.channel.clone(),
@@ -881,18 +875,18 @@ impl GraphExecutor {
 
         // Persist cross-session history to MemoryStore
         let final_messages = ctx.messages().await;
-        if !final_messages.is_empty() {
-            if let Ok(value) = serde_json::to_value(&final_messages) {
-                let entry = orka_core::MemoryEntry::new(history_key.clone(), value);
-                if let Err(e) = self.deps.memory.store(&history_key, entry, None).await {
-                    warn!(%e, session_id = %ctx.session_id, "history.persist_failed");
-                } else {
-                    debug!(
-                        session_id = %ctx.session_id,
-                        messages = final_messages.len(),
-                        "history.persisted"
-                    );
-                }
+        if !final_messages.is_empty()
+            && let Ok(value) = serde_json::to_value(&final_messages)
+        {
+            let entry = orka_core::MemoryEntry::new(history_key.clone(), value);
+            if let Err(e) = self.deps.memory.store(&history_key, entry, None).await {
+                warn!(%e, session_id = %ctx.session_id, "history.persist_failed");
+            } else {
+                debug!(
+                    session_id = %ctx.session_id,
+                    messages = final_messages.len(),
+                    "history.persisted"
+                );
             }
         }
 

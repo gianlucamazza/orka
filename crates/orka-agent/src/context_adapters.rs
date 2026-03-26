@@ -85,6 +85,8 @@ pub(crate) fn get_soft_skill_selection_mode(
         orka_skills::SoftSkillSelectionMode::Keyword => {
             orka_prompts::context::SoftSkillSelectionMode::Keyword
         }
-        _ => orka_prompts::context::SoftSkillSelectionMode::All,
+        orka_skills::SoftSkillSelectionMode::All => {
+            orka_prompts::context::SoftSkillSelectionMode::All
+        }
     }
 }

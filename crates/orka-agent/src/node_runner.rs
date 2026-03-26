@@ -107,6 +107,7 @@ pub(crate) fn build_tool_error_hint(
 ///
 /// This is the core of the agent system, adapted to operate on
 /// `(Agent, ExecutionContext, ExecutorDeps)`.
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn run_agent_node(
     agent: &Agent,
     ctx: &ExecutionContext,
@@ -215,12 +216,10 @@ pub(crate) async fn run_agent_node(
         .metadata
         .get("workspace:available")
         .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_else(|| vec![workspace_name.to_string()]);
+        .map_or_else(
+            || vec![workspace_name.to_string()],
+            |arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        );
     let cwd = ctx
         .trigger
         .metadata
@@ -839,7 +838,7 @@ pub(crate) async fn run_agent_node(
 
         for call in &regular_calls {
             if call.name == "create_plan" || call.name == "update_plan_step" {
-                let result = match call.name.as_str() {
+                let result: (String, bool) = match call.name.as_str() {
                     "create_plan" => {
                         let goal = call
                             .input
@@ -921,7 +920,10 @@ pub(crate) async fn run_agent_node(
                         };
                         (updated, false)
                     }
-                    _ => unreachable!(),
+                    other => {
+                        tracing::warn!(call_name = %other, "unexpected plan-related tool call — skipped");
+                        (format!("Error: unrecognized plan call '{other}'"), true)
+                    }
                 };
                 results_map.insert(call.id.clone(), result);
             } else if progressive
@@ -949,7 +951,10 @@ pub(crate) async fn run_agent_node(
                             (format!("Tools in category '{cat}' are now enabled."), false)
                         }
                     }
-                    _ => unreachable!(),
+                    other => {
+                        tracing::warn!(call_name = %other, "unexpected progressive tool call — skipped");
+                        (format!("Error: unrecognized progressive call '{other}'"), true)
+                    }
                 };
                 results_map.insert(call.id.clone(), result);
             } else {
@@ -1323,6 +1328,17 @@ async fn generate_plan(
 ) -> orka_core::Result<Plan> {
     use orka_llm::client::{ChatMessage, CompletionOptions, ResponseFormat};
 
+    #[derive(serde::Deserialize)]
+    struct RawPlan {
+        goal: String,
+        steps: Vec<RawStep>,
+    }
+    #[derive(serde::Deserialize)]
+    struct RawStep {
+        id: String,
+        description: String,
+    }
+
     let system = "You are a task planning assistant. Given a user request and conversation \
                   context, produce a concise step-by-step plan in JSON. \
                   Respond ONLY with valid JSON matching: \
@@ -1359,17 +1375,6 @@ async fn generate_plan(
         .map_err(|e| orka_core::Error::Other(e.to_string()))?;
 
     // Parse response — allow partial structures gracefully
-    #[derive(serde::Deserialize)]
-    struct RawPlan {
-        goal: String,
-        steps: Vec<RawStep>,
-    }
-    #[derive(serde::Deserialize)]
-    struct RawStep {
-        id: String,
-        description: String,
-    }
-
     let raw_plan: RawPlan = serde_json::from_str(&raw)
         .map_err(|e| orka_core::Error::Other(format!("plan parse error: {e} — raw: {raw}")))?;
 

@@ -14,6 +14,8 @@
 //! [`Agent`]: crate::agent::Agent
 //! [`ExecutionContext`]: crate::context::ExecutionContext
 
+use std::fmt::Write as _;
+
 use serde::{Deserialize, Serialize};
 
 /// Shared slot key used to store the active [`Plan`] in `ExecutionContext`.
@@ -56,7 +58,7 @@ impl Plan {
                 StepStatus::Failed { summary } => format!("[✗] ({summary})"),
                 StepStatus::Skipped { summary } => format!("[~] ({summary})"),
             };
-            out.push_str(&format!("  {status} {}: {}\n", step.id, step.description));
+            let _ = writeln!(out, "  {status} {}: {}", step.id, step.description);
         }
         out
     }

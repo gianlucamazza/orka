@@ -310,7 +310,7 @@ impl ExecutionContext {
     ///
     /// Used by the executor's `resume` path to restore execution state after
     /// a crash or HITL interruption.
-    pub async fn from_checkpoint(checkpoint: &Checkpoint) -> Self {
+    pub fn from_checkpoint(checkpoint: &Checkpoint) -> Self {
         let session_id = checkpoint.session_id;
         let trigger = checkpoint.trigger.clone();
 
