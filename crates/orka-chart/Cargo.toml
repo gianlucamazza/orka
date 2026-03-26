@@ -10,6 +10,7 @@ orka-core = { path = "../orka-core" }
 plotters = { version = "0.3", default-features = false, features = [
   "bitmap_backend",
   "bitmap_encoder",
+  "ttf",
   "line_series",
   "area_series",
   "full_palette",
