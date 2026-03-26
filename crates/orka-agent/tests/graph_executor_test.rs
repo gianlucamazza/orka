@@ -533,7 +533,7 @@ async fn termination_terminal_agent_policy() {
     assert_eq!(result.agents_executed, vec!["a"]);
 }
 
-/// FanOut node dispatches all successors; all three agent IDs appear in
+/// `FanOut` node dispatches all successors; all three agent IDs appear in
 /// `agents_executed`.
 #[tokio::test]
 async fn fan_out_runs_all_successors() {
@@ -878,8 +878,8 @@ impl Guardrail for BlockGuardrail {
 // FanOut → FanIn pipeline test
 // ---------------------------------------------------------------------------
 
-/// A FanOut node dispatches parallel branches; a FanIn node with an outgoing
-/// edge from FanOut should be reached after all branches complete.
+/// A `FanOut` node dispatches parallel branches; a `FanIn` node with an outgoing
+/// edge from `FanOut` should be reached after all branches complete.
 #[tokio::test]
 async fn fan_out_continues_to_fan_in() {
     // Graph: fanout → {worker_a, worker_b, synthesizer}
@@ -947,7 +947,7 @@ async fn fan_out_continues_to_fan_in() {
     assert!(result.agents_executed.contains(&"synthesizer".to_string()));
 }
 
-/// FanIn node with outgoing edges continues graph traversal after synthesis.
+/// `FanIn` node with outgoing edges continues graph traversal after synthesis.
 #[tokio::test]
 async fn fan_in_continues_to_next_node() {
     let llm = Arc::new(MockLlm::new(vec![

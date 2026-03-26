@@ -167,11 +167,7 @@ pub(crate) async fn run_agent_node(
             .filter_map(|name| deps.skills.get(name))
             .filter(|skill| !progressive || enabled.contains(skill.category()))
             .map(|skill| {
-                ToolDefinition::new(
-                    skill.name(),
-                    skill.description(),
-                    skill.schema().parameters.clone(),
-                )
+                ToolDefinition::new(skill.name(), skill.description(), skill.schema().parameters)
             })
             .collect()
     };
@@ -281,7 +277,9 @@ pub(crate) async fn run_agent_node(
 
     // Get soft skill section
     let soft_skill_section = if let Some(ref soft_reg) = deps.soft_skills {
-        if !soft_reg.is_empty() {
+        if soft_reg.is_empty() {
+            String::new()
+        } else {
             let selected_names: Vec<&str> =
                 if soft_reg.selection_mode == orka_skills::SoftSkillSelectionMode::Keyword {
                     soft_reg.filter_by_message(&trigger_text)
@@ -289,8 +287,6 @@ pub(crate) async fn run_agent_node(
                     soft_reg.list()
                 };
             soft_reg.build_prompt_section(&selected_names)
-        } else {
-            String::new()
         }
     } else {
         String::new()
@@ -694,7 +690,7 @@ pub(crate) async fn run_agent_node(
 
         let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
         let iteration_tokens =
-            (completion.usage.input_tokens + completion.usage.output_tokens) as u64;
+            u64::from(completion.usage.input_tokens + completion.usage.output_tokens);
         ctx.add_tokens(iteration_tokens);
 
         let llm_model = agent
@@ -1132,11 +1128,11 @@ pub(crate) async fn run_agent_node(
             if let Some((content, false)) = results_map.get(&call.id) {
                 match call.name.as_str() {
                     "git_worktree_create" => {
-                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(content) {
-                            if let Some(path) = v.get("path").and_then(|p| p.as_str()) {
-                                worktree_cwd = Some(path.to_string());
-                                debug!(worktree_path = path, "worktree context activated");
-                            }
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(content)
+                            && let Some(path) = v.get("path").and_then(|p| p.as_str())
+                        {
+                            worktree_cwd = Some(path.to_string());
+                            debug!(worktree_path = path, "worktree context activated");
                         }
                     }
                     "git_worktree_remove" => {
@@ -1507,7 +1503,7 @@ mod tests {
         counts.insert("my_tool".to_string(), 2u32);
         let hint = build_tool_error_hint(&counts, 2).expect("expected hint");
         assert!(hint.contains("my_tool"));
-        assert!(hint.contains("2"));
+        assert!(hint.contains('2'));
     }
 
     #[test]

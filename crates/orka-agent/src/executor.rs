@@ -12,7 +12,7 @@ use orka_experience::ExperienceService;
 use orka_llm::client::LlmClient;
 use orka_prompts::template::TemplateRegistry;
 use orka_skills::SkillRegistry;
-use tracing::{Instrument, info, info_span, warn};
+use tracing::{Instrument, debug, info, info_span, warn};
 
 use crate::{
     agent::AgentId,
@@ -420,6 +420,30 @@ impl GraphExecutor {
                 .await;
         }
 
+        // Load persisted cross-session history from MemoryStore
+        let history_key = format!("history:{}", ctx.session_id);
+        match self.deps.memory.recall(&history_key).await {
+            Ok(Some(entry)) => {
+                if let Ok(msgs) =
+                    serde_json::from_value::<Vec<orka_llm::client::ChatMessage>>(entry.value)
+                {
+                    if !msgs.is_empty() {
+                        // Prepend stored history, then append the current trigger message
+                        let current = ctx.messages().await;
+                        let mut combined = msgs;
+                        // Avoid duplicating the trigger message if it's already in history
+                        for m in current {
+                            combined.push(m);
+                        }
+                        ctx.set_messages(combined).await;
+                        debug!(session_id = %ctx.session_id, "history.loaded_from_store");
+                    }
+                }
+            }
+            Ok(None) => {} // no history yet, fresh session
+            Err(e) => warn!(%e, session_id = %ctx.session_id, "history.load_failed"),
+        }
+
         loop {
             global_iteration += 1;
 
@@ -442,12 +466,11 @@ impl GraphExecutor {
                 break;
             }
 
-            let node = match graph.get_node(&current_id) {
-                Some(n) => n,
-                None => {
-                    warn!(agent_id = %current_id, "graph node not found");
-                    break;
-                }
+            let node = if let Some(n) = graph.get_node(&current_id) {
+                n
+            } else {
+                warn!(agent_id = %current_id, "graph node not found");
+                break;
             };
 
             agents_executed.push(current_id.0.to_string());
@@ -603,13 +626,12 @@ impl GraphExecutor {
                                     )))
                                     .await;
                                 }
-                                let target_node = match graph.get_node(&handoff.to) {
-                                    Some(n) => n,
-                                    None => {
-                                        warn!(to = %handoff.to, "delegate target not found");
-                                        current_id = graph.entry.clone();
-                                        continue;
-                                    }
+                                let target_node = if let Some(n) = graph.get_node(&handoff.to) {
+                                    n
+                                } else {
+                                    warn!(to = %handoff.to, "delegate target not found");
+                                    current_id = graph.entry.clone();
+                                    continue;
                                 };
                                 {
                                     use orka_core::stream::{StreamChunk, StreamChunkKind};
@@ -668,40 +690,36 @@ impl GraphExecutor {
 
                         // Evaluate outgoing edges
                         let next = self.evaluate_edges(graph, &current_id, &resp, ctx).await;
-                        match next {
-                            Some(next_id) => {
-                                self.maybe_save_checkpoint(
-                                    ctx,
-                                    graph,
-                                    CheckpointSnap {
-                                        completed_node: &node.agent.id,
-                                        resume_node: Some(&next_id),
-                                        total_iterations,
-                                        agents_executed: &agents_executed,
-                                        status: RunStatus::Running,
-                                    },
-                                )
-                                .await;
-                                current_id = next_id;
-                                continue;
-                            }
-                            None => {
-                                // No matching edge — terminal
-                                self.maybe_save_checkpoint(
-                                    ctx,
-                                    graph,
-                                    CheckpointSnap {
-                                        completed_node: &node.agent.id,
-                                        resume_node: None,
-                                        total_iterations,
-                                        agents_executed: &agents_executed,
-                                        status: RunStatus::Completed,
-                                    },
-                                )
-                                .await;
-                                break;
-                            }
+                        if let Some(next_id) = next {
+                            self.maybe_save_checkpoint(
+                                ctx,
+                                graph,
+                                CheckpointSnap {
+                                    completed_node: &node.agent.id,
+                                    resume_node: Some(&next_id),
+                                    total_iterations,
+                                    agents_executed: &agents_executed,
+                                    status: RunStatus::Running,
+                                },
+                            )
+                            .await;
+                            current_id = next_id;
+                            continue;
                         }
+                        // No matching edge — terminal
+                        self.maybe_save_checkpoint(
+                            ctx,
+                            graph,
+                            CheckpointSnap {
+                                completed_node: &node.agent.id,
+                                resume_node: None,
+                                total_iterations,
+                                agents_executed: &agents_executed,
+                                status: RunStatus::Completed,
+                            },
+                        )
+                        .await;
+                        break;
                     }
                 }
 
@@ -828,9 +846,8 @@ impl GraphExecutor {
                             }
                             None => break,
                         }
-                    } else {
-                        break;
                     }
+                    break;
                 }
             }
         }
@@ -843,6 +860,23 @@ impl GraphExecutor {
             Some(ctx.trigger.id),
             StreamChunkKind::Done,
         ));
+
+        // Persist cross-session history to MemoryStore
+        let final_messages = ctx.messages().await;
+        if !final_messages.is_empty() {
+            if let Ok(value) = serde_json::to_value(&final_messages) {
+                let entry = orka_core::MemoryEntry::new(history_key.clone(), value);
+                if let Err(e) = self.deps.memory.store(&history_key, entry, None).await {
+                    warn!(%e, session_id = %ctx.session_id, "history.persist_failed");
+                } else {
+                    debug!(
+                        session_id = %ctx.session_id,
+                        messages = final_messages.len(),
+                        "history.persisted"
+                    );
+                }
+            }
+        }
 
         Ok(ExecutionResult {
             response: final_response,

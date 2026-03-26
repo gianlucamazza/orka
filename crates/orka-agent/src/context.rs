@@ -294,7 +294,7 @@ impl ExecutionContext {
             graph_id: graph_id.to_string(),
             trigger: self.trigger.clone(),
             completed_node: completed_node.to_string(),
-            resume_node: resume_node.map(|s| s.to_string()),
+            resume_node: resume_node.map(std::string::ToString::to_string),
             state,
             messages,
             total_tokens: self.total_tokens(),

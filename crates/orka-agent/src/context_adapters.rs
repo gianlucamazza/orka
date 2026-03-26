@@ -1,7 +1,7 @@
 //! Adapters for connecting orka-prompts traits to orka service implementations.
 //!
 //! This module provides bridge implementations that adapt the concrete services
-//! (ExperienceService, SoftSkillRegistry) to the trait interfaces expected by
+//! (`ExperienceService`, `SoftSkillRegistry`) to the trait interfaces expected by
 //! the context provider system in orka-prompts.
 
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use orka_core::Result;
 
-/// Adapter for ExperienceService from orka-experience to orka-prompts trait.
+/// Adapter for `ExperienceService` from orka-experience to orka-prompts trait.
 pub(crate) struct ExperienceServiceAdapter {
     inner: Arc<orka_experience::ExperienceService>,
 }
@@ -51,7 +51,7 @@ impl orka_prompts::context::ExperienceService for ExperienceServiceAdapter {
     }
 }
 
-/// Adapter for SoftSkillRegistry from orka-skills to orka-prompts trait.
+/// Adapter for `SoftSkillRegistry` from orka-skills to orka-prompts trait.
 pub(crate) struct SoftSkillRegistryAdapter {
     inner: Arc<orka_skills::SoftSkillRegistry>,
 }

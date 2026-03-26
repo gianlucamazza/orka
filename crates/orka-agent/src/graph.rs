@@ -151,17 +151,18 @@ impl AgentGraph {
     }
 
     /// Set a custom termination policy (builder style).
+    #[must_use]
     pub fn with_termination(mut self, policy: TerminationPolicy) -> Self {
         self.termination = policy;
         self
     }
 
-    /// Iterate over all (AgentId, GraphNode) pairs in the graph.
+    /// Iterate over all (`AgentId`, `GraphNode`) pairs in the graph.
     pub fn nodes_iter(&self) -> impl Iterator<Item = (&AgentId, &GraphNode)> {
         self.nodes.iter()
     }
 
-    /// Iterate over all (AgentId, Vec<Edge>) pairs in the graph.
+    /// Iterate over all (`AgentId`, Vec<Edge>) pairs in the graph.
     pub fn edges_iter(&self) -> impl Iterator<Item = (&AgentId, &Vec<Edge>)> {
         self.edges.iter()
     }

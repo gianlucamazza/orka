@@ -267,7 +267,7 @@ mod tests {
         let scope = ToolScope::Allow(
             ["web_search", "echo"]
                 .iter()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .collect(),
         );
         assert!(scope.allows("web_search"));
@@ -277,7 +277,12 @@ mod tests {
 
     #[test]
     fn tool_scope_deny_list() {
-        let scope = ToolScope::Deny(["run_code"].iter().map(|s| s.to_string()).collect());
+        let scope = ToolScope::Deny(
+            ["run_code"]
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
+        );
         assert!(scope.allows("web_search"));
         assert!(!scope.allows("run_code"));
     }
