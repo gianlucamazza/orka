@@ -29,8 +29,7 @@ impl PermissionLevel {
             "execute" => Ok(Self::Execute),
             "admin" => Ok(Self::Admin),
             other => Err(format!(
-                "unknown permission level '{}': must be one of read-only, interact, write, execute, admin",
-                other
+                "unknown permission level '{other}': must be one of read-only, interact, write, execute, admin",
             )),
         }
     }

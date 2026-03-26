@@ -22,7 +22,7 @@ pub async fn emit_executed(
                 message_id: orka_core::types::MessageId::new(),
                 session_id: orka_core::types::SessionId::new(),
                 command: command.to_string(),
-                args: args.iter().map(|s| s.to_string()).collect(),
+                args: args.iter().map(ToString::to_string).collect(),
                 approval_id: None,
                 approved_by: None,
                 exit_code,
@@ -42,7 +42,7 @@ pub async fn emit_denied(input: &SkillInput, command: &str, args: &[&str], reaso
             message_id: orka_core::types::MessageId::new(),
             session_id: orka_core::types::SessionId::new(),
             command: command.to_string(),
-            args: args.iter().map(|s| s.to_string()).collect(),
+            args: args.iter().map(ToString::to_string).collect(),
             reason: reason.to_string(),
         }))
         .await;

@@ -114,8 +114,7 @@ impl PermissionGuard {
                 .any(|a| cmd == a.as_str() || full.starts_with(a.as_str()))
         {
             return Err(orka_core::Error::Skill(format!(
-                "command '{}' not in allowed list",
-                cmd,
+                "command '{cmd}' not in allowed list",
             )));
         }
 
@@ -140,8 +139,7 @@ impl PermissionGuard {
         for pattern in &self.sensitive_env_patterns {
             if glob_match(pattern, &upper) {
                 return Err(orka_core::Error::Skill(format!(
-                    "access to sensitive environment variable '{}' is blocked",
-                    name,
+                    "access to sensitive environment variable '{name}' is blocked",
                 )));
             }
         }
@@ -203,12 +201,11 @@ impl PermissionGuard {
         // Empty list = unrestricted (consistent with check_shell_command / check_path).
         if !self.sudo_allowed_commands.is_empty() {
             let allowed = self.sudo_allowed_commands.iter().any(|allowed_cmd| {
-                full == *allowed_cmd || full.starts_with(&format!("{} ", allowed_cmd))
+                full == *allowed_cmd || full.starts_with(&format!("{allowed_cmd} "))
             });
             if !allowed {
                 return Err(orka_core::Error::Skill(format!(
-                    "command '{}' not in sudo allowed list",
-                    full,
+                    "command '{full}' not in sudo allowed list",
                 )));
             }
         }
