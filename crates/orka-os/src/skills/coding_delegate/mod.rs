@@ -11,10 +11,9 @@ use orka_core::{
     },
     traits::Skill,
 };
+use stream::DelegateEvent;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::debug;
-
-use stream::DelegateEvent;
 
 const CODING_CATEGORY: &str = "coding";
 
@@ -349,10 +348,7 @@ impl CodeDelegateBackend for ClaudeCodeBackend {
             cmd,
             stream::parse_claude_stream_line,
             parse_claude_output,
-            input
-                .context
-                .as_ref()
-                .and_then(|c| c.progress_tx.clone()),
+            input.context.as_ref().and_then(|c| c.progress_tx.clone()),
             input
                 .context
                 .as_ref()
@@ -434,10 +430,7 @@ impl CodeDelegateBackend for CodexBackend {
             cmd,
             stream::parse_codex_stream_line,
             parse_codex_output,
-            input
-                .context
-                .as_ref()
-                .and_then(|c| c.progress_tx.clone()),
+            input.context.as_ref().and_then(|c| c.progress_tx.clone()),
             input
                 .context
                 .as_ref()
@@ -517,10 +510,7 @@ impl CodeDelegateBackend for OpenCodeBackend {
             cmd,
             stream::parse_opencode_stream_line,
             parse_opencode_output,
-            input
-                .context
-                .as_ref()
-                .and_then(|c| c.progress_tx.clone()),
+            input.context.as_ref().and_then(|c| c.progress_tx.clone()),
             input
                 .context
                 .as_ref()
@@ -689,7 +679,9 @@ async fn execute_command_streaming(
 
     // Collect stderr for error messages.
     let mut stderr_buf = Vec::new();
-    tokio::io::copy(&mut stderr_handle, &mut stderr_buf).await.ok();
+    tokio::io::copy(&mut stderr_handle, &mut stderr_buf)
+        .await
+        .ok();
     let stderr = String::from_utf8_lossy(&stderr_buf);
 
     if !status.success() {
@@ -867,7 +859,8 @@ fn value_to_text(value: &serde_json::Value) -> Option<String> {
     }
 }
 
-/// Extract the final assistant text from accumulated `opencode run --format json` output.
+/// Extract the final assistant text from accumulated `opencode run --format
+/// json` output.
 ///
 /// OpenCode emits `{"type":"text","part":{"text":"...",...}}` lines during the
 /// run. There is no dedicated result line, so the fallback parser scans

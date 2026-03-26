@@ -283,7 +283,9 @@ impl ResearchService {
     /// task so the response is not tied to the request connection lifetime.
     pub async fn run_campaign(&self, campaign_id: &str) -> Result<ResearchRun> {
         let Some(mut campaign) = self.store.get_campaign(campaign_id).await? else {
-            return Err(Error::ResearchNotFound(format!("campaign '{campaign_id}' not found")));
+            return Err(Error::ResearchNotFound(format!(
+                "campaign '{campaign_id}' not found"
+            )));
         };
         if !campaign.active {
             return Err(Error::ResearchConflict(format!(
@@ -372,7 +374,9 @@ impl ResearchService {
     /// duration (which can be many minutes for `coding_delegate`).
     pub async fn run_campaign_async(self: Arc<Self>, campaign_id: &str) -> Result<ResearchRun> {
         let Some(mut campaign) = self.store.get_campaign(campaign_id).await? else {
-            return Err(Error::ResearchNotFound(format!("campaign '{campaign_id}' not found")));
+            return Err(Error::ResearchNotFound(format!(
+                "campaign '{campaign_id}' not found"
+            )));
         };
         if !campaign.active {
             return Err(Error::ResearchConflict(format!(
@@ -620,7 +624,9 @@ impl ResearchService {
         }
         self.promote_candidate(candidate_id, true)
             .await
-            .map(|candidate| PromotionSubmission::Promoted { candidate: Box::new(candidate) })
+            .map(|candidate| PromotionSubmission::Promoted {
+                candidate: Box::new(candidate),
+            })
     }
 
     /// Approve a pending promotion request and apply the merge.
@@ -799,7 +805,11 @@ impl ResearchService {
         }))
     }
 
-    fn build_promotion_checkpoint(trigger: Envelope, run_id: String, status: RunStatus) -> Checkpoint {
+    fn build_promotion_checkpoint(
+        trigger: Envelope,
+        run_id: String,
+        status: RunStatus,
+    ) -> Checkpoint {
         Checkpoint {
             id: CheckpointId::new(),
             run_id,
@@ -845,7 +855,11 @@ impl ResearchService {
             },
         };
         store
-            .save(&Self::build_promotion_checkpoint(trigger, request.id.clone(), status))
+            .save(&Self::build_promotion_checkpoint(
+                trigger,
+                request.id.clone(),
+                status,
+            ))
             .await
     }
 
@@ -874,7 +888,11 @@ impl ResearchService {
             }
         };
         store
-            .save(&Self::build_promotion_checkpoint(trigger, request.id.clone(), status))
+            .save(&Self::build_promotion_checkpoint(
+                trigger,
+                request.id.clone(),
+                status,
+            ))
             .await
     }
 
@@ -1006,7 +1024,6 @@ fn compare_against_metric(
     (Some(improvement), CandidateStatus::Kept)
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, sync::Arc};
@@ -1019,12 +1036,11 @@ mod tests {
     use orka_skills::SkillRegistry;
     use tokio::sync::RwLock;
 
+    use super::*;
     use crate::{
         create_research_service, create_research_skills, store::InMemoryResearchStore,
         types::CreateResearchCampaign, util::extract_metric,
     };
-
-    use super::*;
 
     struct StaticJsonSkill {
         name: &'static str,

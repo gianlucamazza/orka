@@ -5,8 +5,8 @@ use std::{fmt, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::{defaults, primitives::OsPermissionLevel},
     Error, Result,
+    config::{defaults, primitives::OsPermissionLevel},
 };
 
 /// Coding orchestration provider selection.
@@ -40,7 +40,8 @@ impl fmt::Display for CodingProvider {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CodingSelectionPolicy {
-    /// Prefer whichever provider is available; fall back in order: claude → codex → opencode.
+    /// Prefer whichever provider is available; fall back in order: claude →
+    /// codex → opencode.
     #[default]
     Availability,
     /// Try Claude Code first, fall back to `Codex` then `OpenCode`.
@@ -365,7 +366,8 @@ pub struct OpenCodeConfig {
     pub enabled: bool,
     /// Path to `OpenCode` executable.
     pub executable_path: Option<PathBuf>,
-    /// Default model override in `provider/model` format (e.g. `anthropic/claude-sonnet-4-6`).
+    /// Default model override in `provider/model` format (e.g.
+    /// `anthropic/claude-sonnet-4-6`).
     pub model: Option<String>,
     /// Agent name passed via `--agent`.
     pub agent: Option<String>,

@@ -285,8 +285,11 @@ impl SessionLock for RedisMemoryStore {
         match self.pool.get().await {
             Ok(mut conn) => {
                 // PEXPIRE returns 1 if the key exists and was updated, 0 if not
-                let result: core::result::Result<i64, _> =
-                    redis::cmd("PEXPIRE").arg(&key).arg(ttl_ms).query_async(&mut *conn).await;
+                let result: core::result::Result<i64, _> = redis::cmd("PEXPIRE")
+                    .arg(&key)
+                    .arg(ttl_ms)
+                    .query_async(&mut *conn)
+                    .await;
                 result.unwrap_or(0) == 1
             }
             Err(e) => {

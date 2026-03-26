@@ -97,11 +97,7 @@ where
             Ok(Some(Err(e))) => return Err(e.into()),
             Ok(None) => break,
             Err(_) => {
-                return Err(format!(
-                    "idle: no activity for {}s",
-                    idle_timeout.as_secs()
-                )
-                .into())
+                return Err(format!("idle: no activity for {}s", idle_timeout.as_secs()).into());
             }
         };
         if !msg.is_text() {

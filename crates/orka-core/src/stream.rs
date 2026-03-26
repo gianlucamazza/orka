@@ -204,7 +204,8 @@ impl StreamRegistry {
     }
 }
 
-/// Forward progress events from a `coding_delegate` skill run to SSE subscribers.
+/// Forward progress events from a `coding_delegate` skill run to SSE
+/// subscribers.
 ///
 /// Drains `rx`, wrapping each [`serde_json::Value`] as a JSON-string
 /// [`StreamChunkKind::Delta`] and broadcasting it through `registry`. Sends a

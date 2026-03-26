@@ -9,8 +9,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use orka_core::{Error, SessionId, StreamRegistry};
-use uuid::Uuid;
 use orka_research::{CreateResearchCampaign, PromotionSubmission, ResearchService};
+use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
 struct PromoteCandidateRequest {
@@ -24,9 +24,7 @@ struct RejectPromotionRequest {
 }
 
 fn require_research(svc: Option<Arc<ResearchService>>) -> Result<Arc<ResearchService>, Response> {
-    svc.ok_or_else(|| {
-        (StatusCode::SERVICE_UNAVAILABLE, "research not enabled").into_response()
-    })
+    svc.ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, "research not enabled").into_response())
 }
 
 fn research_error(e: Error) -> Response {

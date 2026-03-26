@@ -146,9 +146,10 @@ pub(crate) fn parse_codex_stream_line(line: &str) -> Option<DelegateEvent> {
             let items = val.get("items").and_then(|v| v.as_array())?;
             for item in items.iter().rev() {
                 if item.get("role").and_then(serde_json::Value::as_str) == Some("assistant")
-                    && let Some(text) = extract_codex_text(item.get("content")?) {
-                        return Some(DelegateEvent::Result { text });
-                    }
+                    && let Some(text) = extract_codex_text(item.get("content")?)
+                {
+                    return Some(DelegateEvent::Result { text });
+                }
             }
             None
         }
@@ -204,15 +205,17 @@ fn extract_codex_text(content: &serde_json::Value) -> Option<String> {
             for item in items {
                 if (item.get("type").and_then(serde_json::Value::as_str) == Some("output_text")
                     || item.get("type").and_then(serde_json::Value::as_str) == Some("text"))
-                    && let Some(text) = item.get("text").and_then(serde_json::Value::as_str) {
-                        return Some(text.to_string());
-                    }
+                    && let Some(text) = item.get("text").and_then(serde_json::Value::as_str)
+                {
+                    return Some(text.to_string());
+                }
             }
             None
         }
-        serde_json::Value::Object(map) => {
-            map.get("text").and_then(serde_json::Value::as_str).map(str::to_string)
-        }
+        serde_json::Value::Object(map) => map
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
         _ => None,
     }
 }
@@ -227,8 +230,9 @@ fn extract_codex_text(content: &serde_json::Value) -> Option<String> {
 //   {"type":"text","part":{"type":"text","text":"...","time":{...}}}
 //   {"type":"tool_use","part":{"type":"tool","callID":"...","tool":"bash",
 //       "state":{"status":"completed","input":{...},"output":"..."},...}}
-//   {"type":"step_finish","part":{"type":"step-finish","reason":"stop"|"tool-calls",
-//       "cost":0.042,"tokens":{"total":N,"input":N,"output":N,...}}}
+//   {"type":"step_finish","part":{"type":"step-finish","reason":"stop"|"
+// tool-calls",       "cost":0.042,"tokens":{"total":N,"input":N,"output":N,...
+// }}}
 //
 // Note: `tool_use` events are emitted with state already `"completed"` (no
 // separate start/end pair). We emit a `ToolStart` for progress tracking only.
@@ -270,14 +274,8 @@ pub(crate) fn parse_opencode_stream_line(line: &str) -> Option<DelegateEvent> {
             // by the fallback parser from accumulated TextDelta lines.
             let tokens = part.get("tokens")?;
             Some(DelegateEvent::Usage {
-                input_tokens: tokens
-                    .get("input")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
-                output_tokens: tokens
-                    .get("output")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
+                input_tokens: tokens.get("input").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                output_tokens: tokens.get("output").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
             })
         }
         // "step_start" and unknown types are skipped.
@@ -367,9 +365,7 @@ mod tests {
     fn opencode_parses_text_event() {
         let line = r#"{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"hello world","time":{"start":1234,"end":1234}}}"#;
         let event = parse_opencode_stream_line(line).expect("should parse text");
-        assert!(
-            matches!(event, DelegateEvent::TextDelta { text } if text == "hello world")
-        );
+        assert!(matches!(event, DelegateEvent::TextDelta { text } if text == "hello world"));
     }
 
     #[test]

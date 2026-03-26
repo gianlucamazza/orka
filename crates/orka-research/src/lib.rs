@@ -23,7 +23,6 @@ use std::sync::Arc;
 use orka_checkpoint::CheckpointStore;
 use orka_core::{Result, config::ResearchConfig};
 use orka_scheduler::ScheduleStore;
-
 pub use service::ResearchService;
 pub use skills::{
     CandidateCompareSkill, ExperimentRunSkill, ResearchCampaignRunSkill, ResearchPromoteSkill,
@@ -40,7 +39,8 @@ pub fn create_research_store(redis_url: &str) -> Result<Arc<dyn ResearchStore>> 
     Ok(Arc::new(RedisResearchStore::new(redis_url)?))
 }
 
-/// Build the research skills that should be registered in the global skill registry.
+/// Build the research skills that should be registered in the global skill
+/// registry.
 pub fn create_research_skills(
     service: Arc<ResearchService>,
 ) -> Vec<Arc<dyn orka_core::traits::Skill>> {

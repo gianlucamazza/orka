@@ -348,7 +348,9 @@ impl ResearchStore for RedisResearchStore {
                 let _: () = conn
                     .sadd(campaign_runs_key(&campaign_id), &id)
                     .await
-                    .map_err(|e| Error::Research(format!("failed to index run by campaign: {e}")))?;
+                    .map_err(|e| {
+                        Error::Research(format!("failed to index run by campaign: {e}"))
+                    })?;
                 Ok(())
             })
         })
@@ -482,11 +484,9 @@ impl ResearchStore for RedisResearchStore {
                             Error::Research(format!("failed to list candidate ids: {e}"))
                         })?
                 } else {
-                    conn.smembers(CANDIDATE_IDS_KEY)
-                        .await
-                        .map_err(|e| {
-                            Error::Research(format!("failed to list candidate ids: {e}"))
-                        })?
+                    conn.smembers(CANDIDATE_IDS_KEY).await.map_err(|e| {
+                        Error::Research(format!("failed to list candidate ids: {e}"))
+                    })?
                 };
                 let mut items = Vec::with_capacity(ids.len());
                 for id in ids {
@@ -523,9 +523,7 @@ impl ResearchStore for RedisResearchStore {
                         .srem(campaign_candidates_key(&candidate.campaign_id), &id)
                         .await
                         .map_err(|e| {
-                            Error::Research(format!(
-                                "failed to deindex candidate by campaign: {e}"
-                            ))
+                            Error::Research(format!("failed to deindex candidate by campaign: {e}"))
                         })?;
                 }
                 Ok(removed > 0)
@@ -570,10 +568,8 @@ impl ResearchStore for RedisResearchStore {
         let id = id.to_string();
         self.with_conn(move |conn| {
             Box::pin(async move {
-                let data: Option<String> = conn
-                    .get(promotion_request_key(&id))
-                    .await
-                    .map_err(|e| {
+                let data: Option<String> =
+                    conn.get(promotion_request_key(&id)).await.map_err(|e| {
                         Error::Research(format!("failed to load promotion request: {e}"))
                     })?;
                 data.map(|json| serde_json::from_str(&json))
@@ -628,12 +624,9 @@ impl ResearchStore for RedisResearchStore {
         let id = id.to_string();
         self.with_conn(move |conn| {
             Box::pin(async move {
-                let removed: i64 = conn
-                    .del(promotion_request_key(&id))
-                    .await
-                    .map_err(|e| {
-                        Error::Research(format!("failed to delete promotion request: {e}"))
-                    })?;
+                let removed: i64 = conn.del(promotion_request_key(&id)).await.map_err(|e| {
+                    Error::Research(format!("failed to delete promotion request: {e}"))
+                })?;
                 let _: () = conn
                     .srem(PROMOTION_REQUEST_IDS_KEY, &id)
                     .await
