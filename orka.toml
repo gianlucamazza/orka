@@ -364,6 +364,9 @@ distillation_interval_secs = 3600              # offline distillation cycle (sec
 enabled = true
 require_promotion_approval = true
 
+[chart]
+enabled = true
+
 [git]
 enabled = true
 require_conventional_commits = false

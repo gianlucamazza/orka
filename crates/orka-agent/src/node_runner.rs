@@ -2,7 +2,9 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use orka_core::{DomainEvent, DomainEventKind, SkillInput, truncate_tool_result};
+use orka_core::{
+    DomainEvent, DomainEventKind, SkillInput, truncate_tool_result, types::MediaPayload,
+};
 use orka_llm::{
     client::{
         ChatContent, ChatMessage, CompletionOptions, ContentBlock, ContentBlockInput, ToolCall,
@@ -41,6 +43,9 @@ pub(crate) struct AgentNodeResult {
     /// human approval. The executor saves an `Interrupted` checkpoint and
     /// stops.
     pub interrupted: Option<orka_checkpoint::InterruptReason>,
+    /// Media attachments produced by skills during this node's execution.
+    /// Forwarded by the executor as separate outbound media messages.
+    pub attachments: Vec<MediaPayload>,
 }
 
 /// Parse a handoff from a tool call issued by the LLM.
@@ -116,6 +121,7 @@ pub(crate) async fn run_agent_node(
                 handoff: None,
                 iterations: 0,
                 interrupted: None,
+                attachments: Vec::new(),
             });
         }
     };
@@ -507,6 +513,7 @@ pub(crate) async fn run_agent_node(
                     handoff: None,
                     iterations: 0,
                     interrupted: None,
+                    attachments: Vec::new(),
                 });
             }
             Ok(GuardrailDecision::Modify(filtered)) => {
@@ -550,6 +557,8 @@ pub(crate) async fn run_agent_node(
     let mut iterations = 0usize;
     let mut final_response: Option<String> = None;
     let mut handoff: Option<Handoff> = None;
+    // Accumulated media attachments from all skill invocations in this node.
+    let mut collected_attachments: Vec<MediaPayload> = Vec::new();
     // Active worktree path for this agent run. Set when `git_worktree_create`
     // succeeds; cleared when `git_worktree_remove` is called.  Propagated into
     // every `SkillContext` so tools operate inside the worktree automatically.
@@ -968,6 +977,7 @@ pub(crate) async fn run_agent_node(
                 handoff: None,
                 iterations,
                 interrupted: Some(reason),
+                attachments: Vec::new(),
             });
         }
 
@@ -1068,6 +1078,10 @@ pub(crate) async fn run_agent_node(
                     Err(e) => Some(e.category()),
                     Ok(_) => None,
                 };
+                let task_attachments: Vec<MediaPayload> = match &result {
+                    Ok(output) => output.attachments.clone(),
+                    Err(_) => Vec::new(),
+                };
                 let (content, is_error) = match &result {
                     Ok(output) => {
                         let raw = output.data.to_string();
@@ -1100,13 +1114,14 @@ pub(crate) async fn run_agent_node(
                     }))
                     .await;
 
-                (call_id, content, is_error)
+                (call_id, content, is_error, task_attachments)
             });
         }
 
         while let Some(res) = join_set.join_next().await {
-            if let Ok((call_id, content, is_error)) = res {
+            if let Ok((call_id, content, is_error, attachments)) = res {
                 results_map.insert(call_id, (content, is_error));
+                collected_attachments.extend(attachments);
             }
         }
 
@@ -1216,6 +1231,7 @@ pub(crate) async fn run_agent_node(
         handoff,
         iterations,
         interrupted: None,
+        attachments: collected_attachments,
     })
 }
 

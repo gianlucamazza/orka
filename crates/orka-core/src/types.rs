@@ -552,6 +552,11 @@ impl SkillInput {
 pub struct SkillOutput {
     /// Structured result value produced by the skill.
     pub data: serde_json::Value,
+    /// Media attachments produced alongside the text result (e.g. generated
+    /// charts). These are forwarded as separate `Payload::Media` messages
+    /// to the channel adapter.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<MediaPayload>,
 }
 
 /// JSON Schema describing a skill's parameters.
@@ -609,12 +614,16 @@ pub enum Payload {
 pub struct MediaPayload {
     /// MIME type of the media content (e.g. `image/png`, `audio/ogg`).
     pub mime_type: String,
-    /// URL or path where the media can be retrieved.
+    /// URL or path where the media can be retrieved. Empty for inline payloads.
     pub url: String,
     /// Optional human-readable description of the media.
     pub caption: Option<String>,
     /// File size in bytes, if known.
     pub size_bytes: Option<u64>,
+    /// Inline media data encoded as standard base64. When present, adapters use
+    /// this directly (multipart upload) instead of fetching from `url`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_base64: Option<String>,
 }
 
 /// Structured command from a channel or internal system.
@@ -798,7 +807,17 @@ impl SkillContext {
 impl SkillOutput {
     /// Create a new skill output.
     pub fn new(data: serde_json::Value) -> Self {
-        Self { data }
+        Self {
+            data,
+            attachments: Vec::new(),
+        }
+    }
+
+    /// Attach media payloads to be forwarded alongside the text response.
+    #[must_use]
+    pub fn with_attachments(mut self, attachments: Vec<MediaPayload>) -> Self {
+        self.attachments = attachments;
+        self
     }
 }
 
@@ -827,14 +846,44 @@ impl SkillInput {
 }
 
 impl MediaPayload {
-    /// Create a new media payload.
+    /// Create a new media payload referencing an external URL.
     pub fn new(mime_type: impl Into<String>, url: impl Into<String>) -> Self {
         Self {
             mime_type: mime_type.into(),
             url: url.into(),
             caption: None,
             size_bytes: None,
+            data_base64: None,
         }
+    }
+
+    /// Create an inline media payload from raw bytes.
+    ///
+    /// The data is base64-encoded and stored in `data_base64`; `url` is left
+    /// empty. Adapters that support multipart upload use the inline data
+    /// directly without making an outbound HTTP request.
+    pub fn inline(
+        mime_type: impl Into<String>,
+        data: Vec<u8>,
+        caption: impl Into<Option<String>>,
+    ) -> Self {
+        use base64::Engine as _;
+        let size = data.len() as u64;
+        Self {
+            mime_type: mime_type.into(),
+            url: String::new(),
+            caption: caption.into(),
+            size_bytes: Some(size),
+            data_base64: Some(base64::engine::general_purpose::STANDARD.encode(data)),
+        }
+    }
+
+    /// Decode the inline base64 data, if present.
+    pub fn decode_data(&self) -> Option<Vec<u8>> {
+        use base64::Engine as _;
+        self.data_base64
+            .as_deref()
+            .and_then(|s| base64::engine::general_purpose::STANDARD.decode(s).ok())
     }
 }
 
@@ -934,6 +983,26 @@ impl Envelope {
             payload: Payload::Text(text.into()),
             metadata: HashMap::new(),
             trace_context: TraceContext::default(),
+        }
+    }
+
+    /// Create an envelope with an arbitrary payload, preserving priority and
+    /// trace context from a source envelope.
+    pub fn with_payload(
+        channel: impl Into<String>,
+        session_id: SessionId,
+        payload: Payload,
+        source: &Envelope,
+    ) -> Self {
+        Self {
+            id: MessageId::new(),
+            channel: channel.into(),
+            session_id,
+            timestamp: Utc::now(),
+            priority: source.priority,
+            payload,
+            metadata: HashMap::new(),
+            trace_context: source.trace_context.clone(),
         }
     }
 }

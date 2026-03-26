@@ -5,7 +5,7 @@ use std::{future::IntoFuture, sync::Arc};
 
 use anyhow::Context;
 use orka_bus::create_bus;
-use orka_core::{OutboundMessage, Payload, config::OrkaConfig};
+use orka_core::{OutboundMessage, config::OrkaConfig};
 use orka_gateway::Gateway;
 use orka_queue::{QueueBundle, create_queue};
 use orka_server::router::{
@@ -368,6 +368,16 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             }
             Err(e) => warn!(%e, "failed to initialize OS skills"),
         }
+    }
+
+    // 4l. Chart skills
+    if config.chart.enabled {
+        let chart_skills = orka_chart::create_chart_skills();
+        let count = chart_skills.len();
+        for skill in chart_skills {
+            skills.register(skill);
+        }
+        info!(skill_count = count, "chart skills initialized");
     }
 
     // 4k. Git skills
@@ -882,14 +892,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                 msg = outbound_rx.recv() => {
                     match msg {
                         Some(envelope) => {
-                            let text = match &envelope.payload {
-                                Payload::Text(t) => t.clone(),
-                                _ => "[non-text]".into(),
-                            };
-                            let mut outbound = OutboundMessage::text(
+                            let mut outbound = OutboundMessage::new(
                                 envelope.channel.clone(),
                                 envelope.session_id,
-                                text,
+                                envelope.payload.clone(),
                                 None,
                             );
                             outbound.metadata = envelope.metadata.clone();

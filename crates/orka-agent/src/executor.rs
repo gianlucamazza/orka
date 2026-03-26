@@ -6,6 +6,7 @@ use orka_checkpoint::{CheckpointStore, RunStatus};
 use orka_core::{
     DomainEvent, DomainEventKind, OutboundMessage, Payload,
     traits::{EventSink, Guardrail, MemoryStore, SecretManager},
+    types::MediaPayload,
 };
 use orka_experience::ExperienceService;
 use orka_llm::client::LlmClient;
@@ -170,6 +171,9 @@ pub struct ExecutorDeps {
 pub struct ExecutionResult {
     /// The final text response from the terminal agent.
     pub response: String,
+    /// Media attachments produced by skills during the run.
+    /// Emitted as separate outbound messages after the text response.
+    pub attachments: Vec<MediaPayload>,
     /// Total agents that executed.
     pub agents_executed: Vec<String>,
     /// Total LLM iterations.
@@ -182,21 +186,42 @@ pub struct ExecutionResult {
 
 impl ExecutionResult {
     /// Convert the result into `OutboundMessage`s for the worker.
+    ///
+    /// Produces one text message (if there is a response) followed by one
+    /// additional message per media attachment generated during execution.
     pub fn into_outbound_messages(self, ctx: &ExecutionContext) -> Vec<OutboundMessage> {
-        if self.response.is_empty() {
-            return Vec::new();
+        let mut out: Vec<OutboundMessage> = Vec::new();
+
+        if !self.response.is_empty() {
+            let mut msg = OutboundMessage::text(
+                ctx.trigger.channel.clone(),
+                ctx.session_id,
+                self.response,
+                Some(ctx.trigger.id),
+            );
+            msg.metadata = ctx.trigger.metadata.clone();
+            msg.metadata
+                .entry("source_channel".into())
+                .or_insert_with(|| serde_json::Value::String(ctx.trigger.channel.clone()));
+            out.push(msg);
         }
-        let mut msg = OutboundMessage::text(
-            ctx.trigger.channel.clone(),
-            ctx.session_id,
-            self.response,
-            Some(ctx.trigger.id),
-        );
-        msg.metadata = ctx.trigger.metadata.clone();
-        msg.metadata
-            .entry("source_channel".into())
-            .or_insert_with(|| serde_json::Value::String(ctx.trigger.channel.clone()));
-        vec![msg]
+
+        for attachment in self.attachments {
+            let mut media_msg = OutboundMessage::new(
+                ctx.trigger.channel.clone(),
+                ctx.session_id,
+                Payload::Media(attachment),
+                Some(ctx.trigger.id),
+            );
+            media_msg.metadata = ctx.trigger.metadata.clone();
+            media_msg
+                .metadata
+                .entry("source_channel".into())
+                .or_insert_with(|| serde_json::Value::String(ctx.trigger.channel.clone()));
+            out.push(media_msg);
+        }
+
+        out
     }
 }
 
@@ -381,6 +406,7 @@ impl GraphExecutor {
         let mut total_iterations = 0usize;
         let mut agents_executed: Vec<String> = Vec::new();
         let mut final_response = String::new();
+        let mut all_attachments: Vec<MediaPayload> = Vec::new();
         let mut global_iteration = 0usize;
 
         // Add initial user message to context if not already present
@@ -452,6 +478,7 @@ impl GraphExecutor {
                         .await?;
 
                     total_iterations += result.iterations;
+                    all_attachments.extend(result.attachments.iter().cloned());
 
                     // Emit AgentCompleted event
                     self.deps
@@ -503,6 +530,7 @@ impl GraphExecutor {
                         .await;
                         return Ok(ExecutionResult {
                             response: String::new(),
+                            attachments: Vec::new(),
                             agents_executed,
                             total_iterations,
                             total_tokens: ctx.total_tokens(),
@@ -599,6 +627,7 @@ impl GraphExecutor {
                                     run_agent_node(&target_node.agent, ctx, &self.deps, graph)
                                         .await?;
                                 total_iterations += delegate_result.iterations;
+                                all_attachments.extend(delegate_result.attachments.iter().cloned());
 
                                 if let Some(resp) = delegate_result.response {
                                     // Feed the delegate result back as a tool result message
@@ -749,6 +778,7 @@ impl GraphExecutor {
                         match res {
                             Ok(Ok(node_result)) => {
                                 total_iterations += node_result.iterations;
+                                all_attachments.extend(node_result.attachments.iter().cloned());
                                 if let Some(resp) = node_result.response {
                                     final_response = resp;
                                 }
@@ -786,6 +816,7 @@ impl GraphExecutor {
                         .instrument(agent_span)
                         .await?;
                     total_iterations += result.iterations;
+                    all_attachments.extend(result.attachments.iter().cloned());
                     if let Some(resp) = result.response {
                         final_response = resp.clone();
                         // Evaluate outgoing edges — FanIn can feed into further nodes.
@@ -815,6 +846,7 @@ impl GraphExecutor {
 
         Ok(ExecutionResult {
             response: final_response,
+            attachments: all_attachments,
             agents_executed,
             total_iterations,
             total_tokens: ctx.total_tokens(),

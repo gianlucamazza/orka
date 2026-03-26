@@ -300,8 +300,11 @@ impl ChannelAdapter for SlackAdapter {
                 debug!(channel, "sent text message to Slack");
             }
             Payload::Media(media) => {
-                if media.mime_type.starts_with("image/") {
-                    // Image → Block Kit image block
+                // Inline data (e.g. generated charts): always use file upload.
+                // URL-based images: use Block Kit image block (lighter path).
+                // URL-based non-images: download then file upload.
+                if media.mime_type.starts_with("image/") && media.data_base64.is_none() {
+                    // Image with URL → Block Kit image block
                     let blocks = serde_json::json!([{
                         "type": "image",
                         "image_url": media.url,
@@ -332,23 +335,28 @@ impl ChannelAdapter for SlackAdapter {
                     }
                     debug!(channel, "sent image block to Slack");
                 } else {
-                    // Non-image: files.getUploadURLExternal → upload → completeUploadExternal
+                    // Inline data or non-image URL:
+                    // files.getUploadURLExternal → upload → completeUploadExternal
                     let filename = media.caption.clone().unwrap_or_else(|| "attachment".into());
-                    let file_bytes = self
-                        .client
-                        .get(&media.url)
-                        .send()
-                        .await
-                        .map_err(|e| Error::Adapter {
-                            source: Box::new(e),
-                            context: "Slack media download failed".into(),
-                        })?
-                        .bytes()
-                        .await
-                        .map_err(|e| Error::Adapter {
-                            source: Box::new(e),
-                            context: "Slack media read failed".into(),
-                        })?;
+                    let file_bytes: Vec<u8> = if let Some(data) = media.decode_data() {
+                        data
+                    } else {
+                        self.client
+                            .get(&media.url)
+                            .send()
+                            .await
+                            .map_err(|e| Error::Adapter {
+                                source: Box::new(e),
+                                context: "Slack media download failed".into(),
+                            })?
+                            .bytes()
+                            .await
+                            .map_err(|e| Error::Adapter {
+                                source: Box::new(e),
+                                context: "Slack media read failed".into(),
+                            })?
+                            .to_vec()
+                    };
 
                     // Step 1: Get upload URL
                     let url_resp: serde_json::Value = self
@@ -385,7 +393,7 @@ impl ChannelAdapter for SlackAdapter {
                     // Step 2: Upload the file
                     self.client
                         .post(&upload_url)
-                        .body(file_bytes.to_vec())
+                        .body(file_bytes)
                         .send()
                         .await
                         .map_err(|e| Error::Adapter {

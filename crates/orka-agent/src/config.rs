@@ -349,6 +349,7 @@ mod tests {
             agents: vec![],
             graph: None,
             research: Default::default(),
+            chart: Default::default(),
         }
     }
 

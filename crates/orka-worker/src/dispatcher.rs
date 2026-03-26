@@ -183,6 +183,7 @@ impl Dispatcher for GraphDispatcher {
                 // completed with empty response.
                 None => orka_agent::ExecutionResult {
                     response: String::new(),
+                    attachments: vec![],
                     agents_executed: vec![],
                     total_iterations: 0,
                     total_tokens: 0,

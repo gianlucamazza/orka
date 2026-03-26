@@ -437,16 +437,9 @@ impl WorkerPool {
 /// context from the source envelope.
 async fn publish_outbound(bus: &Arc<dyn MessageBus>, source: &Envelope, msgs: &[OutboundMessage]) {
     for msg in msgs {
-        let mut out_env = Envelope::text(
-            &msg.channel,
-            msg.session_id,
-            match &msg.payload {
-                Payload::Text(t) => t.clone(),
-                _ => "[non-text]".into(),
-            },
-        );
+        let mut out_env =
+            Envelope::with_payload(&msg.channel, msg.session_id, msg.payload.clone(), source);
         out_env.metadata = msg.metadata.clone();
-        out_env.trace_context = source.trace_context.clone();
         if let Err(e) = bus.publish("outbound", &out_env).await {
             error!(%e, "failed to publish outbound");
         }

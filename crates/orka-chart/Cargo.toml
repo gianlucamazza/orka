@@ -1,0 +1,27 @@
+[package]
+name = "orka-chart"
+description = "Chart generation skills for Orka agents (bar, line, pie, scatter, histogram, area, heatmap)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orka-core = { path = "../orka-core" }
+plotters = { version = "0.3", default-features = false, features = [
+  "bitmap_backend",
+  "bitmap_encoder",
+  "line_series",
+  "area_series",
+  "full_palette",
+  "colormaps",
+] }
+image = { version = "0.24", default-features = false, features = ["png"] }
+async-trait.workspace = true
+base64.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

@@ -5,8 +5,17 @@ use orka_core::stream::StreamChunkKind;
 pub enum WsMessage {
     /// A streaming chunk (delta, tool event, done).
     Stream(StreamChunkKind),
-    /// A final message with extracted display text.
+    /// A final text message.
     Final(String),
+    /// An inlined media attachment (e.g. a generated chart).
+    Media {
+        /// MIME type of the media (e.g. `image/png`).
+        mime_type: String,
+        /// Base64-encoded media bytes.
+        data_base64: String,
+        /// Optional caption.
+        caption: Option<String>,
+    },
     /// Unrecognized payload (fallback).
     Unknown(String),
 }
@@ -27,13 +36,36 @@ pub fn classify_ws_message(raw: &str) -> WsMessage {
         return WsMessage::Stream(kind);
     }
 
-    // OutboundMessage: { payload: { data: "..." } }
-    if let Some(data) = parsed
-        .get("payload")
-        .and_then(|p| p.get("data"))
-        .and_then(|d| d.as_str())
-    {
-        return WsMessage::Final(data.to_string());
+    // OutboundMessage shape: { payload: { type: "...", data: ... } }
+    if let Some(payload) = parsed.get("payload") {
+        match payload.get("type").and_then(|t| t.as_str()) {
+            Some("Text") => {
+                if let Some(text) = payload.get("data").and_then(|d| d.as_str()) {
+                    return WsMessage::Final(text.to_string());
+                }
+            }
+            Some("Media") => {
+                if let Some(media) = payload.get("data") {
+                    let mime_type = media
+                        .get("mime_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("application/octet-stream")
+                        .to_string();
+                    let caption = media
+                        .get("caption")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    if let Some(data_base64) = media.get("data_base64").and_then(|v| v.as_str()) {
+                        return WsMessage::Media {
+                            mime_type,
+                            data_base64: data_base64.to_string(),
+                            caption,
+                        };
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     WsMessage::Unknown(raw.to_string())
@@ -92,6 +124,23 @@ mod tests {
         match classify_ws_message(raw) {
             WsMessage::Final(text) => assert_eq!(text, "hello world"),
             other => panic!("expected Final, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_media_payload() {
+        let raw = r#"{"channel":"custom","session_id":"abc","payload":{"type":"Media","data":{"mime_type":"image/png","url":"","caption":"Revenue chart","data_base64":"abc123"}},"reply_to":null,"metadata":{}}"#;
+        match classify_ws_message(raw) {
+            WsMessage::Media {
+                mime_type,
+                data_base64,
+                caption,
+            } => {
+                assert_eq!(mime_type, "image/png");
+                assert_eq!(data_base64, "abc123");
+                assert_eq!(caption.as_deref(), Some("Revenue chart"));
+            }
+            other => panic!("expected Media, got {other:?}"),
         }
     }
 

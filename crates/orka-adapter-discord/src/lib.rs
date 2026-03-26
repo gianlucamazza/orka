@@ -389,24 +389,28 @@ impl ChannelAdapter for DiscordAdapter {
                 debug!(channel_id, "sent text message to Discord");
             }
             Payload::Media(media) => {
-                let bytes = self
-                    .client
-                    .get(&media.url)
-                    .send()
-                    .await
-                    .map_err(|e| Error::Adapter {
-                        source: Box::new(e),
-                        context: "Discord media download failed".into(),
-                    })?
-                    .bytes()
-                    .await
-                    .map_err(|e| Error::Adapter {
-                        source: Box::new(e),
-                        context: "Discord media read failed".into(),
-                    })?;
+                let raw_bytes: Vec<u8> = if let Some(data) = media.decode_data() {
+                    data
+                } else {
+                    self.client
+                        .get(&media.url)
+                        .send()
+                        .await
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Discord media download failed".into(),
+                        })?
+                        .bytes()
+                        .await
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Discord media read failed".into(),
+                        })?
+                        .to_vec()
+                };
 
                 let filename = media.caption.clone().unwrap_or_else(|| "attachment".into());
-                let part = reqwest::multipart::Part::bytes(bytes.to_vec())
+                let part = reqwest::multipart::Part::bytes(raw_bytes)
                     .file_name(filename)
                     .mime_str(&media.mime_type)
                     .map_err(|e| Error::Adapter {

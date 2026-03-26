@@ -46,6 +46,10 @@ members = [
   # First-class git skills with guardrails and worktree isolation
   "crates/orka-git",
 
+  # ── Visualization ─────────────────────────────────────────────────────────
+  # Chart generation skills (bar, line, pie, scatter, histogram, area, ...)
+  "crates/orka-chart",
+
   # ── Networking / OS ───────────────────────────────────────────────────────
   # HTTP client, web search, auth, Linux OS integration
   "crates/orka-http",
@@ -277,6 +281,7 @@ orka-research = { path = "crates/orka-research" }
 orka-checkpoint = { path = "crates/orka-checkpoint" }
 orka-agent = { path = "crates/orka-agent" }
 orka-git = { path = "crates/orka-git" }
+orka-chart = { path = "crates/orka-chart" }
 orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
 orka-prompts = { path = "crates/orka-prompts" }
 handlebars = { version = "6", default-features = false, features = [

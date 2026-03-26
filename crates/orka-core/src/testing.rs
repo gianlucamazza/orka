@@ -435,9 +435,9 @@ impl Skill for EchoSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        Ok(SkillOutput {
-            data: serde_json::to_value(input.args).map_err(|e| Error::Skill(e.to_string()))?,
-        })
+        Ok(SkillOutput::new(
+            serde_json::to_value(input.args).map_err(|e| Error::Skill(e.to_string()))?,
+        ))
     }
 }
 

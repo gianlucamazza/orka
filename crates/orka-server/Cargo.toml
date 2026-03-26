@@ -59,6 +59,7 @@ orka-checkpoint.workspace = true
 orka-scheduler.workspace = true
 orka-eval.workspace = true
 orka-git.workspace = true
+orka-chart.workspace = true
 orka-research.workspace = true
 tokio-stream.workspace = true
 axum.workspace = true

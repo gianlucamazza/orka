@@ -433,6 +433,7 @@ mod tests {
             agents: Vec::new(),
             graph: None,
             research: Default::default(),
+            chart: Default::default(),
         }
     }
 

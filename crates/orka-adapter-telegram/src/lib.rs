@@ -260,15 +260,28 @@ impl ChannelAdapter for TelegramAdapter {
                 let caption = media.caption.as_deref();
                 match method {
                     SendMethod::Photo => {
-                        self.api
-                            .send_photo(
-                                chat_id,
-                                &media.url,
-                                caption,
-                                reply_to_message_id,
-                                message_thread_id,
-                            )
-                            .await?;
+                        if let Some(data) = media.decode_data() {
+                            self.api
+                                .send_photo_bytes(
+                                    chat_id,
+                                    data,
+                                    "chart.png",
+                                    caption,
+                                    reply_to_message_id,
+                                    message_thread_id,
+                                )
+                                .await?;
+                        } else {
+                            self.api
+                                .send_photo(
+                                    chat_id,
+                                    &media.url,
+                                    caption,
+                                    reply_to_message_id,
+                                    message_thread_id,
+                                )
+                                .await?;
+                        }
                     }
                     SendMethod::Audio => {
                         self.api

@@ -164,6 +164,70 @@ impl TelegramApi {
         self.call("sendPhoto", &body).await
     }
 
+    /// Send a photo from raw bytes via multipart upload.
+    pub(crate) async fn send_photo_bytes(
+        &self,
+        chat_id: i64,
+        data: Vec<u8>,
+        filename: &str,
+        caption: Option<&str>,
+        reply_to_message_id: Option<i64>,
+        message_thread_id: Option<i64>,
+    ) -> Result<TelegramMessage> {
+        let url = format!("{}/bot{}/sendPhoto", BASE_URL, self.bot_token);
+        let mut form = reqwest::multipart::Form::new()
+            .text("chat_id", chat_id.to_string())
+            .part(
+                "photo",
+                reqwest::multipart::Part::bytes(data)
+                    .file_name(filename.to_string())
+                    .mime_str("image/png")
+                    .map_err(|e| Error::Adapter {
+                        source: Box::new(e),
+                        context: "Telegram multipart MIME error".into(),
+                    })?,
+            );
+        if let Some(c) = caption {
+            form = form.text("caption", c.to_string());
+        }
+        if let Some(id) = reply_to_message_id {
+            form = form.text(
+                "reply_parameters",
+                serde_json::json!({"message_id": id}).to_string(),
+            );
+        }
+        if let Some(tid) = message_thread_id {
+            form = form.text("message_thread_id", tid.to_string());
+        }
+        let resp = self
+            .client
+            .post(&url)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| Error::Adapter {
+                source: Box::new(e),
+                context: "Telegram photo bytes send failed".into(),
+            })?;
+        let tg_resp: TelegramResponse<TelegramMessage> =
+            resp.json().await.map_err(|e| Error::Adapter {
+                source: Box::new(e),
+                context: "Telegram photo bytes response parse failed".into(),
+            })?;
+        if !tg_resp.ok {
+            return Err(Error::Adapter {
+                source: Box::new(std::io::Error::other(
+                    tg_resp.description.unwrap_or_default(),
+                )),
+                context: "Telegram sendPhoto (bytes) returned ok=false".into(),
+            });
+        }
+        tg_resp.result.ok_or_else(|| Error::Adapter {
+            source: Box::new(std::io::Error::other("missing result")),
+            context: "Telegram sendPhoto (bytes) returned no result".into(),
+        })
+    }
+
     /// Send a document by URL.
     pub(crate) async fn send_document(
         &self,

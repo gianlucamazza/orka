@@ -21,6 +21,7 @@ use serde::Deserialize;
 
 pub mod adapters;
 pub mod agent;
+pub mod chart;
 pub mod defaults;
 pub mod experience;
 pub mod git;
@@ -41,9 +42,9 @@ pub mod web;
 
 // Re-export all configuration types for backward compatibility
 pub use self::{
-    adapters::*, agent::*, experience::*, git::*, http::*, infrastructure::*, knowledge::*, llm::*,
-    observability::*, primitives::*, prompts::*, protocols::*, research::*, security::*, server::*,
-    system::*, tools::*, web::*,
+    adapters::*, agent::*, chart::*, experience::*, git::*, http::*, infrastructure::*,
+    knowledge::*, llm::*, observability::*, primitives::*, prompts::*, protocols::*, research::*,
+    security::*, server::*, system::*, tools::*, web::*,
 };
 use crate::migrate;
 
@@ -163,6 +164,9 @@ pub struct OrkaConfig {
     /// Autonomous research campaign configuration.
     #[serde(default)]
     pub research: ResearchConfig,
+    /// Chart generation skill configuration.
+    #[serde(default)]
+    pub chart: ChartConfig,
 }
 
 impl Default for OrkaConfig {
@@ -205,6 +209,7 @@ impl Default for OrkaConfig {
             agents: Vec::new(),
             graph: None,
             research: ResearchConfig::default(),
+            chart: ChartConfig::default(),
         }
     }
 }
