@@ -192,13 +192,21 @@ const RUN_KEY_PREFIX: &str = "orka:research:run:";
 const CANDIDATE_KEY_PREFIX: &str = "orka:research:candidate:";
 const PROMOTION_REQUEST_KEY_PREFIX: &str = "orka:research:promotion_request:";
 
+/// Default TTL for individual research objects (90 days).
+///
+/// Global index sets (e.g. the campaign ID set) do not expire because they are
+/// shared across all campaigns.  List methods already skip IDs whose data key
+/// has expired, so stale set members are silently ignored.
+const DEFAULT_TTL_SECS: i64 = 60 * 60 * 24 * 90;
+
 /// Redis-backed research store.
 pub struct RedisResearchStore {
     pool: Arc<deadpool_redis::Pool>,
+    ttl_secs: i64,
 }
 
 impl RedisResearchStore {
-    /// Create a new Redis store.
+    /// Create a new Redis store with the default 90-day TTL.
     pub fn new(redis_url: &str) -> Result<Self> {
         let cfg = deadpool_redis::Config::from_url(redis_url);
         let pool = cfg
@@ -206,7 +214,15 @@ impl RedisResearchStore {
             .map_err(|e| Error::Research(format!("failed to create Redis pool: {e}")))?;
         Ok(Self {
             pool: Arc::new(pool),
+            ttl_secs: DEFAULT_TTL_SECS,
         })
+    }
+
+    /// Create a store with a custom TTL in seconds. Pass `0` to disable expiry.
+    #[must_use]
+    pub fn with_ttl(mut self, ttl_secs: i64) -> Self {
+        self.ttl_secs = ttl_secs;
+        self
     }
 
     async fn with_conn<T>(
@@ -257,15 +273,19 @@ impl ResearchStore for RedisResearchStore {
     async fn put_campaign(&self, campaign: &ResearchCampaign) -> Result<()> {
         let payload = serde_json::to_string(campaign)?;
         let id = campaign.id.clone();
+        let ttl = self.ttl_secs;
         self.with_conn(move |conn| {
             Box::pin(async move {
-                redis::pipe()
-                    .atomic()
-                    .set(campaign_key(&id), payload)
+                let mut pipe = redis::pipe();
+                pipe.atomic()
+                    .set(campaign_key(&id), &payload)
                     .ignore()
                     .sadd(CAMPAIGN_IDS_KEY, &id)
-                    .ignore()
-                    .query_async::<()>(conn)
+                    .ignore();
+                if ttl > 0 {
+                    pipe.expire(campaign_key(&id), ttl).ignore();
+                }
+                pipe.query_async::<()>(conn)
                     .await
                     .map_err(|e| Error::Research(format!("failed to store campaign: {e}")))?;
                 Ok(())
@@ -336,17 +356,21 @@ impl ResearchStore for RedisResearchStore {
         let payload = serde_json::to_string(run)?;
         let id = run.id.clone();
         let campaign_id = run.campaign_id.clone();
+        let ttl = self.ttl_secs;
         self.with_conn(move |conn| {
             Box::pin(async move {
-                redis::pipe()
-                    .atomic()
-                    .set(run_key(&id), payload)
+                let mut pipe = redis::pipe();
+                pipe.atomic()
+                    .set(run_key(&id), &payload)
                     .ignore()
                     .sadd(RUN_IDS_KEY, &id)
                     .ignore()
                     .sadd(campaign_runs_key(&campaign_id), &id)
-                    .ignore()
-                    .query_async::<()>(conn)
+                    .ignore();
+                if ttl > 0 {
+                    pipe.expire(run_key(&id), ttl).ignore();
+                }
+                pipe.query_async::<()>(conn)
                     .await
                     .map_err(|e| Error::Research(format!("failed to store run: {e}")))?;
                 Ok(())
@@ -429,17 +453,21 @@ impl ResearchStore for RedisResearchStore {
         let payload = serde_json::to_string(candidate)?;
         let id = candidate.id.clone();
         let campaign_id = candidate.campaign_id.clone();
+        let ttl = self.ttl_secs;
         self.with_conn(move |conn| {
             Box::pin(async move {
-                redis::pipe()
-                    .atomic()
-                    .set(candidate_key(&id), payload)
+                let mut pipe = redis::pipe();
+                pipe.atomic()
+                    .set(candidate_key(&id), &payload)
                     .ignore()
                     .sadd(CANDIDATE_IDS_KEY, &id)
                     .ignore()
                     .sadd(campaign_candidates_key(&campaign_id), &id)
-                    .ignore()
-                    .query_async::<()>(conn)
+                    .ignore();
+                if ttl > 0 {
+                    pipe.expire(candidate_key(&id), ttl).ignore();
+                }
+                pipe.query_async::<()>(conn)
                     .await
                     .map_err(|e| Error::Research(format!("failed to store candidate: {e}")))?;
                 Ok(())
@@ -523,17 +551,21 @@ impl ResearchStore for RedisResearchStore {
         let payload = serde_json::to_string(request)?;
         let id = request.id.clone();
         let campaign_id = request.campaign_id.clone();
+        let ttl = self.ttl_secs;
         self.with_conn(move |conn| {
             Box::pin(async move {
-                redis::pipe()
-                    .atomic()
-                    .set(promotion_request_key(&id), payload)
+                let mut pipe = redis::pipe();
+                pipe.atomic()
+                    .set(promotion_request_key(&id), &payload)
                     .ignore()
                     .sadd(PROMOTION_REQUEST_IDS_KEY, &id)
                     .ignore()
                     .sadd(campaign_promotions_key(&campaign_id), &id)
-                    .ignore()
-                    .query_async::<()>(conn)
+                    .ignore();
+                if ttl > 0 {
+                    pipe.expire(promotion_request_key(&id), ttl).ignore();
+                }
+                pipe.query_async::<()>(conn)
                     .await
                     .map_err(|e| {
                         Error::Research(format!("failed to store promotion request: {e}"))
