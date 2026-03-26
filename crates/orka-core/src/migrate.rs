@@ -875,7 +875,7 @@ fn inspect_os_coding_keys(doc: &DocumentMut, warnings: &mut Vec<String>) {
     inspect_table_keys(
         doc,
         &["os", "coding", "providers"],
-        &["claude_code", "codex"],
+        &["claude_code", "codex", "opencode"],
         &[],
         &[],
         warnings,
@@ -915,6 +915,25 @@ fn inspect_os_coding_keys(doc: &DocumentMut, warnings: &mut Vec<String>) {
         doc,
         &["os", "coding", "providers", "codex"],
         &codex_allowed,
+        &[],
+        &[],
+        warnings,
+    );
+
+    let opencode_allowed = [
+        "enabled",
+        "executable_path",
+        "model",
+        "agent",
+        "variant",
+        "timeout_secs",
+        "allow_file_modifications",
+        "allow_command_execution",
+    ];
+    inspect_table_keys(
+        doc,
+        &["os", "coding", "providers", "opencode"],
+        &opencode_allowed,
         &[],
         &[],
         warnings,

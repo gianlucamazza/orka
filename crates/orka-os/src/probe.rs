@@ -68,6 +68,8 @@ pub struct EnvironmentCapabilities {
     pub claude_code: ProbeResult,
     /// `codex` CLI availability.
     pub codex: ProbeResult,
+    /// `opencode` CLI availability.
+    pub opencode: ProbeResult,
 }
 
 impl EnvironmentCapabilities {
@@ -87,6 +89,7 @@ impl EnvironmentCapabilities {
         let journalctl = probe_journalctl().await;
         let claude_code = probe_claude_code(config).await;
         let codex = probe_codex(config).await;
+        let opencode = probe_opencode(config).await;
 
         debug!(
             no_new_privileges,
@@ -96,6 +99,7 @@ impl EnvironmentCapabilities {
             journalctl = journalctl.available,
             claude_code = claude_code.available,
             codex = codex.available,
+            opencode = opencode.available,
             "environment capabilities probed"
         );
 
@@ -107,6 +111,7 @@ impl EnvironmentCapabilities {
             update_method,
             claude_code,
             codex,
+            opencode,
         }
     }
 }
@@ -245,6 +250,24 @@ async fn probe_codex(config: &OsConfig) -> ProbeResult {
         ProbeResult::ok(format!("{command} --version"))
     } else {
         ProbeResult::unavailable("codex CLI not found or not functional")
+    }
+}
+
+async fn probe_opencode(config: &OsConfig) -> ProbeResult {
+    let command = configured_command(
+        config
+            .coding
+            .providers
+            .opencode
+            .executable_path
+            .as_deref()
+            .unwrap_or_else(|| Path::new("opencode")),
+    );
+    let ok = run_probe(&command, &["--version"], Duration::from_secs(2)).await;
+    if ok {
+        ProbeResult::ok(format!("{command} --version"))
+    } else {
+        ProbeResult::unavailable("opencode CLI not found or not functional")
     }
 }
 

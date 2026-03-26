@@ -5,8 +5,8 @@ use std::{fmt, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Error, Result,
     config::{defaults, primitives::OsPermissionLevel},
+    Error, Result,
 };
 
 /// Coding orchestration provider selection.
@@ -20,6 +20,9 @@ pub enum CodingProvider {
     ClaudeCode,
     /// Prefer Codex as the coding backend.
     Codex,
+    /// Prefer `OpenCode` as the coding backend.
+    #[serde(rename = "opencode")]
+    OpenCode,
 }
 
 impl fmt::Display for CodingProvider {
@@ -28,6 +31,7 @@ impl fmt::Display for CodingProvider {
             Self::Auto => f.write_str("auto"),
             Self::ClaudeCode => f.write_str("claude_code"),
             Self::Codex => f.write_str("codex"),
+            Self::OpenCode => f.write_str("opencode"),
         }
     }
 }
@@ -36,13 +40,15 @@ impl fmt::Display for CodingProvider {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CodingSelectionPolicy {
-    /// Prefer whichever provider is available; fall back to the other.
+    /// Prefer whichever provider is available; fall back in order: claude → codex → opencode.
     #[default]
     Availability,
-    /// Try Claude Code first, fall back to Codex.
+    /// Try Claude Code first, fall back to `Codex` then `OpenCode`.
     PreferClaude,
-    /// Try Codex first, fall back to Claude Code.
+    /// Try Codex first, fall back to Claude Code then `OpenCode`.
     PreferCodex,
+    /// Try `OpenCode` first, fall back to Claude Code then `Codex`.
+    PreferOpenCode,
 }
 
 impl fmt::Display for CodingSelectionPolicy {
@@ -51,6 +57,7 @@ impl fmt::Display for CodingSelectionPolicy {
             Self::Availability => f.write_str("availability"),
             Self::PreferClaude => f.write_str("prefer_claude"),
             Self::PreferCodex => f.write_str("prefer_codex"),
+            Self::PreferOpenCode => f.write_str("prefer_opencode"),
         }
     }
 }
@@ -199,7 +206,11 @@ impl CodingConfig {
     pub fn validate(&self) -> Result<()> {
         self.providers.validate()?;
 
-        if self.enabled && !self.providers.claude_code.enabled && !self.providers.codex.enabled {
+        if self.enabled
+            && !self.providers.claude_code.enabled
+            && !self.providers.codex.enabled
+            && !self.providers.opencode.enabled
+        {
             return Err(Error::Config(
                 "os.coding.enabled requires at least one enabled provider under os.coding.providers"
                     .into(),
@@ -220,6 +231,9 @@ pub struct CodingProvidersConfig {
     /// Codex backend configuration.
     #[serde(default)]
     pub codex: CodexConfig,
+    /// `OpenCode` backend configuration.
+    #[serde(default)]
+    pub opencode: OpenCodeConfig,
 }
 
 impl CodingProvidersConfig {
@@ -227,6 +241,7 @@ impl CodingProvidersConfig {
     pub fn validate(&self) -> Result<()> {
         self.claude_code.validate()?;
         self.codex.validate()?;
+        self.opencode.validate()?;
         Ok(())
     }
 }
@@ -341,6 +356,59 @@ impl CodexConfig {
     }
 }
 
+/// `OpenCode` provider configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct OpenCodeConfig {
+    /// Enable `OpenCode` integration.
+    #[serde(default = "defaults::default_opencode_enabled")]
+    pub enabled: bool,
+    /// Path to `OpenCode` executable.
+    pub executable_path: Option<PathBuf>,
+    /// Default model override in `provider/model` format (e.g. `anthropic/claude-sonnet-4-6`).
+    pub model: Option<String>,
+    /// Agent name passed via `--agent`.
+    pub agent: Option<String>,
+    /// Model variant for reasoning effort (e.g. `high`, `max`, `minimal`).
+    pub variant: Option<String>,
+    /// Execution timeout in seconds.
+    #[serde(default = "defaults::default_coding_timeout_secs")]
+    pub timeout_secs: u64,
+    /// Allow `OpenCode` to modify files.
+    #[serde(default)]
+    pub allow_file_modifications: bool,
+    /// Allow `OpenCode` to execute commands.
+    #[serde(default)]
+    pub allow_command_execution: bool,
+}
+
+impl Default for OpenCodeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: defaults::default_opencode_enabled(),
+            executable_path: None,
+            model: None,
+            agent: None,
+            variant: None,
+            timeout_secs: defaults::default_coding_timeout_secs(),
+            allow_file_modifications: false,
+            allow_command_execution: false,
+        }
+    }
+}
+
+impl OpenCodeConfig {
+    /// Validate `OpenCode` provider configuration.
+    pub fn validate(&self) -> Result<()> {
+        if self.timeout_secs == 0 {
+            return Err(Error::Config(
+                "os.coding.providers.opencode.timeout_secs must be greater than zero".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Sudo configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
@@ -432,6 +500,7 @@ mod tests {
         };
         config.providers.claude_code.enabled = false;
         config.providers.codex.enabled = false;
+        config.providers.opencode.enabled = false;
 
         assert!(config.validate().is_err());
     }
@@ -485,5 +554,60 @@ mod tests {
         assert_eq!(CodingProvider::Auto.to_string(), "auto");
         assert_eq!(CodingProvider::ClaudeCode.to_string(), "claude_code");
         assert_eq!(CodingProvider::Codex.to_string(), "codex");
+        assert_eq!(CodingProvider::OpenCode.to_string(), "opencode");
+    }
+
+    #[test]
+    fn coding_provider_opencode_serde_roundtrip() {
+        let toml = r#"default_provider = "opencode""#;
+        let config: CodingConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.default_provider, CodingProvider::OpenCode);
+    }
+
+    #[test]
+    fn coding_validation_accepts_opencode_provider() {
+        let mut config = CodingConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        config.providers.opencode.enabled = true;
+
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn opencode_config_serde_roundtrip() {
+        let toml = r#"
+            enabled = true
+            model = "anthropic/claude-sonnet-4-6"
+            agent = "default"
+            variant = "high"
+            timeout_secs = 600
+            allow_file_modifications = true
+            allow_command_execution = true
+        "#;
+        let config: OpenCodeConfig = toml::from_str(toml).unwrap();
+        assert!(config.enabled);
+        assert_eq!(config.model.as_deref(), Some("anthropic/claude-sonnet-4-6"));
+        assert_eq!(config.agent.as_deref(), Some("default"));
+        assert_eq!(config.variant.as_deref(), Some("high"));
+        assert_eq!(config.timeout_secs, 600);
+        assert!(config.allow_file_modifications);
+        assert!(config.allow_command_execution);
+    }
+
+    #[test]
+    fn opencode_config_rejects_zero_timeout() {
+        let toml = r#"timeout_secs = 0"#;
+        let config: OpenCodeConfig = toml::from_str(toml).unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn selection_policy_prefer_opencode_display() {
+        assert_eq!(
+            CodingSelectionPolicy::PreferOpenCode.to_string(),
+            "prefer_opencode"
+        );
     }
 }

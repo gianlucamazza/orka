@@ -211,6 +211,11 @@ pub const fn default_codex_enabled() -> bool {
     false
 }
 
+/// Default `OpenCode` enabled state.
+pub const fn default_opencode_enabled() -> bool {
+    false
+}
+
 /// Default coding delegate context injection.
 pub const fn default_coding_inject_workspace_context() -> bool {
     true

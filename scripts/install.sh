@@ -490,7 +490,7 @@ extract_home_coding_provider_commands() {
 	[[ -f "$cfg" ]] || return 0
 
 	awk '
-		/^\[os\.coding\.providers\.(claude_code|codex)\]/ {
+		/^\[os\.coding\.providers\.(claude_code|codex|opencode)\]/ {
 			section=$0
 			gsub(/^\[|\]$/, "", section)
 			next

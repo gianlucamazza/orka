@@ -30,20 +30,30 @@ fn select_coding_backend(
     config: &orka_core::config::CodingConfig,
     claude_available: bool,
     codex_available: bool,
+    opencode_available: bool,
 ) -> Option<orka_core::config::CodingProvider> {
     use orka_core::config::{CodingProvider, CodingSelectionPolicy};
     match config.default_provider {
         CodingProvider::ClaudeCode => claude_available.then_some(CodingProvider::ClaudeCode),
         CodingProvider::Codex => codex_available.then_some(CodingProvider::Codex),
+        CodingProvider::OpenCode => opencode_available.then_some(CodingProvider::OpenCode),
         CodingProvider::Auto => match config.selection_policy {
-            CodingSelectionPolicy::PreferClaude => claude_available
-                .then_some(CodingProvider::ClaudeCode)
-                .or_else(|| codex_available.then_some(CodingProvider::Codex)),
+            // claude → codex → opencode (backward-compatible)
+            CodingSelectionPolicy::Availability | CodingSelectionPolicy::PreferClaude => {
+                claude_available
+                    .then_some(CodingProvider::ClaudeCode)
+                    .or_else(|| codex_available.then_some(CodingProvider::Codex))
+                    .or_else(|| opencode_available.then_some(CodingProvider::OpenCode))
+            }
+            // codex → claude → opencode
             CodingSelectionPolicy::PreferCodex => codex_available
                 .then_some(CodingProvider::Codex)
-                .or_else(|| claude_available.then_some(CodingProvider::ClaudeCode)),
-            CodingSelectionPolicy::Availability => claude_available
-                .then_some(CodingProvider::ClaudeCode)
+                .or_else(|| claude_available.then_some(CodingProvider::ClaudeCode))
+                .or_else(|| opencode_available.then_some(CodingProvider::OpenCode)),
+            // opencode → claude → codex
+            CodingSelectionPolicy::PreferOpenCode => opencode_available
+                .then_some(CodingProvider::OpenCode)
+                .or_else(|| claude_available.then_some(CodingProvider::ClaudeCode))
                 .or_else(|| codex_available.then_some(CodingProvider::Codex)),
         },
     }
@@ -294,8 +304,14 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         let claude_code_available =
             config.os.coding.providers.claude_code.enabled && caps.claude_code.available;
         let codex_available = config.os.coding.providers.codex.enabled && caps.codex.available;
-        let selected_backend =
-            select_coding_backend(&config.os.coding, claude_code_available, codex_available);
+        let opencode_available =
+            config.os.coding.providers.opencode.enabled && caps.opencode.available;
+        let selected_backend = select_coding_backend(
+            &config.os.coding,
+            claude_code_available,
+            codex_available,
+            opencode_available,
+        );
         use orka_core::config::CodingProvider;
         let (file_modifications_allowed, command_execution_allowed) = match selected_backend {
             Some(CodingProvider::ClaudeCode) => (
@@ -316,10 +332,15 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                 config.os.coding.providers.codex.allow_file_modifications,
                 config.os.coding.providers.codex.allow_command_execution,
             ),
+            Some(CodingProvider::OpenCode) => (
+                config.os.coding.providers.opencode.allow_file_modifications,
+                config.os.coding.providers.opencode.allow_command_execution,
+            ),
             _ => (false, false),
         };
         coding_runtime = Some(orka_agent::executor::CodingRuntimeStatus {
-            tool_available: config.os.coding.enabled && (claude_code_available || codex_available),
+            tool_available: config.os.coding.enabled
+                && (claude_code_available || codex_available || opencode_available),
             default_provider: config.os.coding.default_provider.to_string(),
             selection_policy: config.os.coding.selection_policy.to_string(),
             claude_code_available,

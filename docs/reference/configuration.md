@@ -240,8 +240,8 @@ There is no `http.enabled` field in the current schema.
 | Key | Type | Notes |
 | --- | --- | --- |
 | `enabled` | `bool` | Enable the coding delegation subsystem |
-| `default_provider` | `string` | `auto`, `claude_code`, or `codex` |
-| `selection_policy` | `string` | `availability`, `prefer_claude`, or `prefer_codex` |
+| `default_provider` | `string` | `auto`, `claude_code`, `codex`, or `opencode` |
+| `selection_policy` | `string` | `availability`, `prefer_claude`, `prefer_codex`, or `prefer_opencode` |
 | `inject_workspace_context` | `bool` | Inject workspace cwd into delegated prompts |
 | `require_verification` | `bool` | Require `verification` for delegated tasks |
 | `allow_working_dir_override` | `bool` | Allow runtime `working_dir` overrides |
@@ -271,6 +271,19 @@ There is no `http.enabled` field in the current schema.
 | `timeout_secs` | `u64` | Execution timeout |
 | `sandbox_mode` | `string?` | `read-only`, `workspace-write`, or `danger-full-access` |
 | `approval_policy` | `string?` | `untrusted`, `on-failure`, `on-request`, or `never` |
+| `allow_file_modifications` | `bool` | Allow edits |
+| `allow_command_execution` | `bool` | Allow commands |
+
+#### `os.coding.providers.opencode`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `enabled` | `bool` | Enable `OpenCode` integration |
+| `executable_path` | `path?` | Optional explicit binary path |
+| `model` | `string?` | Model in `provider/model` format (e.g. `anthropic/claude-sonnet-4-6`) |
+| `agent` | `string?` | Agent name passed via `--agent` |
+| `variant` | `string?` | Reasoning effort variant (`high`, `max`, `minimal`) |
+| `timeout_secs` | `u64` | Execution timeout |
 | `allow_file_modifications` | `bool` | Allow edits |
 | `allow_command_execution` | `bool` | Allow commands |
 

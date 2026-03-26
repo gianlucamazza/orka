@@ -172,6 +172,8 @@ pub fn create_os_skills(
         && caps.map(|c| c.claude_code.available).unwrap_or(true);
     let codex_enabled =
         config.coding.providers.codex.enabled && caps.map(|c| c.codex.available).unwrap_or(true);
+    let opencode_enabled = config.coding.providers.opencode.enabled
+        && caps.map(|c| c.opencode.available).unwrap_or(true);
 
     if config.coding.providers.claude_code.enabled && !claude_enabled {
         warn!("coding provider claude_code disabled: CLI not functional in current environment");
@@ -179,8 +181,11 @@ pub fn create_os_skills(
     if config.coding.providers.codex.enabled && !codex_enabled {
         warn!("coding provider codex disabled: CLI not functional in current environment");
     }
+    if config.coding.providers.opencode.enabled && !opencode_enabled {
+        warn!("coding provider opencode disabled: CLI not functional in current environment");
+    }
 
-    if config.coding.enabled && (claude_enabled || codex_enabled) {
+    if config.coding.enabled && (claude_enabled || codex_enabled || opencode_enabled) {
         result.push(Arc::new(skills::coding_delegate::CodingDelegateSkill::new(
             config,
         )));
@@ -189,6 +194,7 @@ pub fn create_os_skills(
         info!(
             claude_code = claude_enabled,
             codex = codex_enabled,
+            opencode = opencode_enabled,
             "coding_delegate skill routing initialized"
         );
     }
