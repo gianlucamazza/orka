@@ -39,7 +39,7 @@ impl WebReadSkill {
 
 #[async_trait]
 impl Skill for WebReadSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "web_read"
     }
 
@@ -47,7 +47,7 @@ impl Skill for WebReadSkill {
         "web"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Fetch and read a web page. Returns extracted readable text from the URL. Use start_index to paginate through long pages."
     }
 
@@ -83,7 +83,7 @@ impl Skill for WebReadSkill {
         let start_index = input
             .args
             .get("start_index")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(0) as usize;
 
         // Validate URL

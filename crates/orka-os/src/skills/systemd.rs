@@ -7,7 +7,7 @@ use orka_core::{
 
 use crate::{config::PermissionLevel, events::emit_executed, guard::PermissionGuard};
 
-fn categorize_daemon_spawn_error(daemon: &str, e: std::io::Error) -> Error {
+fn categorize_daemon_spawn_error(daemon: &str, e: &std::io::Error) -> Error {
     let category = match e.kind() {
         std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
             ErrorCategory::Environmental
@@ -15,7 +15,7 @@ fn categorize_daemon_spawn_error(daemon: &str, e: std::io::Error) -> Error {
         _ => ErrorCategory::Unknown,
     };
     Error::SkillCategorized {
-        message: format!("{} failed: {}", daemon, e),
+        message: format!("{daemon} failed: {e}"),
         category,
     }
 }
@@ -36,7 +36,7 @@ impl ServiceStatusSkill {
 
 #[async_trait]
 impl Skill for ServiceStatusSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "service_status"
     }
 
@@ -44,7 +44,7 @@ impl Skill for ServiceStatusSkill {
         "systemd"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Get the status of a systemd service."
     }
 
@@ -74,7 +74,7 @@ impl Skill for ServiceStatusSkill {
             .args(["status", unit, "--no-pager"])
             .output()
             .await
-            .map_err(|e| categorize_daemon_spawn_error("systemctl", e))?;
+            .map_err(|e| categorize_daemon_spawn_error("systemctl", &e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
@@ -102,7 +102,7 @@ impl ServiceListSkill {
 
 #[async_trait]
 impl Skill for ServiceListSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "service_list"
     }
 
@@ -110,7 +110,7 @@ impl Skill for ServiceListSkill {
         "systemd"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List systemd service units."
     }
 
@@ -135,13 +135,13 @@ impl Skill for ServiceListSkill {
         let mut cmd = tokio::process::Command::new("systemctl");
         cmd.args(["list-units", "--type=service", "--no-pager", "--plain"]);
         if let Some(s) = state {
-            cmd.arg(format!("--state={}", s));
+            cmd.arg(format!("--state={s}"));
         }
 
         let output = cmd
             .output()
             .await
-            .map_err(|e| categorize_daemon_spawn_error("systemctl", e))?;
+            .map_err(|e| categorize_daemon_spawn_error("systemctl", &e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
@@ -169,7 +169,7 @@ impl JournalReadSkill {
 
 #[async_trait]
 impl Skill for JournalReadSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "journal_read"
     }
 
@@ -177,7 +177,7 @@ impl Skill for JournalReadSkill {
         "systemd"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Read systemd journal logs. Can filter by unit, time range, and priority."
     }
 
@@ -205,7 +205,7 @@ impl Skill for JournalReadSkill {
         let lines = input
             .args
             .get("lines")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(100)
             .min(500);
         let priority = input.args.get("priority").and_then(|v| v.as_str());
@@ -226,7 +226,7 @@ impl Skill for JournalReadSkill {
         let output = cmd
             .output()
             .await
-            .map_err(|e| categorize_daemon_spawn_error("journalctl", e))?;
+            .map_err(|e| categorize_daemon_spawn_error("journalctl", &e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
@@ -253,7 +253,7 @@ impl ServiceControlSkill {
 
 #[async_trait]
 impl Skill for ServiceControlSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "service_control"
     }
 
@@ -261,7 +261,7 @@ impl Skill for ServiceControlSkill {
         "systemd"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Start, stop, or restart a systemd service (requires sudo)."
     }
 
@@ -302,10 +302,7 @@ impl Skill for ServiceControlSkill {
 
         if !matches!(action, "start" | "stop" | "restart") {
             return Err(Error::SkillCategorized {
-                message: format!(
-                    "invalid action '{}': must be start, stop, or restart",
-                    action
-                ),
+                message: format!("invalid action '{action}': must be start, stop, or restart"),
                 category: ErrorCategory::Input,
             });
         }
@@ -323,7 +320,7 @@ impl Skill for ServiceControlSkill {
             .output()
             .await
             .map_err(|e| Error::SkillCategorized {
-                message: format!("systemctl failed: {}", e),
+                message: format!("systemctl failed: {e}"),
                 category: ErrorCategory::Environmental,
             })?;
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -344,9 +341,7 @@ impl Skill for ServiceControlSkill {
         if !output.status.success() {
             return Err(Error::SkillCategorized {
                 message: format!(
-                    "systemctl {} {} failed (exit {}): {}",
-                    action,
-                    unit,
+                    "systemctl {action} {unit} failed (exit {}): {}",
                     output.status.code().unwrap_or(-1),
                     stderr.trim()
                 ),

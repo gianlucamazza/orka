@@ -27,7 +27,7 @@ impl DesktopOpenSkill {
 
 #[async_trait]
 impl Skill for DesktopOpenSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "desktop_open"
     }
 
@@ -35,7 +35,7 @@ impl Skill for DesktopOpenSkill {
         "desktop"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Open a file or URL with the default application using xdg-open."
     }
 
@@ -78,7 +78,7 @@ impl Skill for DesktopOpenSkill {
             .output()
             .await
             .map_err(|e| Error::SkillCategorized {
-                message: format!("xdg-open failed: {}", e),
+                message: format!("xdg-open failed: {e}"),
                 category: ErrorCategory::Environmental,
             })?;
 
@@ -117,7 +117,7 @@ impl DesktopScreenshotSkill {
 
 #[async_trait]
 impl Skill for DesktopScreenshotSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "desktop_screenshot"
     }
 
@@ -125,7 +125,7 @@ impl Skill for DesktopScreenshotSkill {
         "desktop"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Take a screenshot of the desktop. Uses grim (Wayland) or scrot (X11)."
     }
 
@@ -170,7 +170,7 @@ impl Skill for DesktopScreenshotSkill {
                     .output()
                     .await
                     .map_err(|e| Error::SkillCategorized {
-                        message: format!("slurp failed: {}", e),
+                        message: format!("slurp failed: {e}"),
                         category: ErrorCategory::Environmental,
                     })?;
                 if !slurp.status.success() {
@@ -200,7 +200,7 @@ impl Skill for DesktopScreenshotSkill {
         };
 
         let output = output.map_err(|e| Error::SkillCategorized {
-            message: format!("screenshot failed: {}", e),
+            message: format!("screenshot failed: {e}"),
             category: ErrorCategory::Environmental,
         })?;
 

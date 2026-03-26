@@ -27,7 +27,7 @@ impl ClipboardReadSkill {
 
 #[async_trait]
 impl Skill for ClipboardReadSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "clipboard_read"
     }
 
@@ -35,7 +35,7 @@ impl Skill for ClipboardReadSkill {
         "desktop"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Read the current system clipboard contents."
     }
 
@@ -61,7 +61,7 @@ impl Skill for ClipboardReadSkill {
             .output()
             .await
             .map_err(|e| Error::SkillCategorized {
-                message: format!("clipboard read failed ({}): {}", cmd, e),
+                message: format!("clipboard read failed ({cmd}): {e}"),
                 category: ErrorCategory::Environmental,
             })?;
 
@@ -102,7 +102,7 @@ impl ClipboardWriteSkill {
 
 #[async_trait]
 impl Skill for ClipboardWriteSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "clipboard_write"
     }
 
@@ -110,7 +110,7 @@ impl Skill for ClipboardWriteSkill {
         "desktop"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Write content to the system clipboard."
     }
 
@@ -147,7 +147,7 @@ impl Skill for ClipboardWriteSkill {
             .stdin(std::process::Stdio::piped())
             .spawn()
             .map_err(|e| Error::SkillCategorized {
-                message: format!("clipboard write failed ({}): {}", cmd, e),
+                message: format!("clipboard write failed ({cmd}): {e}"),
                 category: ErrorCategory::Environmental,
             })?;
 
@@ -157,13 +157,13 @@ impl Skill for ClipboardWriteSkill {
                 .write_all(content.as_bytes())
                 .await
                 .map_err(|e| Error::SkillCategorized {
-                    message: format!("failed to write to clipboard: {}", e),
+                    message: format!("failed to write to clipboard: {e}"),
                     category: ErrorCategory::Environmental,
                 })?;
         }
 
         let status = child.wait().await.map_err(|e| Error::SkillCategorized {
-            message: format!("clipboard command failed: {}", e),
+            message: format!("clipboard command failed: {e}"),
             category: ErrorCategory::Environmental,
         })?;
 

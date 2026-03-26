@@ -24,7 +24,7 @@ impl ProcessListSkill {
 
 #[async_trait]
 impl Skill for ProcessListSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "process_list"
     }
 
@@ -32,7 +32,7 @@ impl Skill for ProcessListSkill {
         "system"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List running processes with CPU and memory usage."
     }
 
@@ -62,7 +62,7 @@ impl Skill for ProcessListSkill {
         let limit = input
             .args
             .get("limit")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(20) as usize;
 
         let mut sys = System::new();
@@ -144,7 +144,7 @@ impl ProcessInfoSkill {
 
 #[async_trait]
 impl Skill for ProcessInfoSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "process_info"
     }
 
@@ -152,7 +152,7 @@ impl Skill for ProcessInfoSkill {
         "system"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Get detailed information about a specific process by PID."
     }
 
@@ -170,7 +170,7 @@ impl Skill for ProcessInfoSkill {
         let pid = input
             .args
             .get("pid")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| Error::SkillCategorized {
                 message: "missing 'pid' argument".into(),
                 category: ErrorCategory::Input,
@@ -182,7 +182,7 @@ impl Skill for ProcessInfoSkill {
         let process =
             sys.process(sysinfo::Pid::from_u32(pid))
                 .ok_or_else(|| Error::SkillCategorized {
-                    message: format!("process {} not found", pid),
+                    message: format!("process {pid} not found"),
                     category: ErrorCategory::Input,
                 })?;
 
@@ -196,7 +196,7 @@ impl Skill for ProcessInfoSkill {
             "command": process.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect::<Vec<_>>(),
             "cwd": process.cwd().map(|p| p.to_string_lossy().to_string()),
             "root": process.root().map(|p| p.to_string_lossy().to_string()),
-            "parent_pid": process.parent().map(|p| p.as_u32()),
+            "parent_pid": process.parent().map(sysinfo::Pid::as_u32),
             "start_time": process.start_time(),
             "run_time": process.run_time(),
         })))
@@ -219,7 +219,7 @@ impl ProcessSignalSkill {
 
 #[async_trait]
 impl Skill for ProcessSignalSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "process_signal"
     }
 
@@ -227,7 +227,7 @@ impl Skill for ProcessSignalSkill {
         "system"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Send a signal to a process (SIGTERM, SIGKILL, SIGHUP, SIGUSR1, SIGUSR2)."
     }
 
@@ -252,7 +252,7 @@ impl Skill for ProcessSignalSkill {
         let pid = input
             .args
             .get("pid")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| Error::SkillCategorized {
                 message: "missing 'pid' argument".into(),
                 category: ErrorCategory::Input,
@@ -271,7 +271,7 @@ impl Skill for ProcessSignalSkill {
             "SIGUSR2" => nix::sys::signal::Signal::SIGUSR2,
             _ => {
                 return Err(Error::SkillCategorized {
-                    message: format!("unsupported signal: {}", signal_name),
+                    message: format!("unsupported signal: {signal_name}"),
                     category: ErrorCategory::Input,
                 });
             }
@@ -284,7 +284,7 @@ impl Skill for ProcessSignalSkill {
                 _ => ErrorCategory::Unknown,
             };
             Error::SkillCategorized {
-                message: format!("failed to send {} to pid {}: {}", signal_name, pid, e),
+                message: format!("failed to send {signal_name} to pid {pid}: {e}"),
                 category,
             }
         })?;

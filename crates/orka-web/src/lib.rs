@@ -23,10 +23,10 @@ use search::WebSearchSkill;
 use tracing::info;
 pub use types::{SearchProviderKind, WebConfig};
 
-/// Create web skills (web_search + web_read) from config.
+/// Create web skills (`web_search` + `web_read`) from config.
 ///
 /// Returns an empty vec if the provider is set to `none`.
-/// The API key is resolved from: config.api_key > env var (config.api_key_env)
+/// The API key is resolved from: `config.api_key` > env var (`config.api_key_env`)
 /// > provider-specific env var.
 pub fn create_web_skills(config: &WebConfig) -> Result<Vec<Arc<dyn Skill>>> {
     if config.search_provider == SearchProviderKind::None {
@@ -67,7 +67,7 @@ pub fn create_web_skills(config: &WebConfig) -> Result<Vec<Arc<dyn Skill>>> {
                 )
             })?;
             Arc::new(BraveProvider::new(
-                key,
+                &key,
                 config.read_timeout_secs,
                 &config.user_agent,
             ))
@@ -78,7 +78,7 @@ pub fn create_web_skills(config: &WebConfig) -> Result<Vec<Arc<dyn Skill>>> {
                 .clone()
                 .unwrap_or_else(|| "http://localhost:8080".into());
             Arc::new(SearxngProvider::new(
-                base_url,
+                &base_url,
                 config.read_timeout_secs,
                 &config.user_agent,
             ))

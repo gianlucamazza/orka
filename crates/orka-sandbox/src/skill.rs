@@ -98,7 +98,11 @@ impl Skill for SandboxSkill {
         };
 
         let mut limits = SandboxLimits::default();
-        if let Some(timeout) = input.args.get("timeout_secs").and_then(serde_json::Value::as_u64) {
+        if let Some(timeout) = input
+            .args
+            .get("timeout_secs")
+            .and_then(serde_json::Value::as_u64)
+        {
             limits.timeout = std::time::Duration::from_secs(timeout);
         }
 

@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use orka_core::Result;
+use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use tracing::debug;
 
 use crate::{extract, types::SearchResult};
@@ -146,12 +147,12 @@ pub(crate) struct BraveProvider {
 }
 
 impl BraveProvider {
-    pub(crate) fn new(api_key: String, timeout_secs: u64, user_agent: &str) -> Self {
-        let mut headers = reqwest::header::HeaderMap::new();
+    pub(crate) fn new(api_key: &str, timeout_secs: u64, user_agent: &str) -> Self {
+        let mut headers = HeaderMap::new();
         if let Ok(val) = api_key.parse() {
             headers.insert("X-Subscription-Token", val);
         }
-        headers.insert("Accept", "application/json".parse().unwrap());
+        headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
@@ -240,7 +241,7 @@ impl SearchProvider for BraveProvider {
 // SearXNG
 // ---------------------------------------------------------------------------
 
-/// SearXNG provider — self-hosted, no API key required.
+/// `SearXNG` provider — self-hosted, no API key required.
 pub(crate) struct SearxngProvider {
     client: reqwest::Client,
     fetch_client: reqwest::Client,
@@ -248,7 +249,7 @@ pub(crate) struct SearxngProvider {
 }
 
 impl SearxngProvider {
-    pub(crate) fn new(base_url: String, timeout_secs: u64, user_agent: &str) -> Self {
+    pub(crate) fn new(base_url: &str, timeout_secs: u64, user_agent: &str) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .build()
@@ -344,7 +345,7 @@ mod tests {
 
     #[test]
     fn searxng_strips_trailing_slash() {
-        let p = SearxngProvider::new("http://localhost:8888/".into(), 30, "test");
+        let p = SearxngProvider::new("http://localhost:8888/", 30, "test");
         assert_eq!(p.base_url, "http://localhost:8888");
     }
 }

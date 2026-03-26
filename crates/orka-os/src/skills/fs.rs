@@ -219,7 +219,10 @@ impl Skill for FsListSkill {
             .get("show_hidden")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
-        let pattern = input.args.get("pattern").and_then(serde_json::Value::as_str);
+        let pattern = input
+            .args
+            .get("pattern")
+            .and_then(serde_json::Value::as_str);
 
         let path = input.resolve_path(path_str);
         let canonical = self.guard.check_path(&path)?;
@@ -281,13 +284,13 @@ async fn list_dir(
         }
 
         let metadata = entry.metadata().await.ok();
-        let is_dir = metadata.as_ref().is_some_and(|m| m.is_dir());
+        let is_dir = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
 
         entries.push(serde_json::json!({
             "name": name,
             "path": entry.path().to_string_lossy(),
             "is_dir": is_dir,
-            "size": metadata.as_ref().map_or(0, |m| m.len()),
+            "size": metadata.as_ref().map_or(0, std::fs::Metadata::len),
             "modified": metadata.as_ref()
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -373,7 +376,9 @@ impl Skill for FsInfoSkill {
             "other"
         };
 
-        let is_symlink = symlink_meta.as_ref().is_some_and(|m| m.is_symlink());
+        let is_symlink = symlink_meta
+            .as_ref()
+            .is_some_and(std::fs::Metadata::is_symlink);
 
         Ok(SkillOutput::new(serde_json::json!({
             "path": canonical.to_string_lossy(),
@@ -476,7 +481,7 @@ impl Skill for FsSearchSkill {
                 let glob_pattern = format!("{}/{}", canonical.display(), pattern);
                 let mut results = Vec::new();
                 for entry in glob::glob(&glob_pattern).map_err(|e| Error::SkillCategorized {
-                    message: format!("invalid glob pattern: {}", e),
+                    message: format!("invalid glob pattern: {e}"),
                     category: ErrorCategory::Input,
                 })? {
                     if results.len() >= max {
@@ -511,7 +516,7 @@ impl Skill for FsSearchSkill {
                 })))
             }
             _ => Err(Error::SkillCategorized {
-                message: format!("unknown search mode: {}", by),
+                message: format!("unknown search mode: {by}"),
                 category: ErrorCategory::Input,
             }),
         }
@@ -533,7 +538,7 @@ async fn search_by_name(
         .next_entry()
         .await
         .map_err(|e| Error::SkillCategorized {
-            message: format!("error reading entry: {}", e),
+            message: format!("error reading entry: {e}"),
             category: ErrorCategory::Unknown,
         })?
     {
@@ -544,7 +549,7 @@ async fn search_by_name(
         if name.to_lowercase().contains(&pat_lower) {
             results.push(serde_json::json!(entry.path().to_string_lossy()));
         }
-        if entry.metadata().await.map(|m| m.is_dir()).unwrap_or(false) && results.len() < max {
+        if entry.metadata().await.is_ok_and(|m| m.is_dir()) && results.len() < max {
             Box::pin(search_by_name(&entry.path(), pattern, results, max)).await?;
         }
     }
@@ -565,7 +570,7 @@ async fn search_by_content(
         .next_entry()
         .await
         .map_err(|e| Error::SkillCategorized {
-            message: format!("error reading entry: {}", e),
+            message: format!("error reading entry: {e}"),
             category: ErrorCategory::Unknown,
         })?
     {
@@ -573,12 +578,12 @@ async fn search_by_content(
             break;
         }
         let metadata = entry.metadata().await.ok();
-        let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-        let is_file = metadata.as_ref().map(|m| m.is_file()).unwrap_or(false);
+        let is_dir = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
+        let is_file = metadata.as_ref().is_some_and(std::fs::Metadata::is_file);
 
         if is_file {
             // Skip large files
-            let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+            let size = metadata.as_ref().map_or(0, std::fs::Metadata::len);
             if size > 1_000_000 {
                 continue;
             }
@@ -902,6 +907,8 @@ impl Skill for FsWatchSkill {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(true);
 
+        use notify::Watcher;
+
         let path = input.resolve_path(path_str);
         let canonical = self.guard.check_path(&path)?;
 
@@ -916,11 +923,9 @@ impl Skill for FsWatchSkill {
             },
         )
         .map_err(|e| Error::SkillCategorized {
-            message: format!("cannot create watcher: {}", e),
+            message: format!("cannot create watcher: {e}"),
             category: ErrorCategory::Environmental,
         })?;
-
-        use notify::Watcher;
         let mode = if recursive {
             notify::RecursiveMode::Recursive
         } else {
@@ -929,7 +934,7 @@ impl Skill for FsWatchSkill {
         watcher
             .watch(&canonical, mode)
             .map_err(|e| Error::SkillCategorized {
-                message: format!("cannot watch '{}': {}", canonical.display(), e),
+                message: format!("cannot watch '{}': {e}", canonical.display()),
                 category: ErrorCategory::Environmental,
             })?;
 
@@ -938,12 +943,12 @@ impl Skill for FsWatchSkill {
 
         loop {
             tokio::select! {
-                _ = tokio::time::sleep_until(deadline) => break,
+                () = tokio::time::sleep_until(deadline) => break,
                 ev = rx.recv() => {
                     match ev {
                         Some(event) => {
                             events.push(serde_json::json!({
-                                "kind": format!("{:?}", event.kind),
+                                "kind": format!("{:?}", event.kind), // event.kind doesn't impl Display
                                 "paths": event.paths.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>(),
                             }));
                         }

@@ -48,6 +48,7 @@ use guard::PermissionGuard;
 ///
 /// Pass `caps` from [`EnvironmentCapabilities::probe`] to conditionally exclude
 /// skills that are not functional in the current environment.
+#[allow(clippy::too_many_lines)]
 pub fn create_os_skills(
     config: &OsConfig,
     caps: Option<&EnvironmentCapabilities>,
@@ -74,7 +75,7 @@ pub fn create_os_skills(
     ];
 
     // package_updates: only if probe says it's available (or no probe was done)
-    let update_available = caps.map(|c| c.package_updates.available).unwrap_or(true);
+    let update_available = caps.is_none_or(|c| c.package_updates.available);
     if update_available {
         let method = caps.and_then(|c| c.update_method);
         result.push(Arc::new(skills::package::PackageUpdatesSkill::new(
@@ -87,8 +88,8 @@ pub fn create_os_skills(
 
     #[cfg(feature = "systemd")]
     {
-        let systemctl_ok = caps.map(|c| c.systemctl.available).unwrap_or(true);
-        let journalctl_ok = caps.map(|c| c.journalctl.available).unwrap_or(true);
+        let systemctl_ok = caps.is_none_or(|c| c.systemctl.available);
+        let journalctl_ok = caps.is_none_or(|c| c.journalctl.available);
         if systemctl_ok {
             result.push(Arc::new(skills::systemd::ServiceStatusSkill::new(
                 guard.clone(),
@@ -160,20 +161,18 @@ pub fn create_os_skills(
         #[cfg(feature = "systemd")]
         {
             if guard.sudo_enabled() {
-                result.push(Arc::new(skills::systemd::ServiceControlSkill::new(
-                    guard.clone(),
-                )));
+                result.push(Arc::new(skills::systemd::ServiceControlSkill::new(guard)));
             }
         }
     }
 
     // Coding delegation skills — routing entrypoint plus explicit backends.
-    let claude_enabled = config.coding.providers.claude_code.enabled
-        && caps.map(|c| c.claude_code.available).unwrap_or(true);
+    let claude_enabled =
+        config.coding.providers.claude_code.enabled && caps.is_none_or(|c| c.claude_code.available);
     let codex_enabled =
-        config.coding.providers.codex.enabled && caps.map(|c| c.codex.available).unwrap_or(true);
-    let opencode_enabled = config.coding.providers.opencode.enabled
-        && caps.map(|c| c.opencode.available).unwrap_or(true);
+        config.coding.providers.codex.enabled && caps.is_none_or(|c| c.codex.available);
+    let opencode_enabled =
+        config.coding.providers.opencode.enabled && caps.is_none_or(|c| c.opencode.available);
 
     if config.coding.providers.claude_code.enabled && !claude_enabled {
         warn!("coding provider claude_code disabled: CLI not functional in current environment");

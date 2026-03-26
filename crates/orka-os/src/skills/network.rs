@@ -22,7 +22,7 @@ impl NetworkInfoSkill {
 
 #[async_trait]
 impl Skill for NetworkInfoSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "network_info"
     }
 
@@ -30,7 +30,7 @@ impl Skill for NetworkInfoSkill {
         "system"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List network interfaces with their traffic statistics."
     }
 
@@ -80,7 +80,7 @@ impl NetworkCheckSkill {
 
 #[async_trait]
 impl Skill for NetworkCheckSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "network_check"
     }
 
@@ -88,7 +88,7 @@ impl Skill for NetworkCheckSkill {
         "system"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Check network connectivity to a host by attempting a TCP connection."
     }
 
@@ -112,10 +112,10 @@ impl Skill for NetworkCheckSkill {
         let port = input
             .args
             .get("port")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(443) as u16;
 
-        let addr = format!("{}:{}", host, port);
+        let addr = format!("{host}:{port}");
         let start = std::time::Instant::now();
 
         let result = tokio::time::timeout(

@@ -21,7 +21,7 @@ impl NotifySendSkill {
 
 #[async_trait]
 impl Skill for NotifySendSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "notify_send"
     }
 
@@ -29,7 +29,7 @@ impl Skill for NotifySendSkill {
         "desktop"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Send a desktop notification using notify-send."
     }
 
@@ -73,7 +73,10 @@ impl Skill for NotifySendSkill {
             .get("icon")
             .and_then(|v| v.as_str())
             .unwrap_or("orka");
-        let timeout_ms = input.args.get("timeout_ms").and_then(|v| v.as_u64());
+        let timeout_ms = input
+            .args
+            .get("timeout_ms")
+            .and_then(serde_json::Value::as_u64);
 
         let mut cmd = tokio::process::Command::new("notify-send");
         cmd.arg("--app-name").arg("orka");
@@ -89,7 +92,7 @@ impl Skill for NotifySendSkill {
         }
 
         let output = cmd.output().await.map_err(|e| Error::SkillCategorized {
-            message: format!("notify-send failed: {}", e),
+            message: format!("notify-send failed: {e}"),
             category: ErrorCategory::Environmental,
         })?;
 

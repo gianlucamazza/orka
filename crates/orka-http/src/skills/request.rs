@@ -37,7 +37,7 @@ impl HttpRequestSkill {
 
 #[async_trait]
 impl Skill for HttpRequestSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "http_request"
     }
 
@@ -45,7 +45,7 @@ impl Skill for HttpRequestSkill {
         "http"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Make HTTP requests to external APIs and services."
     }
 
@@ -115,7 +115,7 @@ impl Skill for HttpRequestSkill {
         let timeout_secs = input
             .args
             .get("timeout_secs")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(self.default_timeout_secs);
 
         debug!(url, method, "http_request executing");

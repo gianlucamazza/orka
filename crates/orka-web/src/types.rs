@@ -48,7 +48,7 @@ pub struct WebConfig {
     /// Environment variable that holds the API key.
     #[serde(default)]
     pub api_key_env: Option<String>,
-    /// Base URL for a self-hosted SearXNG instance.
+    /// Base URL for a self-hosted `SearXNG` instance.
     #[serde(default)]
     pub searxng_base_url: Option<String>,
     /// Maximum number of search results returned per query.
@@ -96,7 +96,7 @@ pub enum SearchProviderKind {
     Tavily,
     /// Brave Search API.
     Brave,
-    /// Self-hosted SearXNG instance.
+    /// Self-hosted `SearXNG` instance.
     Searxng,
     /// Web skills disabled.
     None,

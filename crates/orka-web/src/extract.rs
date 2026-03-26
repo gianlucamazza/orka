@@ -72,7 +72,7 @@ pub(crate) fn extract_title(html: &str) -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
-/// Truncate text to max_chars, appending a truncation marker.
+/// Truncate text to `max_chars`, appending a truncation marker.
 pub(crate) fn truncate(text: &str, max_chars: usize) -> (String, bool) {
     if text.len() <= max_chars {
         return (text.to_string(), false);

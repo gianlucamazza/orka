@@ -10,7 +10,7 @@ pub struct InMemorySandbox {
 }
 
 impl InMemorySandbox {
-    /// Create a sandbox that always returns exit_code=0, stdout=b"ok", empty
+    /// Create a sandbox that always returns `exit_code=0`, stdout=b"ok", empty
     /// stderr.
     pub fn new() -> Self {
         Self {
@@ -40,7 +40,11 @@ impl Default for InMemorySandbox {
 #[async_trait]
 impl SandboxExecutor for InMemorySandbox {
     async fn execute(&self, _req: SandboxRequest) -> orka_core::Result<SandboxResult> {
-        let result = self.result.lock().unwrap().clone();
+        let result = self
+            .result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         Ok(result)
     }
 }

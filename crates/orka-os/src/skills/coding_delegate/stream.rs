@@ -274,8 +274,14 @@ pub(crate) fn parse_opencode_stream_line(line: &str) -> Option<DelegateEvent> {
             // by the fallback parser from accumulated TextDelta lines.
             let tokens = part.get("tokens")?;
             Some(DelegateEvent::Usage {
-                input_tokens: tokens.get("input").and_then(serde_json::Value::as_u64).unwrap_or(0) as u32,
-                output_tokens: tokens.get("output").and_then(serde_json::Value::as_u64).unwrap_or(0) as u32,
+                input_tokens: tokens
+                    .get("input")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as u32,
+                output_tokens: tokens
+                    .get("output")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0) as u32,
             })
         }
         // "step_start" and unknown types are skipped.

@@ -26,9 +26,10 @@ impl ShellExecSkill {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[async_trait]
 impl Skill for ShellExecSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "shell_exec"
     }
 
@@ -36,7 +37,7 @@ impl Skill for ShellExecSkill {
         "shell"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Execute a command directly (no shell interpretation). Returns exit code, stdout, and stderr."
     }
 
@@ -60,6 +61,7 @@ impl Skill for ShellExecSkill {
 
         // Only expose sudo parameter to Admin-level users when sudo is enabled
         if self.guard.sudo_enabled() && self.guard.level() >= PermissionLevel::Admin {
+            #[allow(clippy::unwrap_used)] // props is a json!({}) object literal, always an object
             props.as_object_mut().unwrap().insert(
                 "sudo".into(),
                 serde_json::json!({
@@ -116,10 +118,10 @@ impl Skill for ShellExecSkill {
             (None, Vec::new())
         };
         let command: &str = command_owned.as_deref().unwrap_or(raw_command);
-        let args: Vec<&str> = if !args_owned.is_empty() {
-            args_owned.iter().map(|s| s.as_str()).collect()
-        } else {
+        let args: Vec<&str> = if args_owned.is_empty() {
             explicit_args
+        } else {
+            args_owned.iter().map(String::as_str).collect()
         };
         let cwd = input
             .args
@@ -133,13 +135,13 @@ impl Skill for ShellExecSkill {
         let timeout = input
             .args
             .get("timeout_secs")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(self.timeout_secs);
         let stdin_data = input.args.get("stdin").and_then(|v| v.as_str());
         let use_sudo = input
             .args
             .get("sudo")
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
         if use_sudo {
@@ -197,7 +199,7 @@ impl Skill for ShellExecSkill {
                 _ => ErrorCategory::Unknown,
             };
             Error::SkillCategorized {
-                message: format!("failed to spawn '{}': {}", command, e),
+                message: format!("failed to spawn '{command}': {e}"),
                 category,
             }
         })?;
@@ -254,7 +256,7 @@ impl Skill for ShellExecSkill {
                 })))
             }
             Ok(Err(e)) => Err(Error::SkillCategorized {
-                message: format!("command execution failed: {}", e),
+                message: format!("command execution failed: {e}"),
                 category: ErrorCategory::Unknown,
             }),
             Err(_) => {
@@ -266,7 +268,7 @@ impl Skill for ShellExecSkill {
                     );
                 }
                 Err(Error::SkillCategorized {
-                    message: format!("command timed out after {} seconds", timeout),
+                    message: format!("command timed out after {timeout} seconds"),
                     category: ErrorCategory::Timeout,
                 })
             }

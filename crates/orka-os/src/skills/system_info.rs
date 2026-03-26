@@ -20,7 +20,7 @@ impl SystemInfoSkill {
 
 #[async_trait]
 impl Skill for SystemInfoSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "system_info"
     }
 
@@ -28,7 +28,7 @@ impl Skill for SystemInfoSkill {
         "system"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Get system information: CPU, memory, disk, network interfaces, OS details, and uptime."
     }
 

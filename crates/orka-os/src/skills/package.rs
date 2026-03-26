@@ -17,7 +17,7 @@ enum PackageManager {
     Dnf,
 }
 
-fn spawn_error(context: &str, e: std::io::Error) -> Error {
+fn spawn_error(context: &str, e: &std::io::Error) -> Error {
     let category = match e.kind() {
         std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
             ErrorCategory::Environmental
@@ -25,7 +25,7 @@ fn spawn_error(context: &str, e: std::io::Error) -> Error {
         _ => ErrorCategory::Unknown,
     };
     Error::SkillCategorized {
-        message: format!("{}: {}", context, e),
+        message: format!("{context}: {e}"),
         category,
     }
 }
@@ -66,7 +66,7 @@ impl PackageSearchSkill {
 
 #[async_trait]
 impl Skill for PackageSearchSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "package_search"
     }
 
@@ -74,7 +74,7 @@ impl Skill for PackageSearchSkill {
         "package"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Search for packages in the system package manager."
     }
 
@@ -122,13 +122,13 @@ impl Skill for PackageSearchSkill {
                     .await
             }
         }
-        .map_err(|e| spawn_error("package search failed", e))?;
+        .map_err(|e| spawn_error("package search failed", &e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
         Ok(SkillOutput::new(serde_json::json!({
             "results": stdout,
-            "package_manager": format!("{:?}", pm).to_lowercase(),
+            "package_manager": format!("{pm:?}").to_lowercase(),
             "success": output.status.success(),
         })))
     }
@@ -150,7 +150,7 @@ impl PackageInfoSkill {
 
 #[async_trait]
 impl Skill for PackageInfoSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "package_info"
     }
 
@@ -158,7 +158,7 @@ impl Skill for PackageInfoSkill {
         "package"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Get detailed information about an installed or available package."
     }
 
@@ -206,13 +206,13 @@ impl Skill for PackageInfoSkill {
                     .await
             }
         }
-        .map_err(|e| spawn_error("package info failed", e))?;
+        .map_err(|e| spawn_error("package info failed", &e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
         Ok(SkillOutput::new(serde_json::json!({
             "info": stdout,
-            "package_manager": format!("{:?}", pm).to_lowercase(),
+            "package_manager": format!("{pm:?}").to_lowercase(),
             "success": output.status.success(),
         })))
     }
@@ -234,7 +234,7 @@ impl PackageListSkill {
 
 #[async_trait]
 impl Skill for PackageListSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "package_list"
     }
 
@@ -242,7 +242,7 @@ impl Skill for PackageListSkill {
         "package"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List installed packages, optionally filtered."
     }
 
@@ -283,7 +283,7 @@ impl Skill for PackageListSkill {
                     .await
             }
         }
-        .map_err(|e| spawn_error("package list failed", e))?;
+        .map_err(|e| spawn_error("package list failed", &e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<&str> = if let Some(f) = filter {
@@ -299,7 +299,7 @@ impl Skill for PackageListSkill {
         Ok(SkillOutput::new(serde_json::json!({
             "packages": lines,
             "count": lines.len(),
-            "package_manager": format!("{:?}", pm).to_lowercase(),
+            "package_manager": format!("{pm:?}").to_lowercase(),
         })))
     }
 }
@@ -343,7 +343,7 @@ impl PackageUpdatesSkill {
 
 #[async_trait]
 impl Skill for PackageUpdatesSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "package_updates"
     }
 
@@ -351,7 +351,7 @@ impl Skill for PackageUpdatesSkill {
         "package"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Check for available package updates."
     }
 
@@ -396,7 +396,7 @@ impl Skill for PackageUpdatesSkill {
                 let out = tokio::process::Command::new("checkupdates")
                     .output()
                     .await
-                    .map_err(|e| spawn_error("checkupdates failed", e))?;
+                    .map_err(|e| spawn_error("checkupdates failed", &e))?;
                 (out, "checkupdates", false)
             }
             crate::probe::PackageUpdateMethod::PacmanQu => {
@@ -404,7 +404,7 @@ impl Skill for PackageUpdatesSkill {
                     .args(["-Qu"])
                     .output()
                     .await
-                    .map_err(|e| spawn_error("pacman -Qu failed", e))?;
+                    .map_err(|e| spawn_error("pacman -Qu failed", &e))?;
                 (out, "pacman -Qu", true)
             }
             crate::probe::PackageUpdateMethod::AptListUpgradable => {
@@ -412,7 +412,7 @@ impl Skill for PackageUpdatesSkill {
                     .args(["list", "--upgradable"])
                     .output()
                     .await
-                    .map_err(|e| spawn_error("apt list --upgradable failed", e))?;
+                    .map_err(|e| spawn_error("apt list --upgradable failed", &e))?;
                 (out, "apt list --upgradable", false)
             }
             crate::probe::PackageUpdateMethod::DnfCheckUpdate => {
@@ -420,7 +420,7 @@ impl Skill for PackageUpdatesSkill {
                     .args(["check-update"])
                     .output()
                     .await
-                    .map_err(|e| spawn_error("dnf check-update failed", e))?;
+                    .map_err(|e| spawn_error("dnf check-update failed", &e))?;
                 (out, "dnf check-update", false)
             }
         };
@@ -438,13 +438,12 @@ impl Skill for PackageUpdatesSkill {
         if !is_update_success(pm, exit_code, using_fallback) {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             return Err(Error::Skill(format!(
-                "{} failed with exit code {}: {}",
-                method, exit_code, stderr
+                "{method} failed with exit code {exit_code}: {stderr}"
             )));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let f_lower = filter.map(|f| f.to_lowercase());
+        let f_lower = filter.map(str::to_lowercase);
         let lines: Vec<&str> = stdout
             .lines()
             .filter(|l| {
@@ -464,7 +463,7 @@ impl Skill for PackageUpdatesSkill {
         let mut result = serde_json::json!({
             "updates": lines,
             "count": lines.len(),
-            "package_manager": format!("{:?}", pm).to_lowercase(),
+            "package_manager": format!("{pm:?}").to_lowercase(),
             "method": method,
         });
 
@@ -492,7 +491,7 @@ impl PackageInstallSkill {
 
 #[async_trait]
 impl Skill for PackageInstallSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "package_install"
     }
 
@@ -500,7 +499,7 @@ impl Skill for PackageInstallSkill {
         "package"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Install a package using the system package manager (requires sudo)."
     }
 
@@ -547,7 +546,7 @@ impl Skill for PackageInstallSkill {
             .args(&install_args)
             .output()
             .await
-            .map_err(|e| spawn_error("package install failed", e))?;
+            .map_err(|e| spawn_error("package install failed", &e))?;
         let duration_ms = start.elapsed().as_millis() as u64;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -577,7 +576,7 @@ impl Skill for PackageInstallSkill {
         Ok(SkillOutput::new(serde_json::json!({
             "stdout": stdout,
             "stderr": stderr,
-            "package_manager": format!("{:?}", pm).to_lowercase(),
+            "package_manager": format!("{pm:?}").to_lowercase(),
         })))
     }
 }

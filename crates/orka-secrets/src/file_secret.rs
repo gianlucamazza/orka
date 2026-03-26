@@ -132,9 +132,9 @@ impl FileSecretManager {
 
     async fn write_file(&self, data: &SecretsFile) -> Result<()> {
         if let Some(parent) = self.path.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                Error::secret(format!("failed to create secrets directory: {e}"))
-            })?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| Error::secret(format!("failed to create secrets directory: {e}")))?;
         }
         // Atomic write: write to a sibling temp file, then rename.
         let tmp = self.path.with_extension("json.tmp");
@@ -171,7 +171,8 @@ impl SecretManager for FileSecretManager {
         let _guard = self.lock.lock().await;
         let mut file = self.read_file().await?;
         let encrypted = self.encrypt(value.expose())?;
-        file.secrets.insert(path.to_string(), B64.encode(&encrypted));
+        file.secrets
+            .insert(path.to_string(), B64.encode(&encrypted));
         self.write_file(&file).await?;
         debug!(path, "secret stored to file");
         Ok(())

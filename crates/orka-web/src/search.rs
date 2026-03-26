@@ -37,7 +37,7 @@ impl WebSearchSkill {
 
 #[async_trait]
 impl Skill for WebSearchSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "web_search"
     }
 
@@ -45,7 +45,7 @@ impl Skill for WebSearchSkill {
         "web"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Search the web for information. Returns results with title, URL, snippet, and full page content. \
          Use a single well-crafted query — the inline content is usually sufficient to answer without \
          additional searches or web_read calls."
@@ -89,14 +89,13 @@ impl Skill for WebSearchSkill {
         let max_results = input
             .args
             .get("max_results")
-            .and_then(|v| v.as_u64())
-            .map(|n| (n as usize).clamp(1, 10))
-            .unwrap_or(self.max_results);
+            .and_then(serde_json::Value::as_u64)
+            .map_or(self.max_results, |n| (n as usize).clamp(1, 10));
 
         let include_content = input
             .args
             .get("include_content")
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(true);
 
         // Check cache

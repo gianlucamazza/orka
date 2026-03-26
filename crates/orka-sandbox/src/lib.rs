@@ -16,6 +16,7 @@ pub mod skill;
 pub mod wasm;
 
 #[cfg(feature = "test-util")]
+/// Test-only in-memory helpers and fakes for sandbox integration tests.
 pub mod testing;
 
 use std::sync::Arc;
