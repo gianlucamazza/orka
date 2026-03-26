@@ -1,3 +1,5 @@
+mod stream;
+
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
@@ -5,11 +7,14 @@ use orka_core::{
     Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema,
     config::{
         ClaudeCodeConfig, CodexConfig, CodingConfig, CodingProvider, CodingSelectionPolicy,
-        OsConfig, SandboxMode,
+        OpenCodeConfig, OsConfig, SandboxMode,
     },
     traits::Skill,
 };
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::debug;
+
+use stream::DelegateEvent;
 
 const CODING_CATEGORY: &str = "coding";
 
@@ -17,6 +22,7 @@ const CODING_CATEGORY: &str = "coding";
 enum BackendKind {
     ClaudeCode,
     Codex,
+    OpenCode,
 }
 
 impl BackendKind {
@@ -24,6 +30,7 @@ impl BackendKind {
         match self {
             Self::ClaudeCode => "claude_code",
             Self::Codex => "codex",
+            Self::OpenCode => "opencode",
         }
     }
 }
@@ -131,6 +138,7 @@ pub struct CodingDelegateSkill {
     coding: CodingConfig,
     claude: ClaudeCodeBackend,
     codex: CodexBackend,
+    opencode: OpenCodeBackend,
 }
 
 impl CodingDelegateSkill {
@@ -140,12 +148,14 @@ impl CodingDelegateSkill {
             coding: config.coding.clone(),
             claude: ClaudeCodeBackend::new(&config.coding.providers.claude_code),
             codex: CodexBackend::new(&config.coding.providers.codex),
+            opencode: OpenCodeBackend::new(&config.coding.providers.opencode),
         }
     }
 
     fn select_backend(&self) -> Result<&dyn CodeDelegateBackend> {
         let claude_enabled = self.claude.is_enabled();
         let codex_enabled = self.codex.is_enabled();
+        let opencode_enabled = self.opencode.is_enabled();
 
         let chosen = match self.coding.default_provider {
             CodingProvider::ClaudeCode => {
@@ -162,27 +172,55 @@ impl CodingDelegateSkill {
                     None
                 }
             }
+            CodingProvider::OpenCode => {
+                if opencode_enabled {
+                    Some(&self.opencode as &dyn CodeDelegateBackend)
+                } else {
+                    None
+                }
+            }
             CodingProvider::Auto => match self.coding.selection_policy {
+                // Availability: claude → codex → opencode (backward-compatible order)
+                CodingSelectionPolicy::Availability => {
+                    if claude_enabled {
+                        Some(&self.claude as &dyn CodeDelegateBackend)
+                    } else if codex_enabled {
+                        Some(&self.codex as &dyn CodeDelegateBackend)
+                    } else if opencode_enabled {
+                        Some(&self.opencode as &dyn CodeDelegateBackend)
+                    } else {
+                        None
+                    }
+                }
+                // PreferClaude: claude → codex → opencode
                 CodingSelectionPolicy::PreferClaude => {
                     if claude_enabled {
                         Some(&self.claude as &dyn CodeDelegateBackend)
                     } else if codex_enabled {
                         Some(&self.codex as &dyn CodeDelegateBackend)
+                    } else if opencode_enabled {
+                        Some(&self.opencode as &dyn CodeDelegateBackend)
                     } else {
                         None
                     }
                 }
+                // PreferCodex: codex → claude → opencode
                 CodingSelectionPolicy::PreferCodex => {
                     if codex_enabled {
                         Some(&self.codex as &dyn CodeDelegateBackend)
                     } else if claude_enabled {
                         Some(&self.claude as &dyn CodeDelegateBackend)
+                    } else if opencode_enabled {
+                        Some(&self.opencode as &dyn CodeDelegateBackend)
                     } else {
                         None
                     }
                 }
-                CodingSelectionPolicy::Availability => {
-                    if claude_enabled {
+                // PreferOpenCode: opencode → claude → codex
+                CodingSelectionPolicy::PreferOpenCode => {
+                    if opencode_enabled {
+                        Some(&self.opencode as &dyn CodeDelegateBackend)
+                    } else if claude_enabled {
                         Some(&self.claude as &dyn CodeDelegateBackend)
                     } else if codex_enabled {
                         Some(&self.codex as &dyn CodeDelegateBackend)
@@ -203,7 +241,7 @@ impl CodingDelegateSkill {
 
 #[async_trait]
 impl Skill for CodingDelegateSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "coding_delegate"
     }
 
@@ -211,7 +249,7 @@ impl Skill for CodingDelegateSkill {
         CODING_CATEGORY
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Delegate a complete coding task through Orka's coding router. Orka selects the configured provider, executes the task, and returns a normalized summary."
     }
 
@@ -275,11 +313,19 @@ impl CodeDelegateBackend for ClaudeCodeBackend {
         coding: &CodingConfig,
     ) -> Result<SkillOutput> {
         let prompt = build_prompt(self, request, input, coding);
+        let streaming = input
+            .context
+            .as_ref()
+            .and_then(|c| c.progress_tx.as_ref())
+            .is_some();
+
         let mut cmd = tokio::process::Command::new(executable(self));
         cmd.arg("--bare")
             .arg("--print")
             .arg("--output-format")
-            .arg("json")
+            // Use stream-json when a progress channel is present so we can
+            // emit intermediate events; fall back to json for compatibility.
+            .arg(if streaming { "stream-json" } else { "json" })
             .arg("-p")
             .arg(prompt);
 
@@ -298,7 +344,21 @@ impl CodeDelegateBackend for ClaudeCodeBackend {
         }
 
         apply_working_dir(self, request, input, coding, &mut cmd);
-        execute_command(self, cmd, parse_claude_output).await
+        execute_command_streaming(
+            self,
+            cmd,
+            stream::parse_claude_stream_line,
+            parse_claude_output,
+            input
+                .context
+                .as_ref()
+                .and_then(|c| c.progress_tx.clone()),
+            input
+                .context
+                .as_ref()
+                .and_then(|c| c.cancellation_token.clone()),
+        )
+        .await
     }
 }
 
@@ -369,15 +429,112 @@ impl CodeDelegateBackend for CodexBackend {
         apply_working_dir(self, request, input, coding, &mut cmd);
         cmd.arg(prompt);
 
-        execute_command(self, cmd, parse_codex_output).await
+        execute_command_streaming(
+            self,
+            cmd,
+            stream::parse_codex_stream_line,
+            parse_codex_output,
+            input
+                .context
+                .as_ref()
+                .and_then(|c| c.progress_tx.clone()),
+            input
+                .context
+                .as_ref()
+                .and_then(|c| c.cancellation_token.clone()),
+        )
+        .await
+    }
+}
+
+struct OpenCodeBackend {
+    config: OpenCodeConfig,
+}
+
+impl OpenCodeBackend {
+    fn new(config: &OpenCodeConfig) -> Self {
+        Self {
+            config: config.clone(),
+        }
+    }
+}
+
+#[async_trait]
+impl CodeDelegateBackend for OpenCodeBackend {
+    fn kind(&self) -> BackendKind {
+        BackendKind::OpenCode
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.config.enabled
+    }
+
+    fn executable_name(&self) -> &'static str {
+        "opencode"
+    }
+
+    fn executable_override(&self) -> Option<&Path> {
+        self.config.executable_path.as_deref()
+    }
+
+    fn timeout_secs(&self) -> u64 {
+        self.config.timeout_secs
+    }
+
+    fn allow_file_modifications(&self) -> bool {
+        self.config.allow_file_modifications
+    }
+
+    fn allow_command_execution(&self) -> bool {
+        self.config.allow_command_execution
+    }
+
+    async fn run(
+        &self,
+        request: &CodingRequest,
+        input: &SkillInput,
+        coding: &CodingConfig,
+    ) -> Result<SkillOutput> {
+        let prompt = build_prompt(self, request, input, coding);
+        let mut cmd = tokio::process::Command::new(executable(self));
+        cmd.arg("run").arg("--format").arg("json");
+
+        if let Some(model) = &self.config.model {
+            cmd.arg("--model").arg(model);
+        }
+        if let Some(agent) = &self.config.agent {
+            cmd.arg("--agent").arg(agent);
+        }
+        if let Some(variant) = &self.config.variant {
+            cmd.arg("--variant").arg(variant);
+        }
+
+        apply_working_dir(self, request, input, coding, &mut cmd);
+        cmd.arg(prompt);
+
+        execute_command_streaming(
+            self,
+            cmd,
+            stream::parse_opencode_stream_line,
+            parse_opencode_output,
+            input
+                .context
+                .as_ref()
+                .and_then(|c| c.progress_tx.clone()),
+            input
+                .context
+                .as_ref()
+                .and_then(|c| c.cancellation_token.clone()),
+        )
+        .await
     }
 }
 
 fn executable(backend: &dyn CodeDelegateBackend) -> String {
-    backend
-        .executable_override()
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|| backend.executable_name().to_string())
+    backend.executable_override().map_or_else(
+        || backend.executable_name().to_string(),
+        |path| path.to_string_lossy().into_owned(),
+    )
 }
 
 fn apply_working_dir(
@@ -424,70 +581,145 @@ fn resolve_working_dir(
         .map(PathBuf::from)
 }
 
-async fn execute_command(
+/// Execute a coding-delegate command with line-by-line stdout streaming.
+///
+/// Streams intermediate [`DelegateEvent`]s through `progress_tx` (if set)
+/// and returns a final [`SkillOutput`] once the process exits.  Supports
+/// cooperative cancellation via `cancel`.
+async fn execute_command_streaming(
     backend: &dyn CodeDelegateBackend,
     mut cmd: tokio::process::Command,
-    parser: fn(&str) -> String,
+    line_parser: fn(&str) -> Option<DelegateEvent>,
+    fallback_parser: fn(&str) -> String,
+    progress_tx: Option<tokio::sync::mpsc::UnboundedSender<serde_json::Value>>,
+    cancel: Option<tokio_util::sync::CancellationToken>,
 ) -> Result<SkillOutput> {
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::piped());
+    use std::process::Stdio;
+
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
 
     debug!(
         backend = backend.kind().as_str(),
         timeout_secs = backend.timeout_secs(),
+        streaming = progress_tx.is_some(),
         "delegating coding task"
     );
 
     let start = std::time::Instant::now();
-    let child = cmd.spawn().map_err(|e| spawn_error(backend, e))?;
+    let mut child = cmd.spawn().map_err(|e| spawn_error(backend, &e))?;
 
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(backend.timeout_secs()),
-        child.wait_with_output(),
-    )
-    .await;
+    let stdout = child.stdout.take().ok_or_else(|| Error::SkillCategorized {
+        message: "stdout not available".into(),
+        category: ErrorCategory::Unknown,
+    })?;
+    let mut stderr_handle = child.stderr.take().ok_or_else(|| Error::SkillCategorized {
+        message: "stderr not available".into(),
+        category: ErrorCategory::Unknown,
+    })?;
+    let mut lines = BufReader::new(stdout).lines();
 
-    let duration_ms = start.elapsed().as_millis() as u64;
+    let timeout = std::time::Duration::from_secs(backend.timeout_secs());
+    let deadline = tokio::time::sleep(timeout);
+    tokio::pin!(deadline);
 
-    match result {
-        Ok(Ok(output)) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
+    // When no cancellation token is provided, this future never resolves.
+    let cancel_fut = async {
+        match &cancel {
+            Some(t) => t.cancelled().await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    tokio::pin!(cancel_fut);
 
-            if !output.status.success() {
+    let mut accumulated: Vec<String> = Vec::new();
+    let mut final_text: Option<String> = None;
+
+    loop {
+        tokio::select! {
+            biased;
+
+            () = &mut deadline => {
+                child.kill().await.ok();
                 return Err(Error::SkillCategorized {
                     message: format!(
-                        "{} exited with status {:?}: {}",
+                        "{} timed out after {} seconds",
                         backend.kind().as_str(),
-                        output.status.code(),
-                        stderr.trim()
+                        backend.timeout_secs()
                     ),
-                    category: ErrorCategory::Unknown,
+                    category: ErrorCategory::Timeout,
                 });
             }
 
-            Ok(SkillOutput::new(serde_json::json!({
-                "backend": backend.kind().as_str(),
-                "result": parser(&stdout),
-                "duration_ms": duration_ms,
-            })))
+            () = &mut cancel_fut => {
+                child.kill().await.ok();
+                return Err(Error::SkillCategorized {
+                    message: format!("{} cancelled", backend.kind().as_str()),
+                    category: ErrorCategory::Timeout,
+                });
+            }
+
+            line_result = lines.next_line() => {
+                match line_result {
+                    Ok(Some(line)) => {
+                        if let Some(event) = line_parser(&line) {
+                            // Capture the final result text when we see it.
+                            if let DelegateEvent::Result { ref text } = event {
+                                final_text = Some(text.clone());
+                            }
+                            // Forward to progress channel (best-effort).
+                            if let Some(ref tx) = progress_tx
+                                && let Ok(val) = serde_json::to_value(&event) {
+                                    tx.send(val).ok();
+                                }
+                        }
+                        accumulated.push(line);
+                    }
+                    // Stream ended (EOF or broken pipe).
+                    Ok(None) | Err(_) => break,
+                }
+            }
         }
-        Ok(Err(e)) => Err(Error::SkillCategorized {
-            message: format!("{} execution failed: {e}", backend.kind().as_str()),
-            category: ErrorCategory::Unknown,
-        }),
-        Err(_) => Err(Error::SkillCategorized {
-            message: format!(
-                "{} timed out after {} seconds",
-                backend.kind().as_str(),
-                backend.timeout_secs()
-            ),
-            category: ErrorCategory::Timeout,
-        }),
     }
+
+    let status = child.wait().await.map_err(|e| Error::SkillCategorized {
+        message: format!("{} wait failed: {e}", backend.kind().as_str()),
+        category: ErrorCategory::Unknown,
+    })?;
+
+    // Collect stderr for error messages.
+    let mut stderr_buf = Vec::new();
+    tokio::io::copy(&mut stderr_handle, &mut stderr_buf).await.ok();
+    let stderr = String::from_utf8_lossy(&stderr_buf);
+
+    if !status.success() {
+        return Err(Error::SkillCategorized {
+            message: format!(
+                "{} exited with status {:?}: {}",
+                backend.kind().as_str(),
+                status.code(),
+                stderr.trim()
+            ),
+            category: ErrorCategory::Unknown,
+        });
+    }
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+    let result_text = final_text.unwrap_or_else(|| {
+        // Fall back to the legacy full-output parser if no structured Result
+        // event was emitted (e.g. backend used non-streaming format).
+        let raw = accumulated.join("\n");
+        fallback_parser(&raw)
+    });
+
+    Ok(SkillOutput::new(serde_json::json!({
+        "backend": backend.kind().as_str(),
+        "result": result_text,
+        "duration_ms": duration_ms,
+    })))
 }
 
-fn spawn_error(backend: &dyn CodeDelegateBackend, e: std::io::Error) -> Error {
+fn spawn_error(backend: &dyn CodeDelegateBackend, e: &std::io::Error) -> Error {
     let category = match e.kind() {
         std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied => {
             ErrorCategory::Environmental
@@ -635,6 +867,31 @@ fn value_to_text(value: &serde_json::Value) -> Option<String> {
     }
 }
 
+/// Extract the final assistant text from accumulated `opencode run --format json` output.
+///
+/// OpenCode emits `{"type":"text","part":{"text":"...",...}}` lines during the
+/// run. There is no dedicated result line, so the fallback parser scans
+/// backwards for the last non-empty `text` event.
+fn parse_opencode_output(raw: &str) -> String {
+    for line in raw.lines().rev() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed)
+            && val.get("type").and_then(|t| t.as_str()) == Some("text")
+            && let Some(text) = val
+                .get("part")
+                .and_then(|p| p.get("text"))
+                .and_then(|t| t.as_str())
+            && !text.trim().is_empty()
+        {
+            return text.to_string();
+        }
+    }
+    raw.trim().to_string()
+}
+
 fn effective_codex_sandbox(config: &CodexConfig) -> SandboxMode {
     config.sandbox_mode.unwrap_or(
         if config.allow_file_modifications || config.allow_command_execution {
@@ -723,7 +980,63 @@ mod tests {
         let mut config = base_os_config();
         config.coding.providers.claude_code.enabled = false;
         config.coding.providers.codex.enabled = false;
+        config.coding.providers.opencode.enabled = false;
         let skill = CodingDelegateSkill::new(&config);
         assert!(skill.select_backend().is_err());
+    }
+
+    #[test]
+    fn opencode_direct_backend_selection() {
+        let mut config = base_os_config();
+        config.coding.default_provider = CodingProvider::OpenCode;
+        config.coding.providers.opencode.enabled = true;
+        let skill = CodingDelegateSkill::new(&config);
+        let selected = skill.select_backend().unwrap();
+        assert_eq!(selected.kind(), BackendKind::OpenCode);
+    }
+
+    #[test]
+    fn prefer_opencode_policy_selects_opencode_first() {
+        let mut config = base_os_config();
+        config.coding.selection_policy = CodingSelectionPolicy::PreferOpenCode;
+        config.coding.providers.opencode.enabled = true;
+        let skill = CodingDelegateSkill::new(&config);
+        let selected = skill.select_backend().unwrap();
+        assert_eq!(selected.kind(), BackendKind::OpenCode);
+    }
+
+    #[test]
+    fn prefer_opencode_falls_back_to_claude_when_opencode_disabled() {
+        let mut config = base_os_config();
+        config.coding.selection_policy = CodingSelectionPolicy::PreferOpenCode;
+        config.coding.providers.opencode.enabled = false;
+        let skill = CodingDelegateSkill::new(&config);
+        let selected = skill.select_backend().unwrap();
+        assert_eq!(selected.kind(), BackendKind::ClaudeCode);
+    }
+
+    #[test]
+    fn availability_policy_uses_opencode_as_last_fallback() {
+        let mut config = base_os_config();
+        config.coding.providers.claude_code.enabled = false;
+        config.coding.providers.codex.enabled = false;
+        config.coding.providers.opencode.enabled = true;
+        let skill = CodingDelegateSkill::new(&config);
+        let selected = skill.select_backend().unwrap();
+        assert_eq!(selected.kind(), BackendKind::OpenCode);
+    }
+
+    #[test]
+    fn parse_opencode_output_extracts_last_text() {
+        let raw = concat!(
+            r#"{"type":"step_start","part":{"type":"step-start"}}"#,
+            "\n",
+            r#"{"type":"text","part":{"type":"text","text":"first response","time":{}}}"#,
+            "\n",
+            r#"{"type":"text","part":{"type":"text","text":"final answer","time":{}}}"#,
+            "\n",
+            r#"{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}"#,
+        );
+        assert_eq!(parse_opencode_output(raw), "final answer");
     }
 }

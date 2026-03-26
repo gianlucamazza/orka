@@ -459,6 +459,14 @@ pub struct SkillContext {
     /// Set by the node runner when a `git_worktree_create` call succeeds;
     /// cleared when `git_worktree_remove` is called.
     pub worktree_cwd: Option<String>,
+    /// Channel for streaming progress events from long-running skills.
+    ///
+    /// Used by `coding_delegate` to emit real-time [`DelegateEvent`]s.
+    /// The payload is `serde_json::Value` to keep `orka-core` decoupled from
+    /// skill-specific types.
+    pub progress_tx: Option<tokio::sync::mpsc::UnboundedSender<serde_json::Value>>,
+    /// Token checked by skills to support cooperative cancellation.
+    pub cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
 
 impl std::fmt::Debug for SkillContext {
@@ -741,6 +749,8 @@ impl SkillContext {
             budget: None,
             user_cwd: None,
             worktree_cwd: None,
+            progress_tx: None,
+            cancellation_token: None,
         }
     }
 
@@ -764,6 +774,23 @@ impl SkillContext {
     #[must_use]
     pub fn with_worktree_cwd(mut self, cwd: Option<String>) -> Self {
         self.worktree_cwd = cwd;
+        self
+    }
+
+    /// Attach a progress channel for streaming delegate events.
+    #[must_use]
+    pub fn with_progress(
+        mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<serde_json::Value>,
+    ) -> Self {
+        self.progress_tx = Some(tx);
+        self
+    }
+
+    /// Attach a cancellation token for cooperative cancellation.
+    #[must_use]
+    pub fn with_cancellation(mut self, token: tokio_util::sync::CancellationToken) -> Self {
+        self.cancellation_token = Some(token);
         self
     }
 }
@@ -1333,6 +1360,8 @@ mod tests {
             budget: None,
             user_cwd: Some(cwd.to_string()),
             worktree_cwd: None,
+            progress_tx: None,
+            cancellation_token: None,
         };
         SkillInput::new(std::collections::HashMap::new()).with_context(ctx)
     }

@@ -141,6 +141,16 @@ pub trait EventSink: Send + Sync + 'static {
     async fn emit(&self, event: DomainEvent);
 }
 
+/// A no-op [`EventSink`] that discards all events.
+///
+/// Useful as a default when no observability is configured.
+pub struct NoopEventSink;
+
+#[async_trait]
+impl EventSink for NoopEventSink {
+    async fn emit(&self, _event: DomainEvent) {}
+}
+
 /// A named, schema-described skill that an agent can invoke.
 #[async_trait]
 pub trait Skill: Send + Sync + 'static {

@@ -204,6 +204,37 @@ impl StreamRegistry {
     }
 }
 
+/// Forward progress events from a `coding_delegate` skill run to SSE subscribers.
+///
+/// Drains `rx`, wrapping each [`serde_json::Value`] as a JSON-string
+/// [`StreamChunkKind::Delta`] and broadcasting it through `registry`. Sends a
+/// final [`StreamChunkKind::Done`] chunk when the sender side closes.
+pub async fn forward_delegate_progress(
+    mut rx: mpsc::UnboundedReceiver<serde_json::Value>,
+    registry: StreamRegistry,
+    _event_sink: Arc<dyn crate::traits::EventSink>,
+    session_id: SessionId,
+    channel: String,
+    reply_to: Option<MessageId>,
+    _message_id: MessageId,
+) {
+    while let Some(value) = rx.recv().await {
+        let text = serde_json::to_string(&value).unwrap_or_default();
+        registry.send(StreamChunk::new(
+            session_id,
+            channel.clone(),
+            reply_to,
+            StreamChunkKind::Delta(text),
+        ));
+    }
+    registry.send(StreamChunk::new(
+        session_id,
+        channel,
+        reply_to,
+        StreamChunkKind::Done,
+    ));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

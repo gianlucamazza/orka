@@ -69,7 +69,8 @@ pub use error::{Error, Result};
 #[cfg(feature = "migrate")]
 pub use migrate::{MigrationError, MigrationResult, inspect_config_issues, migrate_if_needed};
 pub use slash_command::{ParsedCommand, parse_slash_command};
-pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
+pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry, forward_delegate_progress};
+pub use traits::NoopEventSink;
 pub use types::{
     CommandArgs, CommandPayload, DomainEvent, DomainEventKind, Envelope, ErrorCategory, EventId,
     EventPayload, MediaPayload, MemoryEntry, MessageId, MessageSink, MessageStream,
