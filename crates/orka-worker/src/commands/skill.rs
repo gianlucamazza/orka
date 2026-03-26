@@ -21,27 +21,27 @@ impl SkillCommand {
         Self { skills, secrets }
     }
 
-    fn make_reply(&self, envelope: &Envelope, text: String) -> OutboundMessage {
+    fn make_reply(envelope: &Envelope, text: String) -> OutboundMessage {
         let mut msg = OutboundMessage::text(
             envelope.channel.clone(),
             envelope.session_id,
             text,
             Some(envelope.id),
         );
-        msg.metadata = envelope.metadata.clone();
+        msg.metadata.clone_from(&envelope.metadata);
         msg
     }
 }
 
 #[async_trait]
 impl ServerCommand for SkillCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "skill"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Invoke a skill directly"
     }
-    fn usage(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "/skill <name> [key=val ...]"
     }
 
@@ -53,7 +53,7 @@ impl ServerCommand for SkillCommand {
     ) -> Result<Vec<OutboundMessage>> {
         let Some(skill_name) = args.positional(0) else {
             let available = self.skills.list().join(", ");
-            return Ok(vec![self.make_reply(
+            return Ok(vec![Self::make_reply(
                 envelope,
                 format!("Usage: {}\nAvailable skills: {available}", self.usage()),
             )]);
@@ -61,7 +61,7 @@ impl ServerCommand for SkillCommand {
 
         if self.skills.get(skill_name).is_none() {
             let available = self.skills.list().join(", ");
-            return Ok(vec![self.make_reply(
+            return Ok(vec![Self::make_reply(
                 envelope,
                 format!("Unknown skill: {skill_name}\nAvailable skills: {available}"),
             )]);
@@ -106,13 +106,14 @@ impl ServerCommand for SkillCommand {
             SkillInput::new(skill_args).with_context(SkillContext::new(self.secrets.clone(), None));
 
         match self.skills.invoke(skill_name, input).await {
-            Ok(output) => {
-                Ok(vec![self.make_reply(
-                    envelope,
-                    format!("[{skill_name}] {}", output.data),
-                )])
-            }
-            Err(e) => Ok(vec![self.make_reply(envelope, format!("Skill error: {e}"))]),
+            Ok(output) => Ok(vec![Self::make_reply(
+                envelope,
+                format!("[{skill_name}] {}", output.data),
+            )]),
+            Err(e) => Ok(vec![Self::make_reply(
+                envelope,
+                format!("Skill error: {e}"),
+            )]),
         }
     }
 }

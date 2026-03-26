@@ -31,14 +31,14 @@ impl ExperienceCommand {
         }
     }
 
-    fn make_reply(&self, envelope: &Envelope, text: String) -> OutboundMessage {
+    fn make_reply(envelope: &Envelope, text: String) -> OutboundMessage {
         let mut msg = OutboundMessage::text(
             envelope.channel.clone(),
             envelope.session_id,
             text,
             Some(envelope.id),
         );
-        msg.metadata = envelope.metadata.clone();
+        msg.metadata.clone_from(&envelope.metadata);
         msg
     }
 
@@ -54,13 +54,13 @@ impl ExperienceCommand {
 
 #[async_trait]
 impl ServerCommand for ExperienceCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "experience"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Inspect the self-learning experience system"
     }
-    fn usage(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "/experience [status|principles <query>|distill]"
     }
 
@@ -90,14 +90,12 @@ impl ServerCommand for ExperienceCommand {
                     .collect::<Vec<_>>()
                     .join(" ");
                 if query.is_empty() {
-                    return Ok(vec![
-                        self.make_reply(
-                            envelope,
-                            "Usage: `/experience principles <query>`\n\
+                    return Ok(vec![Self::make_reply(
+                        envelope,
+                        "Usage: `/experience principles <query>`\n\
                         Example: `/experience principles error handling`"
-                                .to_string(),
-                        ),
-                    ]);
+                            .to_string(),
+                    )]);
                 }
                 let workspace = self.workspace_registry.default_name();
                 match self.experience.retrieve_principles(&query, workspace).await {
@@ -125,6 +123,6 @@ impl ServerCommand for ExperienceCommand {
             _ => Self::usage_text().to_string(),
         };
 
-        Ok(vec![self.make_reply(envelope, text)])
+        Ok(vec![Self::make_reply(envelope, text)])
     }
 }

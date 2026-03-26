@@ -18,7 +18,7 @@ impl WorkspaceHandler {
                         match b {
                             ContentBlockInput::Text { text } => parts.push(text.clone()),
                             ContentBlockInput::ToolUse { name, .. } => {
-                                parts.push(format!("[called {name}]"))
+                                parts.push(format!("[called {name}]"));
                             }
                             ContentBlockInput::ToolResult { content, .. } => {
                                 // Keep tool results brief in the transcript.
@@ -27,7 +27,7 @@ impl WorkspaceHandler {
                                 } else {
                                     content.clone()
                                 };
-                                parts.push(format!("[result: {excerpt}]"))
+                                parts.push(format!("[result: {excerpt}]"));
                             }
                             _ => continue,
                         }
@@ -118,7 +118,7 @@ impl WorkspaceHandler {
         let summary_prompt = vec![ChatMessage::user(prompt_text)];
 
         let mut options = CompletionOptions::default();
-        options.model = model.map(|s| s.to_string());
+        options.model = model.map(std::string::ToString::to_string);
         options.max_tokens = Some(1024);
 
         match llm

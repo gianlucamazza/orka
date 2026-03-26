@@ -25,13 +25,13 @@ impl StatusCommand {
 
 #[async_trait]
 impl ServerCommand for StatusCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "status"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Show session info"
     }
-    fn usage(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "/status"
     }
 
@@ -73,7 +73,7 @@ impl ServerCommand for StatusCommand {
             text,
             Some(envelope.id),
         );
-        msg.metadata = envelope.metadata.clone();
+        msg.metadata.clone_from(&envelope.metadata);
         Ok(vec![msg])
     }
 }

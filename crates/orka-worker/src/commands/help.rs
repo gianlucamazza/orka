@@ -23,27 +23,27 @@ impl HelpCommand {
         Self { entries }
     }
 
-    fn make_reply(&self, envelope: &Envelope, text: String) -> OutboundMessage {
+    fn make_reply(envelope: &Envelope, text: String) -> OutboundMessage {
         let mut msg = OutboundMessage::text(
             envelope.channel.clone(),
             envelope.session_id,
             text,
             Some(envelope.id),
         );
-        msg.metadata = envelope.metadata.clone();
+        msg.metadata.clone_from(&envelope.metadata);
         msg
     }
 }
 
 #[async_trait]
 impl ServerCommand for HelpCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "help"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Show available commands"
     }
-    fn usage(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "/help [command]"
     }
 
@@ -59,15 +59,15 @@ impl ServerCommand for HelpCommand {
                 self.entries.iter().find(|(name, _, _)| name == cmd_name)
             {
                 let text = format!("**/{cmd_name}**\n{desc}\n\nUsage: `{usage}`");
-                return Ok(vec![self.make_reply(envelope, text)]);
+                return Ok(vec![Self::make_reply(envelope, text)]);
             }
-            return Ok(vec![self.make_reply(
+            return Ok(vec![Self::make_reply(
                 envelope,
                 format!("Unknown command: /{cmd_name}\n\n{}", self.full_help()),
             )]);
         }
 
-        Ok(vec![self.make_reply(envelope, self.full_help())])
+        Ok(vec![Self::make_reply(envelope, self.full_help())])
     }
 }
 

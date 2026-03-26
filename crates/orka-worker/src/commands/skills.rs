@@ -23,13 +23,13 @@ impl SkillsCommand {
 
 #[async_trait]
 impl ServerCommand for SkillsCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "skills"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List available skills"
     }
-    fn usage(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "/skills [name]"
     }
 
@@ -93,7 +93,7 @@ impl ServerCommand for SkillsCommand {
             text,
             Some(envelope.id),
         );
-        msg.metadata = envelope.metadata.clone();
+        msg.metadata.clone_from(&envelope.metadata);
         Ok(vec![msg])
     }
 }

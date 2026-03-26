@@ -24,14 +24,14 @@ impl WorkspaceCommand {
         }
     }
 
-    fn make_reply(&self, envelope: &Envelope, text: String) -> OutboundMessage {
+    fn make_reply(envelope: &Envelope, text: String) -> OutboundMessage {
         let mut msg = OutboundMessage::text(
             envelope.channel.clone(),
             envelope.session_id,
             text,
             Some(envelope.id),
         );
-        msg.metadata = envelope.metadata.clone();
+        msg.metadata.clone_from(&envelope.metadata);
         msg
     }
 
@@ -48,13 +48,13 @@ impl WorkspaceCommand {
 
 #[async_trait]
 impl ServerCommand for WorkspaceCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "workspace"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List or switch workspaces"
     }
-    fn usage(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "/workspace [list|<name>|reset]"
     }
 
@@ -82,7 +82,7 @@ impl ServerCommand for WorkspaceCommand {
                     }
                 }
                 lines.push("\nSwitch with: `/workspace <name>`".to_string());
-                Ok(vec![self.make_reply(envelope, lines.join("\n"))])
+                Ok(vec![Self::make_reply(envelope, lines.join("\n"))])
             }
             "reset" => {
                 let override_key = format!("workspace_override:{}", session.id);
@@ -94,7 +94,7 @@ impl ServerCommand for WorkspaceCommand {
                     )
                     .await?;
                 let default = self.workspace_registry.default_name();
-                Ok(vec![self.make_reply(
+                Ok(vec![Self::make_reply(
                     envelope,
                     format!("Workspace reset to default: **{default}**"),
                 )])
@@ -109,7 +109,7 @@ impl ServerCommand for WorkspaceCommand {
                         .map(|s| format!("`{s}`"))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    return Ok(vec![self.make_reply(
+                    return Ok(vec![Self::make_reply(
                         envelope,
                         format!("Unknown workspace: **{name}**\nAvailable: {available}"),
                     )]);
@@ -125,7 +125,7 @@ impl ServerCommand for WorkspaceCommand {
                         None,
                     )
                     .await?;
-                Ok(vec![self.make_reply(
+                Ok(vec![Self::make_reply(
                     envelope,
                     format!("Switched to workspace: **{name}**"),
                 )])

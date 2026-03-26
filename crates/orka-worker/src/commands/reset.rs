@@ -21,13 +21,13 @@ impl ResetCommand {
 
 #[async_trait]
 impl ServerCommand for ResetCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "reset"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Clear conversation history"
     }
-    fn usage(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "/reset"
     }
 
@@ -83,7 +83,7 @@ impl ServerCommand for ResetCommand {
             "Conversation history, token counters, and workspace override cleared.",
             Some(envelope.id),
         );
-        msg.metadata = envelope.metadata.clone();
+        msg.metadata.clone_from(&envelope.metadata);
         Ok(vec![msg])
     }
 }

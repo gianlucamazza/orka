@@ -26,13 +26,13 @@ impl Default for CancelCommand {
 
 #[async_trait]
 impl ServerCommand for CancelCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "cancel"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Cancel the current operation"
     }
-    fn usage(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "/cancel"
     }
 
@@ -50,7 +50,7 @@ impl ServerCommand for CancelCommand {
             "No active operation to cancel.".to_string(),
             Some(envelope.id),
         );
-        msg.metadata = envelope.metadata.clone();
+        msg.metadata.clone_from(&envelope.metadata);
         Ok(vec![msg])
     }
 }

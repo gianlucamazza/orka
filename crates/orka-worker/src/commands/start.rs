@@ -25,13 +25,13 @@ impl StartCommand {
 
 #[async_trait]
 impl ServerCommand for StartCommand {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "start"
     }
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Start a conversation"
     }
-    fn usage(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "/start"
     }
 
@@ -75,7 +75,7 @@ impl ServerCommand for StartCommand {
             text,
             Some(envelope.id),
         );
-        msg.metadata = envelope.metadata.clone();
+        msg.metadata.clone_from(&envelope.metadata);
         Ok(vec![msg])
     }
 }

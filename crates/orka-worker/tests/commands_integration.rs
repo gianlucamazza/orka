@@ -109,7 +109,7 @@ async fn run_pool_with_envelope(envelope: Envelope, session: Session) -> Vec<Env
     tokio::pin!(deadline);
 
     tokio::select! {
-        _ = &mut deadline => {},
+        () = &mut deadline => {},
         msg = rx.recv() => {
             if let Some(env) = msg {
                 results.push(env);
@@ -129,7 +129,7 @@ async fn echo_handler_processes_text_payload() {
     assert_eq!(results.len(), 1);
     match &results[0].payload {
         Payload::Text(t) => assert!(t.contains("hello world")),
-        other => panic!("unexpected payload: {:?}", other),
+        other => panic!("unexpected payload: {other:?}"),
     }
 }
 
@@ -182,7 +182,7 @@ async fn cancel_command_responds_when_no_active_operation() {
                 "unexpected cancel reply: {t}"
             );
         }
-        other => panic!("expected Text, got {:?}", other),
+        other => panic!("expected Text, got {other:?}"),
     }
 
     cancel.cancel();

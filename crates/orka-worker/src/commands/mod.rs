@@ -164,7 +164,7 @@ mod tests {
         fn description(&self) -> &str {
             self.cmd_desc
         }
-        fn usage(&self) -> &str {
+        fn usage(&self) -> &'static str {
             ""
         }
         async fn execute(

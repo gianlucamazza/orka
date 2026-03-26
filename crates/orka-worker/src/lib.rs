@@ -114,6 +114,7 @@ impl WorkerPool {
 
     /// Set the base delay for retry backoff (default: 5000 ms).
     /// Actual delay = `base * 3^retry_count`.
+    #[must_use]
     pub fn with_retry_delay(mut self, base_delay_ms: u64) -> Self {
         self.retry_base_delay_ms = base_delay_ms;
         self
@@ -123,12 +124,14 @@ impl WorkerPool {
     ///
     /// When set, each message is processed under a per-session lock to prevent
     /// concurrent workers from corrupting shared conversation history.
+    #[must_use]
     pub fn with_session_lock(mut self, lock: Arc<dyn SessionLock>) -> Self {
         self.session_lock = Some(lock);
         self
     }
 
     /// Attach a dead-letter queue for messages that exhaust all retry attempts.
+    #[must_use]
     pub fn with_dlq(mut self, dlq: Arc<dyn DeadLetterQueue>) -> Self {
         self.dlq = Some(dlq);
         self
@@ -156,7 +159,7 @@ impl WorkerPool {
                 info!(worker = i, "worker started");
                 loop {
                     tokio::select! {
-                        _ = cancel.cancelled() => {
+                        () = cancel.cancelled() => {
                             info!(worker = i, "worker shutting down");
                             break;
                         }
@@ -199,7 +202,7 @@ impl WorkerPool {
                                             let retry_count = envelope
                                                 .metadata
                                                 .get("retry_count")
-                                                .and_then(|v| v.as_u64())
+                                                .and_then(serde_json::Value::as_u64)
                                                 .unwrap_or(0) as u32;
                                             retry_or_dlq(
                                                 &queue,
@@ -371,7 +374,7 @@ impl WorkerPool {
                                             let retry_count = envelope
                                                 .metadata
                                                 .get("retry_count")
-                                                .and_then(|v| v.as_u64())
+                                                .and_then(serde_json::Value::as_u64)
                                                 .unwrap_or(0)
                                                 as u32;
                                             warn!(

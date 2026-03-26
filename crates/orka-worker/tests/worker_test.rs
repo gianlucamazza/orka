@@ -58,7 +58,7 @@ async fn worker_pool_echo_handler() {
     // Verify the echo response
     match &received.payload {
         Payload::Text(t) => assert_eq!(t, "echo: hello world"),
-        other => panic!("expected Text payload, got {:?}", other),
+        other => panic!("expected Text payload, got {other:?}"),
     }
     assert_eq!(received.channel, "test-channel");
 

@@ -71,12 +71,11 @@ impl CommandRateLimiter {
     /// Returns `true` if the command is allowed, `false` if the limit is
     /// exceeded.
     fn check_and_record(&self, session_id: SessionId, command: &str) -> bool {
-        let mut guard = match self.state.lock() {
-            Ok(g) => g,
-            Err(_) => {
-                warn!("CommandRateLimiter mutex poisoned, allowing command to fail-open");
-                return true;
-            }
+        let mut guard = if let Ok(g) = self.state.lock() {
+            g
+        } else {
+            warn!("CommandRateLimiter mutex poisoned, allowing command to fail-open");
+            return true;
         };
         let key = (session_id, command.to_string());
         let now = Instant::now();
@@ -152,19 +151,20 @@ impl WorkspaceHandler {
     }
 
     /// Wire in the shared session cancellation token map from the worker pool.
+    #[must_use]
     pub fn with_session_cancel_tokens(mut self, tokens: crate::SessionCancelTokens) -> Self {
         self.session_cancel_tokens = Some(tokens);
         self
     }
 
-    fn make_reply(&self, envelope: &Envelope, text: String) -> OutboundMessage {
+    fn make_reply(envelope: &Envelope, text: String) -> OutboundMessage {
         let mut msg = OutboundMessage::text(
             envelope.channel.clone(),
             envelope.session_id,
             text,
             Some(envelope.id),
         );
-        msg.metadata = envelope.metadata.clone();
+        msg.metadata.clone_from(&envelope.metadata);
         msg.metadata
             .entry("source_channel".into())
             .or_insert_with(|| serde_json::Value::String(envelope.channel.clone()));
@@ -181,11 +181,7 @@ impl WorkspaceHandler {
             .filter(|name| !self.disabled_tools.contains(**name))
             .filter_map(|name| self.skills.get(name))
             .map(|skill| {
-                ToolDefinition::new(
-                    skill.name(),
-                    skill.description(),
-                    skill.schema().parameters.clone(),
-                )
+                ToolDefinition::new(skill.name(), skill.description(), skill.schema().parameters)
             })
             .collect();
 
@@ -439,20 +435,18 @@ impl AgentHandler for WorkspaceHandler {
                 .command_rate_limiter
                 .check_and_record(envelope.session_id, &cmd.name)
             {
-                return Ok(vec![
-                    self.make_reply(
-                        envelope,
-                        "Rate limit exceeded. Please wait a moment before sending another command."
-                            .into(),
-                    ),
-                ]);
+                return Ok(vec![Self::make_reply(
+                    envelope,
+                    "Rate limit exceeded. Please wait a moment before sending another command."
+                        .into(),
+                )]);
             }
             let args = CommandArgs::from(cmd.clone());
             if let Some(handler) = self.commands.get(&cmd.name) {
                 return handler.execute(&args, envelope, session).await;
             }
             let help = self.commands.help_text();
-            return Ok(vec![self.make_reply(
+            return Ok(vec![Self::make_reply(
                 envelope,
                 format!("Unknown command: /{}\n\n{help}", cmd.name),
             )]);
@@ -461,7 +455,7 @@ impl AgentHandler for WorkspaceHandler {
         let text = match &envelope.payload {
             Payload::Text(t) => t.clone(),
             _ => {
-                return Ok(vec![self.make_reply(
+                return Ok(vec![Self::make_reply(
                     envelope,
                     "Sorry, I can only process text messages.".into(),
                 )]);
@@ -476,13 +470,11 @@ impl AgentHandler for WorkspaceHandler {
                 .command_rate_limiter
                 .check_and_record(envelope.session_id, &parsed.name)
             {
-                return Ok(vec![
-                    self.make_reply(
-                        envelope,
-                        "Rate limit exceeded. Please wait a moment before sending another command."
-                            .into(),
-                    ),
-                ]);
+                return Ok(vec![Self::make_reply(
+                    envelope,
+                    "Rate limit exceeded. Please wait a moment before sending another command."
+                        .into(),
+                )]);
             }
             let args = CommandArgs::from(parsed.clone());
             if let Some(handler) = self.commands.get(&parsed.name) {
@@ -490,7 +482,7 @@ impl AgentHandler for WorkspaceHandler {
             }
             // Unknown slash command — show help
             let help = self.commands.help_text();
-            return Ok(vec![self.make_reply(
+            return Ok(vec![Self::make_reply(
                 envelope,
                 format!("Unknown command: /{}\n\n{help}", parsed.name),
             )]);
@@ -565,7 +557,7 @@ impl AgentHandler for WorkspaceHandler {
             match guardrail.check_input(&text, session).await? {
                 orka_core::traits::GuardrailDecision::Allow => text,
                 orka_core::traits::GuardrailDecision::Block(reason) => {
-                    return Ok(vec![self.make_reply(
+                    return Ok(vec![Self::make_reply(
                         envelope,
                         format!("I can't process that request: {reason}"),
                     )]);
@@ -606,7 +598,7 @@ impl AgentHandler for WorkspaceHandler {
             };
 
             let conversation_summary: Option<String> = match summary_result {
-                Ok(Some(entry)) => entry.value.as_str().map(|s| s.to_string()),
+                Ok(Some(entry)) => entry.value.as_str().map(std::string::ToString::to_string),
                 Ok(None) => None,
                 Err(e) => {
                     warn!(%e, key = %summary_key, "failed to recall conversation summary");
@@ -615,13 +607,14 @@ impl AgentHandler for WorkspaceHandler {
             };
 
             let mut session_tokens: u64 = match tokens_result {
-                Ok(Some(entry)) => match entry.value.as_u64() {
-                    Some(v) => v,
-                    None => {
+                Ok(Some(entry)) => {
+                    if let Some(v) = entry.value.as_u64() {
+                        v
+                    } else {
                         warn!(key = %token_key, value = ?entry.value, "corrupted token count, resetting to 0");
                         0
                     }
-                },
+                }
                 Ok(None) => 0,
                 Err(e) => {
                     warn!(%e, key = %token_key, "failed to recall token usage");
@@ -633,7 +626,7 @@ impl AgentHandler for WorkspaceHandler {
             messages.push(ChatMessage::user(text.clone()));
 
             let available_ws = self.workspace_registry.list_names();
-            let available_ws_refs: Vec<&str> = available_ws.to_vec();
+            let available_ws_refs: Vec<&str> = available_ws.clone();
 
             // Determine the resolved workspace name for awareness
             let resolved_workspace = if let Some(ref entry) = ws_override {
@@ -712,7 +705,9 @@ impl AgentHandler for WorkspaceHandler {
             let pipeline = SystemPromptPipeline::from_config(&pipeline_config);
 
             // Parse principles from JSON string if available
-            let principles = if !principles_section.is_empty() {
+            let principles = if principles_section.is_empty() {
+                vec![]
+            } else {
                 // Simple parsing: extract principle items from the formatted section
                 principles_section
                     .lines()
@@ -732,14 +727,12 @@ impl AgentHandler for WorkspaceHandler {
                         })
                     })
                     .collect()
-            } else {
-                vec![]
             };
 
             // Build context
             let available_workspaces: Vec<String> = available_ws_refs
                 .into_iter()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .collect();
 
             let mut ctx = BuildContext::new(&soul_name)
@@ -796,15 +789,12 @@ impl AgentHandler for WorkspaceHandler {
             for iteration in 0..max_iterations {
                 // Check for cancellation between iterations.
                 if let Some(ref tokens) = self.session_cancel_tokens {
-                    let cancelled = match tokens.lock() {
-                        Ok(t) => t
-                            .get(&envelope.session_id)
-                            .map(|t| t.is_cancelled())
-                            .unwrap_or(false),
-                        Err(_) => {
-                            warn!("session_cancel_tokens lock poisoned, assuming not cancelled");
-                            false
-                        }
+                    let cancelled = if let Ok(t) = tokens.lock() {
+                        t.get(&envelope.session_id)
+                            .is_some_and(tokio_util::sync::CancellationToken::is_cancelled)
+                    } else {
+                        warn!("session_cancel_tokens lock poisoned, assuming not cancelled");
+                        false
                     };
                     if cancelled {
                         info!(session_id = %envelope.session_id, "operation cancelled by user");
@@ -933,7 +923,7 @@ impl AgentHandler for WorkspaceHandler {
 
                 // Accumulate token usage
                 let iteration_tokens =
-                    (completion.usage.input_tokens + completion.usage.output_tokens) as u64;
+                    u64::from(completion.usage.input_tokens + completion.usage.output_tokens);
                 session_tokens += iteration_tokens;
 
                 // Record iteration in trajectory collector
@@ -1073,8 +1063,7 @@ impl AgentHandler for WorkspaceHandler {
                 for (tool_name, count) in &tool_error_counts {
                     if *count >= max_tool_retries {
                         hint_text = Some(format!(
-                            "Tool '{}' has failed {} consecutive times. Consider an alternative approach or different parameters.",
-                            tool_name, count
+                            "Tool '{tool_name}' has failed {count} consecutive times. Consider an alternative approach or different parameters."
                         ));
                         break;
                     }
@@ -1213,7 +1202,7 @@ impl AgentHandler for WorkspaceHandler {
                     final_text
                 };
 
-                return Ok(vec![self.make_reply(envelope, final_text)]);
+                return Ok(vec![Self::make_reply(envelope, final_text)]);
             }
         }
 
@@ -1227,7 +1216,7 @@ impl AgentHandler for WorkspaceHandler {
              Session: {}\nYour message was: {text}",
             session.id
         );
-        Ok(vec![self.make_reply(envelope, reply)])
+        Ok(vec![Self::make_reply(envelope, reply)])
     }
 }
 
@@ -1248,7 +1237,7 @@ mod tests {
         let state = WorkspaceState {
             soul: Some(Document {
                 frontmatter: SoulFrontmatter {
-                    name: name.map(|s| s.to_string()),
+                    name: name.map(std::string::ToString::to_string),
                     ..Default::default()
                 },
                 body: body.to_string(),
