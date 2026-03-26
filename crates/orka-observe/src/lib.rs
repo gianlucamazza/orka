@@ -432,6 +432,7 @@ mod tests {
             git: Default::default(),
             agents: Vec::new(),
             graph: None,
+            research: Default::default(),
         }
     }
 

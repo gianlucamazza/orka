@@ -697,6 +697,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         guardrails: config.guardrails.enabled,
         a2a: a2a_enabled,
         observe: config.observe.enabled,
+        research: config.research.enabled,
     };
 
     // Build checkpoint store from existing Redis config. Errors are logged and
@@ -743,6 +744,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         adapters: adapter_names,
         coding_backend,
         web_search,
+        research_service: None,
+        stream_registry: orka_core::StreamRegistry::new(),
     });
 
     let listener =

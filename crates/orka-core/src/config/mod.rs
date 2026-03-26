@@ -32,6 +32,7 @@ pub mod observability;
 pub mod primitives;
 pub mod prompts;
 pub mod protocols;
+pub mod research;
 pub mod security;
 pub mod server;
 pub mod system;
@@ -41,8 +42,8 @@ pub mod web;
 // Re-export all configuration types for backward compatibility
 pub use self::{
     adapters::*, agent::*, experience::*, git::*, http::*, infrastructure::*, knowledge::*, llm::*,
-    observability::*, primitives::*, prompts::*, protocols::*, security::*, server::*, system::*,
-    tools::*, web::*,
+    observability::*, primitives::*, prompts::*, protocols::*, research::*, security::*, server::*,
+    system::*, tools::*, web::*,
 };
 use crate::migrate;
 
@@ -159,6 +160,9 @@ pub struct OrkaConfig {
     /// Graph topology for multi-agent execution.
     #[serde(default)]
     pub graph: Option<GraphDef>,
+    /// Autonomous research campaign configuration.
+    #[serde(default)]
+    pub research: ResearchConfig,
 }
 
 impl Default for OrkaConfig {
@@ -200,6 +204,7 @@ impl Default for OrkaConfig {
             git: GitConfig::default(),
             agents: Vec::new(),
             graph: None,
+            research: ResearchConfig::default(),
         }
     }
 }

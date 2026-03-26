@@ -46,6 +46,7 @@ fn test_features() -> ServerFeatures {
         guardrails: false,
         a2a: false,
         observe: false,
+        research: false,
     }
 }
 
@@ -91,6 +92,8 @@ pub fn test_router() -> axum::Router {
         adapters: vec![],
         coding_backend: None,
         web_search: None,
+        research_service: None,
+        stream_registry: orka_core::StreamRegistry::new(),
     })
 }
 
@@ -162,6 +165,8 @@ pub fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::Router {
         adapters: vec![],
         coding_backend: None,
         web_search: None,
+        research_service: None,
+        stream_registry: orka_core::StreamRegistry::new(),
     })
 }
 
@@ -213,5 +218,145 @@ pub fn test_router_with_auth(key: &str) -> axum::Router {
         adapters: vec![],
         coding_backend: None,
         web_search: None,
+        research_service: None,
+        stream_registry: orka_core::StreamRegistry::new(),
+    })
+}
+
+/// Build the server router with the research service enabled.
+///
+/// Uses in-memory stub skills so the full research pipeline can run
+/// without external tools.
+pub fn test_router_with_research() -> axum::Router {
+    use orka_core::{config::ResearchConfig, testing::InMemorySecretManager};
+    use orka_research::{InMemoryResearchStore, create_research_service, create_research_skills};
+
+    // Stub skills that return canned JSON responses so the pipeline
+    // completes without invoking real external tools.
+    struct StaticJsonSkill {
+        name: &'static str,
+        description: &'static str,
+        data: serde_json::Value,
+    }
+
+    #[async_trait::async_trait]
+    impl orka_core::traits::Skill for StaticJsonSkill {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn description(&self) -> &str {
+            self.description
+        }
+
+        fn schema(&self) -> orka_core::SkillSchema {
+            orka_core::SkillSchema::new(serde_json::json!({}))
+        }
+
+        async fn execute(
+            &self,
+            _input: orka_core::SkillInput,
+        ) -> orka_core::Result<orka_core::SkillOutput> {
+            Ok(orka_core::SkillOutput::new(self.data.clone()))
+        }
+    }
+
+    let store = Arc::new(InMemoryResearchStore::new());
+    let service = create_research_service(
+        store,
+        None,
+        None,
+        ResearchConfig::default(),
+        Arc::new(InMemorySecretManager::new()),
+        None,
+    );
+
+    let mut skills = SkillRegistry::new();
+    skills.register(Arc::new(EchoSkill));
+    skills.register(Arc::new(StaticJsonSkill {
+        name: "git_worktree_create",
+        description: "create worktree",
+        data: serde_json::json!({ "path": "/tmp/test-wt" }),
+    }));
+    skills.register(Arc::new(StaticJsonSkill {
+        name: "coding_delegate",
+        description: "coding delegate",
+        data: serde_json::json!({ "backend": "codex", "result": "implemented" }),
+    }));
+    skills.register(Arc::new(StaticJsonSkill {
+        name: "git_diff",
+        description: "git diff",
+        data: serde_json::json!({ "diff": "diff --git a/f b/f" }),
+    }));
+    skills.register(Arc::new(StaticJsonSkill {
+        name: "shell_exec",
+        description: "shell exec",
+        data: serde_json::json!({
+            "exit_code": 0,
+            "stdout": "ok",
+            "stderr": "",
+            "duration_ms": 1,
+        }),
+    }));
+    skills.register(Arc::new(StaticJsonSkill {
+        name: "git_checkout",
+        description: "git checkout",
+        data: serde_json::json!({ "branch": "main" }),
+    }));
+    skills.register(Arc::new(StaticJsonSkill {
+        name: "git_merge",
+        description: "git merge",
+        data: serde_json::json!({ "merged": true }),
+    }));
+    for skill in create_research_skills(service.clone()) {
+        skills.register(skill);
+    }
+    let skills = Arc::new(skills);
+    service.bind_registry(skills.clone());
+
+    let stream_registry = orka_core::StreamRegistry::new();
+    service.bind_stream_registry(stream_registry.clone());
+
+    let q = Arc::new(InMemoryQueue::new());
+    build_router(RouterParams {
+        queue: q.clone(),
+        dlq: q,
+        skills,
+        soft_skills: None,
+        sessions: Arc::new(InMemorySessionStore::new()),
+        scheduler_store: None,
+        checkpoint_store: None,
+        workspace_registry: test_workspace_registry(),
+        graph: test_graph(),
+        experience_service: None,
+        start_time: std::time::Instant::now(),
+        concurrency: 1,
+        redis_url: "redis://127.0.0.1:6379".to_string(),
+        qdrant_url: None,
+        auth_layer: None,
+        a2a_state: None,
+        a2a_auth_enabled: false,
+        agent_directory: Arc::new(AgentDirectory::new()),
+        metrics_handle: None,
+        agent_name: "Test Agent".to_string(),
+        agent_model: "claude-sonnet-4-6".to_string(),
+        mcp_server_count: 0,
+        features: ServerFeatures {
+            knowledge: false,
+            scheduler: false,
+            experience: false,
+            guardrails: false,
+            a2a: false,
+            observe: false,
+            research: true,
+        },
+        thinking: None,
+        agent_count: 1,
+        auth_enabled: false,
+        adapters: vec![],
+        coding_backend: None,
+        web_search: None,
+        research_service: Some(service),
+        stream_registry,
     })
 }

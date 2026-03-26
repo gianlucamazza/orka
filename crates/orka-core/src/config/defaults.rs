@@ -445,3 +445,18 @@ pub fn empty_string() -> String {
 pub fn empty_vec<T>() -> Vec<T> {
     Vec::new()
 }
+
+/// Default for research.enabled — disabled by default.
+pub const fn default_research_enabled() -> bool {
+    false
+}
+
+/// Default for `research.require_promotion_approval`.
+pub const fn default_research_require_promotion_approval() -> bool {
+    true
+}
+
+/// Default for `research.protected_target_branches`.
+pub fn default_research_protected_target_branches() -> Vec<String> {
+    vec!["main".to_string(), "master".to_string()]
+}

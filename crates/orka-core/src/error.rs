@@ -176,6 +176,18 @@ pub enum Error {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Research campaign or service error.
+    #[error("research error: {0}")]
+    Research(String),
+
+    /// Research resource (campaign, run, candidate) not found.
+    #[error("research not found: {0}")]
+    ResearchNotFound(String),
+
+    /// Research operation conflicts with current state.
+    #[error("research conflict: {0}")]
+    ResearchConflict(String),
+
     /// Catch-all for unclassified errors.
     #[error("{0}")]
     Other(String),

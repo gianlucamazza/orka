@@ -348,6 +348,7 @@ mod tests {
             prompts: Default::default(),
             agents: vec![],
             graph: None,
+            research: Default::default(),
         }
     }
 

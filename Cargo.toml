@@ -24,6 +24,7 @@ members = [
   "crates/orka-guardrails",
   "crates/orka-experience",
   "crates/orka-eval",
+  "crates/orka-research",
 
   # ── Execution / Extensibility ─────────────────────────────────────────────
   # Skill registry, WASM sandbox, MCP and A2A protocol clients
@@ -272,6 +273,7 @@ orka-knowledge = { path = "crates/orka-knowledge" }
 orka-scheduler = { path = "crates/orka-scheduler" }
 orka-experience = { path = "crates/orka-experience" }
 orka-eval = { path = "crates/orka-eval" }
+orka-research = { path = "crates/orka-research" }
 orka-checkpoint = { path = "crates/orka-checkpoint" }
 orka-agent = { path = "crates/orka-agent" }
 orka-git = { path = "crates/orka-git" }

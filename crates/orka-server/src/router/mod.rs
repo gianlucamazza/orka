@@ -8,6 +8,7 @@ mod checkpoints;
 mod dlq;
 mod health;
 mod management;
+mod research;
 mod schedules;
 
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use orka_checkpoint::CheckpointStore;
 use orka_core::traits::{DeadLetterQueue, PriorityQueue, SessionStore};
 use orka_experience::ExperienceService;
 use orka_observe::metrics::PrometheusHandle;
+use orka_research::ResearchService;
 use orka_scheduler::ScheduleStore;
 use orka_skills::{SkillRegistry, SoftSkillRegistry};
 use orka_workspace::WorkspaceRegistry;
@@ -130,6 +132,8 @@ pub struct ServerFeatures {
     pub a2a: bool,
     /// Whether observability endpoints are enabled.
     pub observe: bool,
+    /// Whether research campaign endpoints are enabled.
+    pub research: bool,
 }
 
 /// Lightweight server info returned by `GET /api/v1/info` for CLI banners and
@@ -231,6 +235,10 @@ pub struct RouterParams {
     pub coding_backend: Option<String>,
     /// Configured web search provider for `/api/v1/info`.
     pub web_search: Option<String>,
+    /// Research service (for /api/v1/research*; `None` = research disabled).
+    pub research_service: Option<Arc<ResearchService>>,
+    /// Stream registry for SSE endpoints.
+    pub stream_registry: orka_core::StreamRegistry,
 }
 
 /// Build the complete server `Router` from the given parameters.
@@ -268,6 +276,8 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         adapters,
         coding_backend,
         web_search,
+        research_service,
+        stream_registry,
     } = p;
 
     // --- Public routes (no auth) ---
@@ -353,7 +363,8 @@ pub fn build_router(p: RouterParams) -> axum::Router {
             workspace_registry,
             graph,
             experience_service,
-        ));
+        ))
+        .merge(research::routes(research_service, stream_registry));
 
     // Optionally add A2A protocol routes.
     // When auth is enabled, the agent-card stays public while POST /a2a is

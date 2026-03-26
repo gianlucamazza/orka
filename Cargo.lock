@@ -5781,10 +5781,12 @@ dependencies = [
  "config",
  "dashmap",
  "futures-util",
+ "glob",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "toml 0.8.23",
  "toml_edit 0.22.27",
  "tracing",
@@ -6009,6 +6011,7 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
 ]
@@ -6060,6 +6063,29 @@ dependencies = [
  "testcontainers-modules",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "orka-research"
+version = "1.0.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "cron",
+ "deadpool-redis",
+ "futures-util",
+ "glob",
+ "orka-checkpoint",
+ "orka-core",
+ "orka-scheduler",
+ "orka-skills",
+ "redis",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -6153,6 +6179,7 @@ dependencies = [
  "orka-observe",
  "orka-os",
  "orka-queue",
+ "orka-research",
  "orka-sandbox",
  "orka-scheduler",
  "orka-secrets",
@@ -6170,6 +6197,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "tokio-stream",
  "tokio-tungstenite 0.26.2",
  "tokio-util",
  "tower 0.5.3",
