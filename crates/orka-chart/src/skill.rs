@@ -116,6 +116,19 @@ impl Skill for ChartCreateSkill {
         ))
         .map_err(|e| Error::Skill(format!("invalid chart spec: {e}")))?;
 
+        if spec.width < 200 || spec.width > 2000 {
+            return Err(Error::Skill(format!(
+                "width must be between 200 and 2000, got {}",
+                spec.width
+            )));
+        }
+        if spec.height < 200 || spec.height > 2000 {
+            return Err(Error::Skill(format!(
+                "height must be between 200 and 2000, got {}",
+                spec.height
+            )));
+        }
+
         let chart_type = format!("{:?}", spec.chart_type).to_lowercase();
         let title = spec.title.clone();
         let caption = spec.caption.clone();

@@ -204,5 +204,5 @@ async fn watcher_detects_change() {
         Some("Updated")
     );
 
-    watcher.stop().await;
+    watcher.stop();
 }

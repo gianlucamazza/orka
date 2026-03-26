@@ -114,7 +114,8 @@ impl PrincipleReflector {
         prompt.push_str("### User Message\n");
         // Truncate very long messages
         let msg = if trajectory.user_message.len() > 500 {
-            format!("{}...", &trajectory.user_message[..500])
+            let boundary = trajectory.user_message.floor_char_boundary(500);
+            format!("{}...", &trajectory.user_message[..boundary])
         } else {
             trajectory.user_message.clone()
         };

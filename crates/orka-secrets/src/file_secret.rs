@@ -5,6 +5,8 @@
 //! process; writes use an atomic rename to prevent partial-write corruption.
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
+#[cfg(unix)]
+use std::{fs::Permissions, os::unix::fs::PermissionsExt as _};
 
 use aes_gcm::{
     Aes256Gcm, Nonce,
@@ -146,6 +148,10 @@ impl FileSecretManager {
         tokio::fs::rename(&tmp, &self.path)
             .await
             .map_err(|e| Error::secret(format!("failed to rename secrets file: {e}")))?;
+        #[cfg(unix)]
+        tokio::fs::set_permissions(&self.path, Permissions::from_mode(0o600))
+            .await
+            .map_err(|e| Error::secret(format!("failed to set secrets file permissions: {e}")))?;
         Ok(())
     }
 }

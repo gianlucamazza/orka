@@ -133,7 +133,8 @@ fn build_distillation_prompt(trajectories: &[Trajectory]) -> String {
 
         // Truncate long messages
         let msg = if t.user_message.len() > 200 {
-            format!("{}...", &t.user_message[..200])
+            let boundary = t.user_message.floor_char_boundary(200);
+            format!("{}...", &t.user_message[..boundary])
         } else {
             t.user_message.clone()
         };
