@@ -298,6 +298,7 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
     };
 
     agent.tool_result_max_chars = cfg.tool_result_max_chars;
+    agent.skill_timeout_secs = cfg.skill_timeout_secs;
 
     agent
 }

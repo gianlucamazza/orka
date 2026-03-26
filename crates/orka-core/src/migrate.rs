@@ -551,6 +551,9 @@ fn inspect_agents_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
         "planning_mode",
         "history_strategy",
         "interrupt_before_tools",
+        // Per-skill execution limits
+        "skill_timeout_secs",
+        "max_concurrent_skills",
     ];
     let known: BTreeSet<&str> = entry_allowed.iter().copied().collect();
 

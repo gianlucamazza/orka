@@ -231,6 +231,11 @@ pub const fn default_coding_timeout_secs() -> u64 {
     300
 }
 
+/// Default per-skill execution timeout in seconds.
+pub const fn default_skill_timeout_secs() -> u64 {
+    120
+}
+
 /// Default sudo allowed state.
 pub const fn default_sudo_allowed() -> bool {
     false

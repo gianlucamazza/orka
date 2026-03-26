@@ -76,6 +76,15 @@ pub struct AgentConfig {
     /// via `POST /api/v1/runs/{run_id}/approve`.
     #[serde(default)]
     pub interrupt_before_tools: Vec<String>,
+    /// Per-skill execution timeout in seconds (default: 120).
+    ///
+    /// Skills that exceed this wall-clock limit are cancelled and an error is
+    /// returned to the LLM.
+    #[serde(default = "defaults::default_skill_timeout_secs")]
+    pub skill_timeout_secs: u64,
+    /// Maximum concurrent skill invocations (reserved for future use).
+    #[serde(default)]
+    pub max_concurrent_skills: Option<usize>,
 }
 
 impl Default for AgentConfig {
@@ -96,6 +105,8 @@ impl Default for AgentConfig {
             planning_mode: None,
             history_strategy: None,
             interrupt_before_tools: Vec::new(),
+            skill_timeout_secs: defaults::default_skill_timeout_secs(),
+            max_concurrent_skills: None,
         }
     }
 }

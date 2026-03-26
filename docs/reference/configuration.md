@@ -134,6 +134,8 @@ Each `[[agents]]` entry defines one agent in the execution graph.
 | `planning_mode` | `string` | `"none"` | `"none"`, `"adaptive"` (LLM-driven plan tools), `"always"` (eager plan before first iteration) |
 | `history_strategy` | `string` | `"truncate"` | `"truncate"`, `"summarize"` (LLM summary of dropped turns), `"rolling_window:<n>"` (keep last *n* turns) |
 | `interrupt_before_tools` | `string[]` | `[]` | Tool names that pause execution for human approval (HITL); resume via `POST /api/v1/runs/{run_id}/approve` |
+| `skill_timeout_secs` | `u64` | `120` | Per-skill execution timeout; skills exceeding this are cancelled |
+| `max_concurrent_skills` | `usize?` | `null` | Reserved for future use |
 
 **Node kinds:**
 - `agent` — full LLM tool loop; can hand off to other agents via `transfer_to_agent` / `delegate_to_agent` (auto-injected)
