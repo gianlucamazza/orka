@@ -15,6 +15,7 @@ impl WorkspaceHandler {
     /// events. Returns content blocks with tool results in the original
     /// call order. Built-in workspace tools are intercepted before
     /// dispatching to the skill registry.
+    #[allow(clippy::too_many_lines)]
     pub(super) async fn execute_tool_calls(
         &self,
         tool_calls: &[ToolCall],

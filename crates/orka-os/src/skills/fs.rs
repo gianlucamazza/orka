@@ -888,6 +888,8 @@ impl Skill for FsWatchSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
+        use notify::Watcher;
+
         self.guard.check_permission(PermissionLevel::Execute)?;
 
         let path_str = input
@@ -906,8 +908,6 @@ impl Skill for FsWatchSkill {
             .get("recursive")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(true);
-
-        use notify::Watcher;
 
         let path = input.resolve_path(path_str);
         let canonical = self.guard.check_path(&path)?;

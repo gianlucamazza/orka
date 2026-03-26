@@ -44,6 +44,7 @@ impl AssertionResult {
 }
 
 /// Run all assertion checks for a scenario result.
+#[allow(clippy::too_many_lines)]
 pub fn check_all(
     result: &std::result::Result<SkillOutput, orka_core::Error>,
     expected: &Expectations,
@@ -164,5 +165,9 @@ pub fn check_all(
 }
 
 fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max { s } else { &s[..max] }
+    if s.len() <= max {
+        s
+    } else {
+        &s[..max]
+    }
 }

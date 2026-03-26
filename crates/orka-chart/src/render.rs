@@ -365,8 +365,7 @@ fn render_combo(spec: &ChartSpec) -> Result<Vec<u8>, Error> {
             let use_bar = series
                 .chart_type
                 .as_deref()
-                .map(|t| t.eq_ignore_ascii_case("bar"))
-                .unwrap_or(false);
+                .is_some_and(|t| t.eq_ignore_ascii_case("bar"));
 
             if use_bar {
                 chart

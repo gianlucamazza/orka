@@ -385,9 +385,7 @@ async fn consume_stream(
                 active_id = Some(id);
                 active_name = Some(name);
             }
-            StreamEvent::ToolUseInputDelta(_) => {
-                // Input is delivered whole in ToolUseEnd; deltas ignored here.
-            }
+            // Input is delivered whole in ToolUseEnd; deltas ignored here.
             StreamEvent::ToolUseEnd { id, input } => {
                 let resolved_id = active_id.take().unwrap_or(id);
                 let name = active_name.take().unwrap_or_default();

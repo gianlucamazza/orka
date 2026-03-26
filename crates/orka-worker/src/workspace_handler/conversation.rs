@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use orka_llm::client::{ChatContent, ChatMessage, CompletionOptions, ContentBlockInput, LlmClient};
@@ -29,7 +30,8 @@ impl WorkspaceHandler {
                                 };
                                 parts.push(format!("[result: {excerpt}]"));
                             }
-                            _ => continue,
+                            _ => {}
+
                         }
                     }
                     if parts.is_empty() {
@@ -40,7 +42,7 @@ impl WorkspaceHandler {
                 }
                 _ => "[unsupported content]".to_string(),
             };
-            transcript.push_str(&format!("{}: {}\n", msg.role, text));
+            let _ = writeln!(transcript, "{}: {}", msg.role, text);
         }
         transcript
     }

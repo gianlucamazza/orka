@@ -35,6 +35,7 @@ impl HttpRequestSkill {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[async_trait]
 impl Skill for HttpRequestSkill {
     fn name(&self) -> &'static str {

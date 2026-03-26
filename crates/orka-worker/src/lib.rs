@@ -138,6 +138,7 @@ impl WorkerPool {
     }
 
     /// Start workers and process messages until `shutdown` is signalled.
+    #[allow(clippy::too_many_lines)]
     pub async fn run(&self, shutdown: CancellationToken) -> orka_core::Result<()> {
         info!(concurrency = self.concurrency, "worker pool starting");
         let mut handles = Vec::new();

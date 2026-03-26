@@ -71,9 +71,7 @@ impl CommandRateLimiter {
     /// Returns `true` if the command is allowed, `false` if the limit is
     /// exceeded.
     fn check_and_record(&self, session_id: SessionId, command: &str) -> bool {
-        let mut guard = if let Ok(g) = self.state.lock() {
-            g
-        } else {
+        let Ok(mut guard) = self.state.lock() else {
             warn!("CommandRateLimiter mutex poisoned, allowing command to fail-open");
             return true;
         };
@@ -426,6 +424,7 @@ impl WorkspaceHandler {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[async_trait]
 impl AgentHandler for WorkspaceHandler {
     async fn handle(&self, envelope: &Envelope, session: &Session) -> Result<Vec<OutboundMessage>> {
@@ -555,7 +554,6 @@ impl AgentHandler for WorkspaceHandler {
         // Apply input guardrail
         let text = if let Some(ref guardrail) = self.guardrail {
             match guardrail.check_input(&text, session).await? {
-                orka_core::traits::GuardrailDecision::Allow => text,
                 orka_core::traits::GuardrailDecision::Block(reason) => {
                     return Ok(vec![Self::make_reply(
                         envelope,

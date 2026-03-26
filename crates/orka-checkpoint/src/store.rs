@@ -42,18 +42,18 @@ pub trait CheckpointStore: Send + Sync + 'static {
 
 // ── In-memory implementation ───────────────────────────────────────────────
 
-/// In-memory [`CheckpointStore`] for use in unit tests.
+/// In-memory [`CheckpointStore`] for development, integration tests, and
+/// single-process embeddings.
 ///
 /// Not suitable for production — all state is lost when the process exits.
-#[cfg(test)]
 pub mod in_memory {
     use std::sync::Arc;
 
     use tokio::sync::RwLock;
 
-    use super::*;
+    use super::{async_trait, Checkpoint, CheckpointId, CheckpointStore, Result};
 
-    /// Inner map: run_id → ordered list of checkpoints.
+    /// Inner map: `run_id` → ordered list of checkpoints.
     type Inner = Arc<RwLock<std::collections::HashMap<String, Vec<Checkpoint>>>>;
 
     /// A simple in-memory checkpoint store.
