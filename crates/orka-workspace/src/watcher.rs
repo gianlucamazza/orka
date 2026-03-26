@@ -74,7 +74,7 @@ impl WorkspaceWatcher {
     }
 
     /// Stop the file watcher and abort the background task.
-    pub async fn stop(self) {
+    pub fn stop(self) {
         self.handle.abort();
     }
 }

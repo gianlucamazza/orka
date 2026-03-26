@@ -65,6 +65,7 @@ impl PromptInjectionGuardrail {
     }
 
     /// Enable LLM-based fallback detection for advanced attacks.
+    #[must_use]
     pub fn with_llm_fallback(mut self, enabled: bool) -> Self {
         self.use_llm_fallback = enabled;
         self
@@ -92,7 +93,7 @@ impl PromptInjectionGuardrail {
         }
 
         // Check for encoded payloads
-        if let Some(decoded) = self.detect_encoded_payload(content) {
+        if let Some(decoded) = Self::detect_encoded_payload(content) {
             return Some(InjectionMatch {
                 pattern: "encoded_payload".to_string(),
                 matched_text: decoded,
@@ -105,7 +106,7 @@ impl PromptInjectionGuardrail {
     }
 
     /// Detect base64-encoded payloads that might contain injections.
-    fn detect_encoded_payload(&self, content: &str) -> Option<String> {
+    fn detect_encoded_payload(content: &str) -> Option<String> {
         // Look for base64-like strings (long alphanumeric with optional padding)
         let base64_pattern = Regex::new(r"[A-Za-z0-9+/]{50,}={0,2}").ok()?;
 
@@ -204,7 +205,7 @@ impl Guardrail for PromptInjectionGuardrail {
         // Check risk score for borderline cases
         let risk = self.risk_score(input);
         if risk >= 0.7 {
-            let reason = format!("High prompt injection risk score: {:.2}", risk);
+            let reason = format!("High prompt injection risk score: {risk:.2}");
             warn!(risk, reason, "Prompt injection guardrail blocked input");
             return Ok(GuardrailDecision::Block(reason));
         }

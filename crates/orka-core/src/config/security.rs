@@ -59,10 +59,29 @@ impl ApiKeyEntry {
     }
 }
 
+/// Secret storage backend selection.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum SecretBackend {
+    /// Redis-backed secret storage (default).
+    #[default]
+    Redis,
+    /// File-backed secret storage — no external infrastructure required.
+    /// Suitable for local development and initial setup.
+    File,
+}
+
 /// Secret storage configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[non_exhaustive]
 pub struct SecretConfig {
+    /// Secret storage backend.
+    #[serde(default)]
+    pub backend: SecretBackend,
+    /// Path for file-backed storage (when `backend = "file"`).
+    /// Defaults to `~/.config/orka/secrets.json`.
+    pub file_path: Option<String>,
     /// Path to the master encryption key (hex-encoded, 32 bytes).
     pub encryption_key_path: Option<String>,
     /// Environment variable containing the encryption key.

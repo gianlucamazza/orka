@@ -38,6 +38,7 @@ impl WorkspaceRegistry {
     }
 
     /// Return the loader for the default workspace. Panics if not registered.
+    #[allow(clippy::expect_used)]
     pub fn default_loader(&self) -> &Arc<WorkspaceLoader> {
         self.loaders
             .get(&self.default_name)

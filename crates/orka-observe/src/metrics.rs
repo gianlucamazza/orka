@@ -25,6 +25,7 @@ impl PrometheusHandle {
 }
 
 /// Record metrics from a domain event.
+#[allow(clippy::too_many_lines)]
 pub fn record_event(event: &DomainEvent) {
     match &event.kind {
         DomainEventKind::MessageReceived { channel, .. } => {
@@ -65,12 +66,12 @@ pub fn record_event(event: &DomainEvent) {
         } => {
             counter!("orka_llm_completions_total", "model" => model.clone()).increment(1);
             counter!("orka_llm_input_tokens_total", "model" => model.clone())
-                .increment(*input_tokens as u64);
+                .increment(u64::from(*input_tokens));
             counter!("orka_llm_output_tokens_total", "model" => model.clone())
-                .increment(*output_tokens as u64);
+                .increment(u64::from(*output_tokens));
             if *reasoning_tokens > 0 {
                 counter!("orka_llm_reasoning_tokens_total", "model" => model.clone())
-                    .increment(*reasoning_tokens as u64);
+                    .increment(u64::from(*reasoning_tokens));
             }
             histogram!("orka_llm_duration_seconds", "model" => model.clone())
                 .record(*duration_ms as f64 / 1000.0);

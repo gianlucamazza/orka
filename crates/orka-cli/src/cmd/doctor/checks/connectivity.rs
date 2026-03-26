@@ -31,7 +31,7 @@ impl DoctorCheck for ConRedisReachable {
         };
 
         let start = Instant::now();
-        match redis_ping(&url).await {
+        match redis_ping(&url, ctx.timeout).await {
             Ok(()) => {
                 let ms = start.elapsed().as_millis();
                 CheckOutcome::pass(format!("{url} ({ms}ms)"))
@@ -68,7 +68,7 @@ impl DoctorCheck for ConRedisVersion {
             None => return CheckOutcome::skip("config not loaded"),
         };
 
-        match redis_version(&url).await {
+        match redis_version(&url, ctx.timeout).await {
             Ok(version) => {
                 let parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
                 let major = parts.first().copied().unwrap_or(0);
@@ -114,7 +114,7 @@ impl DoctorCheck for ConQdrantReachable {
             .unwrap_or_else(|| "http://localhost:6334".to_string());
         let start = Instant::now();
 
-        match qdrant_ping(&url).await {
+        match qdrant_ping(&url, ctx.timeout).await {
             Ok(()) => {
                 let ms = start.elapsed().as_millis();
                 CheckOutcome::pass(format!("{url} ({ms}ms)"))
@@ -161,34 +161,34 @@ impl DoctorCheck for ConQdrantVersion {
             .url
             .clone()
             .unwrap_or_else(|| "http://localhost:6334".to_string());
-        match qdrant_version(&url).await {
+        match qdrant_version(&url, ctx.timeout).await {
             Ok(v) => CheckOutcome::pass(format!("v{v}")),
             Err(e) => CheckOutcome::skip(format!("cannot query version: {e}")),
         }
     }
 }
 
-async fn redis_ping(url: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn redis_ping(
+    url: &str,
+    timeout: Duration,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let client = redis::Client::open(url)?;
-    let mut conn = tokio::time::timeout(
-        Duration::from_secs(5),
-        client.get_multiplexed_async_connection(),
-    )
-    .await
-    .map_err(|_| "connection timed out")??;
+    let mut conn = tokio::time::timeout(timeout, client.get_multiplexed_async_connection())
+        .await
+        .map_err(|_| "connection timed out")??;
 
     redis::cmd("PING").query_async::<String>(&mut conn).await?;
     Ok(())
 }
 
-async fn redis_version(url: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+async fn redis_version(
+    url: &str,
+    timeout: Duration,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let client = redis::Client::open(url)?;
-    let mut conn = tokio::time::timeout(
-        Duration::from_secs(5),
-        client.get_multiplexed_async_connection(),
-    )
-    .await
-    .map_err(|_| "connection timed out")??;
+    let mut conn = tokio::time::timeout(timeout, client.get_multiplexed_async_connection())
+        .await
+        .map_err(|_| "connection timed out")??;
 
     let info: String = redis::cmd("INFO")
         .arg("server")
@@ -203,17 +203,23 @@ async fn redis_version(url: &str) -> Result<String, Box<dyn std::error::Error + 
     Err("redis_version not found in INFO output".into())
 }
 
-async fn qdrant_ping(url: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn qdrant_ping(
+    url: &str,
+    timeout: Duration,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let client = qdrant_client::Qdrant::from_url(url).build()?;
-    tokio::time::timeout(Duration::from_secs(5), client.health_check())
+    tokio::time::timeout(timeout, client.health_check())
         .await
         .map_err(|_| "health check timed out")??;
     Ok(())
 }
 
-async fn qdrant_version(url: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+async fn qdrant_version(
+    url: &str,
+    timeout: Duration,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let client = qdrant_client::Qdrant::from_url(url).build()?;
-    let response = tokio::time::timeout(Duration::from_secs(5), client.health_check())
+    let response = tokio::time::timeout(timeout, client.health_check())
         .await
         .map_err(|_| "health check timed out")??;
     Ok(response.version)

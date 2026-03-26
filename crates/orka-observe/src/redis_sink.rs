@@ -55,26 +55,23 @@ impl RedisEventSink {
                     }
                 }
                 event = rx.recv() => {
-                    match event {
-                        Some(event) => {
-                            match serde_json::to_string(&event) {
-                                Ok(json) => {
-                                    buffer.push(json);
-                                    if buffer.len() >= batch_size {
-                                        Self::flush(&pool, &mut buffer).await;
-                                    }
+                    if let Some(event) = event {
+                        match serde_json::to_string(&event) {
+                            Ok(json) => {
+                                buffer.push(json);
+                                if buffer.len() >= batch_size {
+                                    Self::flush(&pool, &mut buffer).await;
                                 }
-                                Err(e) => error!(%e, "failed to serialize event"),
                             }
+                            Err(e) => error!(%e, "failed to serialize event"),
                         }
-                        None => {
-                            // Channel closed, flush remaining and exit
-                            if !buffer.is_empty() {
-                                Self::flush(&pool, &mut buffer).await;
-                            }
-                            info!("event sink batch loop stopped");
-                            break;
+                    } else {
+                        // Channel closed, flush remaining and exit
+                        if !buffer.is_empty() {
+                            Self::flush(&pool, &mut buffer).await;
                         }
+                        info!("event sink batch loop stopped");
+                        break;
                     }
                 }
             }

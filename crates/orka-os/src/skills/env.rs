@@ -23,7 +23,7 @@ impl EnvGetSkill {
 
 #[async_trait]
 impl Skill for EnvGetSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "env_get"
     }
 
@@ -31,7 +31,7 @@ impl Skill for EnvGetSkill {
         "system"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Get the value of an environment variable."
     }
 
@@ -83,7 +83,7 @@ impl EnvListSkill {
 
 #[async_trait]
 impl Skill for EnvListSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "env_list"
     }
 
@@ -91,7 +91,7 @@ impl Skill for EnvListSkill {
         "system"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List environment variables. Sensitive values are masked."
     }
 
@@ -107,7 +107,7 @@ impl Skill for EnvListSkill {
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
         let filter = input.args.get("filter").and_then(|v| v.as_str());
-        let filter_lower = filter.map(|f| f.to_lowercase());
+        let filter_lower = filter.map(str::to_lowercase);
 
         let mut vars: Vec<serde_json::Value> = std::env::vars()
             .filter(|(name, _)| {

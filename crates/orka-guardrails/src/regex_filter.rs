@@ -29,6 +29,7 @@ impl RegexGuardrail {
 
     /// Add a regex pattern that will cause the guardrail to block matching
     /// content.
+    #[must_use]
     pub fn add_block_pattern(mut self, pattern: &str) -> Self {
         if let Ok(re) = Regex::new(pattern) {
             self.patterns.push((re, RegexAction::Block));
@@ -37,6 +38,7 @@ impl RegexGuardrail {
     }
 
     /// Add a regex pattern whose matches will be replaced with `replacement`.
+    #[must_use]
     pub fn add_redact_pattern(mut self, pattern: &str, replacement: &str) -> Self {
         if let Ok(re) = Regex::new(pattern) {
             self.patterns
@@ -46,6 +48,7 @@ impl RegexGuardrail {
     }
 
     /// Pre-built PII filter: emails, phone numbers, SSNs.
+    #[must_use]
     pub fn with_pii_filter(self) -> Self {
         self.add_redact_pattern(
             r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",

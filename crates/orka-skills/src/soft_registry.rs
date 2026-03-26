@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Write as _};
 
 use orka_prompts::template::TemplateRegistry;
 
@@ -44,6 +44,7 @@ impl SoftSkillRegistry {
     }
 
     /// Set the selection mode (builder pattern).
+    #[must_use]
     pub fn with_selection_mode(mut self, mode: SoftSkillSelectionMode) -> Self {
         self.selection_mode = mode;
         self
@@ -89,14 +90,18 @@ impl SoftSkillRegistry {
 
         for name in names {
             if let Some(skill) = self.skills.get(*name) {
-                out.push_str(&format!("### {}\n\n", skill.meta.name));
+                let _ = write!(out, "### {}\n\n", skill.meta.name);
                 out.push_str(&skill.body);
                 out.push_str("\n\n");
                 any = true;
             }
         }
 
-        if any { out } else { String::new() }
+        if any {
+            out
+        } else {
+            String::new()
+        }
     }
 
     /// Build a compact selection prompt listing all skill summaries.

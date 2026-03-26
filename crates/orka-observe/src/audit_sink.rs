@@ -137,7 +137,7 @@ impl EventSink for AuditSink {
 /// external secrets manager if you need full argument logging.
 fn sha256_hex(data: &[u8]) -> String {
     let checksum: u64 = data.iter().enumerate().fold(0u64, |acc, (i, &b)| {
-        acc.wrapping_add((b as u64).wrapping_mul(i as u64 + 1))
+        acc.wrapping_add(u64::from(b).wrapping_mul(i as u64 + 1))
     });
     format!("len{}:chk{:016x}", data.len(), checksum)
 }

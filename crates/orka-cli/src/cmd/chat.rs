@@ -827,40 +827,12 @@ pub async fn run(
                                 data_base64,
                                 caption,
                             } => {
-                                use base64::Engine as _;
-                                let ext = if mime_type.contains("png") {
-                                    "png"
-                                } else if mime_type.contains("jpeg") || mime_type.contains("jpg") {
-                                    "jpg"
-                                } else {
-                                    "bin"
-                                };
-                                let filename =
-                                    format!("orka-{}.{ext}", uuid::Uuid::new_v4().simple());
-                                let path = std::env::temp_dir().join(&filename);
-                                match base64::engine::general_purpose::STANDARD.decode(&data_base64)
-                                {
-                                    Ok(bytes) => {
-                                        if let Err(e) = std::fs::write(&path, &bytes) {
-                                            multi
-                                                .println(format!("\n[chart] failed to save: {e}"))
-                                                .ok();
-                                        } else {
-                                            let label = caption.as_deref().unwrap_or("Chart");
-                                            multi
-                                                .println(format!(
-                                                    "\n[{label}] saved: {}",
-                                                    path.display()
-                                                ))
-                                                .ok();
-                                        }
-                                    }
-                                    Err(e) => {
-                                        multi
-                                            .println(format!("\n[chart] base64 decode error: {e}"))
-                                            .ok();
-                                    }
-                                }
+                                crate::media::render_media(
+                                    &mime_type,
+                                    &data_base64,
+                                    caption.as_deref(),
+                                    Some(&multi),
+                                );
                             }
                             WsMessage::Stream(_) => {
                                 // Unknown stream chunk kind — ignore

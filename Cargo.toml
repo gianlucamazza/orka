@@ -57,6 +57,10 @@ members = [
   "crates/orka-auth",
   "crates/orka-os",
 
+  # ── Onboarding ────────────────────────────────────────────────────────────
+  # LLM-driven interactive setup wizard
+  "crates/orka-onboard",
+
   # ── Orchestration ─────────────────────────────────────────────────────────
   # High-level: agent loop, workspace loader, gateway, worker pool, CLI, server
   "crates/orka-checkpoint",
@@ -282,6 +286,7 @@ orka-checkpoint = { path = "crates/orka-checkpoint" }
 orka-agent = { path = "crates/orka-agent" }
 orka-git = { path = "crates/orka-git" }
 orka-chart = { path = "crates/orka-chart" }
+orka-onboard = { path = "crates/orka-onboard" }
 orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
 orka-prompts = { path = "crates/orka-prompts" }
 handlebars = { version = "6", default-features = false, features = [

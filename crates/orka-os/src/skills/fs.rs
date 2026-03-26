@@ -10,19 +10,19 @@ use crate::{config::PermissionLevel, guard::PermissionGuard};
 
 fn missing_arg(arg: &str) -> Error {
     Error::SkillCategorized {
-        message: format!("missing '{}' argument", arg),
+        message: format!("missing '{arg}' argument"),
         category: ErrorCategory::Input,
     }
 }
 
-fn fs_io_error(context: &str, e: std::io::Error) -> Error {
+fn fs_io_error(context: &str, e: &std::io::Error) -> Error {
     let category = match e.kind() {
         std::io::ErrorKind::PermissionDenied => ErrorCategory::Environmental,
         std::io::ErrorKind::NotFound => ErrorCategory::Input,
         _ => ErrorCategory::Unknown,
     };
     Error::SkillCategorized {
-        message: format!("{}: {}", context, e),
+        message: format!("{context}: {e}"),
         category,
     }
 }
@@ -47,7 +47,7 @@ impl FsReadSkill {
 
 #[async_trait]
 impl Skill for FsReadSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "fs_read"
     }
 
@@ -55,7 +55,7 @@ impl Skill for FsReadSkill {
         "filesystem"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Read a file's contents. Supports text (UTF-8) and binary (base64) encoding."
     }
 
@@ -76,22 +76,22 @@ impl Skill for FsReadSkill {
         let path_str = input
             .args
             .get("path")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| missing_arg("path"))?;
         let encoding = input
             .args
             .get("encoding")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .unwrap_or("utf8");
         let offset = input
             .args
             .get("offset")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(0) as usize;
         let limit = input
             .args
             .get("limit")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .map(|n| n as usize);
 
         let path = input.resolve_path(path_str);
@@ -99,16 +99,14 @@ impl Skill for FsReadSkill {
 
         let metadata = tokio::fs::metadata(&canonical)
             .await
-            .map_err(|e| fs_io_error(&format!("cannot read '{}'", canonical.display()), e))?;
+            .map_err(|e| fs_io_error(&format!("cannot read '{}'", canonical.display()), &e))?;
         self.guard.check_file_size(metadata.len())?;
 
         let bytes = tokio::fs::read(&canonical)
             .await
-            .map_err(|e| fs_io_error(&format!("failed to read '{}'", canonical.display()), e))?;
+            .map_err(|e| fs_io_error(&format!("failed to read '{}'", canonical.display()), &e))?;
 
-        let end = limit
-            .map(|l| (offset + l).min(bytes.len()))
-            .unwrap_or(bytes.len());
+        let end = limit.map_or(bytes.len(), |l| (offset + l).min(bytes.len()));
         let slice = &bytes[offset.min(bytes.len())..end.min(bytes.len())];
 
         let (content, actual_encoding) = if encoding == "base64" {
@@ -140,9 +138,9 @@ fn base64_encode(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
+        let b0 = u32::from(chunk[0]);
+        let b1 = u32::from(chunk.get(1).copied().unwrap_or(0));
+        let b2 = u32::from(chunk.get(2).copied().unwrap_or(0));
         let triple = (b0 << 16) | (b1 << 8) | b2;
         result.push(CHARS[((triple >> 18) & 0x3F) as usize] as char);
         result.push(CHARS[((triple >> 12) & 0x3F) as usize] as char);
@@ -180,7 +178,7 @@ impl FsListSkill {
 
 #[async_trait]
 impl Skill for FsListSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "fs_list"
     }
 
@@ -188,7 +186,7 @@ impl Skill for FsListSkill {
         "filesystem"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "List files and directories at a given path."
     }
 
@@ -209,19 +207,19 @@ impl Skill for FsListSkill {
         let path_str = input
             .args
             .get("path")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| missing_arg("path"))?;
         let recursive = input
             .args
             .get("recursive")
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         let show_hidden = input
             .args
             .get("show_hidden")
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
-        let pattern = input.args.get("pattern").and_then(|v| v.as_str());
+        let pattern = input.args.get("pattern").and_then(serde_json::Value::as_str);
 
         let path = input.resolve_path(path_str);
         let canonical = self.guard.check_path(&path)?;
@@ -255,13 +253,13 @@ async fn list_dir(
 ) -> Result<()> {
     let mut read_dir = tokio::fs::read_dir(path)
         .await
-        .map_err(|e| fs_io_error(&format!("cannot list '{}'", path.display()), e))?;
+        .map_err(|e| fs_io_error(&format!("cannot list '{}'", path.display()), &e))?;
 
     while let Some(entry) = read_dir
         .next_entry()
         .await
         .map_err(|e| Error::SkillCategorized {
-            message: format!("error reading directory entry: {}", e),
+            message: format!("error reading directory entry: {e}"),
             category: ErrorCategory::Unknown,
         })?
     {
@@ -283,13 +281,13 @@ async fn list_dir(
         }
 
         let metadata = entry.metadata().await.ok();
-        let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let is_dir = metadata.as_ref().is_some_and(|m| m.is_dir());
 
         entries.push(serde_json::json!({
             "name": name,
             "path": entry.path().to_string_lossy(),
             "is_dir": is_dir,
-            "size": metadata.as_ref().map(|m| m.len()).unwrap_or(0),
+            "size": metadata.as_ref().map_or(0, |m| m.len()),
             "modified": metadata.as_ref()
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -328,7 +326,7 @@ impl FsInfoSkill {
 
 #[async_trait]
 impl Skill for FsInfoSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "fs_info"
     }
 
@@ -336,7 +334,7 @@ impl Skill for FsInfoSkill {
         "filesystem"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Get detailed metadata for a file or directory (size, type, permissions, timestamps)."
     }
 
@@ -354,7 +352,7 @@ impl Skill for FsInfoSkill {
         let path_str = input
             .args
             .get("path")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| missing_arg("path"))?;
 
         let path = input.resolve_path(path_str);
@@ -362,7 +360,7 @@ impl Skill for FsInfoSkill {
 
         let metadata = tokio::fs::metadata(&canonical)
             .await
-            .map_err(|e| fs_io_error(&format!("cannot stat '{}'", canonical.display()), e))?;
+            .map_err(|e| fs_io_error(&format!("cannot stat '{}'", canonical.display()), &e))?;
         let symlink_meta = tokio::fs::symlink_metadata(&canonical).await.ok();
 
         let file_type = if metadata.is_dir() {
@@ -375,10 +373,7 @@ impl Skill for FsInfoSkill {
             "other"
         };
 
-        let is_symlink = symlink_meta
-            .as_ref()
-            .map(|m| m.is_symlink())
-            .unwrap_or(false);
+        let is_symlink = symlink_meta.as_ref().is_some_and(|m| m.is_symlink());
 
         Ok(SkillOutput::new(serde_json::json!({
             "path": canonical.to_string_lossy(),
@@ -419,7 +414,7 @@ impl FsSearchSkill {
 
 #[async_trait]
 impl Skill for FsSearchSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "fs_search"
     }
 
@@ -427,7 +422,7 @@ impl Skill for FsSearchSkill {
         "filesystem"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Search for files by name (glob), or search file contents for a pattern."
     }
 
@@ -453,22 +448,22 @@ impl Skill for FsSearchSkill {
         let path_str = input
             .args
             .get("path")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| missing_arg("path"))?;
         let pattern = input
             .args
             .get("pattern")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| missing_arg("pattern"))?;
         let by = input
             .args
             .get("by")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .unwrap_or("glob");
         let max_results = input
             .args
             .get("max_results")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(50) as usize;
 
         let path = input.resolve_path(path_str);
@@ -531,7 +526,7 @@ async fn search_by_name(
 ) -> Result<()> {
     let mut read_dir = tokio::fs::read_dir(dir)
         .await
-        .map_err(|e| fs_io_error(&format!("cannot read '{}'", dir.display()), e))?;
+        .map_err(|e| fs_io_error(&format!("cannot read '{}'", dir.display()), &e))?;
 
     let pat_lower = pattern.to_lowercase();
     while let Some(entry) = read_dir
@@ -564,7 +559,7 @@ async fn search_by_content(
 ) -> Result<()> {
     let mut read_dir = tokio::fs::read_dir(dir)
         .await
-        .map_err(|e| fs_io_error(&format!("cannot read '{}'", dir.display()), e))?;
+        .map_err(|e| fs_io_error(&format!("cannot read '{}'", dir.display()), &e))?;
 
     while let Some(entry) = read_dir
         .next_entry()
@@ -626,7 +621,7 @@ impl FsWriteSkill {
 
 #[async_trait]
 impl Skill for FsWriteSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "fs_write"
     }
 
@@ -634,7 +629,7 @@ impl Skill for FsWriteSkill {
         "filesystem"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Write content to a file. Supports write (overwrite) and append modes."
     }
 
@@ -658,22 +653,22 @@ impl Skill for FsWriteSkill {
         let path_str = input
             .args
             .get("path")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| missing_arg("path"))?;
         let content = input
             .args
             .get("content")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| missing_arg("content"))?;
         let mode = input
             .args
             .get("mode")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .unwrap_or("write");
         let create_dirs = input
             .args
             .get("create_dirs")
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
         self.guard.check_file_size(content.len() as u64)?;
@@ -684,7 +679,7 @@ impl Skill for FsWriteSkill {
         if create_dirs && let Some(parent) = canonical.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
-                .map_err(|e| fs_io_error("cannot create directories", e))?;
+                .map_err(|e| fs_io_error("cannot create directories", &e))?;
         }
 
         let bytes_written = content.len();
@@ -697,16 +692,16 @@ impl Skill for FsWriteSkill {
                     .open(&canonical)
                     .await
                     .map_err(|e| {
-                        fs_io_error(&format!("cannot open '{}'", canonical.display()), e)
+                        fs_io_error(&format!("cannot open '{}'", canonical.display()), &e)
                     })?;
                 file.write_all(content.as_bytes())
                     .await
-                    .map_err(|e| fs_io_error("write failed", e))?;
+                    .map_err(|e| fs_io_error("write failed", &e))?;
             }
             _ => {
                 tokio::fs::write(&canonical, content.as_bytes())
                     .await
-                    .map_err(|e| fs_io_error("write failed", e))?;
+                    .map_err(|e| fs_io_error("write failed", &e))?;
             }
         }
 
@@ -735,7 +730,7 @@ impl FsEditSkill {
 
 #[async_trait]
 impl Skill for FsEditSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "fs_edit"
     }
 
@@ -743,7 +738,7 @@ impl Skill for FsEditSkill {
         "filesystem"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Apply targeted search-and-replace edits to a file. Each edit must match exactly once."
     }
 
@@ -776,7 +771,7 @@ impl Skill for FsEditSkill {
         let path_str = input
             .args
             .get("path")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| missing_arg("path"))?;
 
         let edits = input
@@ -790,7 +785,7 @@ impl Skill for FsEditSkill {
 
         let original = tokio::fs::read_to_string(&canonical)
             .await
-            .map_err(|e| fs_io_error(&format!("cannot read '{}'", canonical.display()), e))?;
+            .map_err(|e| fs_io_error(&format!("cannot read '{}'", canonical.display()), &e))?;
 
         let mut content = original.clone();
         let mut edits_applied = 0usize;
@@ -798,14 +793,14 @@ impl Skill for FsEditSkill {
         for (i, edit) in edits.iter().enumerate() {
             let old_text = edit
                 .get("old_text")
-                .and_then(|v| v.as_str())
+                .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| Error::SkillCategorized {
                     message: format!("edit[{i}] missing 'old_text'"),
                     category: ErrorCategory::Input,
                 })?;
             let new_text = edit
                 .get("new_text")
-                .and_then(|v| v.as_str())
+                .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| Error::SkillCategorized {
                     message: format!("edit[{i}] missing 'new_text'"),
                     category: ErrorCategory::Input,
@@ -836,7 +831,7 @@ impl Skill for FsEditSkill {
 
         tokio::fs::write(&canonical, content.as_bytes())
             .await
-            .map_err(|e| fs_io_error("write failed", e))?;
+            .map_err(|e| fs_io_error("write failed", &e))?;
 
         debug!(path = %canonical.display(), edits = edits_applied, "fs_edit complete");
 
@@ -863,7 +858,7 @@ impl FsWatchSkill {
 
 #[async_trait]
 impl Skill for FsWatchSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "fs_watch"
     }
 
@@ -871,7 +866,7 @@ impl Skill for FsWatchSkill {
         "filesystem"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Watch a path for filesystem changes for a specified duration. Returns batch of events."
     }
 
@@ -893,18 +888,18 @@ impl Skill for FsWatchSkill {
         let path_str = input
             .args
             .get("path")
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
             .ok_or_else(|| missing_arg("path"))?;
         let duration_secs = input
             .args
             .get("duration_secs")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .unwrap_or(5)
             .min(30);
         let recursive = input
             .args
             .get("recursive")
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(true);
 
         let path = input.resolve_path(path_str);

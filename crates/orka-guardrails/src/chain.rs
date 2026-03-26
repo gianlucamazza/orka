@@ -21,6 +21,7 @@ impl GuardrailChain {
     }
 
     /// Append a guardrail to the chain (builder pattern).
+    #[must_use]
     #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, guardrail: Arc<dyn Guardrail>) -> Self {
         self.guardrails.push(guardrail);

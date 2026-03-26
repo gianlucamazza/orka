@@ -35,14 +35,16 @@ impl DoctorCheck for SecNoInlineKeys {
         };
 
         // Scan for lines with api_key = "..." that contain long strings (likely real
-        // keys)
+        // keys). Match only the exact key name "api_key", not api_key_env or
+        // api_key_secret.
         let mut suspicious = Vec::new();
         for (i, line) in raw.lines().enumerate() {
             let trimmed = line.trim();
             if trimmed.starts_with('#') {
                 continue;
             }
-            if trimmed.starts_with("api_key") && trimmed.contains('=') && trimmed.contains('"') {
+            let key_name = trimmed.split('=').next().unwrap_or("").trim();
+            if key_name == "api_key" && trimmed.contains('"') {
                 // Extract the value part
                 if let Some(val) = extract_string_value(trimmed)
                     && val.len() > 8
@@ -296,6 +298,94 @@ impl DoctorCheck for SecNoNewPrivileges {
             }
             Err(_) => CheckOutcome::skip("systemctl not available"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{path::PathBuf, time::Duration};
+
+    use super::*;
+    use crate::cmd::doctor::{CheckContext, CheckStatus};
+
+    fn ctx_with_raw(raw: &str) -> CheckContext {
+        CheckContext {
+            config: None,
+            config_path: PathBuf::from("/tmp/orka.toml"),
+            config_raw: Some(raw.to_string()),
+            verbose: false,
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    #[test]
+    fn extract_string_value_basic() {
+        assert_eq!(
+            extract_string_value(r#"api_key = "sk-ant-abc""#),
+            Some("sk-ant-abc".to_string())
+        );
+        assert_eq!(
+            extract_string_value(r#"api_key_env = "ANTHROPIC_API_KEY""#),
+            Some("ANTHROPIC_API_KEY".to_string())
+        );
+        assert_eq!(extract_string_value("api_key = notquoted"), None);
+    }
+
+    #[tokio::test]
+    async fn sec001_no_false_positive_on_api_key_env() {
+        let raw = "api_key_env = \"ANTHROPIC_API_KEY\"\napi_key_secret = \"secrets/key\"\n";
+        let outcome = SecNoInlineKeys.run(&ctx_with_raw(raw)).await;
+        assert_eq!(
+            outcome.status,
+            CheckStatus::Pass,
+            "api_key_env should not be flagged"
+        );
+    }
+
+    #[tokio::test]
+    async fn sec001_no_false_positive_on_api_key_secret_no_slash() {
+        // api_key_secret without slash should also not be flagged (different key name)
+        let raw = "api_key_secret = \"anthropic_key\"\n";
+        let outcome = SecNoInlineKeys.run(&ctx_with_raw(raw)).await;
+        assert_eq!(
+            outcome.status,
+            CheckStatus::Pass,
+            "api_key_secret should not be flagged"
+        );
+    }
+
+    #[tokio::test]
+    async fn sec001_detects_real_inline_key() {
+        let raw = "api_key = \"sk-ant-api03-realkey1234567890\"\n";
+        let outcome = SecNoInlineKeys.run(&ctx_with_raw(raw)).await;
+        assert_eq!(
+            outcome.status,
+            CheckStatus::Fail,
+            "real inline api_key should be flagged"
+        );
+    }
+
+    #[tokio::test]
+    async fn sec001_ignores_short_values() {
+        // Values <= 8 chars are not flagged (likely placeholder/empty)
+        let raw = "api_key = \"short\"\n";
+        let outcome = SecNoInlineKeys.run(&ctx_with_raw(raw)).await;
+        assert_eq!(
+            outcome.status,
+            CheckStatus::Pass,
+            "short api_key value should not be flagged"
+        );
+    }
+
+    #[tokio::test]
+    async fn sec001_ignores_commented_lines() {
+        let raw = "# api_key = \"sk-ant-api03-realkey1234567890\"\n";
+        let outcome = SecNoInlineKeys.run(&ctx_with_raw(raw)).await;
+        assert_eq!(
+            outcome.status,
+            CheckStatus::Pass,
+            "commented api_key should not be flagged"
+        );
     }
 }
 

@@ -6,7 +6,7 @@ pub struct EchoSkill;
 
 #[async_trait]
 impl Skill for EchoSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "echo"
     }
 
@@ -14,7 +14,7 @@ impl Skill for EchoSkill {
         "general"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Echoes back the input arguments"
     }
 

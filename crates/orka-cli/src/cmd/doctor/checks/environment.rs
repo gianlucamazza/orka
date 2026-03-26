@@ -14,7 +14,7 @@ pub struct EnvMcpBinaries;
 pub struct EnvPluginDir;
 pub struct EnvAdapterTokens;
 
-const MSRV: &str = "1.85";
+const MSRV: &str = "1.91";
 
 #[async_trait]
 impl DoctorCheck for EnvRustToolchain {
@@ -24,7 +24,7 @@ impl DoctorCheck for EnvRustToolchain {
             category: Category::Environment,
             severity: Severity::Info,
             name: "Rust toolchain",
-            description: "Reports the active Rust version (MSRV 1.85).",
+            description: "Reports the active Rust version (MSRV 1.91).",
         }
     }
 
@@ -56,7 +56,7 @@ impl DoctorCheck for EnvRustToolchain {
     }
 }
 
-/// Returns true if `version_str` >= `min`.
+/// Returns true if `version_str` >= `min` using semantic versioning comparison.
 fn version_ok(version_str: &str, min: &str) -> bool {
     let parse = |s: &str| -> (u32, u32, u32) {
         let mut parts = s.split('.');
@@ -112,35 +112,46 @@ impl DoctorCheck for EnvOsCapabilities {
     }
 
     async fn run(&self, _ctx: &CheckContext) -> CheckOutcome {
-        let probes: &[(&str, &[&str])] = &[
-            ("pacman", &["--version"]),
-            ("apt", &["--version"]),
-            ("dnf", &["--version"]),
-            ("systemctl", &["--version"]),
-            ("journalctl", &["--version"]),
-            ("claude", &["--version"]),
-            ("codex", &["--version"]),
+        let probes: &[(&str, &str)] = &[
+            ("pacman", "--version"),
+            ("apt", "--version"),
+            ("dnf", "--version"),
+            ("systemctl", "--version"),
+            ("journalctl", "--version"),
+            ("claude", "--version"),
+            ("codex", "--version"),
         ];
+
+        let mut join_set = tokio::task::JoinSet::new();
+        for (cmd, arg) in probes {
+            let cmd = cmd.to_string();
+            let arg = arg.to_string();
+            join_set.spawn(async move {
+                let available = tokio::process::Command::new(&cmd)
+                    .arg(&arg)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .await
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+                (cmd, available)
+            });
+        }
 
         let mut found = Vec::new();
         let mut not_found = Vec::new();
-
-        for (cmd, args) in probes {
-            let available = tokio::process::Command::new(cmd)
-                .args(*args)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await
-                .map(|s| s.success())
-                .unwrap_or(false);
-
-            if available {
-                found.push(*cmd);
-            } else {
-                not_found.push(*cmd);
+        while let Some(res) = join_set.join_next().await {
+            if let Ok((cmd, available)) = res {
+                if available {
+                    found.push(cmd);
+                } else {
+                    not_found.push(cmd);
+                }
             }
         }
+        found.sort();
+        not_found.sort();
 
         let msg = if found.is_empty() {
             "no OS tools found".to_string()
@@ -194,7 +205,7 @@ impl DoctorCheck for EnvMcpBinaries {
                 continue;
             };
 
-            let in_path = which_binary(cmd).await;
+            let in_path = which_binary(cmd);
             if in_path {
                 found.push(server.name.clone());
             } else {
@@ -220,17 +231,16 @@ impl DoctorCheck for EnvMcpBinaries {
     }
 }
 
-async fn which_binary(cmd: &str) -> bool {
-    // Use `which` to check if binary is in PATH
-    tokio::process::Command::new("which")
-        .arg(cmd)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .map(|s| s.success())
-        // Also try direct path if the command contains /
-        .unwrap_or_else(|_| std::path::Path::new(cmd).exists())
+fn which_binary(cmd: &str) -> bool {
+    // Absolute path: check directly
+    let p = std::path::Path::new(cmd);
+    if p.is_absolute() {
+        return p.is_file();
+    }
+    // Relative/bare name: search each directory in PATH
+    std::env::var_os("PATH")
+        .map(|path_var| std::env::split_paths(&path_var).any(|dir| dir.join(cmd).is_file()))
+        .unwrap_or(false)
 }
 
 #[async_trait]
@@ -383,5 +393,38 @@ impl DoctorCheck for EnvAdapterTokens {
                  bot_token_secret = \"<path>\" in the adapter config.",
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn msrv_constant_matches_workspace() {
+        // This must match rust-version in the workspace Cargo.toml
+        assert_eq!(MSRV, "1.91");
+    }
+
+    #[test]
+    fn version_ok_at_msrv() {
+        assert!(version_ok("1.91.0", MSRV));
+    }
+
+    #[test]
+    fn version_ok_above_msrv() {
+        assert!(version_ok("1.92.0", MSRV));
+        assert!(version_ok("2.0.0", MSRV));
+    }
+
+    #[test]
+    fn version_ok_below_msrv() {
+        assert!(!version_ok("1.85.0", MSRV));
+        assert!(!version_ok("1.90.9", MSRV));
+    }
+
+    #[test]
+    fn version_ok_same_major_minor_higher_patch() {
+        assert!(version_ok("1.91.1", MSRV));
     }
 }

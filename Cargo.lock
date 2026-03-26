@@ -124,6 +124,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ansi_colours"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14eec43e0298190790f41679fe69ef7a829d2a2ddd78c8c00339e84710e435fe"
+dependencies = [
+ "rgb",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1087,7 +1096,7 @@ version = "7.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "958c5d6ecf1f214b4c2bbbbf6ab9523a864bd136dcf71a7e8904799acfe1ad47"
 dependencies = [
- "crossterm",
+ "crossterm 0.29.0",
  "unicode-segmentation",
  "unicode-width",
 ]
@@ -1460,6 +1469,19 @@ name = "crossbeam-utils"
 version = "0.8.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
+
+[[package]]
+name = "crossterm"
+version = "0.28.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "829d955a0bb380ef178a640b91779e3987da38c9aea133b20614cfed8cdea9c6"
+dependencies = [
+ "bitflags 2.11.0",
+ "crossterm_winapi",
+ "parking_lot",
+ "rustix 0.38.44",
+ "winapi",
+]
 
 [[package]]
 name = "crossterm"
@@ -5907,17 +5929,20 @@ dependencies = [
  "clap_complete",
  "colored",
  "comfy-table",
- "crossterm",
+ "crossterm 0.29.0",
  "dialoguer",
  "dirs",
  "futures-util",
  "hex",
+ "image 0.25.10",
  "indicatif",
  "notify-rust",
  "nu-ansi-term",
  "open",
  "orka-core",
+ "orka-llm",
  "orka-mcp",
+ "orka-onboard",
  "orka-secrets",
  "orka-skills",
  "orka-wasm",
@@ -5942,6 +5967,7 @@ dependencies = [
  "unicode-width",
  "url",
  "uuid",
+ "viuer",
 ]
 
 [[package]]
@@ -6167,6 +6193,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "orka-onboard"
+version = "1.0.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "orka-core",
+ "orka-llm",
+ "orka-secrets",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 0.8.23",
+ "toml_edit 0.22.27",
+ "tracing",
+]
+
+[[package]]
 name = "orka-os"
 version = "1.0.0"
 dependencies = [
@@ -6309,6 +6352,7 @@ dependencies = [
  "redis",
  "serde",
  "serde_json",
+ "tempfile",
  "testcontainers",
  "testcontainers-modules",
  "tokio",
@@ -7434,7 +7478,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "577c9b9f652b4c121fb25c6a391dd06406d3b092ba68827e6d2f09550edc54b3"
 dependencies = [
  "cfg-if",
- "crossterm",
+ "crossterm 0.29.0",
  "instability",
  "ratatui-core",
 ]
@@ -7654,7 +7698,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe9e7c532bfc2759bc8a28902c04e8b993fc13ebd085ee4292eb1b230fa9beef"
 dependencies = [
  "chrono",
- "crossterm",
+ "crossterm 0.29.0",
  "fd-lock",
  "itertools 0.13.0",
  "nu-ansi-term",
@@ -7798,6 +7842,9 @@ name = "rgb"
 version = "0.8.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
+dependencies = [
+ "bytemuck",
+]
 
 [[package]]
 name = "ring"
@@ -9890,6 +9937,22 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "viuer"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ae7c6870b98c838123f22cac9a594cbe2d74ea48d79271c08f8c9e680b40fac"
+dependencies = [
+ "ansi_colours",
+ "base64 0.22.1",
+ "console",
+ "crossterm 0.28.1",
+ "image 0.25.10",
+ "lazy_static",
+ "tempfile",
+ "termcolor",
+]
 
 [[package]]
 name = "vsimd"

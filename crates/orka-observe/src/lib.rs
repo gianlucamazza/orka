@@ -27,6 +27,7 @@ pub mod redis_sink;
 struct LogEventSink;
 
 #[async_trait]
+#[allow(clippy::too_many_lines)]
 impl EventSink for LogEventSink {
     async fn emit(&self, event: DomainEvent) {
         metrics::record_event(&event);
@@ -231,8 +232,7 @@ pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
             .audit
             .path
             .as_deref()
-            .map(|p| p.to_string_lossy())
-            .unwrap_or_else(|| "orka-audit.jsonl".into());
+            .map_or_else(|| "orka-audit.jsonl".into(), |p| p.to_string_lossy());
         match audit_sink::AuditSink::new(path_str.as_ref()) {
             Ok(audit) => {
                 info!(path = path_str.as_ref(), "audit log enabled");

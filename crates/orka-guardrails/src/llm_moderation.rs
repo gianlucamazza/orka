@@ -98,18 +98,17 @@ impl LlmModerationGuardrail {
             .config
             .categories
             .iter()
-            .map(|c| format!("{:?}", c))
+            .map(|c| format!("{c:?}"))
             .collect::<Vec<_>>()
             .join(", ");
 
         let user_prompt = format!(
-            r#"Analyze this text for violations of these categories: {}
+            r"Analyze this text for violations of these categories: {categories_str}
 
 Text to analyze:
-{}
+{content}
 
-Remember to respond with valid JSON only."#,
-            categories_str, content
+Remember to respond with valid JSON only."
         );
 
         let messages = vec![

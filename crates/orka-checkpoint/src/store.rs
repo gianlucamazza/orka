@@ -14,7 +14,7 @@ use crate::types::{Checkpoint, CheckpointId};
 ///
 /// [`list`](CheckpointStore::list) must return checkpoint IDs in
 /// **oldest-first** order. Implementations backed by time-ordered keys (e.g.
-/// UUIDv7) satisfy this naturally; others must sort explicitly.
+/// `UUIDv7`) satisfy this naturally; others must sort explicitly.
 #[async_trait]
 pub trait CheckpointStore: Send + Sync + 'static {
     /// Persist a checkpoint. Overwrites any existing checkpoint with the same

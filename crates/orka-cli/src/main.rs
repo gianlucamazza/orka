@@ -5,6 +5,7 @@ mod client;
 mod cmd;
 mod completion;
 mod markdown;
+mod media;
 mod prompt;
 mod protocol;
 mod shell;
@@ -55,6 +56,30 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
+    /// Initialize Orka with a guided LLM-driven configuration wizard
+    Init {
+        /// LLM provider (anthropic, openai, google, ollama, custom)
+        #[arg(long)]
+        provider: Option<String>,
+        /// API key (skip interactive prompt)
+        #[arg(long)]
+        api_key: Option<String>,
+        /// Model override
+        #[arg(long)]
+        model: Option<String>,
+        /// Base URL (for ollama/custom OpenAI-compatible providers)
+        #[arg(long)]
+        base_url: Option<String>,
+        /// Output path for the generated config
+        #[arg(long, default_value = "orka.toml")]
+        output: String,
+        /// Generate minimal config without LLM conversation
+        #[arg(long)]
+        minimal: bool,
+        /// Extend existing config instead of overwriting
+        #[arg(long)]
+        extend: bool,
+    },
     /// Show server status and dependency health
     Status {
         /// Minimal output with exit code 1 if not healthy (for
@@ -432,6 +457,26 @@ async fn main() {
     let adapter_client = client::OrkaClient::new(&cli.adapter, api_key);
 
     let result = match cli.command {
+        Commands::Init {
+            provider,
+            api_key,
+            model,
+            base_url,
+            output,
+            minimal,
+            extend,
+        } => {
+            cmd::init::run(cmd::init::InitArgs {
+                provider,
+                api_key,
+                model,
+                base_url,
+                output,
+                minimal,
+                extend,
+            })
+            .await
+        }
         Commands::Status { short } => cmd::status::run(&server_client, short).await,
         Commands::Send {
             text,

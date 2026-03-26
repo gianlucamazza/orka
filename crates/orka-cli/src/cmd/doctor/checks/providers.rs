@@ -185,42 +185,67 @@ impl DoctorCheck for PrvProviderReachable {
             return CheckOutcome::skip("no providers configured");
         }
 
-        let mut results = Vec::new();
+        let timeout = ctx.timeout;
+        let mut join_set = tokio::task::JoinSet::new();
 
         for provider in &config.llm.providers {
-            let reachable = probe_provider(provider).await;
-            results.push(format!("{}: {}", provider.name, reachable));
+            let name = provider.name.clone();
+            let provider_type = provider.provider.clone();
+            let base_url = provider.base_url.clone();
+            join_set.spawn(async move {
+                let status = probe_provider_url(&provider_type, base_url.as_deref(), timeout).await;
+                (name, status)
+            });
         }
 
-        CheckOutcome::pass("probe complete").with_detail(results.join(", "))
+        let mut results = Vec::new();
+        let mut failures = Vec::new();
+
+        while let Some(res) = join_set.join_next().await {
+            if let Ok((name, status)) = res {
+                results.push(format!("{name}: {status}"));
+                if status != "reachable" {
+                    failures.push(format!("{name} ({status})"));
+                }
+            }
+        }
+
+        // Sort for deterministic output
+        results.sort();
+        failures.sort();
+
+        if failures.is_empty() {
+            CheckOutcome::pass(format!("{} provider(s) reachable", results.len()))
+                .with_detail(results.join(", "))
+        } else {
+            CheckOutcome::fail(format!(
+                "{} provider(s) unreachable: {}",
+                failures.len(),
+                failures.join(", ")
+            ))
+            .with_detail(results.join(", "))
+            .with_hint("Check network connectivity or provider base_url configuration.")
+        }
     }
 }
 
-async fn probe_provider(provider: &orka_core::config::LlmProviderConfig) -> &'static str {
-    let base_url = match provider.provider.as_str() {
-        "anthropic" => provider
-            .base_url
-            .as_deref()
-            .unwrap_or("https://api.anthropic.com"),
-        "openai" => provider
-            .base_url
-            .as_deref()
-            .unwrap_or("https://api.openai.com"),
-        "ollama" => provider
-            .base_url
-            .as_deref()
-            .unwrap_or("http://localhost:11434"),
-        _ => {
-            if let Some(url) = &provider.base_url {
-                url.as_str()
-            } else {
-                return "unknown provider";
-            }
-        }
+async fn probe_provider_url(
+    provider_type: &str,
+    base_url: Option<&str>,
+    timeout: std::time::Duration,
+) -> &'static str {
+    let resolved_url = match provider_type {
+        "anthropic" => base_url.unwrap_or("https://api.anthropic.com"),
+        "openai" => base_url.unwrap_or("https://api.openai.com"),
+        "ollama" => base_url.unwrap_or("http://localhost:11434"),
+        _ => match base_url {
+            Some(url) => url,
+            None => return "unknown provider",
+        },
     };
 
     // We just check TCP connectivity to the host, not a full API call
-    let url = match base_url.parse::<reqwest::Url>() {
+    let url = match resolved_url.parse::<reqwest::Url>() {
         Ok(u) => u,
         Err(_) => return "invalid URL",
     };
@@ -232,12 +257,7 @@ async fn probe_provider(provider: &orka_core::config::LlmProviderConfig) -> &'st
     let port = url.port_or_known_default().unwrap_or(443);
 
     let addr = format!("{host}:{port}");
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(3),
-        tokio::net::TcpStream::connect(&addr),
-    )
-    .await
-    {
+    match tokio::time::timeout(timeout, tokio::net::TcpStream::connect(&addr)).await {
         Ok(Ok(_)) => "reachable",
         Ok(Err(_)) => "unreachable",
         Err(_) => "timeout",

@@ -576,6 +576,7 @@ fn resolve_working_dir(
 /// Streams intermediate [`DelegateEvent`]s through `progress_tx` (if set)
 /// and returns a final [`SkillOutput`] once the process exits.  Supports
 /// cooperative cancellation via `cancel`.
+#[allow(clippy::too_many_lines)]
 async fn execute_command_streaming(
     backend: &dyn CodeDelegateBackend,
     mut cmd: tokio::process::Command,
@@ -862,7 +863,7 @@ fn value_to_text(value: &serde_json::Value) -> Option<String> {
 /// Extract the final assistant text from accumulated `opencode run --format
 /// json` output.
 ///
-/// OpenCode emits `{"type":"text","part":{"text":"...",...}}` lines during the
+/// `OpenCode` emits `{"type":"text","part":{"text":"...",...}}` lines during the
 /// run. There is no dedicated result line, so the fallback parser scans
 /// backwards for the last non-empty `text` event.
 fn parse_opencode_output(raw: &str) -> String {

@@ -76,13 +76,9 @@ fn resolve_capabilities(
 ) -> PluginCapabilities {
     let overrides = instance.and_then(|i| i.capabilities.as_ref());
     PluginCapabilities {
-        env: overrides
-            .map(|o| o.env.clone())
-            .unwrap_or_else(|| global.env.clone()),
-        fs: overrides
-            .map(|o| o.filesystem.clone())
-            .unwrap_or_else(|| global.filesystem.clone()),
-        network: overrides.map(|o| o.network).unwrap_or(global.network),
+        env: overrides.map_or_else(|| global.env.clone(), |o| o.env.clone()),
+        fs: overrides.map_or_else(|| global.filesystem.clone(), |o| o.filesystem.clone()),
+        network: overrides.map_or(global.network, |o| o.network),
     }
 }
 

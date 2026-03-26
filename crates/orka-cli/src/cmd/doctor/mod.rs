@@ -16,6 +16,7 @@ pub struct CheckContext {
     pub config_path: PathBuf,
     pub config_raw: Option<String>,
     pub verbose: bool,
+    pub timeout: Duration,
 }
 
 /// A single diagnostic check.
@@ -56,7 +57,7 @@ pub async fn run(
     let timeout = Duration::from_secs(timeout_secs);
 
     // Load config context
-    let ctx = build_context(config_path, verbose)?;
+    let ctx = build_context(config_path, verbose, timeout)?;
     let ctx = Arc::new(ctx);
 
     // Get all checks
@@ -124,6 +125,7 @@ pub fn explain_check(id: &str) -> Result<(), Box<dyn std::error::Error>> {
 fn build_context(
     config_path: Option<&str>,
     verbose: bool,
+    timeout: Duration,
 ) -> Result<CheckContext, Box<dyn std::error::Error>> {
     let path = config_path.map(std::path::Path::new);
     let config_path = OrkaConfig::resolve_path(path);
@@ -146,6 +148,7 @@ fn build_context(
         config_path,
         config_raw,
         verbose,
+        timeout,
     })
 }
 
@@ -156,13 +159,25 @@ async fn run_checks(
 ) -> Vec<(CheckMeta, CheckOutcome)> {
     let mut results = Vec::new();
 
-    // Phase 1: sequential — Config (order matters)
+    // Phase 1: sequential — Config (order matters, early-abort on Critical fail)
+    let mut config_critical_failed = false;
     for check in checks
         .iter()
         .filter(|c| c.meta().category == Category::Config)
     {
+        let meta = check.meta();
+        if config_critical_failed {
+            results.push((
+                meta,
+                CheckOutcome::skip("skipped: prior critical config check failed"),
+            ));
+            continue;
+        }
         let outcome = run_with_timeout(check.as_ref(), &ctx, timeout).await;
-        results.push((check.meta(), outcome));
+        if outcome.status == CheckStatus::Fail && meta.severity == Severity::Critical {
+            config_critical_failed = true;
+        }
+        results.push((meta, outcome));
     }
 
     // Phase 2: sequential — Security + Environment (filesystem, fast)
@@ -194,8 +209,23 @@ async fn run_checks(
 
     let mut network_results = Vec::new();
     while let Some(res) = join_set.join_next().await {
-        if let Ok(pair) = res {
-            network_results.push(pair);
+        match res {
+            Ok(pair) => network_results.push(pair),
+            Err(join_err) => {
+                // A check task panicked or was cancelled — surface it as a synthetic
+                // failure rather than silently dropping the result.
+                let meta = CheckMeta {
+                    id: CheckId("ERR-000"),
+                    category: Category::Connectivity,
+                    severity: Severity::Error,
+                    name: "check task panicked",
+                    description: "A diagnostic check panicked during parallel execution.",
+                };
+                network_results.push((
+                    meta,
+                    CheckOutcome::fail(format!("task panicked: {join_err}")),
+                ));
+            }
         }
     }
 

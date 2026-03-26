@@ -12,7 +12,7 @@ use regex::Regex;
 ///
 /// Applied to the `check_input` path only — output is always allowed through.
 pub struct CodeGuardrail {
-    /// (compiled_pattern, human-readable reason)
+    /// (`compiled_pattern`, human-readable reason)
     patterns: Vec<(Regex, &'static str)>,
 }
 

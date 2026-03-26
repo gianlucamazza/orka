@@ -21,14 +21,13 @@ impl OtelEventSink {
 }
 
 #[async_trait]
+#[allow(clippy::too_many_lines)]
 impl EventSink for OtelEventSink {
     async fn emit(&self, event: DomainEvent) {
         match &event.kind {
             // ── Tool execution (GenAI: execute_tool, CLIENT) ─────────────────────────
             // SkillInvoked is a no-op at the OTel level: the full span is emitted
             // at SkillCompleted where we have accurate timing.
-            DomainEventKind::SkillInvoked { .. } => {}
-
             DomainEventKind::SkillCompleted {
                 skill_name,
                 message_id,
@@ -109,9 +108,9 @@ impl EventSink for OtelEventSink {
                 let mut attrs = vec![
                     KeyValue::new("gen_ai.system", provider.clone()),
                     KeyValue::new("gen_ai.request.model", model.clone()),
-                    KeyValue::new("gen_ai.usage.input_tokens", *input_tokens as i64),
-                    KeyValue::new("gen_ai.usage.output_tokens", *output_tokens as i64),
-                    KeyValue::new("gen_ai.usage.reasoning_tokens", *reasoning_tokens as i64),
+                    KeyValue::new("gen_ai.usage.input_tokens", i64::from(*input_tokens)),
+                    KeyValue::new("gen_ai.usage.output_tokens", i64::from(*output_tokens)),
+                    KeyValue::new("gen_ai.usage.reasoning_tokens", i64::from(*reasoning_tokens)),
                     KeyValue::new("gen_ai.tool.call.id", message_id.to_string()),
                     KeyValue::new("duration_ms", *duration_ms as i64),
                 ];
@@ -190,7 +189,7 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("channel", channel.clone()),
                     KeyValue::new("session_id", session_id.to_string()),
                 ];
-                self.emit_internal("message.received", attrs, false).await;
+                self.emit_internal("message.received", attrs, false);
             }
             DomainEventKind::SessionCreated {
                 session_id,
@@ -200,7 +199,7 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("session_id", session_id.to_string()),
                     KeyValue::new("channel", channel.clone()),
                 ];
-                self.emit_internal("session.created", attrs, false).await;
+                self.emit_internal("session.created", attrs, false);
             }
             DomainEventKind::HandlerInvoked {
                 message_id,
@@ -210,7 +209,7 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("message_id", message_id.to_string()),
                     KeyValue::new("session_id", session_id.to_string()),
                 ];
-                self.emit_internal("handler.invoked", attrs, false).await;
+                self.emit_internal("handler.invoked", attrs, false);
             }
             DomainEventKind::HandlerCompleted {
                 message_id,
@@ -224,7 +223,7 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("duration_ms", *duration_ms as i64),
                     KeyValue::new("reply_count", *reply_count as i64),
                 ];
-                self.emit_internal("handler.completed", attrs, false).await;
+                self.emit_internal("handler.completed", attrs, false);
             }
             DomainEventKind::AgentReasoning {
                 message_id,
@@ -236,7 +235,7 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("gen_ai.agent.iteration", *iteration as i64),
                     KeyValue::new("reasoning_len", reasoning_text.len() as i64),
                 ];
-                self.emit_internal("agent.reasoning", attrs, false).await;
+                self.emit_internal("agent.reasoning", attrs, false);
             }
             DomainEventKind::PrivilegedCommandExecuted {
                 message_id,
@@ -253,8 +252,7 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("success", *success),
                     KeyValue::new("duration_ms", *duration_ms as i64),
                 ];
-                self.emit_internal("privileged_command.executed", attrs, false)
-                    .await;
+                self.emit_internal("privileged_command.executed", attrs, false);
             }
             DomainEventKind::PrivilegedCommandDenied {
                 message_id,
@@ -269,16 +267,14 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("command", command.clone()),
                     KeyValue::new("reason", reason.clone()),
                 ];
-                self.emit_internal("privileged_command.denied", attrs, false)
-                    .await;
+                self.emit_internal("privileged_command.denied", attrs, false);
             }
             DomainEventKind::PrinciplesInjected { session_id, count } => {
                 let attrs = vec![
                     KeyValue::new("session_id", session_id.to_string()),
                     KeyValue::new("count", *count as i64),
                 ];
-                self.emit_internal("experience.principles_injected", attrs, false)
-                    .await;
+                self.emit_internal("experience.principles_injected", attrs, false);
             }
             DomainEventKind::ReflectionCompleted {
                 session_id,
@@ -290,8 +286,7 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("principles_created", *principles_created as i64),
                     KeyValue::new("trajectory_id", trajectory_id.clone()),
                 ];
-                self.emit_internal("experience.reflection_completed", attrs, false)
-                    .await;
+                self.emit_internal("experience.reflection_completed", attrs, false);
             }
             DomainEventKind::TrajectoryRecorded {
                 session_id,
@@ -301,8 +296,7 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("session_id", session_id.to_string()),
                     KeyValue::new("trajectory_id", trajectory_id.clone()),
                 ];
-                self.emit_internal("experience.trajectory_recorded", attrs, false)
-                    .await;
+                self.emit_internal("experience.trajectory_recorded", attrs, false);
             }
             DomainEventKind::DistillationCompleted {
                 workspace,
@@ -312,8 +306,7 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("workspace", workspace.clone()),
                     KeyValue::new("principles_created", *principles_created as i64),
                 ];
-                self.emit_internal("experience.distillation_completed", attrs, false)
-                    .await;
+                self.emit_internal("experience.distillation_completed", attrs, false);
             }
             DomainEventKind::SkillDisabled {
                 skill_name,
@@ -325,9 +318,8 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("reason", reason.clone()),
                     KeyValue::new("source", source.clone()),
                 ];
-                self.emit_internal("skill.disabled", attrs, false).await;
+                self.emit_internal("skill.disabled", attrs, false);
             }
-            DomainEventKind::Heartbeat => {}
             _ => {}
         }
     }
@@ -335,7 +327,7 @@ impl EventSink for OtelEventSink {
 
 impl OtelEventSink {
     /// Emit a generic internal span with the given name and attributes.
-    async fn emit_internal(&self, name: &str, attrs: Vec<KeyValue>, is_error: bool) {
+    fn emit_internal(&self, name: &str, attrs: Vec<KeyValue>, is_error: bool) {
         let mut span = self
             .tracer
             .span_builder(name.to_string())
@@ -352,7 +344,7 @@ impl OtelEventSink {
 }
 
 /// Initialize OpenTelemetry with OTLP exporter.
-/// Returns a tracer that can be used to create the OtelEventSink.
+/// Returns a tracer that can be used to create the `OtelEventSink`.
 pub fn init_otel_tracer(
     service_name: &str,
 ) -> Result<opentelemetry_sdk::trace::Tracer, Box<dyn std::error::Error>> {

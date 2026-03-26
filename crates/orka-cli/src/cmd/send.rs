@@ -90,12 +90,24 @@ where
 {
     let mut got_content = false;
     let mut thinking_shown = false;
+    // After receiving Done we keep the socket open for a short grace period to
+    // catch Media messages that arrive via the slower outbound bus path (the
+    // Done chunk is emitted server-side before the media attachment is
+    // published to the bus and forwarded through the adapter).
+    let mut done_received = false;
+    let post_done_timeout = std::time::Duration::from_secs(2);
 
     loop {
-        let msg = match tokio::time::timeout(idle_timeout, read.next()).await {
+        let timeout = if done_received {
+            post_done_timeout
+        } else {
+            idle_timeout
+        };
+        let msg = match tokio::time::timeout(timeout, read.next()).await {
             Ok(Some(Ok(msg))) => msg,
             Ok(Some(Err(e))) => return Err(e.into()),
             Ok(None) => break,
+            Err(_) if done_received => break, // grace period expired — clean exit
             Err(_) => {
                 return Err(format!("idle: no activity for {}s", idle_timeout.as_secs()).into());
             }
@@ -160,7 +172,7 @@ where
                 } else {
                     println!("{}", "(empty response)".dimmed());
                 }
-                return Ok(());
+                done_received = true;
             }
             WsMessage::Final(content) => {
                 if !got_content {
@@ -168,6 +180,13 @@ where
                 }
                 renderer.render_full(&content);
                 return Ok(());
+            }
+            WsMessage::Media {
+                mime_type,
+                data_base64,
+                caption,
+            } => {
+                crate::media::render_media(&mime_type, &data_base64, caption.as_deref(), None);
             }
             // ToolStart, ToolEnd, Usage, ContextInfo, PrinciplesUsed — silent
             _ => {}
