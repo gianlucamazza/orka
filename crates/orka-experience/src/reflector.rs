@@ -96,18 +96,16 @@ impl PrincipleReflector {
     fn build_reflection_prompt(trajectory: &Trajectory) -> String {
         let mut prompt = String::new();
         prompt.push_str("## Interaction Trajectory\n\n");
-        prompt.push_str(&format!(
+        write!(
+            prompt,
             "- **Outcome**: {}\n",
-            if trajectory.success {
-                "SUCCESS"
-            } else {
-                "FAILURE"
-            }
-        ));
-        prompt.push_str(&format!("- **Iterations**: {}\n", trajectory.iterations));
-        prompt.push_str(&format!("- **Tokens**: {}\n", trajectory.total_tokens));
-        prompt.push_str(&format!("- **Duration**: {}ms\n", trajectory.duration_ms));
-        prompt.push_str(&format!("- **Workspace**: {}\n\n", trajectory.workspace));
+            if trajectory.success { "SUCCESS" } else { "FAILURE" }
+        )
+        .unwrap_or(());
+        write!(prompt, "- **Iterations**: {}\n", trajectory.iterations).unwrap_or(());
+        write!(prompt, "- **Tokens**: {}\n", trajectory.total_tokens).unwrap_or(());
+        write!(prompt, "- **Duration**: {}ms\n", trajectory.duration_ms).unwrap_or(());
+        write!(prompt, "- **Workspace**: {}\n\n", trajectory.workspace).unwrap_or(());
 
         prompt.push_str("### User Message\n");
         // Truncate very long messages
@@ -125,10 +123,10 @@ impl PrincipleReflector {
                 let status = if skill.success { "OK" } else { "FAILED" };
                 let mut line = format!("- {} ({}ms, {})", skill.name, skill.duration_ms, status);
                 if let Some(cat) = skill.error_category {
-                    line.push_str(&format!(", category={cat:?}"));
+                    write!(line, ", category={cat:?}").unwrap_or(());
                 }
                 if let Some(ref msg) = skill.error_message {
-                    line.push_str(&format!(", error=\"{msg}\""));
+                    write!(line, ", error=\"{msg}\"").unwrap_or(());
                 }
                 line.push('\n');
                 prompt.push_str(&line);
@@ -139,7 +137,7 @@ impl PrincipleReflector {
         if !trajectory.errors.is_empty() {
             prompt.push_str("### Errors\n");
             for err in &trajectory.errors {
-                prompt.push_str(&format!("- {err}\n"));
+                write!(prompt, "- {err}\n").unwrap_or(());
             }
             prompt.push('\n');
         }
