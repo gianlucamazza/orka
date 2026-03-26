@@ -21,6 +21,7 @@ proptest-regressions/
 .idea/
 .vscode/
 *.iml
+.claude/
 
 # Node / Bun
 node_modules/
