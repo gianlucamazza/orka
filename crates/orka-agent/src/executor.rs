@@ -428,12 +428,19 @@ impl GraphExecutor {
                     serde_json::from_value::<Vec<orka_llm::client::ChatMessage>>(entry.value)
                 {
                     if !msgs.is_empty() {
-                        // Prepend stored history, then append the current trigger message
+                        // Prepend stored history, then append any current messages not
+                        // already present (dedup by serialised value to avoid repeating the trigger).
                         let current = ctx.messages().await;
                         let mut combined = msgs;
-                        // Avoid duplicating the trigger message if it's already in history
                         for m in current {
-                            combined.push(m);
+                            let m_json = serde_json::to_value(&m).ok();
+                            let already_in_history = combined.iter().any(|h| {
+                                h.role == m.role
+                                    && serde_json::to_value(h).ok() == m_json
+                            });
+                            if !already_in_history {
+                                combined.push(m);
+                            }
                         }
                         ctx.set_messages(combined).await;
                         debug!(session_id = %ctx.session_id, "history.loaded_from_store");
@@ -551,6 +558,17 @@ impl GraphExecutor {
                             },
                         )
                         .await;
+                        // Persist cross-session history so it survives the HITL pause.
+                        let interrupted_messages = ctx.messages().await;
+                        if !interrupted_messages.is_empty() {
+                            if let Ok(value) = serde_json::to_value(&interrupted_messages) {
+                                let entry =
+                                    orka_core::MemoryEntry::new(history_key.clone(), value);
+                                if let Err(e) = self.deps.memory.store(&history_key, entry, None).await {
+                                    warn!(%e, session_id = %ctx.session_id, "history.persist_failed");
+                                }
+                            }
+                        }
                         return Ok(ExecutionResult {
                             response: String::new(),
                             attachments: Vec::new(),
