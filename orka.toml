@@ -31,14 +31,14 @@ port = 8081
 # bearer_token_secret = "adapters/custom-bearer"
 # workspace = "default"                 # workspace override for this adapter
 
-# [adapters.telegram]
-# bot_token_secret = "adapters/telegram"
+[adapters.telegram]
+bot_token_secret = "telegram_bot_token"
 # workspace = "default"
-# mode = "polling"              # "polling" (default) or "webhook"
+mode = "polling"
 # webhook_url = "https://example.com/telegram/webhook"
 # webhook_port = 8443
 # parse_mode = "HTML"           # "HTML" (default), "MarkdownV2", "none"
-# streaming = false
+streaming = true
 
 # [adapters.discord]
 # bot_token_secret = "adapters/discord"
@@ -133,12 +133,14 @@ max_retries = 3
 id = "orka-default"
 name = "Orka"
 model = "claude-sonnet-4-6"
-max_iterations = 15
+max_iterations = 25
 max_tokens = 16000
 thinking = "high"
 tool_result_max_chars = 16000
 planning_mode = "adaptive"
 history_strategy = "summarize"
+skill_timeout_secs = 600
+max_concurrent_skills = 2
 # kind = "agent"                   # "agent" (default), "router", "fan_out", "fan_in"
 # system_prompt = ""
 # temperature = 0.7
@@ -168,6 +170,8 @@ provider = "anthropic"
 model = "claude-sonnet-4-6"
 api_key_env = "ANTHROPIC_API_KEY"
 api_key_secret = "llm/anthropic"
+timeout_secs = 300
+max_retries = 3
 # cost_per_1k_input_tokens = 0.003    # Sonnet 4.6
 # cost_per_1k_output_tokens = 0.015   # Sonnet 4.6
 
@@ -177,6 +181,8 @@ provider = "openai"
 model = "gpt-5-mini"
 api_key_env = "OPENAI_API_KEY"
 api_key_secret = "llm/openai"
+timeout_secs = 60
+max_retries = 3
 # cost_per_1k_input_tokens = 0.002    # o3
 # cost_per_1k_output_tokens = 0.008   # o3
 
@@ -216,37 +222,53 @@ permission_level = "admin"
 # Delegate complete coding tasks through Orka's coding router.
 [os.coding]
 enabled = true
-default_provider = "auto"         # "auto" | "claude_code" | "codex"
-selection_policy = "availability" # "availability" | "prefer_claude" | "prefer_codex"
+default_provider = "auto"         # "auto" | "claude_code" | "codex" | "opencode"
+selection_policy = "availability" # "availability" | "prefer_claude" | "prefer_codex" | "prefer_opencode"
 inject_workspace_context = true
 require_verification = false
 allow_working_dir_override = true
 
-# [os.coding.providers.claude_code]
-# enabled = true
-# executable_path = "/usr/bin/claude"
-# model = "claude-sonnet-4-6"
+[os.coding.providers.claude_code]
+enabled = true
+executable_path = "/usr/local/bin/claude"
+model = "claude-sonnet-4-6"
+timeout_secs = 1800
+allow_file_modifications = true
+allow_command_execution = true
+allowed_tools = ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
 # max_turns = 10
-# timeout_secs = 300
 # append_system_prompt = "Respect the repository architecture. No workaround layers."
-# allowed_tools = ["Read", "Edit", "Bash(git *)"]
-# allow_file_modifications = true
-# allow_command_execution = true
 
-# [os.coding.providers.codex]
+[os.coding.providers.codex]
+enabled = true
+executable_path = "/usr/local/bin/codex"
+model = "gpt-5.4"
+timeout_secs = 1800
+sandbox_mode = "workspace-write"
+approval_policy = "never"
+allow_file_modifications = true
+allow_command_execution = true
+
+# [os.coding.providers.opencode]
 # enabled = true
-# executable_path = "/usr/local/bin/codex"
-# model = "gpt-5-codex"
+# executable_path = "/usr/bin/opencode"
+# model = "anthropic/claude-sonnet-4-6"  # format: provider/model
+# agent = "default"
+# variant = "high"                        # reasoning effort: high | max | minimal
 # timeout_secs = 300
-# sandbox_mode = "workspace-write"      # "read-only" | "workspace-write" | "danger-full-access"
-# approval_policy = "never"             # "untrusted" | "on-failure" | "on-request" | "never"
 # allow_file_modifications = true
 # allow_command_execution = true
 
 [os.sudo]
 allowed = true
-allowed_commands = ["systemctl restart", "systemctl stop", "systemctl start"]
-password_required = true
+allowed_commands = [
+  "journalctl",
+  "systemctl restart",
+  "systemctl stop",
+  "systemctl start",
+  "systemctl status",
+]
+password_required = false
 # Package manager commands are added automatically by scripts/install.sh
 # based on detected distro (pacman, apt-get, dnf, zypper, apk)
 
@@ -273,6 +295,12 @@ dimensions = 384
 [knowledge.chunking]
 chunk_size = 1000
 chunk_overlap = 200
+separators = ["\n\n", "\n", ". "]
+
+[knowledge.retrieval]
+top_k = 5
+score_threshold = 0.6
+rerank = true
 
 [scheduler]
 enabled = true
@@ -315,7 +343,7 @@ blocked_patterns = ['(?i)(api[_-]?key|password|secret)\s*[:=]\s*\S+']
 [audit]
 enabled = true
 output = "file"
-path = "audit.log"
+path = "/var/log/orka/audit.log"
 
 [experience]
 enabled = true
@@ -330,6 +358,18 @@ reflection_max_tokens = 1024
 distillation_batch_size = 20
 dedup_threshold = 0.85                         # cosine similarity for principle dedup
 distillation_interval_secs = 3600              # offline distillation cycle (seconds)
+
+[research]
+enabled = true
+require_promotion_approval = true
+
+[git]
+enabled = true
+require_conventional_commits = false
+
+[git.worktree]
+base_dir = ".orka-worktrees"
+max_concurrent = 5
 
 # --- Multi-agent graph example ---
 # Node kinds: "agent" (default), "router", "fan_out", "fan_in"
