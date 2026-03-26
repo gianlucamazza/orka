@@ -5710,7 +5710,6 @@ dependencies = [
  "axum 0.8.8",
  "chrono",
  "deadpool-redis",
- "futures-util",
  "http",
  "orka-core",
  "orka-skills",
@@ -5879,7 +5878,6 @@ name = "orka-chart"
 version = "1.0.0"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
  "image 0.24.9",
  "orka-core",
  "plotters",
