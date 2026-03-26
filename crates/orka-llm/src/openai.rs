@@ -335,7 +335,14 @@ impl LlmClient for OpenAiClient {
                 };
                 body["reasoning_effort"] = json!(openai_effort);
             }
-            _ => {}
+            Some(crate::client::ThinkingConfig::Enabled { .. }) => {
+                tracing::warn!(
+                    "ThinkingConfig::Enabled (Anthropic extended thinking) is not supported \
+                     by the OpenAI provider; use ThinkingConfig::Adaptive or \
+                     ThinkingConfig::ReasoningEffort instead"
+                );
+            }
+            None => {}
         }
 
         debug!(model, messages = messages.len(), "calling OpenAI API");
@@ -469,7 +476,14 @@ impl LlmClient for OpenAiClient {
                 };
                 body["reasoning_effort"] = json!(openai_effort);
             }
-            _ => {}
+            Some(crate::client::ThinkingConfig::Enabled { .. }) => {
+                tracing::warn!(
+                    "ThinkingConfig::Enabled (Anthropic extended thinking) is not supported \
+                     by the OpenAI provider; use ThinkingConfig::Adaptive or \
+                     ThinkingConfig::ReasoningEffort instead"
+                );
+            }
+            None => {}
         }
 
         debug!(
@@ -530,7 +544,14 @@ impl LlmClient for OpenAiClient {
                 };
                 body["reasoning_effort"] = json!(openai_effort);
             }
-            _ => {}
+            Some(crate::client::ThinkingConfig::Enabled { .. }) => {
+                tracing::warn!(
+                    "ThinkingConfig::Enabled (Anthropic extended thinking) is not supported \
+                     by the OpenAI provider; use ThinkingConfig::Adaptive or \
+                     ThinkingConfig::ReasoningEffort instead"
+                );
+            }
+            None => {}
         }
 
         debug!(

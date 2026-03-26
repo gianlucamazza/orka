@@ -46,8 +46,6 @@ const INJECTION_PATTERNS: &[&str] = &[
 /// Prompt injection detection guardrail.
 pub struct PromptInjectionGuardrail {
     patterns: Vec<Regex>,
-    /// If true, use LLM-based detection as a fallback.
-    use_llm_fallback: bool,
 }
 
 impl PromptInjectionGuardrail {
@@ -58,17 +56,7 @@ impl PromptInjectionGuardrail {
             .filter_map(|p| Regex::new(p).ok())
             .collect();
 
-        Self {
-            patterns,
-            use_llm_fallback: false,
-        }
-    }
-
-    /// Enable LLM-based fallback detection for advanced attacks.
-    #[must_use]
-    pub fn with_llm_fallback(mut self, enabled: bool) -> Self {
-        self.use_llm_fallback = enabled;
-        self
+        Self { patterns }
     }
 
     /// Add a custom injection pattern.

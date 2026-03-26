@@ -179,20 +179,8 @@ impl CodingDelegateSkill {
                 }
             }
             CodingProvider::Auto => match self.coding.selection_policy {
-                // Availability: claude → codex → opencode (backward-compatible order)
-                CodingSelectionPolicy::Availability => {
-                    if claude_enabled {
-                        Some(&self.claude as &dyn CodeDelegateBackend)
-                    } else if codex_enabled {
-                        Some(&self.codex as &dyn CodeDelegateBackend)
-                    } else if opencode_enabled {
-                        Some(&self.opencode as &dyn CodeDelegateBackend)
-                    } else {
-                        None
-                    }
-                }
-                // PreferClaude: claude → codex → opencode
-                CodingSelectionPolicy::PreferClaude => {
+                // Availability / PreferClaude: first available in claude → codex → opencode order.
+                CodingSelectionPolicy::Availability | CodingSelectionPolicy::PreferClaude => {
                     if claude_enabled {
                         Some(&self.claude as &dyn CodeDelegateBackend)
                     } else if codex_enabled {
