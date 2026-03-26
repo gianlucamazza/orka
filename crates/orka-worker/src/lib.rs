@@ -45,9 +45,17 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 pub use workspace_handler::{WorkspaceHandler, WorkspaceHandlerConfig};
 
-/// TTL for per-session distributed locks that prevent concurrent history
-/// corruption.
-const SESSION_LOCK_TTL_MS: u64 = 120_000;
+/// Initial TTL for per-session distributed locks.
+///
+/// Short to limit deadlock duration on worker crash. The watchdog task renews
+/// the lock every [`SESSION_LOCK_RENEWAL_MS`] while a dispatch is in progress.
+const SESSION_LOCK_TTL_MS: u64 = 30_000;
+
+/// Watchdog renewal interval — TTL / 3 to guarantee renewal before expiry.
+const SESSION_LOCK_RENEWAL_MS: u64 = SESSION_LOCK_TTL_MS / 3;
+
+/// Maximum lock renewals before the watchdog gives up (~10 min total).
+const SESSION_LOCK_MAX_RENEWALS: u32 = 60;
 
 /// Shared map of per-session cancellation tokens.
 ///
@@ -292,6 +300,39 @@ impl WorkerPool {
                                     let start = std::time::Instant::now();
                                     let locked_session_id = envelope.session_id.to_string();
 
+                                    // 6a. Watchdog: renew the session lock periodically so
+                                    // multi-iteration dispatches (>TTL) never lose the lock.
+                                    // Aborted immediately after dispatch completes.
+                                    let watchdog = session_lock.as_ref().map(|lock| {
+                                        let lock = Arc::clone(lock);
+                                        let sid = locked_session_id.clone();
+                                        tokio::spawn(async move {
+                                            let mut interval = tokio::time::interval(
+                                                Duration::from_millis(SESSION_LOCK_RENEWAL_MS),
+                                            );
+                                            interval.tick().await;
+                                            let mut renewals: u32 = 0;
+                                            loop {
+                                                interval.tick().await;
+                                                if renewals >= SESSION_LOCK_MAX_RENEWALS {
+                                                    warn!(
+                                                        session_id = %sid,
+                                                        "session lock watchdog hit max renewals"
+                                                    );
+                                                    break;
+                                                }
+                                                if !lock.extend(&sid, SESSION_LOCK_TTL_MS).await {
+                                                    warn!(
+                                                        session_id = %sid,
+                                                        "session lock expired before renewal"
+                                                    );
+                                                    break;
+                                                }
+                                                renewals += 1;
+                                            }
+                                        })
+                                    });
+
                                     // 7. Dispatch
                                     match dispatcher.dispatch(&envelope, &session).await {
                                         Ok(outbound_msgs) => {
@@ -351,7 +392,10 @@ impl WorkerPool {
                                         }
                                     }
 
-                                    // 10. Release session lock
+                                    // 10. Stop watchdog, then release session lock
+                                    if let Some(wdog) = watchdog {
+                                        wdog.abort();
+                                    }
                                     if let Some(ref lock) = session_lock {
                                         lock.release(&locked_session_id).await;
                                     }

@@ -279,4 +279,20 @@ impl SessionLock for RedisMemoryStore {
             }
         }
     }
+
+    async fn extend(&self, session_id: &str, ttl_ms: u64) -> bool {
+        let key = Self::lock_key(session_id);
+        match self.pool.get().await {
+            Ok(mut conn) => {
+                // PEXPIRE returns 1 if the key exists and was updated, 0 if not
+                let result: core::result::Result<i64, _> =
+                    redis::cmd("PEXPIRE").arg(&key).arg(ttl_ms).query_async(&mut *conn).await;
+                result.unwrap_or(0) == 1
+            }
+            Err(e) => {
+                warn!(%e, session_id, "redis conn failed for session lock extend");
+                false
+            }
+        }
+    }
 }

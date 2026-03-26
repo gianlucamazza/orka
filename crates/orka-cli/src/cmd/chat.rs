@@ -522,6 +522,9 @@ pub async fn run(
     // /history)
     let (response_tx, mut response_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
+    // Activity signals — sent on every WS message to reset the idle timeout
+    let (activity_tx, mut activity_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+
     // Shared last usage (overwritten by each Usage chunk; read after Done)
     // (input, output, reasoning, model, cache_read, cache_creation, cost_usd)
     type UsageInfo = Option<(
@@ -581,6 +584,7 @@ pub async fn run(
                     Some(m) => m,
                     None => break, // Connection closed, wait for reconnect
                 };
+                activity_tx.send(()).ok();
                 match msg {
                     Ok(msg) if msg.is_text() => {
                         let text = match msg.into_text() {
@@ -951,8 +955,10 @@ pub async fn run(
     let mut recent_shell_runs: Vec<(String, String, Option<i32>)> = Vec::new();
     let mut workspace_sent = false;
 
-    // WS response timeout — configurable via ORKA_WS_TIMEOUT env var (seconds)
-    let ws_response_timeout_secs: u64 = std::env::var("ORKA_WS_TIMEOUT")
+    // Idle timeout: fires when the connection is completely silent for this
+    // duration. Resets on every received chunk, so long multi-iteration tasks
+    // stay alive. ORKA_WS_TIMEOUT controls this value (seconds, default 120).
+    let ws_idle_timeout_secs: u64 = std::env::var("ORKA_WS_TIMEOUT")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(120);
@@ -1302,147 +1308,148 @@ pub async fn run(
                 let start = Instant::now();
                 match client.send_message(&expanded, &sid, metadata).await {
                     Ok(_) => {
-                        // Drain stale signals, then wait for this turn's response.
-                        // Ctrl-C cancels the local wait; disconnect_notify fires if WS drops.
+                        // Drain stale signals from both channels before waiting.
                         while done_rx.try_recv().is_ok() {}
-                        tokio::select! {
-                            result = tokio::time::timeout(
-                                Duration::from_secs(ws_response_timeout_secs),
-                                done_rx.recv(),
-                            ) => {
-                                match result {
-                                    Ok(None) => {
-                                        // done_tx dropped — should not happen with reconnect loop
-                                        eprintln!("{}", "Connection lost.".red());
-                                        break;
-                                    }
-                                    Err(_) => {
-                                        ctrl_c_count = 0;
+                        while activity_rx.try_recv().is_ok() {}
 
-                                        // 1. Close WebSocket FIRST to prevent new messages from arriving
-                                        // This ensures no race condition between flag set and message processing
-                                        {
-                                            let mut guard = ws_write.lock().await;
-                                            let _ = guard.close().await;
+                        // Idle-timeout loop: the deadline resets on every received chunk
+                        // so long multi-iteration tasks never hit it as long as the server
+                        // keeps streaming. It only fires when the connection goes silent.
+                        let idle_dur = Duration::from_secs(ws_idle_timeout_secs);
+                        let idle = tokio::time::sleep(idle_dur);
+                        tokio::pin!(idle);
+
+                        let mut break_repl = false;
+                        loop {
+                            tokio::select! {
+                                result = done_rx.recv() => {
+                                    match result {
+                                        None => {
+                                            eprintln!("{}", "Connection lost.".red());
+                                            break_repl = true;
+                                            break;
                                         }
+                                        Some(()) => {
+                                            let elapsed = start.elapsed().as_millis() as u64;
+                                            let response = response_rx.try_recv().unwrap_or_default();
+                                            last_response = response.clone();
+                                            turn_history.push((user_input, response));
 
-                                        // 2. Set timeout flag with Release ordering for visibility
-                                        ws_timeout_flag.store(true, Ordering::Release);
+                                            // Desktop notification for long responses
+                                            if elapsed >= 5000
+                                                && std::env::var_os("ORKA_NO_NOTIFY").is_none()
+                                            {
+                                                let elapsed_s = elapsed as f64 / 1000.0;
+                                                let _ = notify_rust::Notification::new()
+                                                    .summary("Orka")
+                                                    .body(&format!(
+                                                        "Response complete ({elapsed_s:.1}s)"
+                                                    ))
+                                                    .show();
+                                            }
 
-                                        // 3. Mark connection as dead and notify
-                                        ws_alive.store(false, Ordering::Release);
-                                        disconnect_notify.notify_one();
-
-                                        // 4. CRITICAL: Drain pending signals to prevent spurious completions
-                                        // in the next turn. Messages already in-flight might have sent
-                                        // done signals that would corrupt the next interaction.
-                                        while done_rx.try_recv().is_ok() {}
-                                        while response_rx.try_recv().is_ok() {}
-
-                                        // 5. Show timeout message and clear UI
-                                        eprintln!(
-                                            "{}",
-                                            format!(
-                                                "No response after {ws_response_timeout_secs}s. \
-                                                 The server may be slow or the connection may be dead. \
-                                                 Type /quit to exit."
-                                            )
-                                            .yellow()
-                                        );
-                                        multi.clear().ok();
-                                        // Don't break — let the user decide what to do next.
-                                    }
-                                    Ok(Some(())) => {
-                                        let elapsed = start.elapsed().as_millis() as u64;
-                                        let response = response_rx.try_recv().unwrap_or_default();
-                                        last_response = response.clone();
-                                        turn_history.push((user_input, response));
-
-                                        // Desktop notification for long responses
-                                        if elapsed >= 5000
-                                            && std::env::var_os("ORKA_NO_NOTIFY").is_none()
-                                        {
-                                            let elapsed_s = elapsed as f64 / 1000.0;
-                                            let _ = notify_rust::Notification::new()
-                                                .summary("Orka")
-                                                .body(&format!(
-                                                    "Response complete ({elapsed_s:.1}s)"
-                                                ))
-                                                .show();
-                                        }
-
-                                        // Show elapsed + usage if available
-                                        let usage_part = if let Ok(mut guard) = last_usage.lock()
-                                            && let Some((inp, out, reason, model, cache_read, cache_creation, cost_usd)) = guard.take()
-                                        {
-                                            // Strip trailing date-like suffixes (e.g. "-20241022"),
-                                            // keep up to 3 dash-segments (e.g. "claude-sonnet-4-6").
-                                            let model_short = {
-                                                let parts: Vec<&str> = model.split('-').collect();
-                                                let non_date: Vec<&str> = parts
-                                                    .iter()
-                                                    .copied()
-                                                    .filter(|s| {
-                                                        !(s.len() == 8
-                                                            && s.chars().all(|c| c.is_ascii_digit()))
-                                                    })
-                                                    .collect();
-                                                let joined = non_date.join("-");
-                                                if joined.len() > 24 {
-                                                    format!("{}\u{2026}", &joined[..24])
-                                                } else {
-                                                    joined
-                                                }
-                                            };
-                                            let reason_part = reason
-                                                .map(|r| format!(" {}\u{26a1}", fmt_tokens(r)))
-                                                .unwrap_or_default();
-                                            let cache_total =
-                                                match (cache_read, cache_creation) {
-                                                    (Some(r), Some(c)) => Some(r + c),
-                                                    (Some(r), None) => Some(r),
-                                                    (None, Some(c)) => Some(c),
-                                                    (None, None) => None,
+                                            // Show elapsed + usage if available
+                                            let usage_part = if let Ok(mut guard) = last_usage.lock()
+                                                && let Some((inp, out, reason, model, cache_read, cache_creation, cost_usd)) = guard.take()
+                                            {
+                                                let model_short = {
+                                                    let parts: Vec<&str> = model.split('-').collect();
+                                                    let non_date: Vec<&str> = parts
+                                                        .iter()
+                                                        .copied()
+                                                        .filter(|s| {
+                                                            !(s.len() == 8
+                                                                && s.chars().all(|c| c.is_ascii_digit()))
+                                                        })
+                                                        .collect();
+                                                    let joined = non_date.join("-");
+                                                    if joined.len() > 24 {
+                                                        format!("{}\u{2026}", &joined[..24])
+                                                    } else {
+                                                        joined
+                                                    }
                                                 };
-                                            let cache_part = cache_total
-                                                .map(|c| {
-                                                    format!(" \u{2502} cache: {}", fmt_tokens(c))
-                                                })
-                                                .unwrap_or_default();
-                                            let cost_part = cost_usd
-                                                .map(|c| format!(" \u{2502} ${c:.4}"))
-                                                .unwrap_or_default();
-                                            format!(
-                                                " \u{2502} {model_short} \u{2502} {}\u{2193} {}\u{2191}{reason_part}{cache_part}{cost_part}",
-                                                fmt_tokens(inp),
-                                                fmt_tokens(out),
-                                            )
-                                        } else {
-                                            String::new()
-                                        };
-                                        println!(
-                                            "{}",
-                                            format!(
-                                                "  \u{23f1} {}{}",
-                                                crate::util::format_duration_ms(elapsed),
-                                                usage_part
-                                            )
-                                            .dimmed()
-                                        );
+                                                let reason_part = reason
+                                                    .map(|r| format!(" {}\u{26a1}", fmt_tokens(r)))
+                                                    .unwrap_or_default();
+                                                let cache_total =
+                                                    match (cache_read, cache_creation) {
+                                                        (Some(r), Some(c)) => Some(r + c),
+                                                        (Some(r), None) => Some(r),
+                                                        (None, Some(c)) => Some(c),
+                                                        (None, None) => None,
+                                                    };
+                                                let cache_part = cache_total
+                                                    .map(|c| {
+                                                        format!(" \u{2502} cache: {}", fmt_tokens(c))
+                                                    })
+                                                    .unwrap_or_default();
+                                                let cost_part = cost_usd
+                                                    .map(|c| format!(" \u{2502} ${c:.4}"))
+                                                    .unwrap_or_default();
+                                                format!(
+                                                    " \u{2502} {model_short} \u{2502} {}\u{2193} {}\u{2191}{reason_part}{cache_part}{cost_part}",
+                                                    fmt_tokens(inp),
+                                                    fmt_tokens(out),
+                                                )
+                                            } else {
+                                                String::new()
+                                            };
+                                            println!(
+                                                "{}",
+                                                format!(
+                                                    "  \u{23f1} {}{}",
+                                                    crate::util::format_duration_ms(elapsed),
+                                                    usage_part
+                                                )
+                                                .dimmed()
+                                            );
+                                            break;
+                                        }
                                     }
                                 }
+                                // Each incoming chunk resets the idle deadline
+                                _ = activity_rx.recv() => {
+                                    idle.as_mut().reset(tokio::time::Instant::now() + idle_dur);
+                                }
+                                // Idle timeout: connection silent longer than the deadline
+                                _ = &mut idle => {
+                                    ctrl_c_count = 0;
+                                    {
+                                        let mut guard = ws_write.lock().await;
+                                        let _ = guard.close().await;
+                                    }
+                                    ws_timeout_flag.store(true, Ordering::Release);
+                                    ws_alive.store(false, Ordering::Release);
+                                    disconnect_notify.notify_one();
+                                    while done_rx.try_recv().is_ok() {}
+                                    while response_rx.try_recv().is_ok() {}
+                                    while activity_rx.try_recv().is_ok() {}
+                                    eprintln!(
+                                        "{}",
+                                        format!(
+                                            "No response after {ws_idle_timeout_secs}s of inactivity. \
+                                             The server may be slow or the connection may be dead. \
+                                             Type /quit to exit."
+                                        )
+                                        .yellow()
+                                    );
+                                    multi.clear().ok();
+                                    break;
+                                }
+                                _ = disconnect_notify.notified() => {
+                                    ctrl_c_count = 0;
+                                    println!("{}", "\nConnection lost. Reconnect will be attempted on next input.".yellow());
+                                    break;
+                                }
+                                _ = tokio::signal::ctrl_c() => {
+                                    println!("{}", "\nCancelled.".yellow());
+                                    break;
+                                }
                             }
-                            _ = disconnect_notify.notified() => {
-                                // WS dropped while we were waiting for a response
-                                ctrl_c_count = 0;
-                                println!("{}", "\nConnection lost. Reconnect will be attempted on next input.".yellow());
-                                // Don't break — ws_alive is now false; reconnect triggers on next send
-                            }
-                            _ = tokio::signal::ctrl_c() => {
-                                // Cancel in-flight wait — return to prompt
-                                println!("{}", "\nCancelled.".yellow());
-                                // Don't break — return to prompt
-                            }
+                        }
+                        if break_repl {
+                            break;
                         }
                     }
                     Err(e) => {

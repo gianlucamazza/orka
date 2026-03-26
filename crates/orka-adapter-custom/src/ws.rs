@@ -48,9 +48,8 @@ impl WsRegistry {
     /// deliveries.
     pub async fn send_to_session(&self, session_id: &SessionId, text: &str) -> usize {
         let mut map = self.inner.lock().await;
-        let senders = match map.get_mut(session_id) {
-            Some(s) => s,
-            None => return 0,
+        let Some(senders) = map.get_mut(session_id) else {
+            return 0;
         };
 
         let mut delivered = 0;

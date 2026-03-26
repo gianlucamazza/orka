@@ -33,32 +33,29 @@ pub struct MemoryBundle {
 pub fn create_memory_store(
     config: &orka_core::config::OrkaConfig,
 ) -> orka_core::Result<MemoryBundle> {
-    match config.memory.backend {
-        MemoryBackend::Memory => {
-            tracing::debug!(
-                max_entries = config.memory.max_entries,
-                "in-memory memory store created"
-            );
-            let store = Arc::new(orka_core::testing::InMemoryMemoryStore::new());
-            Ok(MemoryBundle {
-                lock: Arc::clone(&store) as Arc<dyn SessionLock>,
-                store: store as Arc<dyn MemoryStore>,
-            })
-        }
-        _ => {
-            let store = Arc::new(RedisMemoryStore::new(
-                &config.redis.url,
-                config.memory.max_entries,
-            )?);
-            tracing::debug!(
-                max_entries = config.memory.max_entries,
-                "memory store created"
-            );
-            Ok(MemoryBundle {
-                lock: Arc::clone(&store) as Arc<dyn SessionLock>,
-                store: store as Arc<dyn MemoryStore>,
-            })
-        }
+    if config.memory.backend == MemoryBackend::Memory {
+        tracing::debug!(
+            max_entries = config.memory.max_entries,
+            "in-memory memory store created"
+        );
+        let store = Arc::new(orka_core::testing::InMemoryMemoryStore::new());
+        Ok(MemoryBundle {
+            lock: Arc::clone(&store) as Arc<dyn SessionLock>,
+            store: store as Arc<dyn MemoryStore>,
+        })
+    } else {
+        let store = Arc::new(RedisMemoryStore::new(
+            &config.redis.url,
+            config.memory.max_entries,
+        )?);
+        tracing::debug!(
+            max_entries = config.memory.max_entries,
+            "memory store created"
+        );
+        Ok(MemoryBundle {
+            lock: Arc::clone(&store) as Arc<dyn SessionLock>,
+            store: store as Arc<dyn MemoryStore>,
+        })
     }
 }
 

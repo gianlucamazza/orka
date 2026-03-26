@@ -93,6 +93,17 @@ pub trait SessionLock: Send + Sync + 'static {
 
     /// Release the lock previously acquired for `session_id`.
     async fn release(&self, session_id: &str);
+
+    /// Extend the TTL of an existing lock by `ttl_ms` milliseconds.
+    ///
+    /// Used by the watchdog pattern to renew a lock during long-running
+    /// dispatches. Returns `true` if the lock was extended, `false` if it
+    /// had already expired or was released.
+    ///
+    /// Default: no-op returning `true` (safe for in-memory test backends).
+    async fn extend(&self, _session_id: &str, _ttl_ms: u64) -> bool {
+        true
+    }
 }
 
 /// Priority queue for ordered message processing.

@@ -57,7 +57,7 @@ impl CustomAdapter {
 
 #[async_trait]
 impl ChannelAdapter for CustomAdapter {
-    fn channel_id(&self) -> &str {
+    fn channel_id(&self) -> &'static str {
         "custom"
     }
 

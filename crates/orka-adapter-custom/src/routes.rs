@@ -123,8 +123,7 @@ pub async fn handle_message(
     let session_id = req
         .session_id
         .and_then(|s| s.parse::<Uuid>().ok())
-        .map(SessionId)
-        .unwrap_or_else(SessionId::new);
+        .map_or_else(SessionId::new, SessionId);
 
     let mut envelope = Envelope::text("custom", session_id, &req.text);
 
@@ -220,8 +219,13 @@ async fn handle_ws_connection(
     let mut stream_rx = stream_registry.subscribe(session_id);
     let (mut ws_sink, mut ws_stream) = socket.split();
 
-    // Forward both stream chunks (deltas) and final outbound messages to WS frames
+    // Forward stream chunks, final outbound messages, and periodic pings to the
+    // WebSocket. The ping keeps the connection alive through proxies/NAT gateways
+    // that close idle connections (most default to 30–60 s).
     let send_task = tokio::spawn(async move {
+        let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(25));
+        ping_interval.tick().await; // skip immediate tick
+
         loop {
             tokio::select! {
                 // Stream chunks (real-time deltas, tool status) — always forwarded
@@ -249,6 +253,14 @@ async fn handle_ws_connection(
                             }
                         }
                         None => break,
+                    }
+                }
+                // Keepalive ping — sent every 25 s. Axum responds to client
+                // Pong frames automatically; the Ping itself resets NAT/proxy
+                // idle timers and detects dead connections (send failure → break).
+                _ = ping_interval.tick() => {
+                    if ws_sink.send(Message::Ping(vec![].into())).await.is_err() {
+                        break;
                     }
                 }
             }
