@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Write as _,
     io::Write as _,
     path::PathBuf,
     sync::{
@@ -15,7 +16,10 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use orka_core::{parse_slash_command, stream::StreamChunkKind};
 use reedline::{FileBackedHistory, Reedline, Signal};
 use serde_json::json;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
+use tokio_tungstenite::{
+    MaybeTlsStream, WebSocketStream,
+    tungstenite::{Bytes, Message},
+};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
@@ -57,6 +61,7 @@ struct ServerInfo {
     web_search: Option<String>,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(serde::Deserialize)]
 struct ServerFeatures {
     knowledge: bool,
@@ -94,6 +99,7 @@ fn display_name(raw: &str) -> &str {
 }
 
 /// Print the box-drawn welcome banner with optional server info.
+#[allow(clippy::too_many_lines, clippy::items_after_statements)]
 fn print_welcome(
     info: Option<&ServerInfo>,
     base_url: &str,
@@ -297,7 +303,7 @@ fn history_path() -> PathBuf {
 
 /// Print the agent turn separator with an optional display name.
 ///
-/// UI-1: routed through MultiProgress so it serialises with spinner redraws.
+/// UI-1: routed through `MultiProgress` so it serialises with spinner redraws.
 /// UI-4: adapts to the actual terminal width instead of a hardcoded 40-char
 /// bar. Reads the shared width atom so it reflows after terminal resize.
 fn print_agent_header(name: &str, multi: &MultiProgress, term_width: &AtomicU16) {
@@ -317,7 +323,7 @@ fn print_agent_header(name: &str, multi: &MultiProgress, term_width: &AtomicU16)
 /// Format token counts compactly: `1.2k` for ≥1000, else the raw number.
 fn fmt_tokens(n: u32) -> String {
     if n >= 1000 {
-        format!("{:.1}k", n as f64 / 1000.0)
+        format!("{:.1}k", f64::from(n) / 1000.0)
     } else {
         n.to_string()
     }
@@ -373,7 +379,9 @@ fn expand_file_attachments(text: &str) -> String {
                 delimiter = chars.next(); // consume and save the delimiter
                 break;
             }
-            path_str.push(chars.next().unwrap());
+            if let Some(c) = chars.next() {
+                path_str.push(c);
+            }
         }
 
         if path_str.is_empty() {
@@ -386,30 +394,28 @@ fn expand_file_attachments(text: &str) -> String {
         }
 
         let path = std::path::Path::new(&path_str);
-        match std::fs::read_to_string(path) {
-            Ok(content) => {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                result.push_str(&format!("\n```{ext}\n{content}\n```\n"));
-                // Restore the original delimiter character (preserves newlines, tabs, etc.)
-                if let Some(d) = delimiter {
-                    result.push(d);
-                }
-                prev_was_whitespace_or_start = true;
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let _ = write!(result, "\n```{ext}\n{content}\n```\n");
+            // Restore the original delimiter character (preserves newlines, tabs, etc.)
+            if let Some(d) = delimiter {
+                result.push(d);
             }
-            Err(_) => {
-                // Unreadable — leave the token as-is
-                result.push('@');
-                result.push_str(&path_str);
-                if let Some(d) = delimiter {
-                    result.push(d);
-                }
-                prev_was_whitespace_or_start = true;
+            prev_was_whitespace_or_start = true;
+        } else {
+            // Unreadable — leave the token as-is
+            result.push('@');
+            result.push_str(&path_str);
+            if let Some(d) = delimiter {
+                result.push(d);
             }
+            prev_was_whitespace_or_start = true;
         }
     }
     result
 }
 
+#[allow(clippy::too_many_lines, clippy::items_after_statements)]
 pub async fn run(
     client: &OrkaClient,
     server_client: &OrkaClient,
@@ -547,7 +553,7 @@ pub async fn run(
     let mut ws_task = tokio::spawn(async move {
         let multi = multi_clone;
         let spinner_style = ProgressStyle::with_template("{spinner:.cyan} {msg}")
-            .unwrap()
+            .unwrap_or_else(|_| indicatif::ProgressStyle::default_spinner())
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
 
         let mut renderer = crate::markdown::MarkdownRenderer::new(term_width_ws.clone());
@@ -578,18 +584,14 @@ pub async fn run(
                     break;
                 }
 
-                let msg = current_ws_read.next().await;
-
-                let msg = match msg {
-                    Some(m) => m,
-                    None => break, // Connection closed, wait for reconnect
+                let Some(msg) = current_ws_read.next().await else {
+                    break; // Connection closed, wait for reconnect
                 };
                 activity_tx.send(()).ok();
                 match msg {
                     Ok(msg) if msg.is_text() => {
-                        let text = match msg.into_text() {
-                            Ok(t) => t,
-                            Err(_) => continue,
+                        let Ok(text) = msg.into_text() else {
+                            continue;
                         };
 
                         match classify_ws_message(&text) {
@@ -619,7 +621,7 @@ pub async fn run(
                                 ..
                             }) => {
                                 let pct =
-                                    (history_tokens as u64) * 100 / (context_window.max(1) as u64);
+                                    u64::from(history_tokens) * 100 / u64::from(context_window.max(1));
                                 let msg = format!(
                                     "\u{26a0} Context: {pct}% | {messages_truncated} message{} removed",
                                     if messages_truncated == 1 { "" } else { "s" }
@@ -762,10 +764,6 @@ pub async fn run(
                                     }
                                 }
                             }
-                            WsMessage::Stream(StreamChunkKind::ToolStart { .. })
-                            | WsMessage::Stream(StreamChunkKind::ToolEnd { .. }) => {
-                                // Internal LLM events — silent
-                            }
                             WsMessage::Stream(StreamChunkKind::Done) => {
                                 // UI-3: drain orphaned tool spinners with a full line each
                                 // (original used print! without flush, risking glued output).
@@ -834,8 +832,12 @@ pub async fn run(
                                     Some(&multi),
                                 );
                             }
-                            WsMessage::Stream(_) => {
-                                // Unknown stream chunk kind — ignore
+                            WsMessage::Stream(
+                                StreamChunkKind::ToolStart { .. }
+                                | StreamChunkKind::ToolEnd { .. }
+                                | _,
+                            ) => {
+                                // Internal LLM events and unknown stream chunk kinds — silent
                             }
                             WsMessage::Unknown(raw) => {
                                 // UI-1: route through multi
@@ -892,7 +894,7 @@ pub async fn run(
                 continue;
             }
             let mut guard = ws_write_ping.lock().await;
-            if guard.send(Message::Ping(Default::default())).await.is_err() {
+            if guard.send(Message::Ping(Bytes::default())).await.is_err() {
                 break;
             }
         }
@@ -956,7 +958,7 @@ pub async fn run(
     // Shell state — initialise cwd and sync the shared reference used by
     // tab-completion
     let mut cwd = {
-        let guard = shell_cwd_shared.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = shell_cwd_shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.clone()
     };
     let mut env_overrides: HashMap<String, String> = HashMap::new();
@@ -990,18 +992,13 @@ pub async fn run(
         }
 
         // Wait for the line from the editor thread
-        let result = match line_rx.recv().await {
-            Some(r) => r,
-            None => break,
-        };
+        let Some(result) = line_rx.recv().await else { break };
 
         let line = match result {
             Ok(line) => {
                 ctrl_c_count = 0;
                 line
             }
-            // CtrlD → exit
-            Err(Signal::CtrlD) => break,
             // CtrlC → double-press to exit
             Err(Signal::CtrlC) => {
                 ctrl_c_count += 1;
@@ -1011,11 +1008,12 @@ pub async fn run(
                 println!("{}", "Press Ctrl-C again or type /quit to exit.".dimmed());
                 continue;
             }
-            Err(_) => break,
+            // CtrlD or any other signal → exit
+            Err(Signal::CtrlD | _) => break,
         };
 
         match shell::classify_input(&line) {
-            InputAction::Empty => continue,
+            InputAction::Empty => {}
 
             InputAction::Error(msg) => {
                 eprintln!("{msg}");
@@ -1063,16 +1061,16 @@ pub async fn run(
 
             InputAction::Builtin(ref b) => {
                 let msg = shell::handle_builtin(b, &mut cwd, &mut env_overrides, &mut env_removes);
-                if !msg.is_empty() {
-                    eprintln!("{msg}");
-                    if matches!(b, Builtin::Cd(_)) {
-                        last_exit = Some(1);
-                    }
-                } else {
+                if msg.is_empty() {
                     last_exit = Some(0);
                     // Keep the tab-completion helper in sync when the directory changes
                     if matches!(b, Builtin::Cd(_)) {
-                        *shell_cwd_shared.lock().unwrap_or_else(|e| e.into_inner()) = cwd.clone();
+                        (*shell_cwd_shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner)).clone_from(&cwd);
+                    }
+                } else {
+                    eprintln!("{msg}");
+                    if matches!(b, Builtin::Cd(_)) {
+                        last_exit = Some(1);
                     }
                 }
             }
@@ -1182,7 +1180,7 @@ pub async fn run(
                                     cwd.join(path)
                                 };
                                 match std::fs::write(&target, &last_response) {
-                                    Ok(_) => println!(
+                                    Ok(()) => println!(
                                         "{}",
                                         format!("  \u{2714} Saved to {}", target.display())
                                             .dimmed()
@@ -1199,7 +1197,7 @@ pub async fn run(
                                     .and_then(|mut cb| cb.set_text(&last_response))
                                 {
                                     Ok(()) => {
-                                        println!("{}", "  \u{2714} Copied to clipboard.".dimmed())
+                                        println!("{}", "  \u{2714} Copied to clipboard.".dimmed());
                                     }
                                     Err(e) => eprintln!("Clipboard error: {e}"),
                                 }
@@ -1215,7 +1213,7 @@ pub async fn run(
                             } else {
                                 match open::that(url) {
                                     Ok(()) => {
-                                        println!("{}", format!("  \u{2714} Opening {url}").dimmed())
+                                        println!("{}", format!("  \u{2714} Opening {url}").dimmed());
                                     }
                                     Err(e) => eprintln!("Failed to open: {e}"),
                                 }
@@ -1298,13 +1296,15 @@ pub async fn run(
                     if !recent_shell_runs.is_empty() {
                         let mut ctx = String::new();
                         for (cmd, output, code) in &recent_shell_runs {
-                            ctx.push_str(&format!("$ {cmd}\n"));
+                            let _ = writeln!(ctx, "$ {cmd}");
                             if !output.is_empty() {
                                 ctx.push_str(output.trim_end());
                                 ctx.push('\n');
                             }
-                            if matches!(code, Some(c) if *c != 0) {
-                                ctx.push_str(&format!("[exit {}]\n", code.unwrap()));
+                            if let Some(c) = code
+                                && *c != 0
+                            {
+                                let _ = writeln!(ctx, "[exit {c}]");
                             }
                             ctx.push('\n');
                         }
@@ -1425,7 +1425,7 @@ pub async fn run(
                                     idle.as_mut().reset(tokio::time::Instant::now() + idle_dur);
                                 }
                                 // Idle timeout: connection silent longer than the deadline
-                                _ = &mut idle => {
+                                () = &mut idle => {
                                     ctrl_c_count = 0;
                                     {
                                         let mut guard = ws_write.lock().await;
@@ -1449,7 +1449,7 @@ pub async fn run(
                                     multi.clear().ok();
                                     break;
                                 }
-                                _ = disconnect_notify.notified() => {
+                                () = disconnect_notify.notified() => {
                                     ctrl_c_count = 0;
                                     println!("{}", "\nConnection lost. Reconnect will be attempted on next input.".yellow());
                                     break;

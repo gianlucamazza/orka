@@ -6,6 +6,7 @@ use orka_core::{
 };
 
 /// `orka config check` — validate config and show version + warnings.
+#[allow(clippy::unused_async)]
 pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let path = config_path.map(Path::new);
     let resolved = OrkaConfig::resolve_path(path);
@@ -36,7 +37,7 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
             );
         }
         None => {
-            println!("Config version: {} (up to date)", CURRENT_CONFIG_VERSION);
+            println!("Config version: {CURRENT_CONFIG_VERSION} (up to date)");
         }
     }
 
@@ -56,6 +57,7 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
 }
 
 /// `orka config migrate` — apply migrations and write the file (with backup).
+#[allow(clippy::unused_async)]
 pub async fn migrate_cmd(
     config_path: Option<&str>,
     dry_run: bool,
@@ -74,8 +76,7 @@ pub async fn migrate_cmd(
     match result {
         None => {
             println!(
-                "Config is already at version {}. Nothing to do.",
-                CURRENT_CONFIG_VERSION
+                "Config is already at version {CURRENT_CONFIG_VERSION}. Nothing to do."
             );
         }
         Some(res) => {

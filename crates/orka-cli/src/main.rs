@@ -444,6 +444,7 @@ enum TasksAction {
 }
 
 #[tokio::main]
+#[allow(clippy::too_many_lines)]
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(

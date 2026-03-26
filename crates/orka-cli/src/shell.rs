@@ -178,6 +178,7 @@ async fn tee_stderr(mut reader: tokio::process::ChildStderr) -> String {
 
 /// Execute a shell command, display output in real-time, and return captured
 /// output + exit code.
+#[allow(clippy::expect_used)]
 pub async fn execute_shell(
     cmd: &str,
     cwd: &Path,

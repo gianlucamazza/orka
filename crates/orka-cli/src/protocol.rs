@@ -24,7 +24,7 @@ pub enum WsMessage {
 ///
 /// 1. Parse as `serde_json::Value` (single parse for the whole message)
 /// 2. Try deserializing that value as `StreamChunkKind`
-/// 3. Try extracting text from OutboundMessage shape (`payload.data`)
+/// 3. Try extracting text from `OutboundMessage` shape (`payload.data`)
 /// 4. Fall back to `Unknown`
 pub fn classify_ws_message(raw: &str) -> WsMessage {
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(raw) else {
@@ -54,7 +54,7 @@ pub fn classify_ws_message(raw: &str) -> WsMessage {
                     let caption = media
                         .get("caption")
                         .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
+                        .map(ToString::to_string);
                     if let Some(data_base64) = media.get("data_base64").and_then(|v| v.as_str()) {
                         return WsMessage::Media {
                             mime_type,

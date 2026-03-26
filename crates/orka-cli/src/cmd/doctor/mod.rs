@@ -96,6 +96,7 @@ pub async fn run(
 }
 
 /// List all available checks.
+#[allow(clippy::unnecessary_wraps)]
 pub fn list_checks() -> Result<(), Box<dyn std::error::Error>> {
     let checks = registry::build_registry();
     let pairs: Vec<_> = checks
@@ -248,6 +249,7 @@ async fn run_with_timeout(
     }
 }
 
+#[allow(clippy::unused_async)]
 async fn run_fixes(
     results: Vec<(CheckMeta, CheckOutcome)>,
     ctx: Arc<CheckContext>,

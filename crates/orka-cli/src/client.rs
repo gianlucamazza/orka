@@ -38,7 +38,7 @@ impl OrkaClient {
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(30))
                 .build()
-                .expect("failed to build HTTP client"),
+                .unwrap_or_else(|e| panic!("failed to build HTTP client: {e}")),
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.map(String::from),
         }
@@ -147,8 +147,7 @@ impl OrkaClient {
     /// Resolve an optional session ID, generating a new UUID v7 if absent.
     pub fn resolve_session_id(session_id: Option<&str>) -> String {
         session_id
-            .map(String::from)
-            .unwrap_or_else(|| uuid::Uuid::now_v7().to_string())
+            .map_or_else(|| uuid::Uuid::now_v7().to_string(), String::from)
     }
 
     /// Poll the health endpoint until the server responds 200.
