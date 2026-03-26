@@ -18,7 +18,7 @@
 //! rubric  = "Pass if the answer covers memory safety and systems programming"
 //! ```
 
-use std::sync::Arc;
+use std::{fmt::Write as _, sync::Arc};
 
 use orka_llm::{ChatMessage, CompletionOptions, LlmClient, client::ResponseFormat};
 use serde::Deserialize;
@@ -43,6 +43,7 @@ impl LlmJudge {
     }
 
     /// Override the model used for judging.
+    #[must_use]
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
         self
@@ -77,13 +78,14 @@ impl LlmJudge {
             criterion.name, criterion.description
         );
         if let Some(ref rubric) = criterion.rubric {
-            prompt.push_str(&format!("\nRubric: {rubric}"));
+            write!(prompt, "\nRubric: {rubric}").unwrap_or(());
         }
-        prompt.push_str(&format!(
+        write!(
+            prompt,
             "\n\nSkill input:\n{}\n\nSkill output:\n{}\n\nRespond with a JSON object: {{\"passed\": true/false, \"reasoning\": \"brief explanation\"}}",
             serde_json::to_string_pretty(input).unwrap_or_else(|_| input.to_string()),
             truncate(output, 2000),
-        ));
+        ).unwrap_or(());
 
         let system = "You are an impartial evaluator. Assess whether the skill output meets the criterion. Be concise.";
         let messages = vec![ChatMessage::user(prompt)];

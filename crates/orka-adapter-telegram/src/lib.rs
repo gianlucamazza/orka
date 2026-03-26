@@ -85,6 +85,7 @@ impl TelegramAdapter {
     ///
     /// Mappings are persisted under the key
     /// `orka:adapter_session:telegram:{chat_id}`.
+    #[must_use]
     pub fn with_memory(mut self, memory: Arc<dyn MemoryStore>) -> Self {
         self.memory = Some(memory);
         self
@@ -92,6 +93,7 @@ impl TelegramAdapter {
 }
 
 #[async_trait]
+#[allow(clippy::unnecessary_literal_bound, clippy::too_many_lines)]
 impl ChannelAdapter for TelegramAdapter {
     fn channel_id(&self) -> &str {
         "telegram"
@@ -110,40 +112,37 @@ impl ChannelAdapter for TelegramAdapter {
 
         let auth_guard = Arc::new(TelegramAuthGuard::from_config(&self.config));
         if !auth_guard.is_open() {
-            let n = auth_guard.allowed.as_ref().map_or(0, |s| s.len());
+            let n = auth_guard.allowed.as_ref().map_or(0, HashSet::len);
             info!(authorized_users = n, "Telegram auth enabled");
         }
 
-        match mode.as_str() {
-            "webhook" => {
-                let webhook_url =
-                    self.config.webhook_url.clone().ok_or_else(|| {
-                        Error::Other("webhook_url required for webhook mode".into())
-                    })?;
-                let port = self.config.webhook_port.unwrap_or(8443);
-                let sink_arc = self.sink.clone();
-                tokio::spawn(async move {
-                    webhook::run_webhook_server(
-                        api,
-                        sink_arc,
-                        sessions,
-                        memory,
-                        webhook_url,
-                        port,
-                        shutdown_rx,
-                        auth_guard,
-                    )
+        if mode.as_str() == "webhook" {
+            let webhook_url =
+                self.config.webhook_url.clone().ok_or_else(|| {
+                    Error::Other("webhook_url required for webhook mode".into())
+                })?;
+            let port = self.config.webhook_port.unwrap_or(8443);
+            let sink_arc = self.sink.clone();
+            tokio::spawn(async move {
+                webhook::run_webhook_server(
+                    api,
+                    sink_arc,
+                    sessions,
+                    memory,
+                    webhook_url,
+                    port,
+                    shutdown_rx,
+                    auth_guard,
+                )
+                .await;
+            });
+            info!("Telegram adapter started (webhook mode)");
+        } else {
+            tokio::spawn(async move {
+                polling::run_polling_loop(api, sink, sessions, memory, shutdown_rx, auth_guard)
                     .await;
-                });
-                info!("Telegram adapter started (webhook mode)");
-            }
-            _ => {
-                tokio::spawn(async move {
-                    polling::run_polling_loop(api, sink, sessions, memory, shutdown_rx, auth_guard)
-                        .await;
-                });
-                info!("Telegram adapter started (long polling)");
-            }
+            });
+            info!("Telegram adapter started (long polling)");
         }
 
         Ok(())
@@ -153,7 +152,7 @@ impl ChannelAdapter for TelegramAdapter {
         let chat_id = msg
             .metadata
             .get("telegram_chat_id")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .ok_or_else(|| Error::Adapter {
                 source: Box::new(std::io::Error::other("missing telegram_chat_id")),
                 context: "missing telegram_chat_id in outbound metadata".into(),
@@ -162,18 +161,18 @@ impl ChannelAdapter for TelegramAdapter {
         let reply_to_message_id = msg
             .metadata
             .get("telegram_message_id")
-            .and_then(|v| v.as_i64());
+            .and_then(serde_json::Value::as_i64);
 
         let message_thread_id = msg
             .metadata
             .get("telegram_message_thread_id")
-            .and_then(|v| v.as_i64());
+            .and_then(serde_json::Value::as_i64);
 
         let parse_mode = msg
             .metadata
             .get("telegram_parse_mode")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
             .or_else(|| self.config.parse_mode.clone());
         let parse_mode_ref = match parse_mode.as_deref() {
             None | Some("HTML") => Some("HTML"),

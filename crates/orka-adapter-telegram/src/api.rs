@@ -53,7 +53,7 @@ impl TelegramApi {
                     .and_then(|v| {
                         v.get("parameters")
                             .and_then(|p| p.get("retry_after"))
-                            .and_then(|r| r.as_u64())
+                            .and_then(serde_json::Value::as_u64)
                     })
                     .unwrap_or(5);
                 warn!(
@@ -74,16 +74,15 @@ impl TelegramApi {
                     source: Box::new(std::io::Error::other("missing result")),
                     context: format!("Telegram {method}: ok=true but result is null"),
                 });
-            } else {
-                return Err(Error::Adapter {
-                    source: Box::new(std::io::Error::other(
-                        tg_resp
-                            .description
-                            .unwrap_or_else(|| "unknown error".into()),
-                    )),
-                    context: format!("Telegram {method} API error"),
-                });
             }
+            return Err(Error::Adapter {
+                source: Box::new(std::io::Error::other(
+                    tg_resp
+                        .description
+                        .unwrap_or_else(|| "unknown error".into()),
+                )),
+                context: format!("Telegram {method} API error"),
+            });
         }
 
         Err(Error::Adapter {
@@ -320,7 +319,7 @@ impl TelegramApi {
         self.call("sendChatAction", &body).await
     }
 
-    /// Resolve a file_id to a download URL.
+    /// Resolve a `file_id` to a download URL.
     pub(crate) async fn get_file_url(&self, file_id: &str) -> Result<String> {
         let file: TelegramFile = self.call("getFile", &json!({ "file_id": file_id })).await?;
         let path = file.file_path.ok_or_else(|| Error::Adapter {

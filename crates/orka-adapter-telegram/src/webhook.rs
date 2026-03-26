@@ -44,9 +44,8 @@ async fn handle_update(
         return axum::http::StatusCode::OK;
     }
 
-    let sink = match state.sink.lock().await.clone() {
-        Some(s) => s,
-        None => return axum::http::StatusCode::OK,
+    let Some(sink) = state.sink.lock().await.clone() else {
+        return axum::http::StatusCode::OK;
     };
 
     let (msg_opt, is_edited) = match (update.message, update.edited_message) {
@@ -60,13 +59,13 @@ async fn handle_update(
             &state.api,
             msg,
             &state.sessions,
-            &state.memory,
+            state.memory.as_ref(),
             &sink,
             is_edited,
         )
         .await;
     } else if let Some(cq) = update.callback_query {
-        handle_callback_query(&state.api, cq, &state.sessions, &state.memory, &sink).await;
+        handle_callback_query(&state.api, cq, &state.sessions, state.memory.as_ref(), &sink).await;
     }
 
     axum::http::StatusCode::OK
@@ -76,7 +75,7 @@ async fn handle_callback_query(
     api: &Arc<TelegramApi>,
     cq: CallbackQuery,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
-    memory: &Option<Arc<dyn MemoryStore>>,
+    memory: Option<&Arc<dyn MemoryStore>>,
     sink: &MessageSink,
 ) {
     use orka_core::types::{Envelope, EventPayload, MessageId, Payload};

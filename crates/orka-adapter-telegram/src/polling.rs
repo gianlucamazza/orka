@@ -28,10 +28,11 @@ use crate::{
 /// 1. In-memory map (hot path, zero-cost after the first lookup)
 /// 2. Persistent memory store (survives restarts)
 /// 3. Generate a new ID and persist it
+#[allow(clippy::implicit_hasher)]
 pub async fn resolve_session(
     chat_id: i64,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
-    memory: &Option<Arc<dyn MemoryStore>>,
+    memory: Option<&Arc<dyn MemoryStore>>,
 ) -> SessionId {
     // Fast path: already in memory
     if let Some(sid) = sessions.lock().await.get(&chat_id).copied() {
@@ -104,7 +105,7 @@ pub(crate) async fn run_polling_loop(
                 error_count = 0;
                 for update in updates {
                     offset = update.update_id + 1;
-                    handle_update(&api, update, &sessions, &memory, &sink, &auth_guard).await;
+                    handle_update(&api, update, &sessions, memory.as_ref(), &sink, &auth_guard).await;
                 }
             }
             Err(e) => {
@@ -120,7 +121,7 @@ async fn handle_update(
     api: &Arc<TelegramApi>,
     update: Update,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
-    memory: &Option<Arc<dyn MemoryStore>>,
+    memory: Option<&Arc<dyn MemoryStore>>,
     sink: &MessageSink,
     auth_guard: &TelegramAuthGuard,
 ) {
@@ -156,7 +157,7 @@ pub(crate) async fn process_message(
     api: &Arc<TelegramApi>,
     msg: TelegramMessage,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
-    memory: &Option<Arc<dyn MemoryStore>>,
+    memory: Option<&Arc<dyn MemoryStore>>,
     sink: &MessageSink,
     is_edited: bool,
 ) {
@@ -283,7 +284,7 @@ async fn process_callback_query(
     api: &Arc<TelegramApi>,
     cq: CallbackQuery,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
-    memory: &Option<Arc<dyn MemoryStore>>,
+    memory: Option<&Arc<dyn MemoryStore>>,
     sink: &MessageSink,
 ) {
     let chat_id = cq.message.as_ref().map(|m| m.chat.id);

@@ -18,9 +18,9 @@ fn channel_id_returns_telegram() {
 async fn session_map_consistency() {
     let sessions: Arc<Mutex<HashMap<i64, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));
 
-    let sid1 = orka_adapter_telegram::polling::resolve_session(12345, &sessions, &None).await;
-    let sid2 = orka_adapter_telegram::polling::resolve_session(12345, &sessions, &None).await;
-    let sid3 = orka_adapter_telegram::polling::resolve_session(99999, &sessions, &None).await;
+    let sid1 = orka_adapter_telegram::polling::resolve_session(12345, &sessions, None).await;
+    let sid2 = orka_adapter_telegram::polling::resolve_session(12345, &sessions, None).await;
+    let sid3 = orka_adapter_telegram::polling::resolve_session(99999, &sessions, None).await;
 
     assert_eq!(sid1, sid2, "same chat_id must produce same SessionId");
     assert_ne!(

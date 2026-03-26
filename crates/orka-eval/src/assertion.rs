@@ -58,7 +58,11 @@ pub fn check_all(
                 checks.push(AssertionResult::pass("is_ok"));
             }
             (true, false) => {
-                let err = result.as_ref().unwrap_err().to_string();
+                let err = result
+                    .as_ref()
+                    .err()
+                    .map(|e| e.to_string())
+                    .unwrap_or_default();
                 checks.push(AssertionResult::fail(
                     "is_ok",
                     format!("expected Ok, got Err: {err}"),
@@ -89,13 +93,13 @@ pub fn check_all(
 
         if let Some(not_contains) = &expected.not_contains {
             for needle in not_contains {
-                if !output_str.contains(needle.as_str()) {
-                    checks.push(AssertionResult::pass(format!("not_contains {needle:?}")));
-                } else {
+                if output_str.contains(needle.as_str()) {
                     checks.push(AssertionResult::fail(
                         format!("not_contains {needle:?}"),
                         format!("found in: {}", truncate(&output_str, 200)),
                     ));
+                } else {
+                    checks.push(AssertionResult::pass(format!("not_contains {needle:?}")));
                 }
             }
         }
@@ -160,5 +164,9 @@ pub fn check_all(
 }
 
 fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max { s } else { &s[..max] }
+    if s.len() <= max {
+        s
+    } else {
+        &s[..max]
+    }
 }

@@ -188,6 +188,7 @@ async fn handle_event(
 }
 
 #[async_trait]
+#[allow(clippy::unnecessary_literal_bound, clippy::too_many_lines)]
 impl ChannelAdapter for SlackAdapter {
     fn channel_id(&self) -> &str {
         "slack"
@@ -247,7 +248,7 @@ impl ChannelAdapter for SlackAdapter {
                         }
                     }
                 }
-                _ = async {
+                () = async {
                     let _ = shutdown_rx.await;
                 } => {
                     info!("Slack adapter shutting down");

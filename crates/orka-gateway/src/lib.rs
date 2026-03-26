@@ -35,7 +35,7 @@ pub struct Gateway {
     redis_pool: Option<Pool>,
     rate_limit: u32,
     dedup_ttl_secs: u64,
-    /// Tracks (count, window_start) per session for rate limiting
+    /// Tracks (count, `window_start`) per session for rate limiting
     rate_counters: Mutex<HashMap<String, (u32, chrono::DateTime<Utc>)>>,
 }
 
@@ -77,21 +77,18 @@ impl Gateway {
 
         loop {
             tokio::select! {
-                _ = shutdown.cancelled() => {
+                () = shutdown.cancelled() => {
                     info!("gateway shutting down");
                     break;
                 }
                 msg = rx.recv() => {
-                    match msg {
-                        Some(envelope) => {
-                            if let Err(e) = self.process(envelope).await {
-                                error!(%e, "gateway: failed to process envelope");
-                            }
+                    if let Some(envelope) = msg {
+                        if let Err(e) = self.process(envelope).await {
+                            error!(%e, "gateway: failed to process envelope");
                         }
-                        None => {
-                            warn!("gateway: inbound stream closed");
-                            break;
-                        }
+                    } else {
+                        warn!("gateway: inbound stream closed");
+                        break;
                     }
                 }
             }
@@ -100,9 +97,8 @@ impl Gateway {
     }
 
     async fn is_duplicate(&self, message_id: &orka_core::MessageId) -> bool {
-        let pool = match &self.redis_pool {
-            Some(p) => p,
-            None => return false,
+        let Some(pool) = &self.redis_pool else {
+            return false;
         };
         let mut conn = match pool.get().await {
             Ok(c) => c,
@@ -160,7 +156,7 @@ impl Gateway {
                                     warn!(error = %e, %key, "rate_limit: failed to set EXPIRE, key may persist");
                                 }
                             }
-                            return count <= self.rate_limit as i64;
+                            return count <= i64::from(self.rate_limit);
                         }
                         Err(e) => {
                             warn!(error = %e, "rate_limit: Redis INCR error, falling back to in-memory");
@@ -201,7 +197,7 @@ impl Gateway {
     }
 
     /// Resolve priority based on chat type: DMs get Urgent, groups get Normal.
-    async fn resolve_priority(&self, envelope: &Envelope) -> orka_core::Priority {
+    fn resolve_priority(envelope: &Envelope) -> orka_core::Priority {
         match envelope.metadata.get("chat_type").and_then(|v| v.as_str()) {
             Some("direct") => orka_core::Priority::Urgent,
             Some("group") => orka_core::Priority::Normal,
@@ -239,7 +235,7 @@ impl Gateway {
         }
 
         // Workspace routing: resolve priority
-        envelope.priority = self.resolve_priority(&envelope).await;
+        envelope.priority = Gateway::resolve_priority(&envelope);
 
         // Emit MessageReceived
         self.event_sink
@@ -251,26 +247,25 @@ impl Gateway {
             .await;
 
         // Session resolution: get or create
-        let session = match self.sessions.get(&envelope.session_id).await? {
-            Some(s) => s,
-            None => {
-                let mut s = Session::new(envelope.channel.clone(), resolve_user_id(&envelope));
-                s.id = envelope.session_id;
-                s.created_at = envelope.timestamp;
-                s.updated_at = envelope.timestamp;
-                self.sessions.put(&s).await?;
-                info!(session_id = %s.id, "gateway: created new session");
+        let session = if let Some(s) = self.sessions.get(&envelope.session_id).await? {
+            s
+        } else {
+            let mut s = Session::new(envelope.channel.clone(), resolve_user_id(&envelope));
+            s.id = envelope.session_id;
+            s.created_at = envelope.timestamp;
+            s.updated_at = envelope.timestamp;
+            self.sessions.put(&s).await?;
+            info!(session_id = %s.id, "gateway: created new session");
 
-                // Emit SessionCreated
-                self.event_sink
-                    .emit(DomainEvent::new(DomainEventKind::SessionCreated {
-                        session_id: s.id,
-                        channel: s.channel.clone(),
-                    }))
-                    .await;
+            // Emit SessionCreated
+            self.event_sink
+                .emit(DomainEvent::new(DomainEventKind::SessionCreated {
+                    session_id: s.id,
+                    channel: s.channel.clone(),
+                }))
+                .await;
 
-                s
-            }
+            s
         };
 
         // Enqueue

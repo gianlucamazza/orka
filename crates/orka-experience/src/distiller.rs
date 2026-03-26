@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Write as _, sync::Arc};
 
 use chrono::Utc;
 use orka_core::Result;
@@ -41,6 +41,7 @@ impl Distiller {
     }
 
     /// Set the template registry for prompt rendering.
+    #[must_use]
     pub fn with_templates(mut self, templates: Arc<TemplateRegistry>) -> Self {
         self.templates = Some(templates);
         self
@@ -105,24 +106,30 @@ fn build_distillation_prompt(trajectories: &[Trajectory]) -> String {
 
     let mut prompt = String::new();
     prompt.push_str("## Trajectory Batch\n\n");
-    prompt.push_str(&format!(
+    write!(
+        prompt,
         "Total: {} interactions ({} successful, {} failed)\n\n",
         trajectories.len(),
         success_count,
         failure_count
-    ));
+    )
+    .unwrap_or(());
 
     for (i, t) in trajectories.iter().enumerate() {
-        prompt.push_str(&format!(
+        write!(
+            prompt,
             "### Trajectory {} — {}\n",
             i + 1,
             if t.success { "SUCCESS" } else { "FAILURE" }
-        ));
-        prompt.push_str(&format!("- Workspace: {}\n", t.workspace));
-        prompt.push_str(&format!(
+        )
+        .unwrap_or(());
+        write!(prompt, "- Workspace: {}\n", t.workspace).unwrap_or(());
+        write!(
+            prompt,
             "- Iterations: {}, Tokens: {}, Duration: {}ms\n",
             t.iterations, t.total_tokens, t.duration_ms
-        ));
+        )
+        .unwrap_or(());
 
         // Truncate long messages
         let msg = if t.user_message.len() > 200 {
@@ -130,7 +137,7 @@ fn build_distillation_prompt(trajectories: &[Trajectory]) -> String {
         } else {
             t.user_message.clone()
         };
-        prompt.push_str(&format!("- User: {}\n", msg));
+        write!(prompt, "- User: {msg}\n").unwrap_or(());
 
         if !t.skills_used.is_empty() {
             let skills: Vec<String> = t
@@ -138,11 +145,11 @@ fn build_distillation_prompt(trajectories: &[Trajectory]) -> String {
                 .iter()
                 .map(|s| format!("{}({})", s.name, if s.success { "ok" } else { "fail" }))
                 .collect();
-            prompt.push_str(&format!("- Skills: {}\n", skills.join(", ")));
+            write!(prompt, "- Skills: {}\n", skills.join(", ")).unwrap_or(());
         }
 
         if !t.errors.is_empty() {
-            prompt.push_str(&format!("- Errors: {}\n", t.errors.join("; ")));
+            write!(prompt, "- Errors: {}\n", t.errors.join("; ")).unwrap_or(());
         }
 
         prompt.push('\n');

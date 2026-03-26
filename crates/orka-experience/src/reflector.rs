@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Write as _, sync::Arc};
 
 use chrono::Utc;
 use orka_core::Result;
@@ -38,6 +38,7 @@ impl PrincipleReflector {
     }
 
     /// Set the template registry for prompt rendering.
+    #[must_use]
     pub fn with_templates(mut self, templates: Arc<TemplateRegistry>) -> Self {
         self.templates = Some(templates);
         self
@@ -66,7 +67,7 @@ impl PrincipleReflector {
         trajectory: &Trajectory,
         workspace: &str,
     ) -> Result<Vec<Principle>> {
-        let user_prompt = self.build_reflection_prompt(trajectory);
+        let user_prompt = Self::build_reflection_prompt(trajectory);
 
         let messages = vec![ChatMessage::user(user_prompt)];
 
@@ -92,7 +93,7 @@ impl PrincipleReflector {
         Ok(principles)
     }
 
-    fn build_reflection_prompt(&self, trajectory: &Trajectory) -> String {
+    fn build_reflection_prompt(trajectory: &Trajectory) -> String {
         let mut prompt = String::new();
         prompt.push_str("## Interaction Trajectory\n\n");
         prompt.push_str(&format!(

@@ -68,6 +68,7 @@ struct ResumeState {
 }
 
 #[async_trait]
+#[allow(clippy::unnecessary_literal_bound, clippy::too_many_lines)]
 impl ChannelAdapter for DiscordAdapter {
     fn channel_id(&self) -> &str {
         "discord"
@@ -123,8 +124,7 @@ impl ChannelAdapter for DiscordAdapter {
                 let ws_url = resume
                     .resume_gateway_url
                     .as_ref()
-                    .map(|u| format!("{u}/?v=10&encoding=json"))
-                    .unwrap_or_else(|| initial_ws_url.clone());
+                    .map_or_else(|| initial_ws_url.clone(), |u| format!("{u}/?v=10&encoding=json"));
 
                 let ws_stream = match tokio_tungstenite::connect_async(&ws_url).await {
                     Ok((stream, _)) => stream,
@@ -317,7 +317,7 @@ impl ChannelAdapter for DiscordAdapter {
                                         }
                                         9 => {
                                             // Invalid Session
-                                            let resumable = event.d.as_ref().and_then(|d| d.as_bool()).unwrap_or(false);
+                                            let resumable = event.d.as_ref().and_then(serde_json::Value::as_bool).unwrap_or(false);
                                             warn!(resumable, "Discord Invalid Session (op 9)");
                                             if !resumable {
                                                 resume.session_id = None;
@@ -328,7 +328,7 @@ impl ChannelAdapter for DiscordAdapter {
                                             reconnect_count = reconnect_count.saturating_add(1);
                                             continue 'reconnect;
                                         }
-                                        11 => {} // Heartbeat ACK
+                                        // 11: Heartbeat ACK — no action needed
                                         _ => {}
                                     }
                                 }
@@ -448,12 +448,11 @@ impl ChannelAdapter for DiscordAdapter {
     }
 
     async fn register_commands(&self, commands: &[(&str, &str)]) -> Result<()> {
-        let app_id = match &self.application_id {
-            Some(id) => id.clone(),
-            None => {
-                warn!("Discord register_commands: application_id not configured, skipping");
-                return Ok(());
-            }
+        let app_id = if let Some(id) = &self.application_id {
+            id.clone()
+        } else {
+            warn!("Discord register_commands: application_id not configured, skipping");
+            return Ok(());
         };
 
         let cmds: Vec<serde_json::Value> = commands

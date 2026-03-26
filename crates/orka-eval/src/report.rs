@@ -45,7 +45,7 @@ impl EvalReport {
         }
 
         let mut skills: Vec<&str> = by_skill.keys().copied().collect();
-        skills.sort();
+        skills.sort_unstable();
 
         for skill in skills {
             println!("\n{skill}");

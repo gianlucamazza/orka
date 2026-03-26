@@ -2,12 +2,15 @@
 //!
 //! Telegram supports a strict subset of HTML: `<b>`, `<i>`, `<s>`, `<u>`,
 //! `<code>`, `<pre>`, `<a href>`, and `<blockquote>`.
-//! This module converts standard CommonMark (+ strikethrough) to that subset
+//! This module converts standard `CommonMark` (+ strikethrough) to that subset
 //! and handles the 4096-character message length limit via `split_html`.
+
+use std::fmt::Write as _;
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
-/// Convert CommonMark `input` to Telegram-compatible HTML.
+/// Convert `CommonMark` `input` to Telegram-compatible HTML.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn md_to_telegram_html(input: &str) -> String {
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_STRIKETHROUGH);
@@ -23,12 +26,7 @@ pub(crate) fn md_to_telegram_html(input: &str) -> String {
     for event in parser {
         match event {
             // ── Block-level open ──────────────────────────────────────────
-            Event::Start(Tag::Paragraph) => {}
-            Event::End(TagEnd::Paragraph) => {
-                out.push('\n');
-            }
-
-            Event::Start(Tag::Heading { .. }) => {
+            Event::Start(Tag::Heading { .. } | Tag::Strong) => {
                 out.push_str("<b>");
                 tag_stack.push("b");
             }
@@ -74,22 +72,15 @@ pub(crate) fn md_to_telegram_html(input: &str) -> String {
                 let indent = "  ".repeat(depth);
                 if let Some((ordered, counter)) = list_stack.last_mut() {
                     if *ordered {
-                        out.push_str(&format!("{indent}{}. ", counter));
+                        let _ = write!(out, "{indent}{counter}. ");
                         *counter += 1;
                     } else {
-                        out.push_str(&format!("{indent}- "));
+                        let _ = write!(out, "{indent}- ");
                     }
                 }
             }
-            Event::End(TagEnd::Item) => {
-                out.push('\n');
-            }
 
             // ── Inline open ───────────────────────────────────────────────
-            Event::Start(Tag::Strong) => {
-                out.push_str("<b>");
-                tag_stack.push("b");
-            }
             Event::End(TagEnd::Strong) => {
                 if tag_stack.last() == Some(&"b") {
                     tag_stack.pop();
@@ -130,13 +121,6 @@ pub(crate) fn md_to_telegram_html(input: &str) -> String {
                 out.push_str("\">");
                 tag_stack.push("a");
             }
-            Event::End(TagEnd::Link) => {
-                if tag_stack.last() == Some(&"a") {
-                    tag_stack.pop();
-                }
-                out.push_str("</a>");
-            }
-
             Event::Start(Tag::Image {
                 dest_url,
                 title: _,
@@ -149,7 +133,7 @@ pub(crate) fn md_to_telegram_html(input: &str) -> String {
                 out.push_str("\">");
                 tag_stack.push("a");
             }
-            Event::End(TagEnd::Image) => {
+            Event::End(TagEnd::Link | TagEnd::Image) => {
                 if tag_stack.last() == Some(&"a") {
                     tag_stack.pop();
                 }
@@ -167,10 +151,7 @@ pub(crate) fn md_to_telegram_html(input: &str) -> String {
                 out.push_str(&escape_html(&text));
             }
 
-            Event::SoftBreak => {
-                out.push('\n');
-            }
-            Event::HardBreak => {
+            Event::End(TagEnd::Paragraph | TagEnd::Item) | Event::SoftBreak | Event::HardBreak => {
                 out.push('\n');
             }
 
@@ -231,8 +212,7 @@ pub(crate) fn split_html(html: &str, max_len: usize) -> Vec<String> {
                 .iter()
                 .rev()
                 .map(|t| close_tag(t))
-                .collect::<Vec<_>>()
-                .join("");
+                .collect::<String>();
             chunks.push(format!("{current}{closing}"));
 
             // Re-open the same tags in the next chunk
@@ -254,8 +234,7 @@ pub(crate) fn split_html(html: &str, max_len: usize) -> Vec<String> {
             .iter()
             .rev()
             .map(|t| close_tag(t))
-            .collect::<Vec<_>>()
-            .join("");
+            .collect::<String>();
         // Only append closing if there are actually open tags (avoids trailing noise)
         if closing.is_empty() {
             chunks.push(current);
@@ -288,7 +267,7 @@ fn update_open_tags(stack: &mut Vec<String>, line: &str) {
                     }
                 } else if !tag_content.ends_with('/') {
                     // Opening tag
-                    let full_tag = format!("<{}>", tag_content);
+                    let full_tag = format!("<{tag_content}>");
                     stack.push(full_tag);
                 }
                 pos += end + 1;

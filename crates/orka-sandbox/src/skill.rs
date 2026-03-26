@@ -20,6 +20,7 @@ impl SandboxSkill {
 }
 
 #[async_trait]
+#[allow(clippy::unnecessary_literal_bound)]
 impl Skill for SandboxSkill {
     fn name(&self) -> &str {
         "sandbox"
@@ -97,7 +98,7 @@ impl Skill for SandboxSkill {
         };
 
         let mut limits = SandboxLimits::default();
-        if let Some(timeout) = input.args.get("timeout_secs").and_then(|v| v.as_u64()) {
+        if let Some(timeout) = input.args.get("timeout_secs").and_then(serde_json::Value::as_u64) {
             limits.timeout = std::time::Duration::from_secs(timeout);
         }
 
@@ -146,9 +147,6 @@ impl Skill for SandboxSkill {
 }
 
 fn base64_decode(input: &str) -> std::result::Result<Vec<u8>, String> {
-    let cleaned: String = input.chars().filter(|c| !c.is_whitespace()).collect();
-    let mut out = Vec::with_capacity(cleaned.len() * 3 / 4);
-
     fn val(c: u8) -> std::result::Result<u8, String> {
         match c {
             b'A'..=b'Z' => Ok(c - b'A'),
@@ -160,31 +158,34 @@ fn base64_decode(input: &str) -> std::result::Result<Vec<u8>, String> {
         }
     }
 
+    let cleaned: String = input.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut out = Vec::with_capacity(cleaned.len() * 3 / 4);
+
     let bytes = cleaned.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes.len() - i < 4 {
+    let mut pos = 0;
+    while pos < bytes.len() {
+        if bytes.len() - pos < 4 {
             return Err("invalid base64 length".into());
         }
 
-        let chunk = &bytes[i..i + 4];
-        let (a, b) = (val(chunk[0])?, val(chunk[1])?);
+        let chunk = &bytes[pos..pos + 4];
+        let (b0, b1) = (val(chunk[0])?, val(chunk[1])?);
 
         if chunk[2] == b'=' {
-            out.push((a << 2) | (b >> 4));
+            out.push((b0 << 2) | (b1 >> 4));
         } else if chunk[3] == b'=' {
-            let c = val(chunk[2])?;
-            out.push((a << 2) | (b >> 4));
-            out.push(((b & 0xf) << 4) | (c >> 2));
+            let b2 = val(chunk[2])?;
+            out.push((b0 << 2) | (b1 >> 4));
+            out.push(((b1 & 0xf) << 4) | (b2 >> 2));
         } else {
-            let c = val(chunk[2])?;
-            let d = val(chunk[3])?;
-            out.push((a << 2) | (b >> 4));
-            out.push(((b & 0xf) << 4) | (c >> 2));
-            out.push(((c & 0x3) << 6) | d);
+            let b2 = val(chunk[2])?;
+            let b3 = val(chunk[3])?;
+            out.push((b0 << 2) | (b1 >> 4));
+            out.push(((b1 & 0xf) << 4) | (b2 >> 2));
+            out.push(((b2 & 0x3) << 6) | b3);
         }
 
-        i += 4;
+        pos += 4;
     }
 
     Ok(out)

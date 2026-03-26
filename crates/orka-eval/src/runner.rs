@@ -26,6 +26,7 @@ impl EvalRunner {
     }
 
     /// Attach an LLM judge to evaluate semantic quality criteria.
+    #[must_use]
     pub fn with_judge(mut self, judge: LlmJudge) -> Self {
         self.judge = Some(judge);
         self
@@ -125,7 +126,7 @@ impl EvalRunner {
         }
 
         let passed = assertions.iter().all(|a| a.passed);
-        let error = invoke_result.as_ref().err().map(|e| e.to_string());
+        let error = invoke_result.as_ref().err().map(ToString::to_string);
 
         ScenarioResult {
             skill: skill_name.to_string(),

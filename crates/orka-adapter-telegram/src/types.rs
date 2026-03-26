@@ -22,6 +22,7 @@ pub(crate) struct ResponseParameters {
     pub retry_after: Option<u64>,
 }
 
+#[allow(clippy::struct_field_names)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct Update {
     pub update_id: i64,

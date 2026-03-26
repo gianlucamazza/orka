@@ -33,11 +33,10 @@ pub(crate) async fn resolve_inbound_media(
     msg: &TelegramMessage,
 ) -> Option<MediaPayload> {
     // Photo: pick the largest size (last element).
-    if !msg.photo.is_empty() {
-        let largest = msg.photo.last().unwrap();
+    if let Some(largest) = msg.photo.last() {
         let url = api.get_file_url(&largest.file_id).await.ok()?;
         let mut mp = MediaPayload::new("image/jpeg", url);
-        mp.caption = msg.caption.clone();
+        mp.caption.clone_from(&msg.caption);
         mp.size_bytes = largest.file_size;
         return Some(mp);
     }
@@ -49,7 +48,7 @@ pub(crate) async fn resolve_inbound_media(
             .clone()
             .unwrap_or_else(|| "application/octet-stream".into());
         let mut mp = MediaPayload::new(mime, url);
-        mp.caption = msg.caption.clone();
+        mp.caption.clone_from(&msg.caption);
         mp.size_bytes = doc.file_size;
         return Some(mp);
     }
@@ -61,7 +60,7 @@ pub(crate) async fn resolve_inbound_media(
             .clone()
             .unwrap_or_else(|| "audio/mpeg".into());
         let mut mp = MediaPayload::new(mime, url);
-        mp.caption = msg.caption.clone();
+        mp.caption.clone_from(&msg.caption);
         mp.size_bytes = audio.file_size;
         return Some(mp);
     }
@@ -73,7 +72,7 @@ pub(crate) async fn resolve_inbound_media(
             .clone()
             .unwrap_or_else(|| "video/mp4".into());
         let mut mp = MediaPayload::new(mime, url);
-        mp.caption = msg.caption.clone();
+        mp.caption.clone_from(&msg.caption);
         mp.size_bytes = video.file_size;
         return Some(mp);
     }
