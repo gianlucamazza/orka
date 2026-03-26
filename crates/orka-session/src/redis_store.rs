@@ -94,19 +94,29 @@ impl SessionStore for RedisSessionStore {
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
 
-        let keys: Vec<String> = redis::cmd("SCAN")
-            .arg(0i64)
-            .arg("MATCH")
-            .arg("orka:session:*")
-            .arg("COUNT")
-            .arg(limit.max(100) as i64)
-            .query_async(&mut *conn)
-            .await
-            .map(|(_cursor, keys): (i64, Vec<String>)| keys)
-            .unwrap_or_default();
+        // Iterate SCAN until cursor returns to 0, collecting up to `limit` keys.
+        let mut cursor: i64 = 0;
+        let mut keys: Vec<String> = Vec::new();
+        loop {
+            let (next_cursor, batch): (i64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg("orka:session:*")
+                .arg("COUNT")
+                .arg(100i64)
+                .query_async(&mut *conn)
+                .await
+                .map_err(|e| Error::bus(format!("redis SCAN error: {e}")))?;
+            keys.extend(batch);
+            cursor = next_cursor;
+            if cursor == 0 || keys.len() >= limit {
+                break;
+            }
+        }
+        keys.truncate(limit);
 
-        let mut sessions = Vec::new();
-        for key in keys.iter().take(limit) {
+        let mut sessions = Vec::with_capacity(keys.len());
+        for key in &keys {
             let value: Option<String> = conn
                 .get(key)
                 .await
