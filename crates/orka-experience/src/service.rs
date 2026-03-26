@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use std::fmt::Write as _;
+
 use orka_core::{ErrorCategory, Result, config::ExperienceConfig};
 use orka_llm::client::LlmClient;
 use orka_prompts::template::TemplateRegistry;
@@ -64,6 +66,7 @@ impl ExperienceService {
     }
 
     /// Set the template registry for prompt rendering.
+    #[must_use]
     pub fn with_templates(mut self, templates: Arc<TemplateRegistry>) -> Self {
         self.templates = Some(Arc::clone(&templates));
         self.reflector = self.reflector.with_templates(templates.clone());
@@ -110,11 +113,14 @@ impl ExperienceService {
     /// This synchronous version uses the default formatting.
     /// For template-based formatting, use [`Self::format_principles`].
     pub fn format_principles_section(principles: &[Principle]) -> String {
+        use orka_prompts::defaults::{
+            PRINCIPLE_PREFIX_AVOID, PRINCIPLE_PREFIX_DO, PRINCIPLES_SECTION_HEADER,
+            SECTION_SEPARATOR,
+        };
+
         if principles.is_empty() {
             return String::new();
         }
-
-        use orka_prompts::defaults::*;
 
         let mut section = String::from(SECTION_SEPARATOR);
         section.push_str(PRINCIPLES_SECTION_HEADER);
@@ -128,7 +134,7 @@ impl ExperienceService {
                 PrincipleKind::Do => PRINCIPLE_PREFIX_DO,
                 PrincipleKind::Avoid => PRINCIPLE_PREFIX_AVOID,
             };
-            section.push_str(&format!("{}. [{}] {}\n", i + 1, prefix, p.text));
+            writeln!(section, "{}. [{}] {}", i + 1, prefix, p.text).unwrap_or(());
         }
 
         section
@@ -290,12 +296,12 @@ impl ExperienceService {
             "all" => true,
             "failures" => !trajectory.success,
             "sampled" => {
-                if !trajectory.success {
-                    // Always reflect on failures
-                    true
-                } else {
+                if trajectory.success {
                     let sample: f64 = rand::rng().random();
                     sample < self.config.sample_rate
+                } else {
+                    // Always reflect on failures
+                    true
                 }
             }
             other => {

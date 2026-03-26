@@ -23,7 +23,7 @@ pub mod service;
 pub mod store;
 /// Trajectory persistence for offline distillation.
 pub mod trajectory_store;
-/// Core types: Trajectory, Principle, SkillTrace, OutcomeSignal.
+/// Core types: Trajectory, Principle, `SkillTrace`, `OutcomeSignal`.
 pub mod types;
 pub(crate) mod utils;
 

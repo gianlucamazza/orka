@@ -61,7 +61,7 @@ pub fn check_all(
                 let err = result
                     .as_ref()
                     .err()
-                    .map(|e| e.to_string())
+                    .map(std::string::ToString::to_string)
                     .unwrap_or_default();
                 checks.push(AssertionResult::fail(
                     "is_ok",
@@ -164,9 +164,5 @@ pub fn check_all(
 }
 
 fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        s
-    } else {
-        &s[..max]
-    }
+    if s.len() <= max { s } else { &s[..max] }
 }

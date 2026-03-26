@@ -14,11 +14,11 @@ struct StrictSkill;
 
 #[async_trait]
 impl Skill for StrictSkill {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "strict"
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Skill with strict schema"
     }
 

@@ -29,7 +29,7 @@ fn payload(pairs: &[(&str, &str)]) -> HashMap<String, String> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a running Qdrant container"]
 async fn ensure_collection_idempotent() {
     let (store, _c) = setup_qdrant().await;
     store.ensure_collection("test_col", 4).await.unwrap();
@@ -37,7 +37,7 @@ async fn ensure_collection_idempotent() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a running Qdrant container"]
 async fn upsert_and_search_basic() {
     let (store, _c) = setup_qdrant().await;
     store.ensure_collection("test_col", 4).await.unwrap();
@@ -63,7 +63,7 @@ async fn upsert_and_search_basic() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a running Qdrant container"]
 async fn search_with_filter() {
     let (store, _c) = setup_qdrant().await;
     store.ensure_collection("test_col", 4).await.unwrap();
@@ -106,7 +106,7 @@ async fn search_with_filter() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a running Qdrant container"]
 async fn search_score_threshold() {
     let (store, _c) = setup_qdrant().await;
     store.ensure_collection("test_col", 4).await.unwrap();
@@ -132,7 +132,7 @@ async fn search_score_threshold() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a running Qdrant container"]
 async fn list_documents_basic() {
     let (store, _c) = setup_qdrant().await;
     store.ensure_collection("test_col", 4).await.unwrap();
@@ -153,7 +153,7 @@ async fn list_documents_basic() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a running Qdrant container"]
 async fn list_documents_with_filter() {
     let (store, _c) = setup_qdrant().await;
     store.ensure_collection("test_col", 4).await.unwrap();

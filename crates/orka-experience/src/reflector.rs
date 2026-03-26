@@ -82,7 +82,7 @@ impl PrincipleReflector {
             .complete_with_options(messages, &system_prompt, options)
             .await?;
 
-        let principles = self.parse_principles(&response, workspace);
+        let principles = Self::parse_principles(&response, workspace);
 
         debug!(
             trajectory_id = %trajectory.id,
@@ -96,16 +96,20 @@ impl PrincipleReflector {
     fn build_reflection_prompt(trajectory: &Trajectory) -> String {
         let mut prompt = String::new();
         prompt.push_str("## Interaction Trajectory\n\n");
-        write!(
+        writeln!(
             prompt,
-            "- **Outcome**: {}\n",
-            if trajectory.success { "SUCCESS" } else { "FAILURE" }
+            "- **Outcome**: {}",
+            if trajectory.success {
+                "SUCCESS"
+            } else {
+                "FAILURE"
+            }
         )
         .unwrap_or(());
-        write!(prompt, "- **Iterations**: {}\n", trajectory.iterations).unwrap_or(());
-        write!(prompt, "- **Tokens**: {}\n", trajectory.total_tokens).unwrap_or(());
-        write!(prompt, "- **Duration**: {}ms\n", trajectory.duration_ms).unwrap_or(());
-        write!(prompt, "- **Workspace**: {}\n\n", trajectory.workspace).unwrap_or(());
+        writeln!(prompt, "- **Iterations**: {}", trajectory.iterations).unwrap_or(());
+        writeln!(prompt, "- **Tokens**: {}", trajectory.total_tokens).unwrap_or(());
+        writeln!(prompt, "- **Duration**: {}ms", trajectory.duration_ms).unwrap_or(());
+        writeln!(prompt, "- **Workspace**: {}\n", trajectory.workspace).unwrap_or(());
 
         prompt.push_str("### User Message\n");
         // Truncate very long messages
@@ -137,7 +141,7 @@ impl PrincipleReflector {
         if !trajectory.errors.is_empty() {
             prompt.push_str("### Errors\n");
             for err in &trajectory.errors {
-                write!(prompt, "- {err}\n").unwrap_or(());
+                writeln!(prompt, "- {err}").unwrap_or(());
             }
             prompt.push('\n');
         }
@@ -156,7 +160,7 @@ impl PrincipleReflector {
         prompt
     }
 
-    fn parse_principles(&self, response: &str, workspace: &str) -> Vec<Principle> {
+    fn parse_principles(response: &str, workspace: &str) -> Vec<Principle> {
         // Extract JSON array from the response (may be wrapped in markdown code blocks)
         let json_str = extract_json_array(response);
 
@@ -199,9 +203,8 @@ mod tests {
 
     #[test]
     fn parse_principles_valid() {
-        let reflector = PrincipleReflector::new(Arc::new(MockLlm), None, 1024);
         let response = r#"[{"text": "Use web_search for current info", "kind": "do"}, {"text": "Avoid long queries", "kind": "avoid"}]"#;
-        let principles = reflector.parse_principles(response, "default");
+        let principles = PrincipleReflector::parse_principles(response, "default");
         assert_eq!(principles.len(), 2);
         assert_eq!(principles[0].kind, PrincipleKind::Do);
         assert_eq!(principles[1].kind, PrincipleKind::Avoid);
@@ -209,14 +212,12 @@ mod tests {
 
     #[test]
     fn parse_principles_empty_array() {
-        let reflector = PrincipleReflector::new(Arc::new(MockLlm), None, 1024);
-        let principles = reflector.parse_principles("[]", "default");
+        let principles = PrincipleReflector::parse_principles("[]", "default");
         assert!(principles.is_empty());
     }
 
     #[test]
     fn build_reflection_prompt_success_trajectory() {
-        let reflector = PrincipleReflector::new(Arc::new(MockLlm), None, 1024);
         let trajectory = crate::types::Trajectory {
             id: "t1".into(),
             session_id: "s1".into(),
@@ -231,15 +232,14 @@ mod tests {
             duration_ms: 2000,
             errors: vec![],
         };
-        let prompt = reflector.build_reflection_prompt(&trajectory);
+        let prompt = PrincipleReflector::build_reflection_prompt(&trajectory);
         assert!(prompt.contains("SUCCESS"));
-        assert!(prompt.contains("3")); // iterations
+        assert!(prompt.contains('3')); // iterations
         assert!(prompt.contains("800")); // tokens
     }
 
     #[test]
     fn build_reflection_prompt_truncates_long_message() {
-        let reflector = PrincipleReflector::new(Arc::new(MockLlm), None, 1024);
         let long_msg = "x".repeat(600);
         let trajectory = crate::types::Trajectory {
             id: "t1".into(),
@@ -255,25 +255,23 @@ mod tests {
             duration_ms: 500,
             errors: vec![],
         };
-        let prompt = reflector.build_reflection_prompt(&trajectory);
+        let prompt = PrincipleReflector::build_reflection_prompt(&trajectory);
         // Should be truncated at 500 chars + "..."
         assert!(prompt.contains("..."));
     }
 
     #[test]
     fn parse_principles_filters_empty_text() {
-        let reflector = PrincipleReflector::new(Arc::new(MockLlm), None, 1024);
         let response =
             r#"[{"text": "", "kind": "do"}, {"text": "valid principle", "kind": "avoid"}]"#;
-        let principles = reflector.parse_principles(response, "default");
+        let principles = PrincipleReflector::parse_principles(response, "default");
         assert_eq!(principles.len(), 1);
         assert_eq!(principles[0].text, "valid principle");
     }
 
     #[test]
     fn parse_principles_invalid_json() {
-        let reflector = PrincipleReflector::new(Arc::new(MockLlm), None, 1024);
-        let principles = reflector.parse_principles("not json at all", "default");
+        let principles = PrincipleReflector::parse_principles("not json at all", "default");
         assert!(principles.is_empty());
     }
 

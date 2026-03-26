@@ -68,11 +68,7 @@ impl PrincipleStore {
             .await?;
 
         if let Some(hit) = similar.into_iter().next() {
-            let hit_scope = hit
-                .metadata
-                .get("scope")
-                .map(|s| s.as_str())
-                .unwrap_or("global");
+            let hit_scope = hit.metadata.get("scope").map_or("global", String::as_str);
             if hit_scope == principle.scope {
                 // Reinforce the existing principle
                 let existing_id = hit
@@ -176,7 +172,7 @@ impl PrincipleStore {
                 let payload = &r.metadata;
                 let id = payload.get("id")?.clone();
                 let text = payload.get("text")?.clone();
-                let kind = match payload.get("kind").map(|s| s.as_str()) {
+                let kind = match payload.get("kind").map(String::as_str) {
                     Some("avoid") => PrincipleKind::Avoid,
                     _ => PrincipleKind::Do,
                 };

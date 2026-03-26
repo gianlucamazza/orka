@@ -97,11 +97,7 @@ impl SoftSkillRegistry {
             }
         }
 
-        if any {
-            out
-        } else {
-            String::new()
-        }
+        if any { out } else { String::new() }
     }
 
     /// Build a compact selection prompt listing all skill summaries.

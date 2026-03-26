@@ -123,29 +123,28 @@ impl ResearchService {
     ) -> Result<orka_core::SkillOutput> {
         let mut ctx = self.skill_context(cwd, worktree_cwd);
 
-        if name == "coding_delegate" {
-            if let (Some(session_id), Some(registry)) =
+        if name == "coding_delegate"
+            && let (Some(session_id), Some(registry)) =
                 (stream_session_id, self.stream_registry.get().cloned())
-            {
-                let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
-                ctx = ctx.with_progress(tx);
-                // Use the service's event_sink if available, otherwise fall back to
-                // a no-op sink so forward_delegate_progress can still emit domain events.
-                let event_sink: std::sync::Arc<dyn orka_core::traits::EventSink> = self
-                    .event_sink
-                    .clone()
-                    .map(|s| s as std::sync::Arc<dyn orka_core::traits::EventSink>)
-                    .unwrap_or_else(|| std::sync::Arc::new(NoopEventSink));
-                tokio::spawn(orka_core::stream::forward_delegate_progress(
-                    rx,
-                    registry,
-                    event_sink,
-                    session_id,
-                    "research".to_string(),
-                    None,
-                    orka_core::MessageId::new(),
-                ));
-            }
+        {
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
+            ctx = ctx.with_progress(tx);
+            // Use the service's event_sink if available, otherwise fall back to
+            // a no-op sink so forward_delegate_progress can still emit domain events.
+            let event_sink: std::sync::Arc<dyn orka_core::traits::EventSink> =
+                self.event_sink.clone().map_or_else(
+                    || std::sync::Arc::new(NoopEventSink) as std::sync::Arc<_>,
+                    |sink| sink as std::sync::Arc<_>,
+                );
+            tokio::spawn(orka_core::stream::forward_delegate_progress(
+                rx,
+                registry,
+                event_sink,
+                session_id,
+                "research".to_string(),
+                None,
+                orka_core::MessageId::new(),
+            ));
         }
 
         self.registry()?

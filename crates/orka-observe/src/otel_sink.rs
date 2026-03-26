@@ -110,7 +110,10 @@ impl EventSink for OtelEventSink {
                     KeyValue::new("gen_ai.request.model", model.clone()),
                     KeyValue::new("gen_ai.usage.input_tokens", i64::from(*input_tokens)),
                     KeyValue::new("gen_ai.usage.output_tokens", i64::from(*output_tokens)),
-                    KeyValue::new("gen_ai.usage.reasoning_tokens", i64::from(*reasoning_tokens)),
+                    KeyValue::new(
+                        "gen_ai.usage.reasoning_tokens",
+                        i64::from(*reasoning_tokens),
+                    ),
                     KeyValue::new("gen_ai.tool.call.id", message_id.to_string()),
                     KeyValue::new("duration_ms", *duration_ms as i64),
                 ];

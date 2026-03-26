@@ -263,7 +263,7 @@ fn test_scenario_result_debug() {
     };
 
     // Just ensure Debug impl works
-    let debug_str = format!("{:?}", result);
+    let debug_str = format!("{result:?}");
     assert!(debug_str.contains("test_skill"));
     assert!(debug_str.contains("test_scenario"));
 }

@@ -116,17 +116,17 @@ fn build_distillation_prompt(trajectories: &[Trajectory]) -> String {
     .unwrap_or(());
 
     for (i, t) in trajectories.iter().enumerate() {
-        write!(
+        writeln!(
             prompt,
-            "### Trajectory {} — {}\n",
+            "### Trajectory {} — {}",
             i + 1,
             if t.success { "SUCCESS" } else { "FAILURE" }
         )
         .unwrap_or(());
-        write!(prompt, "- Workspace: {}\n", t.workspace).unwrap_or(());
-        write!(
+        writeln!(prompt, "- Workspace: {}", t.workspace).unwrap_or(());
+        writeln!(
             prompt,
-            "- Iterations: {}, Tokens: {}, Duration: {}ms\n",
+            "- Iterations: {}, Tokens: {}, Duration: {}ms",
             t.iterations, t.total_tokens, t.duration_ms
         )
         .unwrap_or(());
@@ -137,7 +137,7 @@ fn build_distillation_prompt(trajectories: &[Trajectory]) -> String {
         } else {
             t.user_message.clone()
         };
-        write!(prompt, "- User: {msg}\n").unwrap_or(());
+        writeln!(prompt, "- User: {msg}").unwrap_or(());
 
         if !t.skills_used.is_empty() {
             let skills: Vec<String> = t
@@ -145,11 +145,11 @@ fn build_distillation_prompt(trajectories: &[Trajectory]) -> String {
                 .iter()
                 .map(|s| format!("{}({})", s.name, if s.success { "ok" } else { "fail" }))
                 .collect();
-            write!(prompt, "- Skills: {}\n", skills.join(", ")).unwrap_or(());
+            writeln!(prompt, "- Skills: {}", skills.join(", ")).unwrap_or(());
         }
 
         if !t.errors.is_empty() {
-            write!(prompt, "- Errors: {}\n", t.errors.join("; ")).unwrap_or(());
+            writeln!(prompt, "- Errors: {}", t.errors.join("; ")).unwrap_or(());
         }
 
         prompt.push('\n');
