@@ -12,7 +12,7 @@ fn channel_id_returns_discord() {
     assert_eq!(adapter.channel_id(), "discord");
 }
 
-/// Same channel_id string maps to the same SessionId; different strings differ.
+/// Same `channel_id` string maps to the same `SessionId`; different strings differ.
 #[tokio::test]
 async fn session_map_consistency() {
     let sessions: Arc<Mutex<HashMap<String, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -65,7 +65,7 @@ async fn envelope_from_discord_message() {
     assert_eq!(envelope.metadata["chat_type"], serde_json::json!("group"));
 }
 
-/// Verifies chat_type classification: guild_id present = group, absent =
+/// Verifies `chat_type` classification: `guild_id` present = group, absent =
 /// direct.
 #[test]
 fn chat_type_classification() {

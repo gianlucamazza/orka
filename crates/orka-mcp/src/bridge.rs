@@ -11,7 +11,7 @@ pub struct McpToolBridge {
     tool_name: String,
     tool_description: String,
     tool_schema: serde_json::Value,
-    /// Qualified name: "server_name__tool_name" (double underscore, safe for
+    /// Qualified name: `"server_name__tool_name"` (double underscore, safe for
     /// LLM tool name patterns)
     qualified_name: String,
 }

@@ -77,7 +77,7 @@ impl HttpTransport {
                 .json()
                 .await
                 .map_err(|e| Error::Other(format!("failed to parse MCP HTTP response: {e}")))?;
-            extract_result(val)
+            extract_result(&val)
         }
     }
 
@@ -112,7 +112,7 @@ impl HttpTransport {
                 {
                     // Only respond to the JSON-RPC reply (has an "id").
                     if val.get("id").is_some() {
-                        return extract_result(val);
+                        return extract_result(&val);
                     }
                 }
             }
@@ -124,7 +124,7 @@ impl HttpTransport {
     }
 }
 
-fn extract_result(val: serde_json::Value) -> Result<serde_json::Value> {
+fn extract_result(val: &serde_json::Value) -> Result<serde_json::Value> {
     if let Some(error) = val.get("error") {
         let msg = error["message"].as_str().unwrap_or("unknown error");
         let code = error["code"].as_i64().unwrap_or(-1);

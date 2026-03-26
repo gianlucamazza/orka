@@ -17,7 +17,7 @@ fn channel_id_returns_whatsapp() {
     assert_eq!(adapter.channel_id(), "whatsapp");
 }
 
-/// Same sender phone number maps to the same SessionId; different numbers
+/// Same sender phone number maps to the same `SessionId`; different numbers
 /// differ.
 #[tokio::test]
 async fn session_map_consistency() {
@@ -43,7 +43,7 @@ async fn session_map_consistency() {
     );
 }
 
-/// Verifies Envelope creation from a WhatsApp webhook message.
+/// Verifies Envelope creation from a `WhatsApp` webhook message.
 #[tokio::test]
 async fn envelope_from_whatsapp_message() {
     use orka_core::types::{Envelope, Payload};
@@ -71,7 +71,7 @@ async fn envelope_from_whatsapp_message() {
     assert_eq!(envelope.metadata["chat_type"], serde_json::json!("direct"));
 }
 
-/// Verifies that the WhatsApp webhook JSON shape parses correctly.
+/// Verifies that the `WhatsApp` webhook JSON shape parses correctly.
 #[test]
 fn deserialize_webhook_payload() {
     let json = r#"{

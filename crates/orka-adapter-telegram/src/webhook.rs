@@ -65,7 +65,14 @@ async fn handle_update(
         )
         .await;
     } else if let Some(cq) = update.callback_query {
-        handle_callback_query(&state.api, cq, &state.sessions, state.memory.as_ref(), &sink).await;
+        handle_callback_query(
+            &state.api,
+            cq,
+            &state.sessions,
+            state.memory.as_ref(),
+            &sink,
+        )
+        .await;
     }
 
     axum::http::StatusCode::OK

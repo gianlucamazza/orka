@@ -30,7 +30,7 @@ fn make_auth_layer(raw_key: &str, key_name: &str) -> AuthLayer {
     AuthLayer::new(authenticator, config)
 }
 
-/// Build a simple axum Router wrapped in the AuthLayer for testing.
+/// Build a simple axum Router wrapped in the `AuthLayer` for testing.
 fn make_app(raw_key: &str, key_name: &str) -> axum::Router {
     use axum::routing::get;
 

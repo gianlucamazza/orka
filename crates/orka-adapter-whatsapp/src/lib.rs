@@ -1,4 +1,4 @@
-//! WhatsApp Cloud API adapter for receiving and sending messages.
+//! `WhatsApp` Cloud API adapter for receiving and sending messages.
 
 #![warn(missing_docs)]
 
@@ -25,7 +25,7 @@ use tracing::{debug, error, info, warn};
 /// Default Graph API version used when not overridden by the caller.
 const DEFAULT_API_VERSION: &str = "v21.0";
 
-/// WhatsApp Cloud API [`ChannelAdapter`] using webhook verification.
+/// `WhatsApp` Cloud API [`ChannelAdapter`] using webhook verification.
 pub struct WhatsAppAdapter {
     access_token: String,
     phone_number_id: String,
@@ -60,6 +60,7 @@ impl WhatsAppAdapter {
     }
 
     /// Override the Graph API version (default: `v21.0`).
+    #[must_use]
     pub fn with_api_version(mut self, version: impl Into<String>) -> Self {
         self.api_version = version.into();
         self
@@ -286,7 +287,7 @@ async fn resolve_media_url_inner(
 
 #[async_trait]
 impl ChannelAdapter for WhatsAppAdapter {
-    fn channel_id(&self) -> &str {
+    fn channel_id(&self) -> &'static str {
         "whatsapp"
     }
 
@@ -348,7 +349,7 @@ impl ChannelAdapter for WhatsAppAdapter {
                         }
                     }
                 }
-                _ = async {
+                () = async {
                     let _ = shutdown_rx.await;
                 } => {
                     info!("WhatsApp adapter shutting down");

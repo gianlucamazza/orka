@@ -117,10 +117,11 @@ impl ChannelAdapter for TelegramAdapter {
         }
 
         if mode.as_str() == "webhook" {
-            let webhook_url =
-                self.config.webhook_url.clone().ok_or_else(|| {
-                    Error::Other("webhook_url required for webhook mode".into())
-                })?;
+            let webhook_url = self
+                .config
+                .webhook_url
+                .clone()
+                .ok_or_else(|| Error::Other("webhook_url required for webhook mode".into()))?;
             let port = self.config.webhook_port.unwrap_or(8443);
             let sink_arc = self.sink.clone();
             tokio::spawn(async move {
@@ -192,7 +193,7 @@ impl ChannelAdapter for TelegramAdapter {
         if let Some(edit_msg_id) = msg
             .metadata
             .get("telegram_edit_message_id")
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             && let Payload::Text(text) = &msg.payload
         {
             let (final_text, effective_pm) = if parse_mode_ref == Some("HTML") {

@@ -10,6 +10,27 @@ use orka_mcp::McpServer;
 use orka_skills::SkillRegistry;
 use serde_json::json;
 
+fn response(value: Option<serde_json::Value>) -> serde_json::Value {
+    let Some(response) = value else {
+        panic!("expected MCP response");
+    };
+    response
+}
+
+fn json_array<'a>(value: &'a serde_json::Value, field: &str) -> &'a Vec<serde_json::Value> {
+    let Some(array) = value[field].as_array() else {
+        panic!("expected array field: {field}");
+    };
+    array
+}
+
+fn json_str<'a>(value: &'a serde_json::Value, field: &str) -> &'a str {
+    let Some(text) = value[field].as_str() else {
+        panic!("expected string field: {field}");
+    };
+    text
+}
+
 fn make_server() -> McpServer {
     let mut registry = SkillRegistry::new();
     registry.register(Arc::new(EchoSkill));
@@ -32,7 +53,7 @@ async fn initialize_returns_protocol_version_and_capabilities() {
         }
     });
 
-    let response = server.handle_request(request).await.unwrap();
+    let response = response(server.handle_request(request).await);
     assert_eq!(response["jsonrpc"], "2.0");
     assert_eq!(response["id"], 1);
     assert_eq!(response["result"]["protocolVersion"], "2025-03-26");
@@ -62,11 +83,11 @@ async fn tools_list_returns_skills() {
         "params": {}
     });
 
-    let response = server.handle_request(request).await.unwrap();
-    let tools = response["result"]["tools"].as_array().unwrap();
+    let response = response(server.handle_request(request).await);
+    let tools = json_array(&response["result"], "tools");
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0]["name"], "echo");
-    assert!(!tools[0]["description"].as_str().unwrap().is_empty());
+    assert!(!json_str(&tools[0], "description").is_empty());
     assert!(tools[0]["inputSchema"].is_object());
 }
 
@@ -83,12 +104,12 @@ async fn tools_call_invokes_skill_and_returns_result() {
         }
     });
 
-    let response = server.handle_request(request).await.unwrap();
+    let response = response(server.handle_request(request).await);
     assert_eq!(response["result"]["isError"], false);
-    let content = response["result"]["content"].as_array().unwrap();
+    let content = json_array(&response["result"], "content");
     assert_eq!(content.len(), 1);
     assert_eq!(content[0]["type"], "text");
-    let text = content[0]["text"].as_str().unwrap();
+    let text = json_str(&content[0], "text");
     assert!(text.contains("greeting"));
     assert!(text.contains("hello"));
 }
@@ -106,10 +127,10 @@ async fn tools_call_unknown_tool_returns_error() {
         }
     });
 
-    let response = server.handle_request(request).await.unwrap();
+    let response = response(server.handle_request(request).await);
     assert_eq!(response["result"]["isError"], true);
-    let content = response["result"]["content"].as_array().unwrap();
-    let text = content[0]["text"].as_str().unwrap();
+    let content = json_array(&response["result"], "content");
+    let text = json_str(&content[0], "text");
     assert!(text.contains("Error"));
 }
 
@@ -123,12 +144,7 @@ async fn unknown_method_returns_error_code() {
         "params": {}
     });
 
-    let response = server.handle_request(request).await.unwrap();
+    let response = response(server.handle_request(request).await);
     assert_eq!(response["error"]["code"], -32601);
-    assert!(
-        response["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("Method not found")
-    );
+    assert!(json_str(&response["error"], "message").contains("Method not found"));
 }

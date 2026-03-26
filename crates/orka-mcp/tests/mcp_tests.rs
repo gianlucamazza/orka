@@ -5,6 +5,13 @@ use orka_mcp::{
     McpTransportConfig,
 };
 
+fn some<'a, T>(value: Option<&'a T>, label: &str) -> &'a T {
+    let Some(value) = value else {
+        panic!("expected {label}");
+    };
+    value
+}
+
 #[test]
 fn config_stdio_fields() {
     let config = McpServerConfig {
@@ -21,7 +28,7 @@ fn config_stdio_fields() {
         } => {
             assert_eq!(command, "echo");
             assert_eq!(args, &vec!["hello", "world"]);
-            assert_eq!(env.get("KEY").unwrap(), "VALUE");
+            assert_eq!(some(env.get("KEY"), "KEY env var"), "VALUE");
         }
         _ => panic!("expected Stdio transport"),
     }
@@ -45,7 +52,7 @@ fn config_http_fields() {
     match &config.transport {
         McpTransportConfig::StreamableHttp { url, auth } => {
             assert_eq!(url, "https://tools.example.com/mcp");
-            let auth = auth.as_ref().expect("auth should be set");
+            let auth = some(auth.as_ref(), "HTTP auth config");
             assert_eq!(auth.client_id, "orka-agent");
         }
         _ => panic!("expected StreamableHttp transport"),
@@ -74,7 +81,7 @@ async fn connect_nonexistent_command_fails() {
 }
 
 #[test]
-fn tool_info_deserialize() {
+fn tool_info_deserialize() -> Result<(), serde_json::Error> {
     let json = r#"{
         "name": "read_file",
         "description": "Read a file from disk",
@@ -86,36 +93,39 @@ fn tool_info_deserialize() {
             "required": ["path"]
         }
     }"#;
-    let info: McpToolInfo = serde_json::from_str(json).expect("deserialize tool info");
+    let info: McpToolInfo = serde_json::from_str(json)?;
     assert_eq!(info.name, "read_file");
     assert_eq!(info.description.as_deref(), Some("Read a file from disk"));
     assert!(info.input_schema.is_object());
     assert_eq!(info.input_schema["properties"]["path"]["type"], "string");
+    Ok(())
 }
 
 #[test]
-fn tool_result_deserialize_success() {
+fn tool_result_deserialize_success() -> Result<(), serde_json::Error> {
     let json = r#"{
         "content": [{"type": "text", "text": "hello from tool"}],
         "is_error": false
     }"#;
-    let result: McpToolResult = serde_json::from_str(json).expect("deserialize tool result");
+    let result: McpToolResult = serde_json::from_str(json)?;
     assert!(!result.is_error);
     assert_eq!(result.content.len(), 1);
     match &result.content[0] {
         McpContent::Text { text } => assert_eq!(text, "hello from tool"),
     }
+    Ok(())
 }
 
 #[test]
-fn tool_result_deserialize_error() {
+fn tool_result_deserialize_error() -> Result<(), serde_json::Error> {
     let json = r#"{
         "content": [{"type": "text", "text": "something went wrong"}],
         "is_error": true
     }"#;
-    let result: McpToolResult = serde_json::from_str(json).expect("deserialize error result");
+    let result: McpToolResult = serde_json::from_str(json)?;
     assert!(result.is_error);
     match &result.content[0] {
         McpContent::Text { text } => assert!(text.contains("wrong")),
     }
+    Ok(())
 }

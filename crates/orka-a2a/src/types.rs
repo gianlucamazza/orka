@@ -285,14 +285,14 @@ pub enum SecurityScheme {
     },
     /// OAuth 2.0 with one or more flow definitions.
     Oauth2 {
-        /// OAuth 2.0 flow definitions (AuthorizationCode, ClientCredentials,
-        /// DeviceCode).
+        /// OAuth 2.0 flow definitions (`AuthorizationCode`, `ClientCredentials`,
+        /// `DeviceCode`).
         flows: serde_json::Value,
     },
-    /// OpenID Connect discovery.
+    /// `OpenID` Connect discovery.
     #[serde(rename = "openIdConnect")]
     OpenIdConnect {
-        /// URL to the OpenID Connect discovery document.
+        /// URL to the `OpenID` Connect discovery document.
         open_id_connect_url: String,
     },
 }
@@ -307,7 +307,7 @@ pub struct SupportedInterface {
     pub protocol_version: String,
     /// Capabilities declared for this interface.
     pub capabilities: InterfaceCapabilities,
-    /// Named security schemes protecting this interface (OpenAPI 3.0 style).
+    /// Named security schemes protecting this interface (`OpenAPI` 3.0 style).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub security_schemes: HashMap<String, SecurityScheme>,
 }

@@ -39,7 +39,7 @@ impl McpServer {
                         "version": env!("CARGO_PKG_VERSION")
                     }
                 });
-                Some(self.make_response(id, result))
+                Some(Self::make_response(id.as_ref(), &result))
             }
             "notifications/initialized" => None,
             "tools/list" => {
@@ -56,7 +56,8 @@ impl McpServer {
                         }))
                     })
                     .collect();
-                Some(self.make_response(id, json!({ "tools": tools })))
+                let result = json!({ "tools": tools });
+                Some(Self::make_response(id.as_ref(), &result))
             }
             "tools/call" => {
                 let params = &request["params"];
@@ -77,14 +78,14 @@ impl McpServer {
                             "content": [{ "type": "text", "text": output.data.to_string() }],
                             "isError": false
                         });
-                        Some(self.make_response(id, result))
+                        Some(Self::make_response(id.as_ref(), &result))
                     }
                     Err(e) => {
                         let result = json!({
                             "content": [{ "type": "text", "text": format!("Error: {e}") }],
                             "isError": true
                         });
-                        Some(self.make_response(id, result))
+                        Some(Self::make_response(id.as_ref(), &result))
                     }
                 }
             }
@@ -100,9 +101,8 @@ impl McpServer {
     }
 
     fn make_response(
-        &self,
-        id: Option<serde_json::Value>,
-        result: serde_json::Value,
+        id: Option<&serde_json::Value>,
+        result: &serde_json::Value,
     ) -> serde_json::Value {
         json!({
             "jsonrpc": "2.0",
@@ -157,6 +157,20 @@ mod tests {
 
     use super::*;
 
+    fn response(value: Option<serde_json::Value>) -> serde_json::Value {
+        let Some(response) = value else {
+            panic!("expected MCP response");
+        };
+        response
+    }
+
+    fn json_str<'a>(value: &'a serde_json::Value, field: &str) -> &'a str {
+        let Some(text) = value[field].as_str() else {
+            panic!("expected string field: {field}");
+        };
+        text
+    }
+
     fn test_server() -> McpServer {
         let skills = Arc::new(SkillRegistry::new());
         let secrets: Arc<dyn SecretManager> = Arc::new(InMemorySecretManager::new());
@@ -167,7 +181,7 @@ mod tests {
     async fn handle_initialize_returns_server_info() {
         let server = test_server();
         let req = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize"});
-        let resp = server.handle_request(req).await.unwrap();
+        let resp = response(server.handle_request(req).await);
         assert_eq!(resp["jsonrpc"], "2.0");
         assert_eq!(resp["id"], 1);
         assert_eq!(resp["result"]["serverInfo"]["name"], "orka");
@@ -178,21 +192,16 @@ mod tests {
     async fn handle_unknown_method_returns_error() {
         let server = test_server();
         let req = json!({"jsonrpc": "2.0", "id": 2, "method": "nonexistent/method"});
-        let resp = server.handle_request(req).await.unwrap();
+        let resp = response(server.handle_request(req).await);
         assert_eq!(resp["error"]["code"], -32601);
-        assert!(
-            resp["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("nonexistent/method")
-        );
+        assert!(json_str(&resp["error"], "message").contains("nonexistent/method"));
     }
 
     #[tokio::test]
     async fn handle_tools_list_returns_empty_array() {
         let server = test_server();
         let req = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"});
-        let resp = server.handle_request(req).await.unwrap();
+        let resp = response(server.handle_request(req).await);
         assert_eq!(resp["result"]["tools"], json!([]));
     }
 }

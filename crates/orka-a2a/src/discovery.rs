@@ -71,6 +71,7 @@ impl DiscoveryClient {
         Self {
             known_agents,
             interval: Duration::from_secs(interval_secs.max(1)),
+            #[allow(clippy::expect_used)]
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(10))
                 .build()
@@ -85,8 +86,8 @@ impl DiscoveryClient {
             self.poll_all().await;
 
             tokio::select! {
-                _ = tokio::time::sleep(self.interval) => {}
-                _ = cancel.cancelled() => {
+                () = tokio::time::sleep(self.interval) => {}
+                () = cancel.cancelled() => {
                     debug!("discovery client shutting down");
                     break;
                 }

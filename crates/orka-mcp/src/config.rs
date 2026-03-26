@@ -45,7 +45,7 @@ impl McpTransportConfig {
         StdioBuilder::new(command)
     }
 
-    /// Create a new StreamableHttp builder.
+    /// Create a new `StreamableHttp` builder.
     pub fn http(url: impl Into<String>) -> HttpBuilder {
         HttpBuilder::new(url)
     }
@@ -102,7 +102,7 @@ impl StdioBuilder {
         self
     }
 
-    /// Build the McpTransportConfig.
+    /// Build the `McpTransportConfig`.
     pub fn build(self) -> McpTransportConfig {
         McpTransportConfig::Stdio {
             command: self.command,
@@ -134,7 +134,7 @@ impl HttpBuilder {
         self
     }
 
-    /// Build the McpTransportConfig.
+    /// Build the `McpTransportConfig`.
     pub fn build(self) -> McpTransportConfig {
         McpTransportConfig::StreamableHttp {
             url: self.url,

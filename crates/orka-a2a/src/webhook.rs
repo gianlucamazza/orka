@@ -42,9 +42,8 @@ impl WebhookDeliverer {
     /// Does nothing if no config is registered for the task.
     /// Retries on network errors and 5xx responses.
     pub async fn deliver(&self, task_id: &str, event: &TaskEvent) -> Result<(), A2aError> {
-        let config = match self.push_store.get(task_id).await? {
-            Some(c) => c,
-            None => return Ok(()), // no subscription registered
+        let Some(config) = self.push_store.get(task_id).await? else {
+            return Ok(()); // no subscription registered
         };
 
         let body = serde_json::to_string(event)
@@ -110,8 +109,8 @@ impl WebhookDeliverer {
 /// Returns `true` if this event is the last one in a task's stream.
 fn is_final_event(event: &TaskEvent) -> bool {
     match event {
-        TaskEvent::TaskStatusUpdate { is_final, .. } => *is_final,
-        TaskEvent::TaskArtifactUpdate { is_final, .. } => *is_final,
+        TaskEvent::TaskStatusUpdate { is_final, .. }
+        | TaskEvent::TaskArtifactUpdate { is_final, .. } => *is_final,
     }
 }
 

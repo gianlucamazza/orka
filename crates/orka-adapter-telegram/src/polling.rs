@@ -105,7 +105,8 @@ pub(crate) async fn run_polling_loop(
                 error_count = 0;
                 for update in updates {
                     offset = update.update_id + 1;
-                    handle_update(&api, update, &sessions, memory.as_ref(), &sink, &auth_guard).await;
+                    handle_update(&api, update, &sessions, memory.as_ref(), &sink, &auth_guard)
+                        .await;
                 }
             }
             Err(e) => {

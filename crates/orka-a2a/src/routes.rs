@@ -134,7 +134,7 @@ fn agent_message(text: &str, context_id: &str, task_id: &str) -> Message {
     tag = "a2a"
 )]
 pub async fn handle_agent_card(State(state): State<A2aState>) -> impl IntoResponse {
-    Json(state.agent_card.clone())
+    Json(state.agent_card)
 }
 
 /// POST /a2a — JSON-RPC 2.0 dispatcher (A2A v1.0).
@@ -220,13 +220,11 @@ async fn handle_message_send(
 ) -> Result<Value, A2aError> {
     let task_id = params["id"]
         .as_str()
-        .map(String::from)
-        .unwrap_or_else(|| Uuid::now_v7().to_string());
+        .map_or_else(|| Uuid::now_v7().to_string(), String::from);
 
     let context_id = params["contextId"]
         .as_str()
-        .map(String::from)
-        .unwrap_or_else(|| Uuid::now_v7().to_string());
+        .map_or_else(|| Uuid::now_v7().to_string(), String::from);
 
     let message = params
         .get("message")
@@ -350,24 +348,21 @@ async fn handle_message_stream(
     let task_id = params
         .get("id")
         .and_then(|v| v.as_str())
-        .map(String::from)
-        .unwrap_or_else(|| Uuid::now_v7().to_string());
+        .map_or_else(|| Uuid::now_v7().to_string(), String::from);
 
     let context_id = params
         .get("contextId")
         .and_then(|v| v.as_str())
-        .map(String::from)
-        .unwrap_or_else(|| Uuid::now_v7().to_string());
+        .map_or_else(|| Uuid::now_v7().to_string(), String::from);
 
-    let message = match params.get("message") {
-        Some(m) => m.clone(),
-        None => {
-            let err = A2aError::InvalidParams("missing 'message' parameter".into());
-            return Json(
-                serde_json::to_value(JsonRpcResponse::from_error(None, &err)).unwrap_or_default(),
-            )
-            .into_response();
-        }
+    let message = if let Some(m) = params.get("message") {
+        m.clone()
+    } else {
+        let err = A2aError::InvalidParams("missing 'message' parameter".into());
+        return Json(
+            serde_json::to_value(JsonRpcResponse::from_error(None, &err)).unwrap_or_default(),
+        )
+        .into_response();
     };
 
     let text = extract_text_from_message(&message);
@@ -604,15 +599,14 @@ async fn handle_tasks_subscribe(state: &A2aState, params: &Value) -> axum::respo
     use axum::response::sse::Sse;
     use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 
-    let task_id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => {
-            let err = A2aError::InvalidParams("missing 'id' parameter".into());
-            return Json(
-                serde_json::to_value(JsonRpcResponse::from_error(None, &err)).unwrap_or_default(),
-            )
-            .into_response();
-        }
+    let task_id = if let Some(id) = params.get("id").and_then(|v| v.as_str()) {
+        id.to_string()
+    } else {
+        let err = A2aError::InvalidParams("missing 'id' parameter".into());
+        return Json(
+            serde_json::to_value(JsonRpcResponse::from_error(None, &err)).unwrap_or_default(),
+        )
+        .into_response();
     };
 
     let live_rx = state
@@ -620,7 +614,7 @@ async fn handle_tasks_subscribe(state: &A2aState, params: &Value) -> axum::respo
         .lock()
         .await
         .get(&task_id)
-        .map(|tx| tx.subscribe());
+        .map(tokio::sync::broadcast::Sender::subscribe);
 
     if let Some(rx) = live_rx {
         let stream = BroadcastStream::new(rx).filter_map(|result| match result {
@@ -640,7 +634,7 @@ async fn handle_tasks_subscribe(state: &A2aState, params: &Value) -> axum::respo
             let event = Arc::new(TaskEvent::TaskStatusUpdate {
                 task_id: task.id.clone(),
                 context_id: task.context_id.clone(),
-                status: task.status.clone(),
+                status: task.status,
                 is_final: true,
             });
             let data = serde_json::to_string(&*event).unwrap_or_default();
@@ -685,7 +679,7 @@ async fn handle_push_notification_set(state: &A2aState, params: &Value) -> Resul
         let event = TaskEvent::TaskStatusUpdate {
             task_id: task.id.clone(),
             context_id: task.context_id.clone(),
-            status: task.status.clone(),
+            status: task.status,
             is_final: true,
         };
         let deliverer = state.webhook_deliverer.clone();

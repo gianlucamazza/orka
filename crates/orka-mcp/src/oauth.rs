@@ -46,6 +46,7 @@ impl OAuthClient {
     pub(crate) async fn get_token(&self) -> Result<String> {
         // Fast path: valid cached token.
         {
+            #[allow(clippy::expect_used)]
             let guard = self.cached.lock().expect("oauth cache lock poisoned");
             if let Some(ref cached) = *guard
                 && cached.expires_at > Instant::now()
@@ -82,6 +83,7 @@ impl OAuthClient {
         let expires_in = body["expires_in"].as_u64().unwrap_or(3600);
         let ttl = expires_in.saturating_sub(30);
 
+        #[allow(clippy::expect_used)]
         let mut guard = self.cached.lock().expect("oauth cache lock poisoned");
         *guard = Some(CachedToken {
             token: token.clone(),

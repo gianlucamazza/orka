@@ -22,6 +22,7 @@ impl InMemoryAuthenticator {
     }
 
     /// Register an API key mapped to a named identity with the given scopes.
+    #[must_use]
     pub fn with_key(mut self, key: &str, name: &str, scopes: Vec<String>) -> Self {
         self.keys.insert(
             key.to_owned(),

@@ -121,10 +121,10 @@ impl ChannelAdapter for DiscordAdapter {
                     tokio::time::sleep(delay).await;
                 }
 
-                let ws_url = resume
-                    .resume_gateway_url
-                    .as_ref()
-                    .map_or_else(|| initial_ws_url.clone(), |u| format!("{u}/?v=10&encoding=json"));
+                let ws_url = resume.resume_gateway_url.as_ref().map_or_else(
+                    || initial_ws_url.clone(),
+                    |u| format!("{u}/?v=10&encoding=json"),
+                );
 
                 let ws_stream = match tokio_tungstenite::connect_async(&ws_url).await {
                     Ok((stream, _)) => stream,

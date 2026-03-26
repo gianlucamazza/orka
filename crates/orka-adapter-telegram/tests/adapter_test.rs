@@ -12,8 +12,8 @@ fn channel_id_returns_telegram() {
     assert_eq!(adapter.channel_id(), "telegram");
 }
 
-/// Verifies that the same chat_id always resolves to the same SessionId
-/// (in-memory path) and that different chat_ids yield different SessionIds.
+/// Verifies that the same `chat_id` always resolves to the same `SessionId`
+/// (in-memory path) and that different `chat_ids` yield different `SessionIds`.
 #[tokio::test]
 async fn session_map_consistency() {
     let sessions: Arc<Mutex<HashMap<i64, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));

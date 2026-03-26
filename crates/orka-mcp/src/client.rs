@@ -137,7 +137,7 @@ impl McpClient {
                 }
                 match serde_json::from_str::<serde_json::Value>(&line) {
                     Ok(msg) => {
-                        if let Some(id) = msg.get("id").and_then(|v| v.as_u64()) {
+                        if let Some(id) = msg.get("id").and_then(serde_json::Value::as_u64) {
                             let mut pending = pending_clone.lock().await;
                             if let Some(tx) = pending.remove(&id) {
                                 let _ = tx.send(msg);
@@ -244,7 +244,9 @@ impl McpClient {
         });
         match &self.transport {
             Transport::Stdio { stdin, .. } => {
-                let mut line = serde_json::to_string(&notification).unwrap();
+                let Ok(mut line) = serde_json::to_string(&notification) else {
+                    return;
+                };
                 line.push('\n');
                 let mut guard = stdin.lock().await;
                 if let Some(ref mut w) = *guard {
@@ -300,7 +302,7 @@ impl McpClient {
                 serde_json::json!({ "name": name, "arguments": arguments }),
             )
             .await?;
-        serde_json::from_value(result.clone())
+        serde_json::from_value(result)
             .map_err(|e| Error::Other(format!("failed to parse MCP tool result: {e}")))
     }
 

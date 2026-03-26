@@ -12,7 +12,7 @@ fn channel_id_returns_slack() {
     assert_eq!(adapter.channel_id(), "slack");
 }
 
-/// Same Slack channel maps to the same SessionId; different channels differ.
+/// Same Slack channel maps to the same `SessionId`; different channels differ.
 #[tokio::test]
 async fn session_map_consistency() {
     let sessions: Arc<Mutex<HashMap<String, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -37,7 +37,7 @@ async fn session_map_consistency() {
     );
 }
 
-/// Verifies Envelope creation from a Slack event_callback message.
+/// Verifies Envelope creation from a Slack `event_callback` message.
 #[tokio::test]
 async fn envelope_from_slack_event() {
     use orka_core::types::{Envelope, Payload};
@@ -67,7 +67,7 @@ async fn envelope_from_slack_event() {
     assert_eq!(envelope.metadata["slack_user"], serde_json::json!("U98765"));
 }
 
-/// Verifies that the SlackEventPayload JSON shape parses correctly.
+/// Verifies that the `SlackEventPayload` JSON shape parses correctly.
 #[test]
 fn deserialize_url_verification() {
     let json = r#"{
@@ -98,7 +98,7 @@ fn deserialize_event_callback() {
     assert_eq!(v["event"]["channel_type"].as_str().unwrap(), "im");
 }
 
-/// chat_type: "im" → direct, anything else → group
+/// `chat_type`: "im" → direct, anything else → group
 #[test]
 fn chat_type_classification() {
     let classify = |ct: Option<&str>| match ct {
@@ -112,7 +112,7 @@ fn chat_type_classification() {
     assert_eq!(classify(None), "group");
 }
 
-/// Bot messages (with bot_id) should be filtered out.
+/// Bot messages (with `bot_id`) should be filtered out.
 #[test]
 fn bot_message_filtering() {
     let json = r#"{
