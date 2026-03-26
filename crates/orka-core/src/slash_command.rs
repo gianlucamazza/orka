@@ -68,30 +68,37 @@ pub(crate) fn tokenize(input: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
+    fn parsed(input: &str) -> ParsedCommand {
+        let Some(command) = parse_slash_command(input) else {
+            panic!("expected slash command: {input}");
+        };
+        command
+    }
+
     #[test]
     fn basic_command() {
-        let cmd = parse_slash_command("/help").unwrap();
+        let cmd = parsed("/help");
         assert_eq!(cmd.name, "help");
         assert!(cmd.args.is_empty());
     }
 
     #[test]
     fn command_with_args() {
-        let cmd = parse_slash_command("/skill echo greeting=hello").unwrap();
+        let cmd = parsed("/skill echo greeting=hello");
         assert_eq!(cmd.name, "skill");
         assert_eq!(cmd.args, vec!["echo", "greeting=hello"]);
     }
 
     #[test]
     fn quoted_args() {
-        let cmd = parse_slash_command(r#"/skill echo message="hello world""#).unwrap();
+        let cmd = parsed(r#"/skill echo message="hello world""#);
         assert_eq!(cmd.name, "skill");
         assert_eq!(cmd.args, vec!["echo", "message=hello world"]);
     }
 
     #[test]
     fn single_quoted_args() {
-        let cmd = parse_slash_command("/skill echo message='hello world'").unwrap();
+        let cmd = parsed("/skill echo message='hello world'");
         assert_eq!(cmd.args, vec!["echo", "message=hello world"]);
     }
 
@@ -112,13 +119,13 @@ mod tests {
 
     #[test]
     fn whitespace_trimmed() {
-        let cmd = parse_slash_command("  /quit  ").unwrap();
+        let cmd = parsed("  /quit  ");
         assert_eq!(cmd.name, "quit");
     }
 
     #[test]
     fn preserves_raw() {
-        let cmd = parse_slash_command("  /skill echo  ").unwrap();
+        let cmd = parsed("  /skill echo  ");
         assert_eq!(cmd.raw, "/skill echo");
     }
 

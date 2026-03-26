@@ -1130,6 +1130,21 @@ fn get_table<'a>(doc: &'a DocumentMut, path: &[&str]) -> Option<&'a Table> {
 mod tests {
     use super::*;
 
+    fn ok<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -> T {
+        result.unwrap_or_else(|err| panic!("unexpected error: {err}"))
+    }
+
+    fn some<T>(value: Option<T>, msg: &str) -> T {
+        value.unwrap_or_else(|| panic!("{msg}"))
+    }
+
+    fn err<T, E>(result: std::result::Result<T, E>) -> E {
+        match result {
+            Ok(_) => panic!("expected error"),
+            Err(err) => err,
+        }
+    }
+
     #[test]
     fn missing_version_treated_as_v0_and_migrated() {
         let raw = r#"
@@ -1137,13 +1152,13 @@ mod tests {
 host = "127.0.0.1"
 port = 8080
 "#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 0);
         assert_eq!(result.to_version, 6);
         assert!(!result.warnings.is_empty());
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         assert_eq!(read_version(&doc), 6);
     }
 
@@ -1155,7 +1170,7 @@ config_version = 6
 [server]
 host = "127.0.0.1"
 "#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
+        let (migrated, result) = ok(migrate_if_needed(raw));
         assert!(result.is_none());
         assert_eq!(migrated, raw);
     }
@@ -1163,7 +1178,7 @@ host = "127.0.0.1"
     #[test]
     fn future_version_rejected() {
         let raw = "config_version = 999\n";
-        let err = migrate_if_needed(raw).unwrap_err();
+        let err = err(migrate_if_needed(raw));
         assert!(matches!(
             err,
             MigrationError::FutureVersion { found: 999, max: 6 }
@@ -1184,8 +1199,8 @@ port = 8080
 enabled = true
 permission_level = "read-only"
 "#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 1);
         assert_eq!(result.to_version, 6);
         // v1→v2 emits 1 warning (added [agent]+[tools]+[os.sudo]); v4→v5 adds 1 more
@@ -1194,30 +1209,38 @@ permission_level = "read-only"
         assert!(result.warnings[0].contains("[tools]"));
         assert!(result.warnings[0].contains("[os.sudo]"));
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         assert_eq!(read_version(&doc), 6);
 
         // [[agents]] promoted from legacy [agent]
         let agents = doc
             .get("agents")
             .and_then(Item::as_array_of_tables)
-            .expect("[[agents]] missing");
-        let agent = agents.iter().next().expect("at least one agent");
+            .unwrap_or_else(|| panic!("[[agents]] missing"));
+        let agent = some(agents.iter().next(), "at least one agent");
         assert_eq!(agent["id"].as_str(), Some("orka-default"));
         assert_eq!(agent["name"].as_str(), Some("Orka"));
         assert_eq!(agent["max_iterations"].as_integer(), Some(15));
 
         // [tools] defaults
-        let tools = doc["tools"].as_table().expect("[tools] missing");
-        let disabled = tools["deny"].as_array().expect("disabled array missing");
+        let tools = doc["tools"]
+            .as_table()
+            .unwrap_or_else(|| panic!("[tools] missing"));
+        let disabled = tools["deny"]
+            .as_array()
+            .unwrap_or_else(|| panic!("disabled array missing"));
         assert_eq!(
             disabled.iter().next().and_then(|v| v.as_str()),
             Some("echo")
         );
 
         // [os.sudo] defaults
-        let os = doc["os"].as_table().expect("[os] missing");
-        let sudo = os["sudo"].as_table().expect("[os.sudo] missing");
+        let os = doc["os"]
+            .as_table()
+            .unwrap_or_else(|| panic!("[os] missing"));
+        let sudo = os["sudo"]
+            .as_table()
+            .unwrap_or_else(|| panic!("[os.sudo] missing"));
         assert_eq!(sudo["allowed"].as_bool(), Some(false));
         assert_eq!(sudo["password_required"].as_bool(), Some(true));
     }
@@ -1242,8 +1265,8 @@ allowed = true
 allowed_commands = ["apt-get install"]
 password_required = false
 "#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 1);
         assert_eq!(result.to_version, 6);
         // v4→v5 emits one migration warning (promoting [agent] → [[agents]])
@@ -1256,25 +1279,29 @@ password_required = false
             result.warnings
         );
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         // Existing values preserved in promoted [[agents]]
         let agents = doc
             .get("agents")
             .and_then(Item::as_array_of_tables)
-            .expect("[[agents]] missing");
-        let first = agents.iter().next().expect("at least one agent");
+            .unwrap_or_else(|| panic!("[[agents]] missing"));
+        let first = some(agents.iter().next(), "at least one agent");
         assert_eq!(first["id"].as_str(), Some("my-agent"));
         assert_eq!(first["max_iterations"].as_integer(), Some(5));
-        let os = doc["os"].as_table().unwrap();
-        let sudo = os["sudo"].as_table().unwrap();
+        let os = doc["os"]
+            .as_table()
+            .unwrap_or_else(|| panic!("[os] missing"));
+        let sudo = os["sudo"]
+            .as_table()
+            .unwrap_or_else(|| panic!("[os.sudo] missing"));
         assert_eq!(sudo["allowed"].as_bool(), Some(true));
     }
 
     #[test]
     fn v1_to_v2_no_os_section_skips_sudo() {
         let raw = "config_version = 1\n\n[server]\nhost = \"127.0.0.1\"\n";
-        let (migrated, _) = migrate_if_needed(raw).unwrap();
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let (migrated, _) = ok(migrate_if_needed(raw));
+        let doc: DocumentMut = ok(migrated.parse());
         assert!(doc.get("os").is_none(), "[os] should not be inserted");
     }
 
@@ -1285,7 +1312,7 @@ password_required = false
 host = "127.0.0.1" # inline comment
 port = 8080
 "#;
-        let (migrated, _) = migrate_if_needed(raw).unwrap();
+        let (migrated, _) = ok(migrate_if_needed(raw));
         assert!(migrated.contains("# This is my config"));
         assert!(migrated.contains("# inline comment"));
     }
@@ -1293,42 +1320,42 @@ port = 8080
     #[test]
     fn invalid_toml_returns_parse_error() {
         let raw = "config_version = [invalid";
-        let err = migrate_if_needed(raw).unwrap_err();
+        let err = err(migrate_if_needed(raw));
         assert!(matches!(err, MigrationError::Parse(_)));
     }
 
     #[test]
     fn v2_to_v3_converts_enabled_true() {
-        let raw = r#"config_version = 2
+        let raw = r"config_version = 2
 
 [os.claude_code]
 enabled = true
-"#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+";
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 2);
         assert_eq!(result.to_version, 6);
         assert!(result.warnings.is_empty());
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         assert_eq!(read_version(&doc), 6);
         assert_eq!(doc["os"]["claude_code"]["enabled"].as_bool(), Some(true));
     }
 
     #[test]
     fn v2_to_v3_converts_enabled_false() {
-        let raw = r#"config_version = 2
+        let raw = r"config_version = 2
 
 [os.claude_code]
 enabled = false
-"#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+";
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 2);
         assert_eq!(result.to_version, 6);
         assert!(result.warnings.is_empty());
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         assert_eq!(read_version(&doc), 6);
         assert_eq!(doc["os"]["claude_code"]["enabled"].as_bool(), Some(false));
     }
@@ -1340,8 +1367,8 @@ enabled = false
 [server]
 host = "127.0.0.1"
 "#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 2);
         assert_eq!(result.to_version, 6);
         assert!(
@@ -1350,7 +1377,7 @@ host = "127.0.0.1"
             result.warnings
         );
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         assert_eq!(read_version(&doc), 6);
     }
 
@@ -1362,15 +1389,15 @@ host = "127.0.0.1"
 [os.claude_code]
 enabled = "auto"
 "#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert!(
             result.warnings.is_empty(),
             "unexpected warnings: {:?}",
             result.warnings
         );
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         assert_eq!(doc["os"]["claude_code"]["enabled"].as_str(), Some("auto"));
     }
 
@@ -1381,12 +1408,12 @@ enabled = "auto"
 host = "127.0.0.1"
 port = 8080
 "#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 0);
         assert_eq!(result.to_version, 6);
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         assert_eq!(read_version(&doc), 6);
         // v1→v2 adds [tools]; v4→v5 promotes [agent] → [[agents]]
         assert!(doc.get("agents").is_some());
@@ -1435,7 +1462,7 @@ shell_timeout_secs = 120
 enabled = true
 require_confirmation = true
 "#;
-        let warnings = inspect_config_issues(raw).unwrap();
+        let warnings = ok(inspect_config_issues(raw));
         assert!(
             warnings
                 .iter()
@@ -1509,7 +1536,7 @@ allowed = true
 allowed_commands = ["systemctl restart"]
 password_required = true
 "#;
-        let warnings = inspect_config_issues(raw).unwrap();
+        let warnings = ok(inspect_config_issues(raw));
         assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     }
 
@@ -1557,19 +1584,19 @@ enabled = true
 poll_interval_secs = 5
 max_concurrent = 4
 "#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 3);
         assert_eq!(result.to_version, 6);
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         assert_eq!(read_version(&doc), 6);
         // v3→v4 cleaned [agent] fields; v4→v5 promoted [agent] → [[agents]]
         let agents = doc
             .get("agents")
             .and_then(Item::as_array_of_tables)
-            .expect("[[agents]] missing");
-        let agent = agents.iter().next().expect("at least one agent");
+            .unwrap_or_else(|| panic!("[[agents]] missing"));
+        let agent = some(agents.iter().next(), "at least one agent");
         assert_eq!(agent["name"].as_str(), Some("Orka"));
         assert!(agent.get("display_name").is_none());
         assert_eq!(agent["thinking_budget_tokens"].as_integer(), Some(10000));
@@ -1615,16 +1642,18 @@ filesystem = true
 network = false
 subprocess = true
 "#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 5);
         assert_eq!(result.to_version, 6);
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("subprocess"));
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         assert_eq!(read_version(&doc), 6);
-        let caps = doc["plugins"]["capabilities"].as_table().unwrap();
+        let caps = doc["plugins"]["capabilities"]
+            .as_table()
+            .unwrap_or_else(|| panic!("[plugins.capabilities] missing"));
         assert!(
             caps.get("subprocess").is_none(),
             "subprocess should be removed"
@@ -1644,8 +1673,8 @@ dir = "plugins"
 filesystem = false
 network = false
 "#;
-        let (migrated, result) = migrate_if_needed(raw).unwrap();
-        let result = result.expect("should have migration result");
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 5);
         assert_eq!(result.to_version, 6);
         assert!(
@@ -1654,19 +1683,19 @@ network = false
             result.warnings
         );
 
-        let doc: DocumentMut = migrated.parse().unwrap();
+        let doc: DocumentMut = ok(migrated.parse());
         assert_eq!(read_version(&doc), 6);
     }
 
     #[test]
     fn inspect_plugins_warns_on_subprocess() {
-        let raw = r#"
+        let raw = r"
 config_version = 6
 
 [plugins.capabilities]
 subprocess = true
-"#;
-        let warnings = inspect_config_issues(raw).unwrap();
+";
+        let warnings = ok(inspect_config_issues(raw));
         assert!(
             warnings.iter().any(|w| w.contains("subprocess")),
             "expected subprocess warning; got: {warnings:?}"

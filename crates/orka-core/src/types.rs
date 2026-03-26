@@ -1243,6 +1243,20 @@ mod tests {
 
     // --- SkillInput accessors ---
 
+    fn ok<T, E: std::fmt::Display>(result: Result<T, E>) -> T {
+        match result {
+            Ok(value) => value,
+            Err(error) => panic!("expected Ok(..), got Err({error})"),
+        }
+    }
+
+    fn some<'a, T>(value: Option<&'a T>, label: &str) -> &'a T {
+        match value {
+            Some(value) => value,
+            None => panic!("expected {label} to be present"),
+        }
+    }
+
     fn make_input(args: serde_json::Value) -> SkillInput {
         let map: HashMap<String, serde_json::Value> =
             serde_json::from_value(args).unwrap_or_default();
@@ -1252,7 +1266,7 @@ mod tests {
     #[test]
     fn skill_input_get_string_present() {
         let input = make_input(json!({"name": "alice"}));
-        assert_eq!(input.get_string("name").unwrap(), "alice");
+        assert_eq!(ok(input.get_string("name")), "alice");
     }
 
     #[test]
@@ -1282,8 +1296,8 @@ mod tests {
     #[test]
     fn skill_input_get_i64_and_get_bool() {
         let input = make_input(json!({"count": 7, "flag": true}));
-        assert_eq!(input.get_i64("count").unwrap(), 7);
-        assert!(input.get_bool("flag").unwrap());
+        assert_eq!(ok(input.get_i64("count")), 7);
+        assert!(ok(input.get_bool("flag")));
         assert!(input.get_i64("missing").is_err());
         assert!(input.get_bool("missing").is_err());
     }
@@ -1294,7 +1308,7 @@ mod tests {
     fn require_meta_str_present() {
         let mut msg = OutboundMessage::text("ch", SessionId::new(), "hi", None);
         msg.metadata.insert("chat_id".into(), json!("123"));
-        assert_eq!(msg.require_meta_str("chat_id").unwrap(), "123");
+        assert_eq!(ok(msg.require_meta_str("chat_id")), "123");
     }
 
     #[test]
@@ -1307,7 +1321,7 @@ mod tests {
     fn require_meta_i64_present_and_missing() {
         let mut msg = OutboundMessage::text("ch", SessionId::new(), "hi", None);
         msg.metadata.insert("num".into(), json!(42));
-        assert_eq!(msg.require_meta_i64("num").unwrap(), 42);
+        assert_eq!(ok(msg.require_meta_i64("num")), 42);
         assert!(msg.require_meta_i64("nope").is_err());
     }
 
@@ -1316,12 +1330,8 @@ mod tests {
         let msg = OutboundMessage::text("ch", SessionId::new(), "hi", None)
             .with_source_channel("telegram");
         assert_eq!(
-            msg.metadata
-                .get("source_channel")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "telegram"
+            some(msg.metadata.get("source_channel"), "source_channel").as_str(),
+            Some("telegram")
         );
     }
 
@@ -1331,12 +1341,8 @@ mod tests {
         msg.metadata.insert("source_channel".into(), json!("old"));
         let msg = msg.with_source_channel("new");
         assert_eq!(
-            msg.metadata
-                .get("source_channel")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "new"
+            some(msg.metadata.get("source_channel"), "source_channel").as_str(),
+            Some("new")
         );
     }
 
@@ -1357,8 +1363,8 @@ mod tests {
         let mut env = Envelope::text("ch", SessionId::new(), "x");
         env.insert_meta("key1", json!("val1"));
         env.insert_meta("key2", json!(42));
-        assert_eq!(env.metadata.get("key1").unwrap(), &json!("val1"));
-        assert_eq!(env.metadata.get("key2").unwrap(), &json!(42));
+        assert_eq!(some(env.metadata.get("key1"), "key1"), &json!("val1"));
+        assert_eq!(some(env.metadata.get("key2"), "key2"), &json!(42));
     }
 
     #[test]

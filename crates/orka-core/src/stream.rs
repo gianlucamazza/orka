@@ -240,6 +240,14 @@ pub async fn forward_delegate_progress(
 mod tests {
     use super::*;
 
+    fn ok<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -> T {
+        result.unwrap_or_else(|err| panic!("unexpected error: {err}"))
+    }
+
+    fn json_value(chunk: &StreamChunkKind) -> serde_json::Value {
+        ok(serde_json::from_str(&ok(serde_json::to_string(chunk))))
+    }
+
     fn make_chunk(session_id: SessionId, kind: StreamChunkKind) -> StreamChunk {
         StreamChunk {
             session_id,
@@ -259,7 +267,7 @@ mod tests {
         let delivered = reg.send(chunk);
 
         assert_eq!(delivered, 1);
-        let received = rx.try_recv().unwrap();
+        let received = ok(rx.try_recv());
         assert!(matches!(received.kind, StreamChunkKind::Delta(ref s) if s == "hello"));
     }
 
@@ -371,108 +379,97 @@ mod tests {
         ];
 
         for variant in &variants {
-            let json = serde_json::to_string(variant).unwrap();
-            let back: StreamChunkKind = serde_json::from_str(&json).unwrap();
-            let json2 = serde_json::to_string(&back).unwrap();
+            let json = ok(serde_json::to_string(variant));
+            let back: StreamChunkKind = ok(serde_json::from_str(&json));
+            let json2 = ok(serde_json::to_string(&back));
             assert_eq!(json, json2, "round-trip failed for {json}");
         }
     }
 
     #[test]
-    fn stream_chunk_kind_json_serialization() {
-        // Delta
-        let json = serde_json::to_string(&StreamChunkKind::Delta("hi".into())).unwrap();
+    fn stream_chunk_kind_json_serialization_delta() {
+        let json = ok(serde_json::to_string(&StreamChunkKind::Delta("hi".into())));
         assert_eq!(json, r#"{"type":"Delta","data":"hi"}"#);
+    }
 
-        // ToolStart
-        let json = serde_json::to_string(&StreamChunkKind::ToolStart {
+    #[test]
+    fn stream_chunk_kind_json_serialization_tool_events() {
+        let v = json_value(&StreamChunkKind::ToolStart {
             name: "web_search".into(),
             id: "t1".into(),
-        })
-        .unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        });
         assert_eq!(v["type"], "ToolStart");
         assert_eq!(v["data"]["name"], "web_search");
 
-        // ToolEnd
-        let json = serde_json::to_string(&StreamChunkKind::ToolEnd {
+        let v = json_value(&StreamChunkKind::ToolEnd {
             id: "t1".into(),
             success: true,
-        })
-        .unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        });
         assert_eq!(v["type"], "ToolEnd");
         assert_eq!(v["data"]["success"], true);
+    }
 
-        // ToolExecStart (no optional fields)
-        let json = serde_json::to_string(&StreamChunkKind::ToolExecStart {
+    #[test]
+    fn stream_chunk_kind_json_serialization_tool_exec_start() {
+        let v = json_value(&StreamChunkKind::ToolExecStart {
             name: "echo".into(),
             id: "t2".into(),
             input_summary: None,
             category: None,
-        })
-        .unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        });
         assert_eq!(v["type"], "ToolExecStart");
         assert!(v["data"]["input_summary"].is_null());
         assert!(v["data"]["category"].is_null());
 
-        // ToolExecStart (with optional fields)
-        let json = serde_json::to_string(&StreamChunkKind::ToolExecStart {
+        let v = json_value(&StreamChunkKind::ToolExecStart {
             name: "web_search".into(),
             id: "t10".into(),
             input_summary: Some("query: 'rust async'".into()),
             category: Some("search".into()),
-        })
-        .unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        });
         assert_eq!(v["type"], "ToolExecStart");
         assert_eq!(v["data"]["input_summary"], "query: 'rust async'");
         assert_eq!(v["data"]["category"], "search");
+    }
 
-        // ToolExecEnd (success — optional fields omitted from JSON)
-        let json = serde_json::to_string(&StreamChunkKind::ToolExecEnd {
+    #[test]
+    fn stream_chunk_kind_json_serialization_tool_exec_end() {
+        let v = json_value(&StreamChunkKind::ToolExecEnd {
             id: "t2".into(),
             success: true,
             duration_ms: 1200,
             error: None,
             result_summary: None,
-        })
-        .unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        });
         assert_eq!(v["type"], "ToolExecEnd");
         assert_eq!(v["data"]["duration_ms"], 1200);
         assert!(v["data"]["error"].is_null());
         assert!(v["data"]["result_summary"].is_null());
 
-        // ToolExecEnd (failure — error included)
-        let json = serde_json::to_string(&StreamChunkKind::ToolExecEnd {
+        let v = json_value(&StreamChunkKind::ToolExecEnd {
             id: "t3".into(),
             success: false,
             duration_ms: 50,
             error: Some("Permission denied".into()),
             result_summary: None,
-        })
-        .unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        });
         assert_eq!(v["type"], "ToolExecEnd");
         assert_eq!(v["data"]["success"], false);
         assert_eq!(v["data"]["error"], "Permission denied");
 
-        // ToolExecEnd (with result_summary)
-        let json = serde_json::to_string(&StreamChunkKind::ToolExecEnd {
+        let v = json_value(&StreamChunkKind::ToolExecEnd {
             id: "t11".into(),
             success: true,
             duration_ms: 800,
             error: None,
             result_summary: Some("Found 5 results".into()),
-        })
-        .unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        });
         assert_eq!(v["data"]["result_summary"], "Found 5 results");
+    }
 
-        // Usage
-        let json = serde_json::to_string(&StreamChunkKind::Usage {
+    #[test]
+    fn stream_chunk_kind_json_serialization_usage_and_agent_metadata() {
+        let v = json_value(&StreamChunkKind::Usage {
             input_tokens: 100,
             output_tokens: 50,
             cache_read_tokens: None,
@@ -480,48 +477,40 @@ mod tests {
             reasoning_tokens: None,
             model: "claude-sonnet-4-6".into(),
             cost_usd: None,
-        })
-        .unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        });
         assert_eq!(v["type"], "Usage");
         assert_eq!(v["data"]["input_tokens"], 100);
         assert_eq!(v["data"]["output_tokens"], 50);
         assert_eq!(v["data"]["model"], "claude-sonnet-4-6");
         assert!(v["data"]["cache_read_tokens"].is_null());
 
-        // AgentSwitch
-        let json = serde_json::to_string(&StreamChunkKind::AgentSwitch {
+        let v = json_value(&StreamChunkKind::AgentSwitch {
             agent_id: "a1".into(),
             display_name: "Research".into(),
-        })
-        .unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        });
         assert_eq!(v["type"], "AgentSwitch");
         assert_eq!(v["data"]["agent_id"], "a1");
         assert_eq!(v["data"]["display_name"], "Research");
 
-        // ContextInfo
-        let json = serde_json::to_string(&StreamChunkKind::ContextInfo {
+        let v = json_value(&StreamChunkKind::ContextInfo {
             history_tokens: 5000,
             context_window: 200_000,
             messages_truncated: 2,
             summary_generated: false,
-        })
-        .unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        });
         assert_eq!(v["type"], "ContextInfo");
         assert_eq!(v["data"]["history_tokens"], 5000);
         assert_eq!(v["data"]["messages_truncated"], 2);
         assert_eq!(v["data"]["summary_generated"], false);
 
-        // PrinciplesUsed
-        let json = serde_json::to_string(&StreamChunkKind::PrinciplesUsed { count: 3 }).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let v = json_value(&StreamChunkKind::PrinciplesUsed { count: 3 });
         assert_eq!(v["type"], "PrinciplesUsed");
         assert_eq!(v["data"]["count"], 3);
+    }
 
-        // Done
-        let json = serde_json::to_string(&StreamChunkKind::Done).unwrap();
+    #[test]
+    fn stream_chunk_kind_json_serialization_done() {
+        let json = ok(serde_json::to_string(&StreamChunkKind::Done));
         assert_eq!(json, r#"{"type":"Done"}"#);
     }
 }

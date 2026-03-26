@@ -1,5 +1,7 @@
 #![allow(missing_docs)]
 
+use std::collections::HashMap;
+
 use orka_core::*;
 
 #[test]
@@ -33,12 +35,13 @@ fn envelope_text_constructor() {
 }
 
 #[test]
-fn envelope_roundtrip_json() {
+fn envelope_roundtrip_json() -> serde_json::Result<()> {
     let env = Envelope::text("discord", SessionId::new(), "test message");
-    let json = serde_json::to_string(&env).unwrap();
-    let decoded: Envelope = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&env)?;
+    let decoded: Envelope = serde_json::from_str(&json)?;
     assert_eq!(decoded.id, env.id);
     assert_eq!(decoded.channel, "discord");
+    Ok(())
 }
 
 #[test]
@@ -52,7 +55,7 @@ fn session_creation() {
 #[test]
 fn secret_value_redacted_debug() {
     let secret = SecretValue::new(b"super-secret".to_vec());
-    let debug = format!("{:?}", secret);
+    let debug = format!("{secret:?}");
     assert_eq!(debug, "[REDACTED]");
     assert_eq!(secret.expose_str(), Some("super-secret"));
 }
@@ -66,12 +69,13 @@ fn secret_value_zeroed_on_drop() {
 }
 
 #[test]
-fn payload_variants_serialize() {
+fn payload_variants_serialize() -> serde_json::Result<()> {
     let text = Payload::Text("hello".into());
-    let json = serde_json::to_value(&text).unwrap();
+    let json = serde_json::to_value(&text)?;
     assert_eq!(json["type"], "Text");
 
-    let cmd = Payload::Command(CommandPayload::new("ping", Default::default()));
-    let json = serde_json::to_value(&cmd).unwrap();
+    let cmd = Payload::Command(CommandPayload::new("ping", HashMap::default()));
+    let json = serde_json::to_value(&cmd)?;
     assert_eq!(json["type"], "Command");
+    Ok(())
 }

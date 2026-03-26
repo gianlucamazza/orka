@@ -45,8 +45,10 @@ where
             }
         }
     }
-    #[allow(clippy::expect_used)]
-    Err(last_err.expect("at least one attempt must be made"))
+    let Some(last_err) = last_err else {
+        unreachable!("at least one attempt must be made");
+    };
+    Err(last_err)
 }
 
 #[cfg(test)]
@@ -59,7 +61,7 @@ mod tests {
     async fn succeeds_immediately() {
         let result: Result<i32, &str> =
             retry_with_backoff(3, 10, 100, || async { Ok(42) }, |_| true).await;
-        assert_eq!(result.unwrap(), 42);
+        assert_eq!(result, Ok(42));
     }
 
     #[tokio::test]
@@ -76,7 +78,7 @@ mod tests {
             |_| true,
         )
         .await;
-        assert_eq!(result.unwrap(), "ok");
+        assert_eq!(result, Ok("ok"));
         assert_eq!(attempts.load(Ordering::SeqCst), 3);
     }
 
@@ -84,7 +86,7 @@ mod tests {
     async fn exhausts_retries() {
         let result: Result<(), &str> =
             retry_with_backoff(2, 1, 10, || async { Err("always fail") }, |_| true).await;
-        assert_eq!(result.unwrap_err(), "always fail");
+        assert_eq!(result, Err("always fail"));
     }
 
     #[tokio::test]
@@ -101,7 +103,7 @@ mod tests {
             |_| false,
         )
         .await;
-        assert_eq!(result.unwrap_err(), "fatal");
+        assert_eq!(result, Err("fatal"));
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 }

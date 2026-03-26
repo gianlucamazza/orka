@@ -519,10 +519,11 @@ mod tests {
     }
 
     #[test]
-    fn coding_provider_serde_roundtrip() {
+    fn coding_provider_serde_roundtrip() -> std::result::Result<(), toml::de::Error> {
         let toml = r#"default_provider = "claude_code""#;
-        let config: CodingConfig = toml::from_str(toml).unwrap();
+        let config: CodingConfig = toml::from_str(toml)?;
         assert_eq!(config.default_provider, CodingProvider::ClaudeCode);
+        Ok(())
     }
 
     #[test]
@@ -532,10 +533,11 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_mode_serde_roundtrip() {
+    fn sandbox_mode_serde_roundtrip() -> std::result::Result<(), toml::de::Error> {
         let toml = r#"sandbox_mode = "workspace-write""#;
-        let config: CodexConfig = toml::from_str(toml).unwrap();
+        let config: CodexConfig = toml::from_str(toml)?;
         assert_eq!(config.sandbox_mode, Some(SandboxMode::WorkspaceWrite));
+        Ok(())
     }
 
     #[test]
@@ -545,10 +547,11 @@ mod tests {
     }
 
     #[test]
-    fn approval_policy_serde_roundtrip() {
+    fn approval_policy_serde_roundtrip() -> std::result::Result<(), toml::de::Error> {
         let toml = r#"approval_policy = "on-failure""#;
-        let config: CodexConfig = toml::from_str(toml).unwrap();
+        let config: CodexConfig = toml::from_str(toml)?;
         assert_eq!(config.approval_policy, Some(ApprovalPolicy::OnFailure));
+        Ok(())
     }
 
     #[test]
@@ -560,10 +563,11 @@ mod tests {
     }
 
     #[test]
-    fn coding_provider_opencode_serde_roundtrip() {
+    fn coding_provider_opencode_serde_roundtrip() -> std::result::Result<(), toml::de::Error> {
         let toml = r#"default_provider = "opencode""#;
-        let config: CodingConfig = toml::from_str(toml).unwrap();
+        let config: CodingConfig = toml::from_str(toml)?;
         assert_eq!(config.default_provider, CodingProvider::OpenCode);
+        Ok(())
     }
 
     #[test]
@@ -578,7 +582,7 @@ mod tests {
     }
 
     #[test]
-    fn opencode_config_serde_roundtrip() {
+    fn opencode_config_serde_roundtrip() -> std::result::Result<(), toml::de::Error> {
         let toml = r#"
             enabled = true
             model = "anthropic/claude-sonnet-4-6"
@@ -588,7 +592,7 @@ mod tests {
             allow_file_modifications = true
             allow_command_execution = true
         "#;
-        let config: OpenCodeConfig = toml::from_str(toml).unwrap();
+        let config: OpenCodeConfig = toml::from_str(toml)?;
         assert!(config.enabled);
         assert_eq!(config.model.as_deref(), Some("anthropic/claude-sonnet-4-6"));
         assert_eq!(config.agent.as_deref(), Some("default"));
@@ -596,13 +600,15 @@ mod tests {
         assert_eq!(config.timeout_secs, 600);
         assert!(config.allow_file_modifications);
         assert!(config.allow_command_execution);
+        Ok(())
     }
 
     #[test]
-    fn opencode_config_rejects_zero_timeout() {
-        let toml = r#"timeout_secs = 0"#;
-        let config: OpenCodeConfig = toml::from_str(toml).unwrap();
+    fn opencode_config_rejects_zero_timeout() -> std::result::Result<(), toml::de::Error> {
+        let toml = r"timeout_secs = 0";
+        let config: OpenCodeConfig = toml::from_str(toml)?;
         assert!(config.validate().is_err());
+        Ok(())
     }
 
     #[test]

@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn validation_rejects_empty_host() {
         let config = ServerConfig {
-            host: "".to_string(),
+            host: String::new(),
             port: 8080,
         };
         assert!(config.validate().is_err());

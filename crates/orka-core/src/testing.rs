@@ -446,28 +446,34 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn in_memory_bus_pubsub() {
+    async fn in_memory_bus_pubsub() -> Result<()> {
         let bus = InMemoryBus::new();
-        let mut rx = bus.subscribe("test").await.unwrap();
+        let mut rx = bus.subscribe("test").await?;
         let env = Envelope::text("ch", SessionId::new(), "hello");
-        bus.publish("test", &env).await.unwrap();
-        let received = rx.recv().await.unwrap();
+        bus.publish("test", &env).await?;
+        let Some(received) = rx.recv().await else {
+            panic!("expected published message")
+        };
         assert_eq!(received.id, env.id);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn in_memory_session_crud() {
+    async fn in_memory_session_crud() -> Result<()> {
         let store = InMemorySessionStore::new();
         let session = Session::new("ch", "user1");
-        store.put(&session).await.unwrap();
-        let got = store.get(&session.id).await.unwrap().unwrap();
+        store.put(&session).await?;
+        let Some(got) = store.get(&session.id).await? else {
+            panic!("expected stored session")
+        };
         assert_eq!(got.user_id, "user1");
-        store.delete(&session.id).await.unwrap();
-        assert!(store.get(&session.id).await.unwrap().is_none());
+        store.delete(&session.id).await?;
+        assert!(store.get(&session.id).await?.is_none());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn in_memory_queue_priority_order() {
+    async fn in_memory_queue_priority_order() -> Result<()> {
         let queue = InMemoryQueue::new();
         let mut bg = Envelope::text("ch", SessionId::new(), "bg");
         bg.priority = Priority::Background;
@@ -475,27 +481,35 @@ mod tests {
         urgent.priority = Priority::Urgent;
         let normal = Envelope::text("ch", SessionId::new(), "normal");
 
-        PriorityQueue::push(&queue, &bg).await.unwrap();
-        PriorityQueue::push(&queue, &normal).await.unwrap();
-        PriorityQueue::push(&queue, &urgent).await.unwrap();
+        PriorityQueue::push(&queue, &bg).await?;
+        PriorityQueue::push(&queue, &normal).await?;
+        PriorityQueue::push(&queue, &urgent).await?;
 
-        let first = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
+        let Some(first) = queue.pop(Duration::from_millis(10)).await? else {
+            panic!("expected urgent item")
+        };
         assert_eq!(first.priority, Priority::Urgent);
-        let second = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
+        let Some(second) = queue.pop(Duration::from_millis(10)).await? else {
+            panic!("expected normal item")
+        };
         assert_eq!(second.priority, Priority::Normal);
-        let third = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
+        let Some(third) = queue.pop(Duration::from_millis(10)).await? else {
+            panic!("expected background item")
+        };
         assert_eq!(third.priority, Priority::Background);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn in_memory_queue_empty_timeout() {
+    async fn in_memory_queue_empty_timeout() -> Result<()> {
         let queue = InMemoryQueue::new();
-        let result = queue.pop(Duration::from_millis(50)).await.unwrap();
+        let result = queue.pop(Duration::from_millis(50)).await?;
         assert!(result.is_none());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn in_memory_memory_store_recall() {
+    async fn in_memory_memory_store_recall() -> Result<()> {
         let store = InMemoryMemoryStore::new();
         let entry = MemoryEntry {
             key: "test-key".into(),
@@ -504,14 +518,17 @@ mod tests {
             updated_at: chrono::Utc::now(),
             tags: vec!["tag1".into()],
         };
-        store.store("test-key", entry.clone(), None).await.unwrap();
-        let recalled = store.recall("test-key").await.unwrap().unwrap();
+        store.store("test-key", entry.clone(), None).await?;
+        let Some(recalled) = store.recall("test-key").await? else {
+            panic!("expected stored memory entry")
+        };
         assert_eq!(recalled.key, "test-key");
         assert_eq!(recalled.value, serde_json::json!({"data": "hello"}));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn in_memory_memory_store_ttl_expiry() {
+    async fn in_memory_memory_store_ttl_expiry() -> Result<()> {
         let store = InMemoryMemoryStore::new();
         let entry = MemoryEntry {
             key: "ephemeral".into(),
@@ -522,15 +539,15 @@ mod tests {
         };
         store
             .store("ephemeral", entry, Some(Duration::from_millis(50)))
-            .await
-            .unwrap();
-        assert!(store.recall("ephemeral").await.unwrap().is_some());
+            .await?;
+        assert!(store.recall("ephemeral").await?.is_some());
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(store.recall("ephemeral").await.unwrap().is_none());
+        assert!(store.recall("ephemeral").await?.is_none());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn in_memory_memory_store_search() {
+    async fn in_memory_memory_store_search() -> Result<()> {
         let store = InMemoryMemoryStore::new();
         let entry1 = MemoryEntry {
             key: "user-profile".into(),
@@ -546,22 +563,24 @@ mod tests {
             updated_at: chrono::Utc::now(),
             tags: vec!["system".into()],
         };
-        store.store("user-profile", entry1, None).await.unwrap();
-        store.store("system-config", entry2, None).await.unwrap();
+        store.store("user-profile", entry1, None).await?;
+        store.store("system-config", entry2, None).await?;
 
-        let results = store.search("user", 10).await.unwrap();
+        let results = store.search("user", 10).await?;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].key, "user-profile");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn in_memory_secret_manager_crud() {
+    async fn in_memory_secret_manager_crud() -> Result<()> {
         let mgr = InMemorySecretManager::new();
         let secret = SecretValue::new(b"super-secret".to_vec());
-        mgr.set_secret("api/key", &secret).await.unwrap();
+        mgr.set_secret("api/key", &secret).await?;
 
-        let retrieved = mgr.get_secret("api/key").await.unwrap();
+        let retrieved = mgr.get_secret("api/key").await?;
         assert_eq!(retrieved.expose(), b"super-secret");
+        Ok(())
     }
 
     #[tokio::test]
@@ -572,14 +591,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn in_memory_secret_manager_delete() {
+    async fn in_memory_secret_manager_delete() -> Result<()> {
         let mgr = InMemorySecretManager::new();
         let secret = SecretValue::new(b"to-delete".to_vec());
-        mgr.set_secret("temp/key", &secret).await.unwrap();
+        mgr.set_secret("temp/key", &secret).await?;
         assert!(mgr.get_secret("temp/key").await.is_ok());
 
-        mgr.delete_secret("temp/key").await.unwrap();
+        mgr.delete_secret("temp/key").await?;
         assert!(mgr.get_secret("temp/key").await.is_err());
+        Ok(())
     }
 
     #[tokio::test]
@@ -589,20 +609,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn in_memory_secret_manager_list() {
+    async fn in_memory_secret_manager_list() -> Result<()> {
         let mgr = InMemorySecretManager::new();
-        assert!(mgr.list_secrets().await.unwrap().is_empty());
+        assert!(mgr.list_secrets().await?.is_empty());
 
         mgr.set_secret("a", &SecretValue::new(b"1".to_vec()))
-            .await
-            .unwrap();
+            .await?;
         mgr.set_secret("b", &SecretValue::new(b"2".to_vec()))
-            .await
-            .unwrap();
+            .await?;
 
-        let mut keys = mgr.list_secrets().await.unwrap();
+        let mut keys = mgr.list_secrets().await?;
         keys.sort();
         assert_eq!(keys, vec!["a", "b"]);
+        Ok(())
     }
 
     #[tokio::test]
@@ -617,7 +636,7 @@ mod tests {
                 source: "test".into(),
                 message: "something went wrong".into(),
             },
-            metadata: Default::default(),
+            metadata: std::collections::HashMap::default(),
         };
         sink.emit(event.clone()).await;
 
@@ -630,7 +649,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn echo_skill_execute() {
+    async fn echo_skill_execute() -> Result<()> {
         let skill = EchoSkill;
         assert_eq!(skill.name(), "echo");
         assert!(!skill.description().is_empty());
@@ -641,7 +660,8 @@ mod tests {
                 .collect(),
             context: None,
         };
-        let output = skill.execute(input).await.unwrap();
+        let output = skill.execute(input).await?;
         assert_eq!(output.data, serde_json::json!({"greeting": "hello"}));
+        Ok(())
     }
 }

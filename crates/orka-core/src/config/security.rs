@@ -275,41 +275,44 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_fs_paths_from_bool_true() {
-        let caps: PluginCapabilities =
-            toml::from_str("filesystem = true\nnetwork = false").unwrap();
+    fn deserialize_fs_paths_from_bool_true() -> Result<(), toml::de::Error> {
+        let caps: PluginCapabilities = toml::from_str("filesystem = true\nnetwork = false")?;
         assert_eq!(caps.filesystem, vec!["."]);
+        Ok(())
     }
 
     #[test]
-    fn deserialize_fs_paths_from_bool_false() {
-        let caps: PluginCapabilities =
-            toml::from_str("filesystem = false\nnetwork = false").unwrap();
+    fn deserialize_fs_paths_from_bool_false() -> Result<(), toml::de::Error> {
+        let caps: PluginCapabilities = toml::from_str("filesystem = false\nnetwork = false")?;
         assert!(caps.filesystem.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn deserialize_fs_paths_from_list() {
-        let caps: PluginCapabilities = toml::from_str(r#"filesystem = ["/data", "/tmp"]"#).unwrap();
+    fn deserialize_fs_paths_from_list() -> Result<(), toml::de::Error> {
+        let caps: PluginCapabilities = toml::from_str(r#"filesystem = ["/data", "/tmp"]"#)?;
         assert_eq!(caps.filesystem, vec!["/data", "/tmp"]);
+        Ok(())
     }
 
     #[test]
-    fn plugin_capabilities_with_env() {
-        let caps: PluginCapabilities = toml::from_str(r#"env = ["API_KEY", "DB_URL"]"#).unwrap();
+    fn plugin_capabilities_with_env() -> Result<(), toml::de::Error> {
+        let caps: PluginCapabilities = toml::from_str(r#"env = ["API_KEY", "DB_URL"]"#)?;
         assert_eq!(caps.env, vec!["API_KEY", "DB_URL"]);
+        Ok(())
     }
 
     #[test]
-    fn plugin_instance_enabled_by_default() {
-        let config: PluginInstanceConfig = toml::from_str("").unwrap();
+    fn plugin_instance_enabled_by_default() -> Result<(), toml::de::Error> {
+        let config: PluginInstanceConfig = toml::from_str("")?;
         assert!(config.enabled);
         assert!(config.capabilities.is_none());
         assert!(config.config.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn plugin_instance_with_capability_overrides() {
+    fn plugin_instance_with_capability_overrides() -> Result<(), toml::de::Error> {
         let config: PluginInstanceConfig = toml::from_str(
             r#"
 enabled = true
@@ -317,17 +320,20 @@ enabled = true
 network = true
 env = ["SPECIAL_VAR"]
 "#,
-        )
-        .unwrap();
-        let caps = config.capabilities.unwrap();
+        )?;
+        let Some(caps) = config.capabilities else {
+            panic!("expected capabilities overrides");
+        };
         assert!(caps.network);
         assert_eq!(caps.env, vec!["SPECIAL_VAR"]);
         assert!(caps.filesystem.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn plugin_instance_without_overrides() {
-        let config: PluginInstanceConfig = toml::from_str("enabled = true").unwrap();
+    fn plugin_instance_without_overrides() -> Result<(), toml::de::Error> {
+        let config: PluginInstanceConfig = toml::from_str("enabled = true")?;
         assert!(config.capabilities.is_none());
+        Ok(())
     }
 }

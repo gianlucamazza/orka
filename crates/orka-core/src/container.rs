@@ -460,7 +460,20 @@ impl std::fmt::Debug for AsyncServiceContainer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
+
+    static LAZY_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+    static ASYNC_LAZY_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+    static CONCURRENT_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    fn some<T>(value: Option<T>, label: &str) -> T {
+        match value {
+            Some(value) => value,
+            None => panic!("expected {label} to be present"),
+        }
+    }
 
     trait Database: Send + Sync {
         fn query(&self, sql: &str) -> String;
@@ -480,7 +493,7 @@ mod tests {
 
         container.register::<Arc<dyn Database>>(db.clone());
 
-        let retrieved = container.get::<Arc<dyn Database>>().unwrap();
+        let retrieved = some(container.get::<Arc<dyn Database>>(), "database service");
         assert_eq!(retrieved.query("SELECT 1"), "Mock: SELECT 1");
     }
 
@@ -525,9 +538,9 @@ mod tests {
         let mut container = ServiceContainer::new();
         container.register::<i32>(42);
 
-        let debug = format!("{:?}", container);
+        let debug = format!("{container:?}");
         assert!(debug.contains("ServiceContainer"));
-        assert!(debug.contains("1"));
+        assert!(debug.contains('1'));
     }
 
     #[test]
@@ -548,28 +561,25 @@ mod tests {
 
     #[test]
     fn lazy_container_factory() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
         let mut container = LazyContainer::new();
-        static CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
         // Reset counter
-        CALL_COUNT.store(0, Ordering::SeqCst);
+        LAZY_CALL_COUNT.store(0, Ordering::SeqCst);
 
         container.register_lazy::<i32>(|| {
-            CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+            LAZY_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
             42
         });
 
-        assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 0);
+        assert_eq!(LAZY_CALL_COUNT.load(Ordering::SeqCst), 0);
 
-        let val1 = container.get::<i32>().unwrap();
-        assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1);
+        let val1 = some(container.get::<i32>(), "lazy i32");
+        assert_eq!(LAZY_CALL_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(*val1, 42);
 
         // Second get should not call factory again
-        let val2 = container.get::<i32>().unwrap();
-        assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1);
+        let val2 = some(container.get::<i32>(), "cached lazy i32");
+        assert_eq!(LAZY_CALL_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(*val2, 42);
     }
 
@@ -581,44 +591,44 @@ mod tests {
             .register::<Arc<dyn Database>>(Arc::new(MockDb))
             .await;
 
-        let retrieved = container.get::<Arc<dyn Database>>().await.unwrap();
+        let retrieved = some(
+            container.get::<Arc<dyn Database>>().await,
+            "database service",
+        );
         assert_eq!(retrieved.query("SELECT 1"), "Mock: SELECT 1");
     }
 
     #[tokio::test]
     async fn async_container_lazy_factory() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
         let container = Arc::new(AsyncServiceContainer::new());
-        static CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-        CALL_COUNT.store(0, Ordering::SeqCst);
+        ASYNC_LAZY_CALL_COUNT.store(0, Ordering::SeqCst);
 
         // Factory function with explicit type
         let factory: Box<dyn Fn() -> Pin<Box<dyn Future<Output = i32> + Send>> + Send + Sync> =
             Box::new(|| {
                 Box::pin(async move {
-                    CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+                    ASYNC_LAZY_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
                     42
                 })
             });
         container.register_async::<i32>(factory).await;
 
         // Factory not called yet
-        assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 0);
+        assert_eq!(ASYNC_LAZY_CALL_COUNT.load(Ordering::SeqCst), 0);
         assert_eq!(container.initialized_count().await, 0);
         assert_eq!(container.pending_count().await, 1);
 
         // First get triggers factory
-        let val1 = container.get::<i32>().await.unwrap();
-        assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1);
+        let val1 = some(container.get::<i32>().await, "async lazy i32");
+        assert_eq!(ASYNC_LAZY_CALL_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(*val1, 42);
         assert_eq!(container.initialized_count().await, 1);
         assert_eq!(container.pending_count().await, 0);
 
         // Second get returns cached
-        let val2 = container.get::<i32>().await.unwrap();
-        assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1);
+        let val2 = some(container.get::<i32>().await, "cached async lazy i32");
+        assert_eq!(ASYNC_LAZY_CALL_COUNT.load(Ordering::SeqCst), 1);
         assert_eq!(*val2, 42);
     }
 
@@ -638,22 +648,19 @@ mod tests {
         container.register_async::<String>(factory).await;
 
         // First get triggers factory
-        let val1 = container.get::<String>().await.unwrap();
+        let val1 = some(container.get::<String>().await, "async lazy string");
         assert_eq!(*val1, "initialized");
 
         // Second get returns cached
-        let val2 = container.get::<String>().await.unwrap();
+        let val2 = some(container.get::<String>().await, "cached async lazy string");
         assert!(Arc::ptr_eq(&val1, &val2));
     }
 
     #[tokio::test]
     async fn async_container_concurrent_get() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
         let container = Arc::new(AsyncServiceContainer::new());
-        static CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-        CALL_COUNT.store(0, Ordering::SeqCst);
+        CONCURRENT_CALL_COUNT.store(0, Ordering::SeqCst);
 
         // Factory that tracks how many times it's called
         #[allow(clippy::type_complexity)]
@@ -661,7 +668,7 @@ mod tests {
             dyn Fn() -> Pin<Box<dyn Future<Output = Arc<String>> + Send>> + Send + Sync,
         > = Box::new(|| {
             Box::pin(async move {
-                CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+                CONCURRENT_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
                 tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                 Arc::new("concurrent_test".to_string())
             })
@@ -681,23 +688,27 @@ mod tests {
 
         // All should succeed
         for result in &results {
-            assert!(result.is_ok(), "Task panicked");
-            let value = result.as_ref().unwrap();
-            assert!(value.is_some(), "Service should be available");
-            assert_eq!(value.as_ref().unwrap().as_str(), "concurrent_test");
+            let Ok(Some(value)) = result.as_ref() else {
+                panic!("expected task success with initialized service");
+            };
+            assert_eq!(value.as_str(), "concurrent_test");
         }
 
         // Factory should only be called once
         assert_eq!(
-            CALL_COUNT.load(Ordering::SeqCst),
+            CONCURRENT_CALL_COUNT.load(Ordering::SeqCst),
             1,
             "Factory should be called exactly once"
         );
 
         // All should point to the same Arc
-        let first = results[0].as_ref().unwrap().as_ref().unwrap();
+        let Ok(Some(first)) = results[0].as_ref() else {
+            panic!("expected first concurrent result");
+        };
         for result in &results {
-            let value = result.as_ref().unwrap().as_ref().unwrap();
+            let Ok(Some(value)) = result.as_ref() else {
+                panic!("expected concurrent result");
+            };
             assert!(Arc::ptr_eq(first, value), "All should share the same Arc");
         }
     }
