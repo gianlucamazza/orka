@@ -104,36 +104,6 @@ pub enum OutcomeSignal {
     Success,
 }
 
-/// A trace of a single agent's execution within a graph run.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentTrace {
-    /// Agent identifier.
-    pub agent_id: String,
-    /// The final response produced by this agent, if any.
-    pub response: Option<String>,
-    /// Number of LLM iterations consumed.
-    pub iterations: usize,
-    /// Total tokens consumed by this agent.
-    pub tokens: u64,
-    /// Whether this agent handed off to another.
-    pub did_handoff: bool,
-    /// Skills invoked during this agent's execution.
-    pub skills_used: Vec<SkillTrace>,
-}
-
-/// A record of a handoff between agents.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HandoffTrace {
-    /// Source agent ID.
-    pub from_agent: String,
-    /// Target agent ID.
-    pub to_agent: String,
-    /// Transfer or Delegate.
-    pub mode: String,
-    /// Why the handoff occurred.
-    pub reason: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,35 +178,4 @@ mod tests {
         let StructuralAction::DisableSkill { skill_name, .. } = back;
         assert_eq!(skill_name, "broken");
     }
-}
-
-/// A trajectory record aggregated from a full multi-agent graph execution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphTrajectory {
-    /// Unique trajectory identifier (UUID v7).
-    pub id: String,
-    /// Graph identifier.
-    pub graph_id: String,
-    /// Run identifier for this execution.
-    pub run_id: String,
-    /// Session that produced this trajectory.
-    pub session_id: String,
-    /// When the graph execution completed.
-    pub timestamp: DateTime<Utc>,
-    /// The user's original message.
-    pub user_message: String,
-    /// The final agent response.
-    pub final_response: String,
-    /// Per-agent execution traces.
-    pub agent_traces: Vec<AgentTrace>,
-    /// Handoffs that occurred during execution.
-    pub handoffs: Vec<HandoffTrace>,
-    /// Total LLM iterations across all agents.
-    pub total_iterations: usize,
-    /// Total tokens consumed across all agents.
-    pub total_tokens: u64,
-    /// Whether the overall execution succeeded.
-    pub success: bool,
-    /// Total duration in milliseconds.
-    pub duration_ms: u64,
 }

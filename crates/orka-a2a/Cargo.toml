@@ -21,7 +21,6 @@ deadpool-redis.workspace = true
 redis.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true
-futures-util.workspace = true
 reqwest.workspace = true
 utoipa.workspace = true
 

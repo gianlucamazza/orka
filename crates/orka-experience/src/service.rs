@@ -103,7 +103,7 @@ impl ExperienceService {
 
         debug!(
             count = principles.len(),
-            workspace, "retrieved principles for prompt injection"
+            workspace, "retrieved principles for prompt enrichment"
         );
         Ok(principles)
     }
