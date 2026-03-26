@@ -16,6 +16,8 @@
 //!   → WebSocket client
 //! ```
 
+mod common;
+
 use std::{sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
@@ -31,16 +33,19 @@ use orka_workspace::WorkspaceLoader;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
 /// Start the inbound/outbound pipeline with in-memory backends.
 ///
-/// Returns (bus, sessions, adapter address, ws_registry, shutdown token).
-async fn start_pipeline() -> (
+/// Returns (bus, sessions, adapter address, `ws_registry`, shutdown token).
+async fn start_pipeline() -> common::TestResult<(
     Arc<InMemoryBus>,
     Arc<InMemorySessionStore>,
     std::net::SocketAddr,
     WsRegistry,
     CancellationToken,
-) {
+)> {
     let bus = Arc::new(InMemoryBus::new());
     let sessions = Arc::new(InMemorySessionStore::new());
     let queue = Arc::new(InMemoryQueue::new());
@@ -89,8 +94,8 @@ async fn start_pipeline() -> (
     let ws_registry = WsRegistry::new();
     let ws_reg_for_bridge = ws_registry.clone();
 
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
 
     let router = app_router(sink_tx, ws_registry.clone(), StreamRegistry::new(), None);
     tokio::spawn(async move {
@@ -106,7 +111,7 @@ async fn start_pipeline() -> (
     });
 
     // 5. Bridge bus "outbound" → WsRegistry
-    let mut outbound_rx = bus.subscribe("outbound").await.unwrap();
+    let mut outbound_rx = bus.subscribe("outbound").await?;
     tokio::spawn(async move {
         while let Some(envelope) = outbound_rx.recv().await {
             let text = match &envelope.payload {
@@ -119,7 +124,9 @@ async fn start_pipeline() -> (
                 text,
                 None,
             );
-            let json = serde_json::to_string(&outbound).unwrap();
+            let Ok(json) = serde_json::to_string(&outbound) else {
+                continue;
+            };
             ws_reg_for_bridge
                 .send_to_session(&envelope.session_id, &json)
                 .await;
@@ -129,19 +136,40 @@ async fn start_pipeline() -> (
     // Give the pipeline a moment to start subscribing
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    (bus, sessions, addr, ws_registry, shutdown)
+    Ok((bus, sessions, addr, ws_registry, shutdown))
+}
+
+fn timeout_error(message: &'static str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::TimedOut, message)
+}
+
+fn closed_error(message: &'static str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, message)
+}
+
+async fn next_ws_text(
+    ws_stream: &mut WsStream,
+    message: &'static str,
+) -> common::TestResult<String> {
+    let maybe_message = tokio::time::timeout(Duration::from_secs(5), ws_stream.next())
+        .await
+        .map_err(|_| timeout_error(message))?;
+    let Some(message) = maybe_message else {
+        return Err(closed_error("WebSocket stream ended unexpectedly").into());
+    };
+    Ok(message?.to_text()?.to_owned())
 }
 
 #[tokio::test]
-async fn message_roundtrip_via_ws() {
-    let (_, _, addr, _, shutdown) = start_pipeline().await;
+async fn message_roundtrip_via_ws() -> common::TestResult {
+    let (_, _, addr, _, shutdown) = start_pipeline().await?;
 
     // Generate a session_id so we can connect WebSocket BEFORE sending the message
     let session_id = SessionId::new();
 
     // 1. Connect WebSocket with the pre-generated session_id
     let ws_url = format!("ws://{addr}/api/v1/ws?session_id={session_id}");
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await?;
 
     // 2. POST a message to the adapter with the same session_id
     let client = reqwest::Client::new();
@@ -152,19 +180,12 @@ async fn message_roundtrip_via_ws() {
             "session_id": session_id.to_string(),
         }))
         .send()
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(resp.status(), 200, "POST /api/v1/message should return 200");
 
     // 3. Wait for the echo reply on the WebSocket
-    let msg = tokio::time::timeout(Duration::from_secs(5), ws_stream.next())
-        .await
-        .expect("timed out waiting for WebSocket message")
-        .unwrap()
-        .unwrap();
-
-    let received: orka_core::OutboundMessage =
-        serde_json::from_str(msg.to_text().unwrap()).unwrap();
+    let message = next_ws_text(&mut ws_stream, "timed out waiting for WebSocket message").await?;
+    let received: orka_core::OutboundMessage = serde_json::from_str(&message)?;
     assert_eq!(received.session_id, session_id);
     match &received.payload {
         Payload::Text(t) => assert!(
@@ -175,17 +196,18 @@ async fn message_roundtrip_via_ws() {
     }
 
     shutdown.cancel();
+    Ok(())
 }
 
 #[tokio::test]
-async fn message_reuses_session() {
-    let (_, _, addr, _, shutdown) = start_pipeline().await;
+async fn message_reuses_session() -> common::TestResult {
+    let (_, _, addr, _, shutdown) = start_pipeline().await?;
 
     let session_id = SessionId::new();
 
     // Connect WebSocket once for the whole session
     let ws_url = format!("ws://{addr}/api/v1/ws?session_id={session_id}");
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url).await?;
 
     let client = reqwest::Client::new();
 
@@ -198,22 +220,21 @@ async fn message_reuses_session() {
                 "session_id": session_id.to_string(),
             }))
             .send()
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(resp.status(), 200);
     }
 
     // Both replies should arrive on the same WebSocket
     for _ in 0..2 {
-        let msg = tokio::time::timeout(Duration::from_secs(5), ws_stream.next())
-            .await
-            .expect("timed out waiting for second WebSocket message")
-            .unwrap()
-            .unwrap();
-        let received: orka_core::OutboundMessage =
-            serde_json::from_str(msg.to_text().unwrap()).unwrap();
+        let message = next_ws_text(
+            &mut ws_stream,
+            "timed out waiting for second WebSocket message",
+        )
+        .await?;
+        let received: orka_core::OutboundMessage = serde_json::from_str(&message)?;
         assert_eq!(received.session_id, session_id);
     }
 
     shutdown.cancel();
+    Ok(())
 }

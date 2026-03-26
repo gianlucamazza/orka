@@ -38,8 +38,8 @@ pub(super) fn routes(
         .route(
             "/health/ready",
             axum::routing::get({
-                let redis_url = redis_url.clone();
-                let qdrant_url = qdrant_url.clone();
+                let redis_url = redis_url;
+                let qdrant_url = qdrant_url;
                 move || {
                     let queue = queue_for_ready.clone();
                     let redis_url = redis_url.clone();

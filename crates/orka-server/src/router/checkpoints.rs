@@ -42,7 +42,7 @@ pub(super) fn routes(
                     match store.list(&run_id).await {
                         Ok(ids) => {
                             let id_strings: Vec<String> =
-                                ids.iter().map(|id| id.to_string()).collect();
+                                ids.iter().map(std::string::ToString::to_string).collect();
                             axum::Json(id_strings).into_response()
                         }
                         Err(e) => (

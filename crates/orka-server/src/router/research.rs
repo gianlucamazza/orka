@@ -188,7 +188,7 @@ pub(super) fn routes(
             "/api/v1/research/runs/{id}/stream",
             axum::routing::get({
                 let svc = research_service.clone();
-                let reg = stream_registry.clone();
+                let reg = stream_registry;
                 move |Path(id): Path<String>| {
                     let svc = svc.clone();
                     let reg = reg.clone();

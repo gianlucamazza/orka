@@ -69,10 +69,10 @@ pub(crate) async fn resolve_api_key(
     };
 
     if key.is_none() {
-        let env_name = if !default_env.is_empty() {
-            default_env
-        } else {
+        let env_name = if default_env.is_empty() {
             "N/A"
+        } else {
+            default_env
         };
         warn!(
             provider,

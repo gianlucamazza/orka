@@ -76,8 +76,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     if config.os.enabled {
         let workspace_parent = std::path::Path::new(&config.workspace_dir)
             .parent()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| config.workspace_dir.clone());
+            .map_or_else(
+                || config.workspace_dir.clone(),
+                |p| p.to_string_lossy().into_owned(),
+            );
         if !config
             .os
             .allowed_paths
@@ -453,7 +455,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             .unwrap_or_else(|| config.workspaces[0].name.clone());
         let mut reg = WorkspaceRegistry::new(default_name);
         let mut load_set = tokio::task::JoinSet::new();
-        let entries = config.workspaces.to_vec();
+        let entries = config.workspaces.clone();
         for entry in &entries {
             let loader = Arc::new(WorkspaceLoader::new(&entry.dir));
             let name = entry.name.clone();
@@ -694,10 +696,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .as_ref()
         .and_then(|r| r.selected_backend.clone());
 
-    let web_search = if config.web.search_provider != "none" {
-        Some(config.web.search_provider.clone())
-    } else {
+    let web_search = if config.web.search_provider == "none" {
         None
+    } else {
+        Some(config.web.search_provider.clone())
     };
 
     let features = ServerFeatures {
@@ -843,7 +845,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             let workspace_names: Vec<String> = workspace_registry
                 .list_names()
                 .into_iter()
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .collect();
             let distill_event_sink = event_sink.clone();
             let distill_cancel = shutdown.clone();
@@ -853,7 +855,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                 interval.tick().await;
                 loop {
                     tokio::select! {
-                        _ = distill_cancel.cancelled() => break,
+                        () = distill_cancel.cancelled() => break,
                         _ = interval.tick() => {
                             for ws in &workspace_names {
                                 match exp.distill(ws).await {
@@ -888,32 +890,29 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let outbound_handle = tokio::spawn(async move {
         loop {
             tokio::select! {
-                _ = outbound_cancel.cancelled() => break,
+                () = outbound_cancel.cancelled() => break,
                 msg = outbound_rx.recv() => {
-                    match msg {
-                        Some(envelope) => {
-                            let mut outbound = OutboundMessage::new(
-                                envelope.channel.clone(),
-                                envelope.session_id,
-                                envelope.payload.clone(),
-                                None,
-                            );
-                            outbound.metadata = envelope.metadata.clone();
-                            let target = adapters_out
-                                .iter()
-                                .find(|a| a.channel_id() == envelope.channel.as_str());
-                            if let Some(adapter) = target {
-                                if let Err(e) = adapter.send(outbound).await {
-                                    error!(%e, channel = %envelope.channel, "failed to send outbound message via adapter");
-                                }
-                            } else {
-                                warn!(channel = %envelope.channel, "no adapter found for outbound channel");
+                    if let Some(envelope) = msg {
+                        let mut outbound = OutboundMessage::new(
+                            envelope.channel.clone(),
+                            envelope.session_id,
+                            envelope.payload.clone(),
+                            None,
+                        );
+                        outbound.metadata = envelope.metadata.clone();
+                        let target = adapters_out
+                            .iter()
+                            .find(|a| a.channel_id() == envelope.channel.as_str());
+                        if let Some(adapter) = target {
+                            if let Err(e) = adapter.send(outbound).await {
+                                error!(%e, channel = %envelope.channel, "failed to send outbound message via adapter");
                             }
+                        } else {
+                            warn!(channel = %envelope.channel, "no adapter found for outbound channel");
                         }
-                        None => {
-                            warn!("outbound bus channel closed");
-                            break;
-                        }
+                    } else {
+                        warn!("outbound bus channel closed");
+                        break;
                     }
                 }
             }

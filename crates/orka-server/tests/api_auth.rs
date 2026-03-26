@@ -17,46 +17,49 @@ const PUBLIC: &str = "/health/live";
 const TEST_KEY: &str = "test-secret-key-abc123";
 
 #[tokio::test]
-async fn protected_route_without_key_returns_401() {
+async fn protected_route_without_key_returns_401() -> common::TestResult {
     let app = common::test_router_with_auth(TEST_KEY);
-    let req = Request::builder()
-        .uri(PROTECTED)
-        .body(Body::empty())
-        .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let req = common::request(Request::builder().uri(PROTECTED), Body::empty())?;
+    let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    Ok(())
 }
 
 #[tokio::test]
-async fn protected_route_with_valid_key_returns_200() {
+async fn protected_route_with_valid_key_returns_200() -> common::TestResult {
     let app = common::test_router_with_auth(TEST_KEY);
-    let req = Request::builder()
-        .uri(PROTECTED)
-        .header("X-Api-Key", TEST_KEY)
-        .body(Body::empty())
-        .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let req = common::request(
+        Request::builder()
+            .uri(PROTECTED)
+            .header("X-Api-Key", TEST_KEY),
+        Body::empty(),
+    )?;
+    let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
+    Ok(())
 }
 
 #[tokio::test]
-async fn protected_route_with_wrong_key_returns_401() {
+async fn protected_route_with_wrong_key_returns_401() -> common::TestResult {
     let app = common::test_router_with_auth(TEST_KEY);
-    let req = Request::builder()
-        .uri(PROTECTED)
-        .header("X-Api-Key", "wrong-key")
-        .body(Body::empty())
-        .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let req = common::request(
+        Request::builder()
+            .uri(PROTECTED)
+            .header("X-Api-Key", "wrong-key"),
+        Body::empty(),
+    )?;
+    let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    Ok(())
 }
 
 #[tokio::test]
-async fn public_route_always_ok() {
+async fn public_route_always_ok() -> common::TestResult {
     let app = common::test_router_with_auth(TEST_KEY);
-    let req = Request::builder().uri(PUBLIC).body(Body::empty()).unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let req = common::request(Request::builder().uri(PUBLIC), Body::empty())?;
+    let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
+    Ok(())
 }
 
 // ── A2A auth scenario tests
@@ -72,72 +75,71 @@ fn a2a_body() -> Body {
 }
 
 #[tokio::test]
-async fn a2a_agent_card_is_always_public_when_auth_enabled() {
+async fn a2a_agent_card_is_always_public_when_auth_enabled() -> common::TestResult {
     let app = common::test_router_with_a2a(TEST_KEY, true);
-    let req = Request::builder()
-        .uri(A2A_AGENT_CARD)
-        .body(Body::empty())
-        .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let req = common::request(Request::builder().uri(A2A_AGENT_CARD), Body::empty())?;
+    let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
+    Ok(())
 }
 
 #[tokio::test]
-async fn a2a_rpc_without_key_returns_401_when_auth_enabled() {
+async fn a2a_rpc_without_key_returns_401_when_auth_enabled() -> common::TestResult {
     let app = common::test_router_with_a2a(TEST_KEY, true);
-    let req = Request::builder()
-        .method("POST")
-        .uri(A2A_RPC)
-        .header("content-type", "application/json")
-        .body(a2a_body())
-        .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let req = common::request(
+        Request::builder()
+            .method("POST")
+            .uri(A2A_RPC)
+            .header("content-type", "application/json"),
+        a2a_body(),
+    )?;
+    let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    Ok(())
 }
 
 #[tokio::test]
-async fn a2a_rpc_with_valid_key_returns_200_when_auth_enabled() {
+async fn a2a_rpc_with_valid_key_returns_200_when_auth_enabled() -> common::TestResult {
     let app = common::test_router_with_a2a(TEST_KEY, true);
-    let req = Request::builder()
-        .method("POST")
-        .uri(A2A_RPC)
-        .header("content-type", "application/json")
-        .header("X-Api-Key", TEST_KEY)
-        .body(a2a_body())
-        .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let req = common::request(
+        Request::builder()
+            .method("POST")
+            .uri(A2A_RPC)
+            .header("content-type", "application/json")
+            .header("X-Api-Key", TEST_KEY),
+        a2a_body(),
+    )?;
+    let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
+    Ok(())
 }
 
 #[tokio::test]
-async fn a2a_rpc_without_key_returns_200_when_auth_disabled() {
+async fn a2a_rpc_without_key_returns_200_when_auth_disabled() -> common::TestResult {
     let app = common::test_router_with_a2a(TEST_KEY, false);
-    let req = Request::builder()
-        .method("POST")
-        .uri(A2A_RPC)
-        .header("content-type", "application/json")
-        .body(a2a_body())
-        .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let req = common::request(
+        Request::builder()
+            .method("POST")
+            .uri(A2A_RPC)
+            .header("content-type", "application/json"),
+        a2a_body(),
+    )?;
+    let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
+    Ok(())
 }
 
 // ── Discovery endpoint test
 // ───────────────────────────────────────────────────
 
 #[tokio::test]
-async fn a2a_agents_discovery_returns_empty_list() {
+async fn a2a_agents_discovery_returns_empty_list() -> common::TestResult {
     let app = common::test_router_with_a2a(TEST_KEY, false);
-    let req = Request::builder()
-        .uri("/api/v1/a2a/agents")
-        .body(Body::empty())
-        .unwrap();
-    let resp = app.oneshot(req).await.unwrap();
+    let req = common::request(Request::builder().uri("/api/v1/a2a/agents"), Body::empty())?;
+    let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let json = common::json_body(resp).await?;
     assert!(json.is_array(), "expected JSON array, got: {json}");
+    Ok(())
 }

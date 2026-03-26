@@ -5,14 +5,119 @@
 
 #![allow(dead_code, missing_docs)]
 
+use std::error::Error;
 use std::sync::Arc;
 
+use axum::{body::Body, response::Response};
 use orka_a2a::AgentDirectory;
 use orka_agent::{Agent, AgentGraph, AgentId, GraphNode, NodeKind, TerminationPolicy};
 use orka_core::testing::{InMemoryQueue, InMemorySessionStore};
 use orka_server::router::{RouterParams, ServerFeatures, build_router};
 use orka_skills::{EchoSkill, SkillRegistry};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
+
+pub(crate) type TestResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
+
+pub(crate) fn request(
+    builder: http::request::Builder,
+    body: Body,
+) -> TestResult<http::Request<Body>> {
+    builder.body(body).map_err(Into::into)
+}
+
+pub(crate) async fn json_body(response: Response) -> TestResult<serde_json::Value> {
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+    Ok(serde_json::from_slice(&body)?)
+}
+
+pub(crate) fn json_array(value: &serde_json::Value) -> TestResult<&Vec<serde_json::Value>> {
+    value.as_array().ok_or_else(|| "expected JSON array".into())
+}
+
+struct StaticJsonSkill {
+    name: &'static str,
+    description: &'static str,
+    data: serde_json::Value,
+}
+
+#[async_trait::async_trait]
+impl orka_core::traits::Skill for StaticJsonSkill {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn description(&self) -> &str {
+        self.description
+    }
+
+    fn schema(&self) -> orka_core::SkillSchema {
+        orka_core::SkillSchema::new(serde_json::json!({}))
+    }
+
+    async fn execute(
+        &self,
+        _input: orka_core::SkillInput,
+    ) -> orka_core::Result<orka_core::SkillOutput> {
+        Ok(orka_core::SkillOutput::new(self.data.clone()))
+    }
+}
+
+fn register_static_json_skill(
+    skills: &mut SkillRegistry,
+    name: &'static str,
+    description: &'static str,
+    data: serde_json::Value,
+) {
+    skills.register(Arc::new(StaticJsonSkill {
+        name,
+        description,
+        data,
+    }));
+}
+
+fn register_research_test_skills(skills: &mut SkillRegistry) {
+    register_static_json_skill(
+        skills,
+        "git_worktree_create",
+        "create worktree",
+        serde_json::json!({ "path": "/tmp/test-wt" }),
+    );
+    register_static_json_skill(
+        skills,
+        "coding_delegate",
+        "coding delegate",
+        serde_json::json!({ "backend": "codex", "result": "implemented" }),
+    );
+    register_static_json_skill(
+        skills,
+        "git_diff",
+        "git diff",
+        serde_json::json!({ "diff": "diff --git a/f b/f" }),
+    );
+    register_static_json_skill(
+        skills,
+        "shell_exec",
+        "shell exec",
+        serde_json::json!({
+            "exit_code": 0,
+            "stdout": "ok",
+            "stderr": "",
+            "duration_ms": 1,
+        }),
+    );
+    register_static_json_skill(
+        skills,
+        "git_checkout",
+        "git checkout",
+        serde_json::json!({ "branch": "main" }),
+    );
+    register_static_json_skill(
+        skills,
+        "git_merge",
+        "git merge",
+        serde_json::json!({ "merged": true }),
+    );
+}
 
 /// Build a minimal agent graph with a single "test" node for use in tests.
 fn test_graph() -> Arc<AgentGraph> {
@@ -22,7 +127,7 @@ fn test_graph() -> Arc<AgentGraph> {
         terminal_agents: std::iter::once(agent_id.clone()).collect(),
         ..TerminationPolicy::default()
     };
-    let mut graph = AgentGraph::new("test-graph", agent_id.clone()).with_termination(policy);
+    let mut graph = AgentGraph::new("test-graph", agent_id).with_termination(policy);
     graph.add_node(GraphNode {
         agent,
         kind: NodeKind::Agent,
@@ -57,7 +162,7 @@ fn test_features() -> ServerFeatures {
 /// - No scheduler
 /// - No experience service
 /// - One registered skill: `EchoSkill`
-pub fn test_router() -> axum::Router {
+pub(crate) fn test_router() -> axum::Router {
     let mut skills = SkillRegistry::new();
     skills.register(Arc::new(EchoSkill));
 
@@ -103,7 +208,7 @@ pub fn test_router() -> axum::Router {
 /// When `auth_enabled` is `true`:
 /// - `GET /.well-known/agent.json` remains public.
 /// - `POST /a2a` requires `X-Api-Key: <key>`.
-pub fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::Router {
+pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::Router {
     use orka_a2a::{
         A2aState, InMemoryPushNotificationStore, InMemoryTaskStore, WebhookDeliverer,
         build_agent_card,
@@ -123,7 +228,7 @@ pub fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::Router {
         skills: skills.clone(),
         secrets: Arc::new(InMemorySecretManager::new()),
         task_store: Arc::new(InMemoryTaskStore::default()),
-        task_events: Default::default(),
+        task_events: Arc::default(),
         push_store: push_store.clone(),
         webhook_deliverer: Arc::new(WebhookDeliverer::new(push_store)),
     });
@@ -173,7 +278,7 @@ pub fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::Router {
 /// Build the server router with API-key authentication enabled.
 ///
 /// Protected routes require `X-Api-Key: <key>`.
-pub fn test_router_with_auth(key: &str) -> axum::Router {
+pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
     use orka_auth::{ApiKeyAuthenticator, AuthLayer, middleware::AuthMiddlewareConfig};
     use orka_core::config::ApiKeyEntry;
     use sha2::{Digest, Sha256};
@@ -227,39 +332,9 @@ pub fn test_router_with_auth(key: &str) -> axum::Router {
 ///
 /// Uses in-memory stub skills so the full research pipeline can run
 /// without external tools.
-pub fn test_router_with_research() -> axum::Router {
+pub(crate) fn test_router_with_research() -> axum::Router {
     use orka_core::{config::ResearchConfig, testing::InMemorySecretManager};
     use orka_research::{InMemoryResearchStore, create_research_service, create_research_skills};
-
-    // Stub skills that return canned JSON responses so the pipeline
-    // completes without invoking real external tools.
-    struct StaticJsonSkill {
-        name: &'static str,
-        description: &'static str,
-        data: serde_json::Value,
-    }
-
-    #[async_trait::async_trait]
-    impl orka_core::traits::Skill for StaticJsonSkill {
-        fn name(&self) -> &str {
-            self.name
-        }
-
-        fn description(&self) -> &str {
-            self.description
-        }
-
-        fn schema(&self) -> orka_core::SkillSchema {
-            orka_core::SkillSchema::new(serde_json::json!({}))
-        }
-
-        async fn execute(
-            &self,
-            _input: orka_core::SkillInput,
-        ) -> orka_core::Result<orka_core::SkillOutput> {
-            Ok(orka_core::SkillOutput::new(self.data.clone()))
-        }
-    }
 
     let store = Arc::new(InMemoryResearchStore::new());
     let service = create_research_service(
@@ -273,41 +348,7 @@ pub fn test_router_with_research() -> axum::Router {
 
     let mut skills = SkillRegistry::new();
     skills.register(Arc::new(EchoSkill));
-    skills.register(Arc::new(StaticJsonSkill {
-        name: "git_worktree_create",
-        description: "create worktree",
-        data: serde_json::json!({ "path": "/tmp/test-wt" }),
-    }));
-    skills.register(Arc::new(StaticJsonSkill {
-        name: "coding_delegate",
-        description: "coding delegate",
-        data: serde_json::json!({ "backend": "codex", "result": "implemented" }),
-    }));
-    skills.register(Arc::new(StaticJsonSkill {
-        name: "git_diff",
-        description: "git diff",
-        data: serde_json::json!({ "diff": "diff --git a/f b/f" }),
-    }));
-    skills.register(Arc::new(StaticJsonSkill {
-        name: "shell_exec",
-        description: "shell exec",
-        data: serde_json::json!({
-            "exit_code": 0,
-            "stdout": "ok",
-            "stderr": "",
-            "duration_ms": 1,
-        }),
-    }));
-    skills.register(Arc::new(StaticJsonSkill {
-        name: "git_checkout",
-        description: "git checkout",
-        data: serde_json::json!({ "branch": "main" }),
-    }));
-    skills.register(Arc::new(StaticJsonSkill {
-        name: "git_merge",
-        description: "git merge",
-        data: serde_json::json!({ "merged": true }),
-    }));
+    register_research_test_skills(&mut skills);
     for skill in create_research_skills(service.clone()) {
         skills.register(skill);
     }

@@ -9,13 +9,12 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// and logs a warning if one exists. Never blocks startup.
 pub(crate) fn spawn_update_check() {
     tokio::spawn(async {
-        let client = match reqwest::Client::builder()
+        let Ok(client) = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .user_agent(format!("orka-server/{VERSION}"))
             .build()
-        {
-            Ok(c) => c,
-            Err(_) => return,
+        else {
+            return;
         };
         let Ok(resp) = client
             .get(GITHUB_LATEST_URL)
@@ -52,9 +51,8 @@ fn upgrade_hint_for_server() -> &'static str {
     if is_docker {
         return "Pull the latest image and recreate the container.";
     }
-    let exe = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(_) => return "See https://github.com/gianlucamazza/orka/releases",
+    let Ok(exe) = std::env::current_exe() else {
+        return "See https://github.com/gianlucamazza/orka/releases";
     };
     let s = exe.to_string_lossy();
     if s.starts_with("/usr/bin/") {

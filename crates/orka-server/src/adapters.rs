@@ -29,7 +29,7 @@ pub(crate) async fn start_adapter(
     tokio::spawn(async move {
         loop {
             tokio::select! {
-                _ = cancel.cancelled() => break,
+                () = cancel.cancelled() => break,
                 msg = sink_rx.recv() => {
                     match msg {
                         Some(mut envelope) => {

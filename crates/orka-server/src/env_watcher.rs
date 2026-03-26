@@ -67,7 +67,7 @@ impl EnvWatcher {
 
                 // Parse env file into a map without polluting process environment
                 let env_vars: HashMap<String, String> = match dotenvy::from_path_iter(&env_path) {
-                    Ok(iter) => iter.filter_map(|r| r.ok()).collect(),
+                    Ok(iter) => iter.filter_map(std::result::Result::ok).collect(),
                     Err(e) => {
                         warn!(%e, "failed to parse env file");
                         continue;
@@ -84,11 +84,7 @@ impl EnvWatcher {
                         continue;
                     };
 
-                    if current_keys
-                        .get(&pc.name)
-                        .map(|p| p == &key)
-                        .unwrap_or(false)
-                    {
+                    if current_keys.get(&pc.name).is_some_and(|p| p == &key) {
                         continue;
                     }
                     current_keys.insert(pc.name.clone(), key.clone());

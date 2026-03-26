@@ -3,7 +3,7 @@
 /// End-to-end test: adapter → bus(inbound) → gateway → queue → worker →
 /// bus(outbound)
 ///
-/// Uses in-memory test doubles from orka-core::testing to verify the full
+/// Uses in-memory test doubles from `orka-core::testing` to verify the full
 /// message flow without Redis or external dependencies.
 use std::sync::Arc;
 use std::time::Duration;

@@ -25,8 +25,8 @@ pub(super) fn routes(
 ) -> axum::Router {
     let s1 = skills.clone();
     let s2 = skills.clone();
-    let s3 = skills.clone();
-    let soft1 = soft_skills.clone();
+    let s3 = skills;
+    let soft1 = soft_skills;
     let w1 = workspace_registry.clone();
     let w2 = workspace_registry;
     let g1 = graph;
@@ -74,7 +74,7 @@ pub(super) fn routes(
                 async move {
                     let list: Vec<serde_json::Value> = reg
                         .as_deref()
-                        .map(|r| r.summaries())
+                        .map(orka_skills::SoftSkillRegistry::summaries)
                         .unwrap_or_default()
                         .into_iter()
                         .map(|s| {
@@ -149,13 +149,12 @@ pub(super) fn routes(
                             let (agent_name, description) = state
                                 .soul
                                 .as_ref()
-                                .map(|d| {
+                                .map_or((None, None), |d| {
                                     (
                                         d.frontmatter.name.clone(),
                                         d.frontmatter.description.clone(),
                                     )
-                                })
-                                .unwrap_or((None, None));
+                                });
                             list.push(serde_json::json!({
                                 "name": name,
                                 "agent_name": agent_name,
@@ -214,7 +213,7 @@ pub(super) fn routes(
                                     "name": node.agent.display_name,
                                     "max_iterations": node.agent.max_iterations,
                                     "handoff_targets": node.agent.handoff_targets.iter()
-                                        .map(|t| t.to_string()).collect::<Vec<_>>(),
+                                        .map(std::string::ToString::to_string).collect::<Vec<_>>(),
                                 }
                             })
                         })
@@ -263,7 +262,7 @@ pub(super) fn routes(
                             "max_total_tokens": g.termination.max_total_tokens,
                             "max_duration_secs": g.termination.max_duration.as_secs(),
                             "terminal_agents": g.termination.terminal_agents.iter()
-                                .map(|a| a.to_string()).collect::<Vec<_>>(),
+                                .map(std::string::ToString::to_string).collect::<Vec<_>>(),
                         }
                     }))
                 }
@@ -276,7 +275,7 @@ pub(super) fn routes(
                 let exp = e1.clone();
                 async move {
                     axum::Json(serde_json::json!({
-                        "enabled": exp.as_ref().map(|e| e.is_enabled()).unwrap_or(false),
+                        "enabled": exp.as_ref().is_some_and(|e| e.is_enabled()),
                     }))
                 }
             }),
@@ -292,9 +291,8 @@ pub(super) fn routes(
                     };
                     let workspace = params
                         .get("workspace")
-                        .map(String::as_str)
-                        .unwrap_or("default");
-                    let query = params.get("query").map(String::as_str).unwrap_or("");
+                        .map_or("default", String::as_str);
+                    let query = params.get("query").map_or("", String::as_str);
                     let limit: usize = params
                         .get("limit")
                         .and_then(|l| l.parse().ok())
