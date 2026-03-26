@@ -228,7 +228,7 @@ otlp_endpoint = "http://otel-collector:4317"
 [audit]
 enabled = true
 output  = "file"            # or "redis"
-path    = "/var/log/orka/audit.jsonl"
+path    = "/var/lib/orka/audit.jsonl"
 ```
 
 Each line is a JSON record:

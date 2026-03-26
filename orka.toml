@@ -213,8 +213,9 @@ permission_level = "admin"
 #   execute    – adds shell execution, process signals, file watching, desktop open/screenshot
 #   admin      – adds sudo operations: package install, service control
 # Filesystem paths the agent is permitted to access.
-# NOTE: paths under /home require the fs.conf systemd drop-in (installed
-# automatically by install.sh when /home is listed here).
+# NOTE: the server always adds the workspace_dir parent to this list at startup,
+# so /var/lib/orka is always accessible. Paths under /home additionally require
+# the fs.conf systemd drop-in (installed automatically by install.sh).
 # allowed_paths = ["/home", "/tmp"]
 # denied_paths = ["/etc/shadow", "/etc/gshadow", "~/.ssh/id_*"]
 # allowed_shell_commands = []           # explicit allow-list; empty means unrestricted
@@ -343,7 +344,7 @@ blocked_patterns = ['(?i)(api[_-]?key|password|secret)\s*[:=]\s*\S+']
 [audit]
 enabled = true
 output = "file"
-path = "/var/log/orka/audit.log"
+path = "/var/lib/orka/audit.jsonl"
 
 [experience]
 enabled = true
