@@ -32,10 +32,16 @@ pub trait TaskStore: Send + Sync + 'static {
 // ── InMemoryTaskStore
 // ─────────────────────────────────────────────────────────
 
+/// Maximum number of tasks kept in the in-memory store before the oldest is
+/// evicted. Prevents unbounded memory growth on long-running development
+/// servers.
+const IN_MEMORY_MAX_TASKS: usize = 10_000;
+
 /// In-memory task store backed by a `Mutex<HashMap>`.
 ///
 /// Suitable for development and single-node deployments. All state is lost on
-/// restart.
+/// restart. Caps at [`IN_MEMORY_MAX_TASKS`] entries, evicting the
+/// oldest task (by `created_at`) when the limit is reached.
 #[derive(Debug, Default)]
 pub struct InMemoryTaskStore {
     tasks: Mutex<HashMap<String, Task>>,
@@ -44,7 +50,16 @@ pub struct InMemoryTaskStore {
 #[async_trait]
 impl TaskStore for InMemoryTaskStore {
     async fn put(&self, task: Task) -> Result<(), A2aError> {
-        self.tasks.lock().await.insert(task.id.clone(), task);
+        let mut tasks = self.tasks.lock().await;
+        // Evict the oldest entry if we're at capacity and this is a new task.
+        if tasks.len() >= IN_MEMORY_MAX_TASKS
+            && !tasks.contains_key(&task.id)
+            && let Some(oldest_id) =
+                tasks.values().min_by_key(|t| t.created_at).map(|t| t.id.clone())
+        {
+            tasks.remove(&oldest_id);
+        }
+        tasks.insert(task.id.clone(), task);
         Ok(())
     }
 
@@ -202,15 +217,26 @@ impl TaskStore for RedisTaskStore {
             .await
             .map_err(|e| A2aError::Internal(format!("failed to list task index: {e}")))?;
 
-        let mut tasks = Vec::new();
-        for id in ids {
-            let data_key = format!("{TASK_KEY_PREFIX}{id}");
-            let data: Option<String> = conn
-                .get(&data_key)
-                .await
-                .map_err(|e| A2aError::Internal(format!("failed to get task: {e}")))?;
+        if ids.is_empty() {
+            return Ok(ListTasksResult {
+                tasks: Vec::new(),
+                next_page_token: None,
+            });
+        }
 
-            if let Some(d) = data
+        // Batch-fetch all task payloads in a single MGET instead of N GETs.
+        let data_keys: Vec<String> = ids
+            .iter()
+            .map(|id| format!("{TASK_KEY_PREFIX}{id}"))
+            .collect();
+        let raw_values: Vec<Option<String>> = conn
+            .mget(&data_keys)
+            .await
+            .map_err(|e| A2aError::Internal(format!("failed to mget tasks: {e}")))?;
+
+        let mut tasks = Vec::new();
+        for raw in raw_values {
+            if let Some(d) = raw
                 && let Ok(task) = serde_json::from_str::<Task>(&d)
                 && (params.states.is_empty() || params.states.contains(&task.status.state))
             {

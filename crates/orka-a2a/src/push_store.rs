@@ -153,20 +153,25 @@ impl PushNotificationStore for RedisPushNotificationStore {
             .await
             .map_err(|e| A2aError::Internal(format!("failed to list push configs: {e}")))?;
 
-        let mut configs = Vec::new();
-        for id in ids {
-            let data_key = format!("{PUSH_KEY_PREFIX}{id}");
-            let data: Option<String> = conn
-                .get(&data_key)
-                .await
-                .map_err(|e| A2aError::Internal(format!("failed to get push config: {e}")))?;
-
-            if let Some(d) = data
-                && let Ok(cfg) = serde_json::from_str::<PushNotificationConfig>(&d)
-            {
-                configs.push(cfg);
-            }
+        if ids.is_empty() {
+            return Ok(Vec::new());
         }
+
+        // Batch-fetch all configs in a single MGET instead of N GETs.
+        let data_keys: Vec<String> = ids
+            .iter()
+            .map(|id| format!("{PUSH_KEY_PREFIX}{id}"))
+            .collect();
+        let raw_values: Vec<Option<String>> = conn
+            .mget(&data_keys)
+            .await
+            .map_err(|e| A2aError::Internal(format!("failed to mget push configs: {e}")))?;
+
+        let configs = raw_values
+            .into_iter()
+            .flatten()
+            .filter_map(|d| serde_json::from_str::<PushNotificationConfig>(&d).ok())
+            .collect();
 
         Ok(configs)
     }

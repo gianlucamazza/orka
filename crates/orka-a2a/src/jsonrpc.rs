@@ -79,9 +79,26 @@ struct JsonRpcErrorBody {
 
 /// Try to parse a raw JSON value into a [`JsonRpcRequest`], returning a
 /// well-formed JSON-RPC error response on failure.
+///
+/// Also validates that `jsonrpc == "2.0"` per the JSON-RPC 2.0 specification.
 pub fn parse_request(raw: Value) -> Result<JsonRpcRequest, JsonRpcResponse> {
     let id = raw.get("id").cloned();
-    serde_json::from_value(raw).map_err(|e| {
-        JsonRpcResponse::raw_error(id, ERR_INVALID_REQUEST, format!("invalid request: {e}"))
-    })
+    let req: JsonRpcRequest = serde_json::from_value(raw).map_err(|e| {
+        JsonRpcResponse::raw_error(
+            id.clone(),
+            ERR_INVALID_REQUEST,
+            format!("invalid request: {e}"),
+        )
+    })?;
+    if req.jsonrpc != "2.0" {
+        return Err(JsonRpcResponse::raw_error(
+            id,
+            ERR_INVALID_REQUEST,
+            format!(
+                "invalid jsonrpc version: expected \"2.0\", got \"{}\"",
+                req.jsonrpc
+            ),
+        ));
+    }
+    Ok(req)
 }

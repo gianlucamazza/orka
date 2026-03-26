@@ -74,19 +74,27 @@ pub fn extract_text_from_message(message: &Value) -> String {
 
 /// Find a skill for the given message text:
 /// 1. Exact lookup by `skillId` param if present.
-/// 2. Fallback: first skill whose name is a prefix of `text`.
+/// 2. Fallback: longest skill name that matches `text` as a whole word
+///    (i.e. text equals the name, or the name is followed by a space).
+///    Using longest-match prevents "echo" from shadowing "echoplus".
 fn find_skill_name(skills: &SkillRegistry, text: &str, skill_id: Option<&str>) -> Option<String> {
     if let Some(id) = skill_id
         && skills.get(id).is_some()
     {
         return Some(id.to_string());
     }
-    for name in skills.list() {
-        if text.starts_with(name) {
-            return Some(name.to_string());
-        }
-    }
-    None
+    let mut candidates: Vec<String> = skills
+        .list()
+        .into_iter()
+        .filter(|name| {
+            text.strip_prefix(name)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+        })
+        .map(str::to_owned)
+        .collect();
+    // Prefer longer matches so more-specific skill names win.
+    candidates.sort_by_key(|n| std::cmp::Reverse(n.len()));
+    candidates.into_iter().next()
 }
 
 /// Build a new [`Message`] with `Role::User` from raw text.
@@ -196,7 +204,7 @@ pub async fn handle_a2a(
             handle_push_notification_delete(&state, &request.params).await
         }
 
-        "agentCard/getExtended" => handle_get_extended_agent_card(&state).await,
+        "agentCard/getExtended" => handle_get_extended_agent_card(&state),
 
         method => Err(A2aError::MethodNotFound(method.to_string())),
     };
@@ -316,24 +324,34 @@ async fn handle_message_send(
     state.task_store.put(task.clone()).await?;
     debug!(task_id, "A2A task completed");
 
-    // One-shot push notification for sync tasks.
-    if let Ok(Some(_)) = state.push_store.get(&task_id).await {
+    maybe_deliver_push(state, &task_id, &context_id, &task.status).await;
+
+    serde_json::to_value(&task).map_err(|e| A2aError::Internal(e.to_string()))
+}
+
+/// Fire-and-forget push notification for a task status update if a config is
+/// registered for the given task.
+async fn maybe_deliver_push(
+    state: &A2aState,
+    task_id: &str,
+    context_id: &str,
+    status: &TaskStatus,
+) {
+    if let Ok(Some(_)) = state.push_store.get(task_id).await {
         let event = Arc::new(TaskEvent::TaskStatusUpdate {
-            task_id: task_id.clone(),
-            context_id: context_id.clone(),
-            status: task.status.clone(),
+            task_id: task_id.to_string(),
+            context_id: context_id.to_string(),
+            status: status.clone(),
             is_final: true,
         });
         let deliverer = state.webhook_deliverer.clone();
-        let tid = task_id.clone();
+        let tid = task_id.to_string();
         tokio::spawn(async move {
             if let Err(e) = deliverer.deliver(&tid, &event).await {
-                debug!(task_id = %tid, %e, "push notification delivery failed for completed task");
+                debug!(task_id = %tid, %e, "push notification delivery failed");
             }
         });
     }
-
-    serde_json::to_value(&task).map_err(|e| A2aError::Internal(e.to_string()))
 }
 
 /// `message/stream` — create a task and stream events over SSE.
@@ -739,7 +757,7 @@ async fn handle_push_notification_delete(
 /// When auth is enabled on this route, only authenticated callers reach this
 /// handler; the `AuthLayer` rejects unauthenticated requests with 401 before
 /// this function is invoked.
-async fn handle_get_extended_agent_card(state: &A2aState) -> Result<Value, A2aError> {
+fn handle_get_extended_agent_card(state: &A2aState) -> Result<Value, A2aError> {
     serde_json::to_value(&state.agent_card).map_err(|e| A2aError::Internal(e.to_string()))
 }
 
