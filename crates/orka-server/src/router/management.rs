@@ -15,6 +15,7 @@ use orka_experience::ExperienceService;
 use orka_skills::{SkillRegistry, SoftSkillRegistry};
 use orka_workspace::WorkspaceRegistry;
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn routes(
     skills: Arc<SkillRegistry>,
     soft_skills: Option<Arc<SoftSkillRegistry>>,
@@ -49,7 +50,6 @@ pub(super) fn routes(
                         .iter()
                         .map(|(name, skill, state)| {
                             let status = match state {
-                                orka_circuit_breaker::CircuitState::Closed => "ok",
                                 orka_circuit_breaker::CircuitState::HalfOpen => "degraded",
                                 orka_circuit_breaker::CircuitState::Open => "disabled",
                                 _ => "ok",

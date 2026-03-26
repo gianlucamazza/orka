@@ -17,6 +17,7 @@ use axum::{extract::Path, http::StatusCode, response::IntoResponse};
 use orka_checkpoint::{CheckpointId, CheckpointStore, RunStatus};
 use orka_core::traits::PriorityQueue;
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn routes(
     store: Option<Arc<dyn CheckpointStore>>,
     queue: Arc<dyn PriorityQueue>,

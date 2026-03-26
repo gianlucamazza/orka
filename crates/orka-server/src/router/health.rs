@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use orka_core::traits::PriorityQueue;
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn routes(
-    queue: Arc<dyn PriorityQueue>,
+    queue: &Arc<dyn PriorityQueue>,
     start_time: std::time::Instant,
     concurrency: usize,
     redis_url: String,
@@ -38,8 +39,6 @@ pub(super) fn routes(
         .route(
             "/health/ready",
             axum::routing::get({
-                let redis_url = redis_url;
-                let qdrant_url = qdrant_url;
                 move || {
                     let queue = queue_for_ready.clone();
                     let redis_url = redis_url.clone();

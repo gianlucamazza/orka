@@ -4,6 +4,9 @@
 //! [`RouterParams`] struct.  Separating construction from the binary entry
 //! point makes the router testable without starting the full server process.
 
+// The `OpenApi` derive macro generates code that triggers this lint.
+#![allow(clippy::needless_for_each)]
+
 mod checkpoints;
 mod dlq;
 mod health;
@@ -118,6 +121,7 @@ pub async fn security_headers(
 }
 
 /// Feature flags reported by the server in `/api/v1/info`.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, serde::Serialize)]
 pub struct ServerFeatures {
     /// Whether knowledge and retrieval endpoints are enabled.
@@ -245,6 +249,7 @@ pub struct RouterParams {
 ///
 /// Returns the composed router (without binding a TCP listener).
 /// The caller is responsible for binding and spawning `axum::serve`.
+#[allow(clippy::too_many_lines)]
 pub fn build_router(p: RouterParams) -> axum::Router {
     let RouterParams {
         queue,
@@ -283,7 +288,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
     // --- Public routes (no auth) ---
 
     let mut public_routes = health::routes(
-        queue.clone(),
+        &queue,
         start_time,
         concurrency,
         redis_url,

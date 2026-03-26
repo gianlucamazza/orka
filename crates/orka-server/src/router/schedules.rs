@@ -5,6 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 use axum::{Json, extract::Path, http::StatusCode, response::IntoResponse};
 use orka_scheduler::ScheduleStore;
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn routes(scheduler_store: Option<Arc<dyn ScheduleStore>>) -> axum::Router {
     let sc1 = scheduler_store.clone();
     let sc2 = scheduler_store.clone();
