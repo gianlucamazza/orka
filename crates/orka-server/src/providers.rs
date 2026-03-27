@@ -44,6 +44,14 @@ fn looks_like_anthropic_bearer_token(value: &str) -> bool {
     value.starts_with("sk-ant-oat")
 }
 
+fn inferred_auth_kind(provider: &str, value: &str) -> LlmAuthKind {
+    if provider == "anthropic" && looks_like_anthropic_bearer_token(value) {
+        LlmAuthKind::AuthToken
+    } else {
+        LlmAuthKind::ApiKey
+    }
+}
+
 async fn resolve_slot(
     provider: &str,
     slot: CredentialSlot,
@@ -181,12 +189,29 @@ pub(crate) async fn resolve_llm_credential(
 
             let (value, source) =
                 resolve_slot(provider, CredentialSlot::ApiKey, config, secrets).await?;
-            let auth_kind = if provider == "anthropic" && looks_like_anthropic_bearer_token(&value)
-            {
-                LlmAuthKind::AuthToken
-            } else {
-                LlmAuthKind::ApiKey
+            let auth_kind = inferred_auth_kind(provider, &value);
+            let slot = match auth_kind {
+                LlmAuthKind::AuthToken => CredentialSlot::AuthToken,
+                _ => CredentialSlot::ApiKey,
             };
+            Some(ResolvedCredential {
+                value,
+                source,
+                slot,
+                auth_kind,
+            })
+        }
+        _ => {
+            let resolved = if let Some((value, source)) =
+                resolve_slot(provider, CredentialSlot::AuthToken, config, secrets).await
+            {
+                (value, source)
+            } else {
+                resolve_slot(provider, CredentialSlot::ApiKey, config, secrets).await?
+            };
+
+            let (value, source) = resolved;
+            let auth_kind = inferred_auth_kind(provider, &value);
             let slot = match auth_kind {
                 LlmAuthKind::AuthToken => CredentialSlot::AuthToken,
                 _ => CredentialSlot::ApiKey,
@@ -207,6 +232,7 @@ fn anthropic_auth_kind(resolved: &ResolvedCredential) -> AnthropicAuthKind {
         LlmAuthKind::AuthToken | LlmAuthKind::Subscription => AnthropicAuthKind::Bearer,
         LlmAuthKind::Auto => AnthropicAuthKind::Auto,
         LlmAuthKind::Cli => AnthropicAuthKind::ApiKey,
+        _ => AnthropicAuthKind::Auto,
     }
 }
 
@@ -219,9 +245,10 @@ fn build_anthropic_client(
         .model
         .clone()
         .unwrap_or_else(|| config.llm.default_model.clone());
+    let auth_kind = anthropic_auth_kind(&resolved);
     Arc::new(orka_llm::AnthropicClient::with_auth_options(
         resolved.value,
-        anthropic_auth_kind(&resolved),
+        auth_kind,
         model,
         provider
             .timeout_secs

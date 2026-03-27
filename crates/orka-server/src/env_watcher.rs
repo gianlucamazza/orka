@@ -167,6 +167,14 @@ fn looks_like_anthropic_bearer_token(value: &str) -> bool {
     value.starts_with("sk-ant-oat")
 }
 
+fn inferred_auth_kind(provider: &str, value: &str) -> LlmAuthKind {
+    if provider == "anthropic" && looks_like_anthropic_bearer_token(value) {
+        LlmAuthKind::AuthToken
+    } else {
+        LlmAuthKind::ApiKey
+    }
+}
+
 fn resolve_env_slot(
     env_vars: &HashMap<String, String>,
     provider: &str,
@@ -175,39 +183,40 @@ fn resolve_env_slot(
 ) -> Option<String> {
     let (inline, env_name, default_env) = if auth_slot {
         (
-            config.auth_token.as_ref(),
+            config.auth_token.as_deref(),
             config.auth_token_env.as_deref(),
             default_auth_token_env_var(provider),
         )
     } else {
         (
-            config.api_key.as_ref(),
+            config.api_key.as_deref(),
             config.api_key_env.as_deref(),
             default_env_var(provider),
         )
     };
 
     inline
-        .clone()
-        .filter(|k| !k.is_empty())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
         .or_else(|| {
             env_name.and_then(|env| {
                 env_vars
                     .get(env)
-                    .filter(|k| !k.is_empty())
-                    .cloned()
-                    .or_else(|| std::env::var(env).ok().filter(|k| !k.is_empty()))
+                    .map(String::as_str)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| std::env::var(env).ok().filter(|value| !value.is_empty()))
             })
         })
         .or_else(|| {
-            if default_env.is_empty() {
-                return None;
-            }
-            env_vars
-                .get(default_env)
-                .filter(|k| !k.is_empty())
-                .cloned()
-                .or_else(|| std::env::var(default_env).ok().filter(|k| !k.is_empty()))
+            (!default_env.is_empty()).then_some(default_env).and_then(|env| {
+                env_vars
+                    .get(env)
+                    .map(String::as_str)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| std::env::var(env).ok().filter(|value| !value.is_empty()))
+            })
         })
 }
 
@@ -263,12 +272,20 @@ async fn resolve_credential_from_env(
                 value = secret_value(secrets, config.api_key_secret.as_deref()).await;
             }
             let value = value?;
-            let auth_kind =
-                if config.provider == "anthropic" && looks_like_anthropic_bearer_token(&value) {
-                    LlmAuthKind::AuthToken
-                } else {
-                    LlmAuthKind::ApiKey
-                };
+            let auth_kind = inferred_auth_kind(&config.provider, &value);
+            Some(ResolvedEnvCredential { value, auth_kind })
+        }
+        _ => {
+            let mut value = resolve_env_slot(env_vars, &config.provider, true, config)
+                .or_else(|| resolve_env_slot(env_vars, &config.provider, false, config));
+            if value.is_none() {
+                value = secret_value(secrets, config.auth_token_secret.as_deref()).await;
+            }
+            if value.is_none() {
+                value = secret_value(secrets, config.api_key_secret.as_deref()).await;
+            }
+            let value = value?;
+            let auth_kind = inferred_auth_kind(&config.provider, &value);
             Some(ResolvedEnvCredential { value, auth_kind })
         }
     }
@@ -298,4 +315,94 @@ fn resolve_env_path() -> Option<PathBuf> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use orka_core::{
+        SecretValue,
+        config::{LlmAuthKind, LlmProviderConfig},
+        traits::SecretManager,
+    };
+
+    use super::*;
+
+    struct NoopSecrets;
+
+    #[async_trait::async_trait]
+    impl SecretManager for NoopSecrets {
+        async fn get_secret(&self, _: &str) -> orka_core::Result<SecretValue> {
+            Err(orka_core::Error::secret("missing"))
+        }
+        async fn set_secret(&self, _: &str, _: &SecretValue) -> orka_core::Result<()> {
+            Ok(())
+        }
+        async fn delete_secret(&self, _: &str) -> orka_core::Result<()> {
+            Ok(())
+        }
+        async fn list_secrets(&self) -> orka_core::Result<Vec<String>> {
+            Ok(Vec::new())
+        }
+    }
+
+    fn provider() -> LlmProviderConfig {
+        LlmProviderConfig {
+            name: "anthropic".into(),
+            provider: "anthropic".into(),
+            ..LlmProviderConfig::default()
+        }
+    }
+
+    #[test]
+    fn resolve_env_slot_prefers_inline_value() {
+        let mut provider = provider();
+        provider.api_key = Some("inline-key".into());
+
+        let resolved = resolve_env_slot(&HashMap::new(), "anthropic", false, &provider);
+        assert_eq!(resolved.as_deref(), Some("inline-key"));
+    }
+
+    #[test]
+    fn resolve_env_slot_reads_named_env_var_from_env_file_map() {
+        let mut provider = provider();
+        provider.auth_token_env = Some("CUSTOM_AUTH".into());
+
+        let env_vars = HashMap::from([(String::from("CUSTOM_AUTH"), String::from("token"))]);
+        let resolved = resolve_env_slot(&env_vars, "anthropic", true, &provider);
+        assert_eq!(resolved.as_deref(), Some("token"));
+    }
+
+    #[test]
+    fn resolve_env_slot_reads_default_env_var_from_env_file_map() {
+        let env_vars = HashMap::from([(
+            String::from("ANTHROPIC_API_KEY"),
+            String::from("default-key"),
+        )]);
+        let resolved = resolve_env_slot(&env_vars, "anthropic", false, &provider());
+        assert_eq!(resolved.as_deref(), Some("default-key"));
+    }
+
+    #[tokio::test]
+    async fn cli_auth_kind_skips_env_resolution() {
+        let mut provider = provider();
+        provider.auth_kind = LlmAuthKind::Cli;
+        provider.api_key = Some("ignored".into());
+
+        let resolved =
+            resolve_credential_from_env(&HashMap::new(), &provider, &NoopSecrets).await;
+        assert!(resolved.is_none());
+    }
+
+    #[tokio::test]
+    async fn auto_auth_kind_detects_anthropic_bearer_tokens() {
+        let mut provider = provider();
+        provider.auth_kind = LlmAuthKind::Auto;
+        provider.api_key = Some("sk-ant-oat01-test".into());
+
+        let resolved =
+            resolve_credential_from_env(&HashMap::new(), &provider, &NoopSecrets).await;
+        let resolved = resolved.expect("credential");
+        assert_eq!(resolved.auth_kind, LlmAuthKind::AuthToken);
+        assert_eq!(resolved.value, "sk-ant-oat01-test");
+    }
 }
