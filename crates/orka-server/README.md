@@ -6,13 +6,16 @@ Main application binary for the Orka agent orchestration framework.
 
 | Method | Path                     | Description                                                   |
 | ------ | ------------------------ | ------------------------------------------------------------- |
-| `POST` | `/message`               | Submit an inbound message for agent processing                |
+| `GET`  | `/health`                | Health summary                                                |
 | `GET`  | `/health/live`           | Liveness probe (returns 200 when process is up)               |
 | `GET`  | `/health/ready`          | Readiness probe (returns 200 when all subsystems are healthy) |
 | `GET`  | `/docs`                  | Swagger UI (OpenAPI spec)                                     |
-| `GET`  | `/api-docs/openapi.json` | Raw OpenAPI JSON                                              |
+| `GET`  | `/api-doc/openapi.json`  | Raw OpenAPI JSON                                              |
+| `GET`  | `/api/v1/version`        | Version metadata                                              |
+| `GET`  | `/api/v1/info`           | Lightweight server capability summary                         |
 
-Port `8080` serves the REST API. Port `8081` serves the custom adapter webhook.
+Port `8080` serves the management and health API. Port `8081` serves the custom
+adapter HTTP/WebSocket surface, including `POST /api/v1/message`.
 
 ## Starting
 
@@ -27,8 +30,8 @@ just run
 ## Configuration
 
 The server reads `orka.toml` (path overridden by `ORKA_CONFIG` env var) merged with
-`ORKA__*` environment variables. See the root `orka.toml` for a fully-commented
-reference configuration.
+`ORKA__*` environment variables. See the repository root `orka.toml` for the
+canonical sample configuration kept aligned with the current parser.
 
 ## Architecture
 
