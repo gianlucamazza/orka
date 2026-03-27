@@ -211,7 +211,7 @@ pub(super) fn routes(
                                 "agent": {
                                     "id": node.agent.id.to_string(),
                                     "name": node.agent.display_name,
-                                    "max_iterations": node.agent.max_iterations,
+                                    "max_turns": node.agent.max_turns,
                                     "handoff_targets": node.agent.handoff_targets.iter()
                                         .map(std::string::ToString::to_string).collect::<Vec<_>>(),
                                 }

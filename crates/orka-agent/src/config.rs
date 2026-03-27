@@ -231,7 +231,7 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
     }
 
     agent.system_prompt = system_prompt;
-    agent.max_iterations = cfg.max_iterations;
+    agent.max_turns = cfg.max_turns;
 
     let thinking = cfg.thinking.as_deref().map(|effort| {
         let level = match effort.to_lowercase().as_str() {

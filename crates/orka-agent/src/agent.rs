@@ -195,8 +195,8 @@ pub struct Agent {
     pub llm_config: AgentLlmConfig,
     /// IDs of agents this agent can hand off to at runtime.
     pub handoff_targets: Vec<AgentId>,
-    /// Maximum LLM iterations before giving up.
-    pub max_iterations: usize,
+    /// Maximum tool-use turns before the agent stops.
+    pub max_turns: usize,
     /// Per-skill execution timeout in seconds.
     pub skill_timeout_secs: u64,
     /// Maximum output size in bytes per skill invocation (None = no limit).
@@ -235,7 +235,7 @@ impl Agent {
             tools: ToolScope::All,
             llm_config: AgentLlmConfig::default(),
             handoff_targets: Vec::new(),
-            max_iterations: 15,
+            max_turns: 15,
             skill_timeout_secs: 120,
             skill_max_output_bytes: None,
             skill_max_duration_ms: None,

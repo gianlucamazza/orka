@@ -133,7 +133,7 @@ max_retries = 3
 id = "orka-default"
 name = "Orka"
 model = "claude-sonnet-4-6"
-max_iterations = 25
+max_turns = 25
 max_tokens = 16000
 thinking = "high"
 tool_result_max_chars = 16000
@@ -396,14 +396,14 @@ max_concurrent = 5
 # kind = "agent"
 # name = "Coder"
 # model = "claude-sonnet-4-6"
-# max_iterations = 15
+# max_turns = 15
 
 # [[agents]]
 # id = "reviewer"
 # kind = "agent"
 # name = "Reviewer"
 # model = "claude-sonnet-4-6"
-# max_iterations = 5
+# max_turns = 5
 
 # [graph]
 # entry = "router"                           # explicit entry point (default: first agent)

@@ -168,7 +168,7 @@ fn migrate_v1_to_v2(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
         let mut agent = Table::new();
         agent.insert("id", value("orka-default"));
         agent.insert("name", value("Orka"));
-        agent.insert("max_iterations", value(15i64));
+        agent.insert("max_turns", value(15i64));
         doc.insert("agent", Item::Table(agent));
         added.push("[agent]");
     }
@@ -539,7 +539,7 @@ fn inspect_agents_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
         "temperature",
         "max_tokens",
         "thinking",
-        "max_iterations",
+        "max_turns",
         "tool_result_max_chars",
         "allowed_tools",
         "denied_tools",
@@ -1220,7 +1220,7 @@ permission_level = "read-only"
         let agent = some(agents.iter().next(), "at least one agent");
         assert_eq!(agent["id"].as_str(), Some("orka-default"));
         assert_eq!(agent["name"].as_str(), Some("Orka"));
-        assert_eq!(agent["max_iterations"].as_integer(), Some(15));
+        assert_eq!(agent["max_turns"].as_integer(), Some(15));
 
         // [tools] defaults
         let tools = doc["tools"]
@@ -1252,7 +1252,7 @@ permission_level = "read-only"
 [agent]
 id = "my-agent"
 name = "MyBot"
-max_iterations = 5
+max_turns = 5
 
 [tools]
 deny = []
@@ -1287,7 +1287,7 @@ password_required = false
             .unwrap_or_else(|| panic!("[[agents]] missing"));
         let first = some(agents.iter().next(), "at least one agent");
         assert_eq!(first["id"].as_str(), Some("my-agent"));
-        assert_eq!(first["max_iterations"].as_integer(), Some(5));
+        assert_eq!(first["max_turns"].as_integer(), Some(5));
         let os = doc["os"]
             .as_table()
             .unwrap_or_else(|| panic!("[os] missing"));
@@ -1512,7 +1512,7 @@ id = "orka-default"
 name = "Orka"
 model = "claude-sonnet-4-6"
 max_tokens = 8192
-max_iterations = 10
+max_turns = 10
 tool_result_max_chars = 1000
 thinking = "high"
 

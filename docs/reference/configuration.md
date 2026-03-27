@@ -125,7 +125,7 @@ Each `[[agents]]` entry defines one agent in the execution graph.
 | `temperature` | `f32` | `0.7` | Sampling temperature |
 | `max_tokens` | `u32` | `4096` | Response token cap |
 | `thinking` | `string?` | none | Reasoning effort: `"low"`, `"medium"`, `"high"`, `"max"` |
-| `max_iterations` | `usize` | `10` | Agent LLM loop cap |
+| `max_turns` | `usize` | `10` | Maximum tool-use turns per agent run |
 | `tool_result_max_chars` | `usize` | `8000` | Tool output truncation |
 | `allowed_tools` | `string[]` | `[]` | Optional allowlist (empty = all tools) |
 | `denied_tools` | `string[]` | `[]` | Optional denylist (takes precedence) |

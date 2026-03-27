@@ -181,8 +181,8 @@ pub fn default_model() -> String {
     "claude-sonnet-4-6".to_string()
 }
 
-/// Default max iterations for agent.
-pub const fn default_max_iterations() -> usize {
+/// Default max tool turns for agent.
+pub const fn default_max_turns() -> usize {
     10
 }
 

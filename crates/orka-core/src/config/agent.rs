@@ -36,9 +36,9 @@ pub struct AgentConfig {
     /// on Claude Opus 4.6+. Omit to disable thinking entirely.
     #[serde(default)]
     pub thinking: Option<String>,
-    /// Maximum conversation iterations.
-    #[serde(default = "defaults::default_max_iterations")]
-    pub max_iterations: usize,
+    /// Maximum tool-use turns before the agent stops.
+    #[serde(default = "defaults::default_max_turns")]
+    pub max_turns: usize,
     /// Maximum characters for tool results.
     #[serde(default = "defaults::default_tool_result_max_chars")]
     pub tool_result_max_chars: usize,
@@ -95,7 +95,7 @@ impl Default for AgentConfig {
             model: defaults::default_model(),
             temperature: defaults::default_temperature(),
             max_tokens: defaults::default_max_tokens(),
-            max_iterations: defaults::default_max_iterations(),
+            max_turns: defaults::default_max_turns(),
             tool_result_max_chars: defaults::default_tool_result_max_chars(),
             allowed_tools: Vec::new(),
             denied_tools: Vec::new(),
