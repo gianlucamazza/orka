@@ -14,8 +14,9 @@ version: "0.2"
 | Run isolated code safely                         | `sandbox`      |
 | Run system commands or scripts                   | `shell_exec`   |
 | Delegate a multi-step coding task autonomously   | `coding_delegate` |
-| Store a finding for later retrieval              | `memory_store` |
-| Ingest a whole document into the knowledge base  | `doc_ingest`   |
+| Store a durable fact for later retrieval         | `remember_fact` |
+| Search remembered facts                          | `search_facts` |
+| Ingest a whole document into the knowledge base  | `ingest_document`   |
 
 ## Web (`web_search`, `web_read`)
 
@@ -45,7 +46,8 @@ version: "0.2"
 - **Override working directory**: use the `working_dir` parameter to run the delegated task in a specific
   directory (useful for monorepos or multi-project setups).
 
-## Knowledge (`memory_store`, `memory_search`, `doc_ingest`, `doc_list`)
+## Memory (`remember_fact`, `search_facts`, `list_facts`, `forget_fact`, `ingest_document`, `list_documents`)
 
-- `memory_store` / `memory_search`: semantic store for facts and findings.
-- `doc_ingest` / `doc_list`: full document ingestion pipeline (chunks + embeddings).
+- `remember_fact` / `search_facts`: semantic fact memory with explicit persistence.
+- `list_facts` / `forget_fact`: inspect and delete stored semantic facts.
+- `ingest_document` / `list_documents`: full document ingestion pipeline (chunks + embeddings).
