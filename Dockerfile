@@ -2,7 +2,7 @@
 
 # --- Base: shared stage with cargo-chef + build deps ---
 FROM rust:1.93-slim-bookworm AS chef
-RUN cargo install cargo-chef
+RUN cargo install cargo-chef --version 0.1.68 --locked
 RUN apt-get update && apt-get install -y pkg-config libssl-dev curl g++ mold clang && rm -rf /var/lib/apt/lists/*
 ENV CARGO_INCREMENTAL=0
 WORKDIR /app
@@ -37,7 +37,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM cook-dev AS builder-dev
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    cargo install cargo-watch
+    cargo install cargo-watch --version 8.5.3 --locked
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \

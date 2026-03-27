@@ -18,6 +18,16 @@ docker-compose.override.yml
 Justfile
 examples/
 
+# Tests and docs
+tests/
+docs/
+
+# Coverage artifacts
+coverage/
+*.profraw
+*.profdata
+codecov.json
+
 # Editor/IDE/OS
 .vscode/
 .idea/

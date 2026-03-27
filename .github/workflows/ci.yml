@@ -123,7 +123,7 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - name: Generate coverage report
-        run: cargo llvm-cov --workspace --codecov --output-path codecov.json
+        run: cargo llvm-cov --workspace --codecov --output-path codecov.json -- --include-ignored
         env:
           REDIS_URL: redis://127.0.0.1:6379
           QDRANT_URL: http://localhost:6334
@@ -131,4 +131,4 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: codecov.json
-          fail_ci_if_error: false
+          fail_ci_if_error: true
