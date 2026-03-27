@@ -226,6 +226,16 @@ pub const fn default_coding_timeout_secs() -> u64 {
     300
 }
 
+/// Default: forward coding progress updates to the originating chat channel.
+pub const fn default_coding_progress_to_chat() -> bool {
+    true
+}
+
+/// Default throttle window (seconds) between progress chat messages.
+pub const fn default_coding_progress_throttle_secs() -> u64 {
+    15
+}
+
 /// Default per-skill execution timeout in seconds.
 pub const fn default_skill_timeout_secs() -> u64 {
     120

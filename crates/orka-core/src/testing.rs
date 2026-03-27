@@ -286,12 +286,37 @@ impl MemoryStore for InMemoryMemoryStore {
             .values()
             .filter(|(_, deadline)| deadline.is_none_or(|dl| now < dl))
             .filter(|(entry, _)| {
-                entry.key.contains(query) || entry.tags.iter().any(|t| t.contains(query))
+                entry.key.contains(query)
+                    || entry.tags.iter().any(|t| t.contains(query))
+                    || entry.source.contains(query)
+                    || entry
+                        .metadata
+                        .iter()
+                        .any(|(k, v)| k.contains(query) || v.contains(query))
             })
             .take(limit)
             .map(|(entry, _)| entry.clone())
             .collect();
         Ok(results)
+    }
+
+    async fn list(&self, prefix: Option<&str>, limit: usize) -> Result<Vec<MemoryEntry>> {
+        let now = tokio::time::Instant::now();
+        let entries = self.entries.lock().await;
+        let mut results: Vec<MemoryEntry> = entries
+            .iter()
+            .filter(|(_, (_, deadline))| deadline.is_none_or(|dl| now < dl))
+            .filter(|(key, _)| prefix.is_none_or(|p| key.starts_with(p)))
+            .map(|(_, (entry, _))| entry.clone())
+            .collect();
+        results.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        results.truncate(limit);
+        Ok(results)
+    }
+
+    async fn delete(&self, key: &str) -> Result<bool> {
+        let mut entries = self.entries.lock().await;
+        Ok(entries.remove(key).is_some())
     }
 
     async fn compact(&self) -> Result<usize> {
@@ -513,7 +538,11 @@ mod tests {
         let store = InMemoryMemoryStore::new();
         let entry = MemoryEntry {
             key: "test-key".into(),
+            kind: crate::MemoryKind::Working,
+            scope: crate::MemoryScope::Session,
+            source: "system".into(),
             value: serde_json::json!({"data": "hello"}),
+            metadata: HashMap::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             tags: vec!["tag1".into()],
@@ -532,7 +561,11 @@ mod tests {
         let store = InMemoryMemoryStore::new();
         let entry = MemoryEntry {
             key: "ephemeral".into(),
+            kind: crate::MemoryKind::Working,
+            scope: crate::MemoryScope::Session,
+            source: "system".into(),
             value: serde_json::json!("gone soon"),
+            metadata: HashMap::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             tags: vec![],
@@ -551,14 +584,22 @@ mod tests {
         let store = InMemoryMemoryStore::new();
         let entry1 = MemoryEntry {
             key: "user-profile".into(),
+            kind: crate::MemoryKind::Semantic,
+            scope: crate::MemoryScope::User,
+            source: "user".into(),
             value: serde_json::json!({}),
+            metadata: HashMap::from([("workspace".into(), "main".into())]),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             tags: vec!["user".into()],
         };
         let entry2 = MemoryEntry {
             key: "system-config".into(),
+            kind: crate::MemoryKind::Working,
+            scope: crate::MemoryScope::Global,
+            source: "system".into(),
             value: serde_json::json!({}),
+            metadata: HashMap::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             tags: vec!["system".into()],
@@ -569,6 +610,9 @@ mod tests {
         let results = store.search("user", 10).await?;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].key, "user-profile");
+        assert_eq!(store.search("main", 10).await?.len(), 1);
+        assert_eq!(store.list(Some("system"), 10).await?.len(), 1);
+        assert!(store.delete("system-config").await?);
         Ok(())
     }
 

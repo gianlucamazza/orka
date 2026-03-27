@@ -73,6 +73,12 @@ pub trait MemoryStore: Send + Sync + 'static {
     /// Search entries by query string.
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<MemoryEntry>>;
 
+    /// List entries, optionally filtering by key prefix.
+    async fn list(&self, prefix: Option<&str>, limit: usize) -> Result<Vec<MemoryEntry>>;
+
+    /// Delete a value by key. Returns `true` when an entry was removed.
+    async fn delete(&self, key: &str) -> Result<bool>;
+
     /// Compact expired or low-priority entries. Returns number of entries
     /// removed.
     async fn compact(&self) -> Result<usize>;

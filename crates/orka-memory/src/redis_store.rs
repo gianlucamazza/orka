@@ -158,7 +158,12 @@ impl MemoryStore for RedisMemoryStore {
                         .map_err(|e| Error::memory(format!("redis GET error: {e}")))?;
                     if let Some(json) = value
                         && let Ok(entry) = serde_json::from_str::<MemoryEntry>(&json)
-                        && entry.tags.iter().any(|t| t.contains(query))
+                        && (entry.tags.iter().any(|t| t.contains(query))
+                            || entry.source.contains(query)
+                            || entry
+                                .metadata
+                                .iter()
+                                .any(|(k, v)| k.contains(query) || v.contains(query)))
                         && !results.iter().any(|r: &MemoryEntry| r.key == entry.key)
                     {
                         results.push(entry);
@@ -174,6 +179,72 @@ impl MemoryStore for RedisMemoryStore {
 
         debug!(query, count = results.len(), "memory search completed");
         Ok(results)
+    }
+
+    async fn list(&self, prefix: Option<&str>, limit: usize) -> Result<Vec<MemoryEntry>> {
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| Error::memory(format!("redis pool error: {e}")))?;
+
+        let pattern = match prefix {
+            Some(prefix) => format!("orka:memory:{prefix}*"),
+            None => "orka:memory:*".to_string(),
+        };
+
+        let mut cursor: u64 = 0;
+        let mut entries = Vec::new();
+
+        loop {
+            let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(200)
+                .query_async(&mut *conn)
+                .await
+                .map_err(|e| Error::memory(format!("redis SCAN error: {e}")))?;
+
+            for key in keys {
+                if entries.len() >= limit {
+                    break;
+                }
+                let value: Option<String> = conn
+                    .get(&key)
+                    .await
+                    .map_err(|e| Error::memory(format!("redis GET error: {e}")))?;
+                if let Some(json) = value
+                    && let Ok(entry) = serde_json::from_str::<MemoryEntry>(&json)
+                {
+                    entries.push(entry);
+                }
+            }
+
+            if entries.len() >= limit || next_cursor == 0 {
+                break;
+            }
+            cursor = next_cursor;
+        }
+
+        entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        entries.truncate(limit);
+        Ok(entries)
+    }
+
+    async fn delete(&self, key: &str) -> Result<bool> {
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| Error::memory(format!("redis pool error: {e}")))?;
+
+        let deleted: u64 = conn
+            .del(Self::key(key))
+            .await
+            .map_err(|e| Error::memory(format!("redis DEL error: {e}")))?;
+        Ok(deleted > 0)
     }
 
     async fn compact(&self) -> Result<usize> {

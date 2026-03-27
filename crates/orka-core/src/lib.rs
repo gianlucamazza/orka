@@ -44,6 +44,8 @@ pub mod traits;
 /// Core data types: envelopes, sessions, events, payloads, and IDs.
 pub mod types;
 
+/// Progress bridge: forwards coding-delegate events to chat platforms.
+pub mod progress_bridge;
 /// Generic retry-with-backoff executor.
 pub mod retry;
 /// Streaming infrastructure for real-time LLM response delivery.
@@ -75,8 +77,8 @@ pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry, forward_delegate_
 pub use traits::NoopEventSink;
 pub use types::{
     CommandArgs, CommandPayload, DomainEvent, DomainEventKind, Envelope, ErrorCategory, EventId,
-    EventPayload, MediaPayload, MemoryEntry, MessageId, MessageSink, MessageStream,
-    OutboundMessage, Payload, Priority, RunId, SecretValue, Session, SessionId, SkillBudget,
-    SkillContext, SkillInput, SkillOutput, SkillSchema, TraceContext, backoff_delay,
+    EventPayload, MediaPayload, MemoryEntry, MemoryKind, MemoryScope, MessageId, MessageSink,
+    MessageStream, OutboundMessage, Payload, Priority, RunId, SecretValue, Session, SessionId,
+    SkillBudget, SkillContext, SkillInput, SkillOutput, SkillSchema, TraceContext, backoff_delay,
 };
 pub use util::truncate_tool_result;

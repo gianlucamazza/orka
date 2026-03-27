@@ -183,6 +183,20 @@ pub struct CodingConfig {
     /// Allow callers to override the configured working directory.
     #[serde(default = "defaults::default_coding_allow_working_dir_override")]
     pub allow_working_dir_override: bool,
+    /// Forward coding progress updates back to the originating chat channel.
+    ///
+    /// When `true`, significant events from the coding backend (tool calls,
+    /// errors, completion) are sent as intermediate messages to the chat
+    /// platform that triggered the task, so the user is not left waiting in
+    /// silence.  Only applies to non-`custom` channels.
+    #[serde(default = "defaults::default_coding_progress_to_chat")]
+    pub progress_to_chat: bool,
+    /// Minimum seconds between progress chat messages (throttle window).
+    ///
+    /// Tool-start events within this window are batched into a single message.
+    /// Terminal events (`result`, `error`) always bypass the throttle.
+    #[serde(default = "defaults::default_coding_progress_throttle_secs")]
+    pub progress_throttle_secs: u64,
     /// Provider-specific configuration.
     #[serde(default)]
     pub providers: CodingProvidersConfig,
@@ -197,6 +211,8 @@ impl Default for CodingConfig {
             inject_workspace_context: defaults::default_coding_inject_workspace_context(),
             require_verification: defaults::default_coding_require_verification(),
             allow_working_dir_override: defaults::default_coding_allow_working_dir_override(),
+            progress_to_chat: defaults::default_coding_progress_to_chat(),
+            progress_throttle_secs: defaults::default_coding_progress_throttle_secs(),
             providers: CodingProvidersConfig::default(),
         }
     }
