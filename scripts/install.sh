@@ -754,10 +754,14 @@ do_install() {
 			if "${CLI_BIN_PATH}" config check --config "${CONFIG_DIR}/orka.toml"; then
 				ok "Config validation passed."
 			else
-				warn "Config validation failed. Check manually: orka config check --config ${CONFIG_DIR}/orka.toml"
+				error "Config validation failed. Refusing to restart ${SERVICE_NAME} with an invalid config."
+				error "Check manually: orka config check --config ${CONFIG_DIR}/orka.toml"
+				exit 1
 			fi
 		else
-			warn "Config migration failed. Check manually: orka config check --config ${CONFIG_DIR}/orka.toml"
+			error "Config migration failed. Refusing to restart ${SERVICE_NAME}."
+			error "Check manually: orka config check --config ${CONFIG_DIR}/orka.toml"
+			exit 1
 		fi
 	fi
 
