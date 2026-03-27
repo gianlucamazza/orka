@@ -53,7 +53,7 @@ pub fn default_redis_url() -> String {
 
 /// Default Qdrant vector store URL.
 pub fn default_qdrant_url() -> String {
-    "http://localhost:6333".to_string()
+    "http://localhost:6334".to_string()
 }
 
 /// Default worker concurrency.
