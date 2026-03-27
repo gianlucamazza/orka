@@ -2,6 +2,11 @@
 
 Orka reads configuration from `orka.toml` plus `ORKA__...` environment overrides.
 
+This page is a concise reference for the current top-level schema. For a
+concrete end-to-end example, prefer the repository root
+[`orka.toml`](../../orka.toml), which is intended to stay aligned with the
+current parser.
+
 ## Environment Variables
 
 | Variable | Description |
@@ -20,23 +25,43 @@ Nested config values can be overridden with `ORKA__SECTION__KEY`. Arrays use num
 
 | Section | Purpose |
 | --- | --- |
+| `config_version` | Schema version used by migrations and validation |
 | `server` | Bind address for the HTTP server |
+| `bus` | Message bus backend and polling behavior |
 | `redis` | Redis connection |
+| `logging` | Structured logging level and JSON mode |
+| `workspace_dir` | Root directory used for workspace discovery |
+| `workspaces` / `default_workspace` | Named runtime workspaces and default selection |
 | `adapters` | Telegram, Discord, Slack, WhatsApp, custom adapter config |
 | `worker` | Worker pool sizing and retry backoff |
+| `memory` | Long-term key-value memory backend and capacity |
+| `secrets` | Secret storage backend and encryption key source |
 | `auth` | API-key / JWT auth config |
+| `sandbox` | Process sandbox backend and resource limits |
+| `plugins` | WASM plugin directory, capabilities, and per-plugin config |
+| `soft_skills` | Discovery and loading rules for SKILL.md-based soft skills |
+| `session` | Session TTL and backend behavior |
+| `queue` | Queue retry policy |
 | `llm` | Default LLM values plus provider list |
 | `agents` | Agent definitions (array of tables) |
 | `graph` | Graph topology for multi-agent execution |
 | `tools` | Global allow/deny lists for skills |
+| `observe` | Metrics and tracing backend |
+| `audit` | Audit log output destination |
+| `gateway` | Rate limiting and deduplication |
 | `web` | Web search / read settings |
 | `http` | HTTP client skill settings |
+| `mcp` | External MCP server and client metadata |
+| `guardrails` | Input/output validation rules |
 | `os` | Local OS skill settings |
 | `knowledge` | RAG and vector-store config |
 | `scheduler` | Scheduled jobs |
+| `prompts` | Prompt template directory and section ordering |
 | `experience` | Reflection / distillation |
-| `mcp` | External MCP servers |
+| `git` | Git skill guardrails and worktree policy |
 | `a2a` | A2A discovery settings |
+| `research` | Native research campaign feature gate and approval policy |
+| `chart` | Chart-generation skill toggle |
 
 ## Key Fields
 
@@ -46,6 +71,40 @@ Nested config values can be overridden with `ORKA__SECTION__KEY`. Arrays use num
 | --- | --- | --- |
 | `host` | `string` | Default `127.0.0.1` |
 | `port` | `u16` | Default `8080` |
+
+### `bus`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `backend` | `string` | Bus backend; defaults to Redis-backed runtime |
+| `block_ms` | `u64` | `XREADGROUP BLOCK` timeout |
+| `batch_size` | `usize` | Messages read per bus poll |
+| `backoff_initial_secs` | `u64` | Reconnect backoff start |
+| `backoff_max_secs` | `u64` | Reconnect backoff cap |
+
+### `logging`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `level` | `string` | Structured log level |
+| `json` | `bool` | Emit JSON logs |
+
+### `workspace_dir`, `workspaces`, `default_workspace`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `workspace_dir` | `string` | Base directory for workspace discovery |
+| `workspaces` | `array` | Optional named runtime workspaces |
+| `default_workspace` | `string?` | Default workspace name when none is requested |
+
+Each `[[workspaces]]` entry uses `name` and `dir`.
+
+### `worker`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `concurrency` | `usize` | Number of concurrent workers |
+| `retry_base_delay_ms` | `u64` | Base delay between retries |
 
 ### `adapters.telegram`
 
@@ -110,6 +169,69 @@ Nested config values can be overridden with `ORKA__SECTION__KEY`. Arrays use num
 | `auth_url` | `string?` | OAuth metadata |
 
 There is no top-level `auth.enabled` field in the current schema.
+
+### `sandbox`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `backend` | `string` | Sandbox backend |
+| `allowed_paths` | `string[]` | Optional filesystem allowlist |
+| `denied_paths` | `string[]` | Optional denylist |
+| `limits.timeout_secs` | `u64` | Process timeout |
+| `limits.max_memory_bytes` | `usize` | Memory cap |
+| `limits.max_output_bytes` | `usize` | Output cap |
+| `limits.max_open_files` | `usize?` | Optional FD limit |
+| `limits.max_pids` | `usize` | Process-count limit |
+
+### `plugins`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `dir` | `string?` | Directory containing WASM plugins |
+| `capabilities.filesystem` | `bool|string[]` | Filesystem capability shorthand or explicit list |
+| `capabilities.network` | `bool` | Allow outbound network |
+| `capabilities.env` | `string[]` | Visible env vars |
+| `plugins.<name>.enabled` | `bool` | Per-plugin toggle |
+| `plugins.<name>.capabilities` | `table?` | Optional capability overrides |
+| `plugins.<name>.config` | `table` | Plugin-specific passthrough config |
+
+### `soft_skills`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `dir` | `string?` | Directory scanned for `SKILL.md` soft skills |
+| `selection_mode` | `string` | `"all"` or `"keyword"` |
+
+### `memory`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `backend` | `string` | `redis`, `memory`, or `auto` |
+| `max_entries` | `usize` | Maximum stored entries |
+
+### `secrets`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `backend` | `string` | `redis` or `file` |
+| `file_path` | `string?` | Used by file-backed secrets |
+| `encryption_key_path` | `string?` | Path to the master key |
+| `encryption_key_env` | `string?` | Env var containing the master key |
+
+The secret config also flattens Redis connection settings for the Redis-backed
+backend.
+
+### `session`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `ttl_secs` | `u64` | Session expiration in seconds |
+
+### `queue`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `max_retries` | `u32` | Delivery retry limit before DLQ |
 
 ### `agents` (array of tables)
 
@@ -197,6 +319,35 @@ The current schema does not define `llm.timeout_secs`, `llm.max_tokens`, `llm.ap
 | `deny` | `string[]` | Global denylist |
 | `config` | `map<string,json>` | Tool-specific config |
 
+### `observe`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `enabled` | `bool` | Enable metrics/tracing |
+| `backend` | `string` | `stdout`, `prometheus`, or `otlp` |
+| `otlp_endpoint` | `string?` | Collector endpoint |
+| `batch_size` | `usize` | Metrics batch size |
+| `flush_interval_ms` | `u64` | Flush cadence |
+| `service_name` | `string` | Telemetry service name |
+| `service_version` | `string` | Telemetry service version |
+
+### `audit`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `enabled` | `bool` | Enable audit logging |
+| `output` | `string` | `stdout`, `file`, or `redis` |
+| `path` | `path?` | File destination when `output = "file"` |
+| `redis_key` | `string?` | Stream key when `output = "redis"` |
+
+### `gateway`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `rate_limit` | `u32` | Requests per minute per session (`0` = unlimited) |
+| `dedup_ttl_secs` | `u64` | Duplicate-detection window |
+| `dedup_enabled` | `bool` | Toggle request deduplication |
+
 ### `web`
 
 | Key | Type | Notes |
@@ -223,6 +374,29 @@ The current schema does not define `llm.timeout_secs`, `llm.max_tokens`, `llm.ap
 | `webhooks` | `array` | Optional webhook definitions |
 
 There is no `http.enabled` field in the current schema.
+
+### `mcp`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `servers` | `array` | External MCP server definitions |
+| `client.name` | `string` | MCP client display name |
+| `client.version` | `string` | MCP client version |
+
+Each `[[mcp.servers]]` entry supports `name`, `transport`, `command`, `args`,
+`env`, `url`, `working_dir`, and optional OAuth settings under `auth`.
+
+### `guardrails`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `enabled` | `bool` | Enable guardrail pipeline |
+| `input.blocked_keywords` | `string[]` | Input denylist |
+| `input.blocked_patterns` | `string[]` | Input regex denylist |
+| `input.redact_patterns` | `array` | Input redaction patterns |
+| `input.max_length` | `usize?` | Max input length |
+| `input.llm_moderation` | `table` | LLM moderation settings |
+| `output.*` | same | Same structure for outbound validation |
 
 ### `os`
 
@@ -306,10 +480,16 @@ The current schema does not define `require_confirmation`, `confirmation_timeout
 | `vector_store.url` | `string?` | Qdrant URL |
 | `vector_store.collection_name` | `string` | Collection name |
 | `vector_store.dimension` | `usize` | Embedding dimension |
+| `vector_store.distance_metric` | `string` | `cosine`, `euclidean`, or `dot` |
 | `embeddings.provider` | `enum` | `local`, `openai`, `anthropic`, `custom` |
 | `embeddings.model` | `string` | Embedding model |
 | `embeddings.api_key` | `string?` | Optional inline key |
 | `embeddings.batch_size` | `usize` | Embedding batch size |
+| `chunking.chunk_size` | `usize` | Chunk size |
+| `chunking.chunk_overlap` | `usize` | Chunk overlap |
+| `retrieval.top_k` | `usize` | Retrieval fan-out |
+| `retrieval.score_threshold` | `f32` | Minimum similarity |
+| `retrieval.rerank` | `bool` | Enable reranking |
 
 ### `scheduler`
 
@@ -320,6 +500,50 @@ The current schema does not define `require_confirmation`, `confirmation_timeout
 
 Each job supports `name`, `schedule`, `command`, `workspace`, and `enabled`.
 
+### `prompts`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `templates_dir` | `string` | Custom template directory |
+| `hot_reload` | `bool` | Watch templates for changes |
+| `section_order` | `string[]` | Default system-prompt section order |
+| `section_separator` | `string` | Separator inserted between sections |
+| `max_principles` | `usize` | Maximum learned principles injected |
+
+### `experience`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `enabled` | `bool` | Enable self-learning |
+| `max_principles` | `usize` | Max injected learned principles |
+| `min_relevance_score` | `f32` | Principle relevance cutoff |
+| `reflect_on` | `string` | `failures`, `all`, or `sampled` |
+| `sample_rate` | `f64` | Reflection sampling when `sampled` |
+| `principles_collection` | `string` | Vector collection for principles |
+| `trajectories_collection` | `string` | Vector collection for trajectories |
+| `reflection_model` | `string?` | Optional LLM override |
+| `reflection_max_tokens` | `u32` | Token budget for reflection |
+| `distillation_batch_size` | `usize` | Batch size per distillation run |
+| `dedup_threshold` | `f32` | Principle dedup threshold |
+| `distillation_interval_secs` | `u64` | Background distillation cadence |
+
+### `git`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `enabled` | `bool` | Enable git skills |
+| `protected_branches` | `string[]` | Branches agents must not push to directly |
+| `allow_force_push` | `bool` | Permit force-push |
+| `require_conventional_commits` | `bool` | Enforce Conventional Commits |
+| `sign_commits` | `bool` | Pass `-S` on commit |
+| `secret_patterns` | `string[]` | Files that must not be committed |
+| `allowed_remotes` | `string[]` | Remote allowlist |
+| `max_diff_lines` | `usize` | Diff output cap |
+| `max_log_entries` | `usize` | Log output cap |
+| `command_timeout_secs` | `u64` | Git command timeout |
+| `authorship` | `table` | Commit attribution policy |
+| `worktree` | `table` | Worktree creation policy |
+
 ### `a2a`
 
 | Key | Type | Notes |
@@ -327,10 +551,28 @@ Each job supports `name`, `schedule`, `command`, `workspace`, and `enabled`.
 | `discovery_enabled` | `bool` | Enable discovery loop |
 | `discovery_interval_secs` | `u64` | Discovery interval |
 | `known_agents` | `string[]` | Seed endpoints |
+| `auth_enabled` | `bool` | Mount `POST /a2a` behind auth |
+| `store_backend` | `string` | `memory` or `redis` |
 
 There is no `a2a.enabled` or `a2a.url` field in the current schema.
+
+### `research`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `enabled` | `bool` | Enable the native research subsystem |
+| `require_promotion_approval` | `bool` | Require explicit approval before promotion |
+| `protected_target_branches` | `string[]` | Branch globs that always require approval |
+
+### `chart`
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `enabled` | `bool` | Enable chart-generation skills |
 
 ## Notes
 
 - In high-risk sections such as `agent`, `auth`, `llm`, `tools`, `observe`, `os`, `http`, and `scheduler`, legacy or unknown active keys now fail validation instead of being ignored silently.
-- For a concrete example, prefer the repository root [`orka.toml`](/home/gianluca/Workspace/orka/orka.toml), which should stay aligned with the current parser.
+- The repository root [`orka.toml`](../../orka.toml) is the canonical sample configuration.
+- The `research` section exists in the config schema, but the current public CLI
+  reference does not expose an `orka research ...` command.

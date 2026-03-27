@@ -19,7 +19,7 @@ flowchart TD
     Reply["User sees reply"]
     A2A["A2A Protocol — orka-a2a<br/>Public · /.well-known/agent.json · JSON-RPC"]
 
-    User -->|"HTTP POST /message (or webhook, Telegram update, Slack event…)"| Auth
+    User -->|"HTTP POST /api/v1/message (or webhook, Telegram update, Slack event…)"| Auth
     User -.->|"public"| A2A
     Auth -->|"authenticated"| CA1
     CA1 -->|"MessageBus.publish('inbound', envelope)"| RS1
@@ -110,6 +110,9 @@ are stored in plaintext (development mode). Secrets are wrapped in
 ### MCP Server (orka-mcp)
 
 Implements the [Model Context Protocol](https://modelcontextprotocol.io/) over JSON-RPC 2.0 via stdio. The MCP server exposes Orka's skill registry as MCP tools, allowing any MCP-compatible client (Claude Desktop, Cursor, etc.) to invoke Orka skills directly without going through the message bus.
+
+The `orka-mcp` crate also contains an HTTP transport handler, but the current
+public CLI surface documents stdio mode only.
 
 ### A2A Protocol (orka-a2a)
 

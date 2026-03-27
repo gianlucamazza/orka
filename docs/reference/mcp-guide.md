@@ -64,13 +64,7 @@ The token is cached in memory and refreshed 30 seconds before expiry.
 Expose Orka's registered skills as MCP tools consumable by Claude Code, Cursor,
 or any MCP-compatible client.
 
-### Stdio (recommended for local use)
-
-```toml
-[mcp.serve]
-enabled   = true
-transport = "stdio"
-```
+The current public CLI exposes MCP server mode only through stdio:
 
 Start the server:
 
@@ -93,24 +87,13 @@ Add Orka as a local MCP server in Claude Code's settings:
 }
 ```
 
-Or use the automated bridge (see [`docs/reference/architecture.md`](architecture.md)):
+Notes:
 
-```bash
-# Start the claude-channel bridge
-orka mcp-serve --bridge
-```
-
-### SSE transport
-
-```toml
-[mcp.serve]
-enabled   = true
-transport = "sse"
-host      = "0.0.0.0"
-port      = 8090
-```
-
-Clients connect to `http://localhost:8090/sse`.
+- `orka mcp-serve` currently supports `--config <path>` only.
+- There is no public `--bridge` flag in the active CLI parser.
+- The repository contains an HTTP transport handler in `orka-mcp`, but the
+  current public CLI and server docs should be treated as **stdio-first** until
+  an HTTP MCP endpoint is mounted and documented as a supported surface.
 
 ---
 
@@ -120,7 +103,7 @@ When Orka starts as an MCP server, it advertises all registered skills as MCP
 tools. The tool name, description, and JSON schema are derived directly from
 the `Skill` trait implementation.
 
-Skills disabled in `tools.disabled` are **not** advertised.
+The current config schema does not define `tools.disabled`.
 
 ---
 
@@ -129,7 +112,6 @@ Skills disabled in `tools.disabled` are **not** advertised.
 ### "MCP server did not respond"
 
 - Check that the child process is on `$PATH` (stdio transport).
-- Check that the HTTP endpoint is reachable (HTTP transport).
 - Increase log verbosity: `RUST_LOG=orka_mcp=debug orka-server`.
 
 ### "MCP error -32601: Method not found"

@@ -48,7 +48,6 @@ docker run -d --name qdrant -p 6334:6334 qdrant/qdrant:v1.14.0
 cargo build --release
 
 # 4. Configure
-cp orka.toml.example orka.toml
 $EDITOR orka.toml
 
 # 5. Run
@@ -101,6 +100,9 @@ The `just install` target:
 3. Installs `orka-server.service` using the selected binary prefix.
 4. Installs `sysusers.d` and `tmpfiles.d` definitions.
 5. Adds a `sudoers` entry for OS skills if `os.sudo.allowed = true`.
+
+The repository keeps the canonical example configuration at the root as
+`orka.toml`; there is no separate `orka.toml.example` file.
 
 Best practice for distro-native packages:
 

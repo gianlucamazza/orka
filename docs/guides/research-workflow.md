@@ -1,5 +1,10 @@
 # Research Workflow
 
+> **Internal preview:** this document describes the native `research`
+> subsystem and related API/CLI concepts under active development. The current
+> public CLI parser does **not** expose `orka research ...`, so do not treat the
+> commands below as generally available user-facing commands.
+
 Orka's native `research` subsystem provides a structured loop for autonomous coding experiments. It is disabled by default and becomes available only when `[research].enabled = true`.
 
 ## Prerequisites
