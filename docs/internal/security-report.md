@@ -1,7 +1,7 @@
 # Orka Security & Robustness Analysis Report
 
 **Date:** 2026-03-25  
-**Scope:** Full workspace (40 crates)  
+**Scope:** Full workspace (`43` packages: `40` under `crates/` plus `3` under `sdk/`)  
 **Focus:** A2A v1.0, research endpoints (added post-baseline), plus all existing security surfaces
 
 ---
@@ -325,4 +325,3 @@ Nessuno identificato. La combinazione di P1 issues può però produrre impatto P
 4. **Breve termine (P2-01):** Aggiungere salt per-key nell'hashing delle API key (o migrare ad Argon2id).
 5. **Medio termine (P1-04):** Valutare seccomp BPF o landlock per i processi spawned da `ShellExecSkill` in ambienti production.
 6. **Medio termine (P2-03):** Invertire il default di `allowed_commands`: vuoto = deny all, non allow all.
-

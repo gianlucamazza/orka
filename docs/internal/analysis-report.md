@@ -10,14 +10,17 @@
 
 ## Executive Summary
 
-The Orka codebase is an AI agent orchestration framework written in Rust with **38 crates** organized as a workspace. The architecture is modular and well-layered, though it has areas with incomplete test coverage and some technical debt in specific crates.
+The Orka codebase is an AI agent orchestration framework written in Rust with
+**43 workspace packages** (`40` under `crates/` plus `3` under `sdk/`). The
+architecture is modular and well-layered, though it has areas with incomplete
+test coverage and some technical debt in specific crates.
 
 ### Key Metrics
 
 | Metric | Value | Status |
 |--------|-------|--------|
 | Total lines of code (src) | ~58,000 | ✅ |
-| Total crates | 38 | ✅ |
+| Workspace packages | 43 | ✅ |
 | Unwrap/expect/todo! occurrences | ~1,287 | 🟡 P2 |
 | Files >500 lines | 12 | 🟡 P2 |
 | Avg test files per crate | 1.2 | 🟡 P2 |
