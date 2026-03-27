@@ -111,6 +111,7 @@ fn make_progress_envelope(
 /// Designed to be spawned as a background task alongside a `coding_delegate`
 /// skill invocation.  The task exits naturally when the sender side of `rx`
 /// is dropped (i.e. when the skill completes or is cancelled).
+#[allow(clippy::implicit_hasher)]
 pub async fn forward_progress_to_chat(
     mut rx: mpsc::UnboundedReceiver<Value>,
     bus: Arc<dyn MessageBus>,
@@ -133,7 +134,7 @@ pub async fn forward_progress_to_chat(
             continue;
         };
 
-        let is_terminal = matches!(event_type(&val), Some("result") | Some("error"));
+        let is_terminal = matches!(event_type(&val), Some("result" | "error"));
 
         if is_terminal {
             // Flush any buffered pending messages plus this terminal one.

@@ -10,7 +10,7 @@ pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
     }
     let resp = OrkaClient::ensure_ok(resp).await?;
     let body: serde_json::Value = resp.json().await?;
-    let schedules = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let schedules = body.as_array().map_or(&[][..], Vec::as_slice);
     if schedules.is_empty() {
         println!("{}", "No schedules found.".green());
         return Ok(());

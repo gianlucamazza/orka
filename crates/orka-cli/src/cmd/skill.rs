@@ -5,7 +5,7 @@ use crate::{client::OrkaClient, table::make_table};
 
 pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
     let body = client.get_json("/api/v1/skills").await?;
-    let skills = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let skills = body.as_array().map_or(&[][..], Vec::as_slice);
     if skills.is_empty() {
         println!("{}", "No skills registered.".yellow());
     } else {
@@ -30,7 +30,7 @@ pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
 
     // Soft skills section
     let soft_body = client.get_json("/api/v1/soft-skills").await?;
-    let soft_skills = soft_body.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let soft_skills = soft_body.as_array().map_or(&[][..], Vec::as_slice);
     if !soft_skills.is_empty() {
         let mut sorted: Vec<&serde_json::Value> = soft_skills.iter().collect();
         sorted.sort_by_key(|s| s["name"].as_str().unwrap_or(""));
@@ -79,7 +79,7 @@ pub async fn eval(
     }
 
     // Pretty-print
-    let results = resp["results"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let results = resp["results"].as_array().map_or(&[][..], Vec::as_slice);
     let total = results.len();
     let passed = results
         .iter()

@@ -19,7 +19,7 @@ pub async fn campaign_list(client: &OrkaClient) -> crate::client::Result<()> {
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
-    let campaigns = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let campaigns = body.as_array().map_or(&[][..], Vec::as_slice);
     if campaigns.is_empty() {
         println!("{}", "No research campaigns found.".yellow());
         return Ok(());
@@ -197,7 +197,7 @@ pub async fn run_list(client: &OrkaClient, campaign_id: Option<&str>) -> crate::
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
-    let runs = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let runs = body.as_array().map_or(&[][..], Vec::as_slice);
     if runs.is_empty() {
         println!("{}", "No research runs found.".yellow());
         return Ok(());
@@ -241,7 +241,7 @@ pub async fn candidate_list(
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
-    let candidates = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let candidates = body.as_array().map_or(&[][..], Vec::as_slice);
     if candidates.is_empty() {
         println!("{}", "No research candidates found.".yellow());
         return Ok(());
@@ -318,7 +318,7 @@ pub async fn promotion_list(
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
-    let requests = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let requests = body.as_array().map_or(&[][..], Vec::as_slice);
     if requests.is_empty() {
         println!("{}", "No promotion requests found.".yellow());
         return Ok(());

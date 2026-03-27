@@ -341,6 +341,7 @@ impl CircuitBreaker {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::items_after_statements)]
 mod tests {
     use super::*;
 

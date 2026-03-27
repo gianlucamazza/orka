@@ -392,7 +392,7 @@ impl GraphExecutor {
             .to_checkpoint(
                 &graph.id,
                 snap.completed_node.as_str(),
-                snap.resume_node.map(|id| id.as_str()),
+                snap.resume_node.map(super::agent::AgentId::as_str),
                 snap.total_iterations,
                 snap.agents_executed.to_vec(),
                 snap.status,

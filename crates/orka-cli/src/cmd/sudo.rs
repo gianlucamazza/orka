@@ -21,6 +21,7 @@ async fn path_exists_elevated(sudo_path: &str, path: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[allow(clippy::too_many_lines)]
 pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let path = config_path.map(Path::new);
     let config = OrkaConfig::load(path)?;
@@ -70,9 +71,9 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
     // Check drop-in exists
     print!("  systemd drop-in ... ");
     if path_exists_elevated(sudo_path, DROPIN_PATH).await {
-        println!("OK ({})", DROPIN_PATH);
+        println!("OK ({DROPIN_PATH})");
     } else {
-        println!("MISSING ({})", DROPIN_PATH);
+        println!("MISSING ({DROPIN_PATH})");
         println!("        hint: run scripts/install.sh to create it");
         env_ok = false;
     }
@@ -80,9 +81,9 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
     // Check sudoers file exists
     print!("  sudoers file    ... ");
     if path_exists_elevated(sudo_path, SUDOERS_PATH).await {
-        println!("OK ({})", SUDOERS_PATH);
+        println!("OK ({SUDOERS_PATH})");
     } else {
-        println!("MISSING ({})", SUDOERS_PATH);
+        println!("MISSING ({SUDOERS_PATH})");
         println!("        hint: run scripts/install.sh to create it");
         env_ok = false;
     }
@@ -123,17 +124,14 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
 
         match result {
             Ok(output) if output.status.success() => {
-                println!("  OK    {}", cmd);
+                println!("  OK    {cmd}");
             }
             Ok(_) => {
-                println!(
-                    "  FAIL  {} (not in sudoers NOPASSWD or sudo -n failed)",
-                    cmd
-                );
+                println!("  FAIL  {cmd} (not in sudoers NOPASSWD or sudo -n failed)");
                 all_ok = false;
             }
             Err(e) => {
-                println!("  ERR   {} ({})", cmd, e);
+                println!("  ERR   {cmd} ({e})");
                 all_ok = false;
             }
         }

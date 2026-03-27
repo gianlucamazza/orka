@@ -25,7 +25,7 @@ pub async fn run(
 
     let mut metadata = local_workspace
         .as_ref()
-        .map(|ws| ws.to_metadata())
+        .map(crate::workspace::LocalWorkspace::to_metadata)
         .unwrap_or_default();
     metadata.insert(
         "workspace:cwd".to_string(),
@@ -75,6 +75,7 @@ pub async fn run(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 async fn stream_reply<S>(
     mut read: S,
     renderer: &mut MarkdownRenderer,
@@ -187,7 +188,7 @@ where
                         _ => "",
                     };
                     if !warning.is_empty() {
-                        eprintln!("  {}", warning);
+                        eprintln!("  {warning}");
                     }
                 }
                 if !got_content {

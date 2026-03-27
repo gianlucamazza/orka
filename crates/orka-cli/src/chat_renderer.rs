@@ -2,8 +2,8 @@ use std::{
     collections::HashMap,
     io::Write,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, AtomicU16, Ordering},
+        Arc, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -30,7 +30,10 @@ struct VecSink(Arc<Mutex<Vec<u8>>>);
 
 impl Write for VecSink {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
+        self.0
+            .lock()
+            .expect("mutex poisoned")
+            .extend_from_slice(buf);
         Ok(buf.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -190,7 +193,7 @@ impl ChatRenderer {
         category: Option<String>,
     ) {
         let icon = category_icon(category.as_deref());
-        let label = match &input_summary {
+        let label = match input_summary {
             Some(s) => format!("{icon} {name}: {s}"),
             None => format!("{icon} {name}..."),
         };
@@ -211,14 +214,14 @@ impl ChatRenderer {
 
     pub(crate) fn on_tool_exec_end(
         &mut self,
-        id: String,
+        id: &str,
         success: bool,
         duration_ms: u64,
         error: Option<String>,
         result_summary: Option<String>,
     ) {
         let dur = crate::util::format_duration_ms(duration_ms);
-        if let Some(tool) = self.active_tools.remove(&id) {
+        if let Some(tool) = self.active_tools.remove(id) {
             let icon = category_icon(tool.category.as_deref());
             if success {
                 let suffix = result_summary
@@ -329,7 +332,7 @@ impl ChatRenderer {
         );
         renderer.render_full(&content);
         drop(renderer);
-        let bytes = raw.lock().unwrap();
+        let bytes = raw.lock().expect("mutex poisoned");
         let text = String::from_utf8_lossy(&bytes);
         for line in text.lines() {
             self.multi

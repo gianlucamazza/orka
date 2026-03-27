@@ -279,6 +279,7 @@ pub fn handle_builtin(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

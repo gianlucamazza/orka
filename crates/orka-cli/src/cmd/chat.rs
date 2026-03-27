@@ -44,6 +44,7 @@ struct TurnUsage {
 }
 
 impl TurnUsage {
+    #[allow(clippy::too_many_arguments)]
     fn accumulate(
         &mut self,
         input_tokens: u32,
@@ -497,7 +498,7 @@ pub async fn run(
     // streaming markdown output (the renderer reads this instead of calling
     // crossterm::terminal::size() point-in-time).
     let term_width = Arc::new(AtomicU16::new(
-        crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80),
+        crossterm::terminal::size().map_or(80, |(w, _)| w),
     ));
     let term_width_ws = term_width.clone();
 
@@ -1238,8 +1239,8 @@ pub async fn run(
                                         eprintln!("{}", "Connection lost.".red());
                                         break_repl = true;
                                         break;
-                                    } else {
-                                        let elapsed = start.elapsed().as_millis() as u64;
+                                    }
+                                    let elapsed = start.elapsed().as_millis() as u64;
                                         let response = response_rx.try_recv().unwrap_or_default();
                                         last_response.clone_from(&response);
                                         turn_history.push((user_input, response));
@@ -1326,7 +1327,6 @@ pub async fn run(
                                             .dimmed()
                                         );
                                         break;
-                                    }
                                 }
                                 // Each incoming chunk resets the idle deadline
                                 _ = activity_rx.recv() => {
@@ -1413,6 +1413,7 @@ fn migrate_history_if_needed(path: &std::path::Path) {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

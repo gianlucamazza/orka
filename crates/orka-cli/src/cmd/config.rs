@@ -5,7 +5,7 @@ use orka_core::{
     migrate::{self, CURRENT_CONFIG_VERSION},
 };
 
-fn print_check_status(result: &Option<migrate::MigrationResult>) {
+fn print_check_status(result: Option<&migrate::MigrationResult>) {
     match result {
         Some(res) => {
             println!(
@@ -43,7 +43,7 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
     let (migrated, result) = migrate::migrate_if_needed(&raw)?;
     let schema_issues = migrate::inspect_config_issues(&migrated)?;
 
-    print_check_status(&result);
+    print_check_status(result.as_ref());
 
     if !schema_issues.is_empty() {
         return Err(format!("Schema errors:\n  - {}", schema_issues.join("\n  - ")).into());

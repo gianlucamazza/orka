@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use orka_core::{MemoryEntry, traits::MemoryStore};
 use orka_memory::RedisMemoryStore;

@@ -208,7 +208,6 @@ fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<St
             resolve_auth_token().or_else(resolve_api_key)
         }
         LlmAuthKind::Cli => Some("cli backend (no HTTP credential)".to_string()),
-        LlmAuthKind::Auto => resolve_auth_token().or_else(resolve_api_key),
         _ => resolve_auth_token().or_else(resolve_api_key),
     }
 }

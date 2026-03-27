@@ -712,6 +712,7 @@ fn split_blocks(text: &str) -> Vec<&str> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

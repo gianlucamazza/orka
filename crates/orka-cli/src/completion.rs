@@ -77,7 +77,7 @@ impl Completer for OrkaCompleter {
             let cwd = self
                 .shell_cwd
                 .lock()
-                .unwrap_or_else(|e| e.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone();
             let (start_in_rest, completions) = complete_path(arg, dirs_only, &cwd);
             let offset = if parts.len() == 2 {
@@ -145,8 +145,7 @@ impl Completer for OrkaCompleter {
                 || text[..at_pos]
                     .chars()
                     .next_back()
-                    .map(|c| c.is_whitespace())
-                    .unwrap_or(true);
+                    .map_or(true, char::is_whitespace);
             if preceded_by_ws {
                 let fragment = &text[at_pos + 1..];
                 let cwd = self

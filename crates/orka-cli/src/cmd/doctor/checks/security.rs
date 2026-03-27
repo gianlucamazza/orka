@@ -298,6 +298,21 @@ impl DoctorCheck for SecNoNewPrivileges {
     }
 }
 
+async fn path_exists_elevated(path: &str) -> bool {
+    if std::path::Path::new(path).exists() {
+        return true;
+    }
+    // Try elevated check for paths we can't stat directly
+    tokio::process::Command::new("sudo")
+        .args(["-n", "test", "-f", path])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{path::PathBuf, time::Duration};
@@ -384,19 +399,4 @@ mod tests {
             "commented api_key should not be flagged"
         );
     }
-}
-
-async fn path_exists_elevated(path: &str) -> bool {
-    if std::path::Path::new(path).exists() {
-        return true;
-    }
-    // Try elevated check for paths we can't stat directly
-    tokio::process::Command::new("sudo")
-        .args(["-n", "test", "-f", path])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .map(|s| s.success())
-        .unwrap_or(false)
 }

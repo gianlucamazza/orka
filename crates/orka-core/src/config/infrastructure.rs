@@ -212,6 +212,7 @@ pub struct LoggingConfig {
     pub json: bool,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for LoggingConfig {
     fn default() -> Self {
         Self {

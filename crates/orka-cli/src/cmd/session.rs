@@ -6,7 +6,7 @@ pub async fn list(client: &OrkaClient, limit: usize) -> crate::client::Result<()
     let body = client
         .get_json(&format!("/api/v1/sessions?limit={limit}"))
         .await?;
-    let sessions = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let sessions = body.as_array().map_or(&[][..], Vec::as_slice);
     if sessions.is_empty() {
         println!("{}", "No active sessions.".green());
         return Ok(());

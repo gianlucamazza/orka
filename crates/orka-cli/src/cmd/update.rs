@@ -54,9 +54,8 @@ fn detect_install_method() -> InstallMethod {
         return InstallMethod::Docker;
     }
 
-    let exe = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(_) => return InstallMethod::Unknown,
+    let Ok(exe) = std::env::current_exe() else {
+        return InstallMethod::Unknown;
     };
     let exe_str = exe.to_string_lossy();
 
@@ -237,6 +236,7 @@ pub async fn run_check() -> Result<()> {
 
 /// `orka update` — download, extract, and replace the current binary.
 /// Refuses to self-update if the binary was not installed via install.sh.
+#[allow(clippy::too_many_lines)]
 pub async fn run_update() -> Result<()> {
     let method = detect_install_method();
     match method {

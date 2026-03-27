@@ -297,7 +297,7 @@ pub enum ExperienceBackend {
 
 /// Thinking/reasoning effort level for LLM extended reasoning.
 ///
-/// Maps to Anthropic adaptive thinking and OpenAI reasoning effort.
+/// Maps to Anthropic adaptive thinking and `OpenAI` reasoning effort.
 /// Omit `thinking` in agent config to disable thinking entirely.
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

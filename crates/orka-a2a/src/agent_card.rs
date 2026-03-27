@@ -102,6 +102,7 @@ fn build_security_schemes(auth_config: Option<&AuthConfig>) -> HashMap<String, S
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use std::sync::Arc;
 

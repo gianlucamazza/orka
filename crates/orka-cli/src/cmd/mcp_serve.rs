@@ -41,5 +41,5 @@ pub async fn run(config_path: Option<&str>) -> Result<()> {
     };
 
     let server = Arc::new(orka_mcp::McpServer::new(skills, secrets));
-    server.run_stdio().await.map_err(|e| e.into())
+    server.run_stdio().await.map_err(Into::into)
 }

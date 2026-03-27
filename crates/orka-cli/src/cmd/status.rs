@@ -41,7 +41,7 @@ pub async fn run(client: &OrkaClient, short: bool) -> Result<()> {
                 println!("{} {}", "Health:".bold(), status.red());
             }
 
-            if let Some(uptime) = body.get("uptime_secs").and_then(|v| v.as_u64()) {
+            if let Some(uptime) = body.get("uptime_secs").and_then(serde_json::Value::as_u64) {
                 println!(
                     "{} {}",
                     "Uptime:".bold(),
@@ -49,11 +49,11 @@ pub async fn run(client: &OrkaClient, short: bool) -> Result<()> {
                 );
             }
 
-            if let Some(workers) = body.get("workers").and_then(|v| v.as_u64()) {
+            if let Some(workers) = body.get("workers").and_then(serde_json::Value::as_u64) {
                 println!("{} {}", "Workers:".bold(), workers);
             }
 
-            if let Some(queue) = body.get("queue_depth").and_then(|v| v.as_u64()) {
+            if let Some(queue) = body.get("queue_depth").and_then(serde_json::Value::as_u64) {
                 println!("{} {}", "Queue:".bold(), queue);
             }
         }
@@ -83,11 +83,12 @@ pub async fn run(client: &OrkaClient, short: bool) -> Result<()> {
                 // Values can be a plain string ("ok") or an object {"status":"ok","depth":0}
                 let status = value
                     .as_str()
-                    .or_else(|| value.get("status").and_then(|v| v.as_str()))
+                    .or_else(|| value.get("status").and_then(serde_json::Value::as_str))
                     .unwrap_or("unknown");
                 let mut line = format!("  {name}: {status}");
-                if let Some(depth) = value.get("depth").and_then(|v| v.as_u64()) {
-                    line.push_str(&format!(" (depth: {depth})"));
+                if let Some(depth) = value.get("depth").and_then(serde_json::Value::as_u64) {
+                    use std::fmt::Write as _;
+                    let _ = write!(line, " (depth: {depth})");
                 }
                 if status == "ok" {
                     println!("{}", line.green());

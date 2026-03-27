@@ -11,7 +11,7 @@ use utoipa::ToSchema;
 /// millisecond precision (e.g. `"2025-01-01T00:00:00.000Z"`).
 pub(crate) mod datetime_ms {
     use chrono::{DateTime, Utc};
-    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+    use serde::{de::Error as _, Deserialize, Deserializer, Serializer};
 
     const FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.3fZ";
 
@@ -473,6 +473,7 @@ pub struct ListTasksResult {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

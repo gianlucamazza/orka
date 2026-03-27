@@ -93,7 +93,7 @@ mod tests {
         };
 
         let value = provider.provide(&session).await.unwrap();
-        let obj = value.as_object().unwrap();
+        let obj = value["workspace"].as_object().unwrap();
 
         assert_eq!(obj.get("name").unwrap().as_str(), Some("default"));
         assert_eq!(obj.get("cwd").unwrap().as_str(), Some("/home/user"));

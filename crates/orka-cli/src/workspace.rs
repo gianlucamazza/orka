@@ -75,6 +75,7 @@ fn try_read(dir: &Path, filename: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use std::fs;
 

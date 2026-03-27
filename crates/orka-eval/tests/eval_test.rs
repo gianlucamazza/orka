@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::needless_pass_by_value)]
 
 //! Integration tests for orka-eval framework.
 

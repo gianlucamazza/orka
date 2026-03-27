@@ -4,7 +4,7 @@ use crate::{client::OrkaClient, table::make_table};
 
 pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
     let body = client.get_json("/api/v1/workspaces").await?;
-    let workspaces = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let workspaces = body.as_array().map_or(&[][..], Vec::as_slice);
     if workspaces.is_empty() {
         println!("{}", "No workspaces found.".yellow());
         return Ok(());

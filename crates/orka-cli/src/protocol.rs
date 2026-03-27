@@ -209,7 +209,7 @@ mod tests {
         let raw = r#"{"type":"ThinkingDelta","data":"Let me think..."}"#;
         match classify_ws_message(raw) {
             WsMessage::Stream(StreamChunkKind::ThinkingDelta(s)) => {
-                assert_eq!(s, "Let me think...")
+                assert_eq!(s, "Let me think...");
             }
             other => panic!("expected ThinkingDelta, got {other:?}"),
         }
@@ -237,7 +237,7 @@ mod tests {
                 ..
             }) => {
                 assert_eq!(history_tokens, 50000);
-                assert_eq!(context_window, 128000);
+                assert_eq!(context_window, 128_000);
                 assert_eq!(messages_truncated, 3);
             }
             other => panic!("expected ContextInfo, got {other:?}"),

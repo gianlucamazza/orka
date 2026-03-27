@@ -89,6 +89,7 @@ impl AnthropicClient {
     }
 
     /// Create a client with explicit auth mode.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_auth_options(
         api_key: String,
         auth_kind: AnthropicAuthKind,

@@ -71,9 +71,8 @@ mod tests {
     fn effective_memory_backend(bus: BusBackend, memory: MemoryBackend) -> MemoryBackend {
         if memory == MemoryBackend::Auto {
             match bus {
-                BusBackend::Redis => MemoryBackend::Redis,
+                BusBackend::Redis | BusBackend::Nats => MemoryBackend::Redis,
                 BusBackend::Memory => MemoryBackend::Memory,
-                BusBackend::Nats => MemoryBackend::Redis,
             }
         } else {
             memory

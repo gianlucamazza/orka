@@ -24,7 +24,7 @@ pub(crate) fn build_handoff_tools(agent: &Agent, graph: &AgentGraph) -> Vec<Tool
     let agent_ids: Vec<String> = agent
         .handoff_targets
         .iter()
-        .map(|id| id.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
 
     let schema = serde_json::json!({

@@ -43,7 +43,7 @@ pub async fn set(path: &str) -> Result<()> {
     let mgr = create_manager()?;
     let secret = SecretValue::new(value.as_bytes().to_vec());
     mgr.set_secret(path, &secret).await?;
-    println!("secret '{}' set", path);
+    println!("secret '{path}' set");
     Ok(())
 }
 
@@ -80,6 +80,6 @@ pub async fn list() -> Result<()> {
 pub async fn delete(path: &str) -> Result<()> {
     let mgr = create_manager()?;
     mgr.delete_secret(path).await?;
-    println!("secret '{}' deleted", path);
+    println!("secret '{path}' deleted");
     Ok(())
 }
