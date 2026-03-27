@@ -288,7 +288,8 @@ fn print_help() {
     println!("{}", "Commands:".bold());
     row("/skill <name> [k=v ...]", "Invoke a skill directly");
     row("/skills", "List available skills");
-    row("/reset", "Clear conversation history");
+    row("/memory status", "Show memory layers");
+    row("/memory clear", "Clear current session memory");
     row("/status", "Show session info");
     row("/think", "Toggle extended thinking display");
     row(
@@ -1173,9 +1174,8 @@ pub async fn run(
                 let expanded = expand_file_attachments(&stripped);
                 let user_input = expanded.clone();
 
-                // Re-send workspace metadata after /reset (server clears its context).
-                // Use exact match to avoid false positives like "/resetall".
-                if expanded == "/reset" || expanded.starts_with("/reset ") {
+                // Re-send workspace metadata after /memory clear (server clears its context).
+                if expanded == "/memory clear" || expanded.starts_with("/memory clear ") {
                     workspace_sent = false;
                 }
 

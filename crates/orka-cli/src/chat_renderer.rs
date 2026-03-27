@@ -135,7 +135,9 @@ impl ChatRenderer {
             self.multi
                 .println(format!(
                     "  {}",
-                    "Tip: use /reset to start a fresh context.".red().dimmed()
+                    "Tip: use /memory clear to start a fresh session context."
+                        .red()
+                        .dimmed()
                 ))
                 .ok();
         } else {

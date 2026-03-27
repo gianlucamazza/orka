@@ -22,7 +22,7 @@ const SLASH_COMMANDS: &[&str] = &[
     "/clear",
     "/skill",
     "/skills",
-    "/reset",
+    "/memory",
     "/status",
     "/think",
     "/feedback",

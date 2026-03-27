@@ -18,7 +18,7 @@ pub enum InputAction {
     Builtin(Builtin),
     /// `/quit`, `/help`, `/clear` — local slash commands
     SlashLocal(String),
-    /// `/skill`, `/skills`, `/reset`, `/status` — forwarded to server
+    /// `/skill`, `/skills`, `/memory`, `/status` — forwarded to server
     SlashServer(String),
     /// Free text → AI agent
     AgentMessage(String),
