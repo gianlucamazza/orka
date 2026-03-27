@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::{CommandArgs, Envelope, Error, OutboundMessage, Result, Session, config::AgentConfig};
+use orka_core::{
+    CommandArgs, Envelope, Error, OutboundMessage, Result, Session, config::AgentConfig,
+};
 use orka_workspace::WorkspaceRegistry;
 
 use super::ServerCommand;

@@ -36,11 +36,7 @@ impl EvalRunner {
     /// Scan `dir` for `*.eval.toml` files and run all matching scenarios.
     ///
     /// If `skill_filter` is `Some`, only scenarios for that skill are run.
-    pub async fn run_dir(
-        &self,
-        dir: &Path,
-        skill_filter: Option<&str>,
-    ) -> EvalResult<EvalReport> {
+    pub async fn run_dir(&self, dir: &Path, skill_filter: Option<&str>) -> EvalResult<EvalReport> {
         let mut results = Vec::new();
         let start = Instant::now();
 

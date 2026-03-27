@@ -348,9 +348,7 @@ impl OtelEventSink {
 
 /// Initialize OpenTelemetry with OTLP exporter.
 /// Returns a tracer that can be used to create the `OtelEventSink`.
-pub fn init_otel_tracer(
-    service_name: &str,
-) -> orka_core::Result<opentelemetry_sdk::trace::Tracer> {
+pub fn init_otel_tracer(service_name: &str) -> orka_core::Result<opentelemetry_sdk::trace::Tracer> {
     use opentelemetry::trace::TracerProvider;
     use opentelemetry_otlp::SpanExporter;
     use opentelemetry_sdk::trace::SdkTracerProvider;

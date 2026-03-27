@@ -698,14 +698,13 @@ impl AgentHandler for WorkspaceHandler {
                 .and_then(|v| v.as_str());
 
             // Get template registry from workspace state
-            let template_registry = if let Some(state_lock) =
-                self.workspace_registry.default_state()
-            {
-                let state = state_lock.read().await;
-                state.templates.clone()
-            } else {
-                None
-            };
+            let template_registry =
+                if let Some(state_lock) = self.workspace_registry.default_state() {
+                    let state = state_lock.read().await;
+                    state.templates.clone()
+                } else {
+                    None
+                };
 
             // Build system prompt using the configurable pipeline
             let pipeline_config = PipelineConfig::default();

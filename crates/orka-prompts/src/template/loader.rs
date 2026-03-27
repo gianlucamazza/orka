@@ -82,9 +82,7 @@ impl TemplateLoader {
     /// Start watching the templates directory for changes.
     ///
     /// Returns a receiver for template loader events.
-    pub fn watch(
-        &mut self,
-    ) -> Result<mpsc::Receiver<TemplateLoaderEvent>, TemplateError> {
+    pub fn watch(&mut self) -> Result<mpsc::Receiver<TemplateLoaderEvent>, TemplateError> {
         let (tx, rx) = mpsc::channel(100);
         let registry = self.registry.clone();
         let templates_dir = self.templates_dir.clone();
