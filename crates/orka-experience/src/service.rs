@@ -108,6 +108,26 @@ impl ExperienceService {
         Ok(principles)
     }
 
+    /// List stored principles for a workspace, including global ones.
+    pub async fn list_principles(&self, workspace: &str, limit: usize) -> Result<Vec<Principle>> {
+        if !self.config.enabled {
+            return Ok(Vec::new());
+        }
+
+        let mut principles = self.store.list(limit * 2, None).await?;
+        principles.retain(|p| p.scope == workspace || p.scope == "global");
+        principles.truncate(limit);
+        Ok(principles)
+    }
+
+    /// Delete a stored principle by stable identifier.
+    pub async fn forget_principle(&self, id: &str) -> Result<bool> {
+        if !self.config.enabled {
+            return Ok(false);
+        }
+        self.store.forget(id).await
+    }
+
     /// Format principles for injection into the system prompt.
     ///
     /// This synchronous version uses the default formatting.

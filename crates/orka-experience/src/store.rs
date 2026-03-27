@@ -209,6 +209,70 @@ impl PrincipleStore {
         Ok(principles)
     }
 
+    /// List stored principles with optional scope filtering.
+    pub async fn list(&self, limit: usize, scope_filter: Option<&str>) -> Result<Vec<Principle>> {
+        self.ensure_init().await?;
+
+        let filter = scope_filter.map(|s| {
+            let mut f = HashMap::new();
+            f.insert("scope".to_string(), s.to_string());
+            f
+        });
+
+        let records = self
+            .vector_store
+            .list_records(&self.collection, limit, filter)
+            .await?;
+
+        Ok(records
+            .into_iter()
+            .filter_map(|record| {
+                let payload = record.metadata;
+                let id = payload.get("id")?.clone();
+                let text = payload.get("text")?.clone();
+                let kind = match payload.get("kind").map(String::as_str) {
+                    Some("avoid") => PrincipleKind::Avoid,
+                    _ => PrincipleKind::Do,
+                };
+                let scope = payload
+                    .get("scope")
+                    .cloned()
+                    .unwrap_or_else(|| "global".to_string());
+                let created_at = payload
+                    .get("created_at")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or_else(Utc::now);
+                let reinforcement_count = payload
+                    .get("reinforcement_count")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+
+                Some(Principle {
+                    id,
+                    text,
+                    kind,
+                    scope,
+                    created_at,
+                    reinforcement_count,
+                    relevance_score: 0.0,
+                })
+            })
+            .collect())
+    }
+
+    /// Delete a principle by stable identifier.
+    pub async fn forget(&self, id: &str) -> Result<bool> {
+        self.ensure_init().await?;
+        let deleted = self
+            .vector_store
+            .delete_records(
+                &self.collection,
+                HashMap::from([("id".to_string(), id.to_string())]),
+            )
+            .await?;
+        Ok(deleted > 0)
+    }
+
     /// Store a batch of principles with deduplication.
     ///
     /// Returns the number of newly created principles (reinforced ones are not
