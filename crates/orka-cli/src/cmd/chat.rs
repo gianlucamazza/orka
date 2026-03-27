@@ -663,7 +663,7 @@ pub async fn run(
                                 result_summary,
                             }) => {
                                 renderer.on_tool_exec_end(
-                                    id,
+                                    &id,
                                     success,
                                     duration_ms,
                                     error,

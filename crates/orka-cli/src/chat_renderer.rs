@@ -292,7 +292,7 @@ impl ChatRenderer {
     }
 
     /// Handle an unrecognised WebSocket message (silent).
-    pub(crate) fn on_unknown(&mut self, _raw: &str) {}
+    pub(crate) fn on_unknown(&self, _raw: &str) {}
 
     /// Render an inline media attachment.
     pub(crate) fn on_media(&mut self, mime_type: &str, data_base64: &str, caption: Option<&str>) {
