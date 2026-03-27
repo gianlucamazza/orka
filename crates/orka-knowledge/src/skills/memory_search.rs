@@ -3,44 +3,32 @@ use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use orka_core::{Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 
-use crate::{embeddings::EmbeddingProvider, vector_store::VectorStore};
+use crate::fact_store::FactStore;
 
-/// Skill that performs semantic similarity search against a vector store
-/// collection.
-pub struct MemorySearchSkill {
-    embeddings: Arc<dyn EmbeddingProvider>,
-    store: Arc<dyn VectorStore>,
-    default_collection: String,
+/// Skill that searches stored semantic facts.
+pub struct SearchFactsSkill {
+    facts: Arc<FactStore>,
 }
 
-impl MemorySearchSkill {
-    /// Create the skill with the given embedding provider, vector store, and
-    /// default collection.
-    pub fn new(
-        embeddings: Arc<dyn EmbeddingProvider>,
-        store: Arc<dyn VectorStore>,
-        default_collection: String,
-    ) -> Self {
-        Self {
-            embeddings,
-            store,
-            default_collection,
-        }
+impl SearchFactsSkill {
+    /// Create the skill with the given fact store.
+    pub fn new(facts: Arc<FactStore>) -> Self {
+        Self { facts }
     }
 }
 
 #[async_trait]
-impl Skill for MemorySearchSkill {
+impl Skill for SearchFactsSkill {
     fn name(&self) -> &'static str {
-        "memory_search"
+        "search_facts"
     }
 
     fn category(&self) -> &'static str {
-        "knowledge"
+        "memory"
     }
 
     fn description(&self) -> &'static str {
-        "Search for semantically similar content in the vector store."
+        "Search semantic facts remembered by the agent."
     }
 
     fn schema(&self) -> SkillSchema {
@@ -51,10 +39,6 @@ impl Skill for MemorySearchSkill {
                     "type": "string",
                     "description": "The search query"
                 },
-                "collection": {
-                    "type": "string",
-                    "description": "Collection to search (optional, uses default)"
-                },
                 "limit": {
                     "type": "integer",
                     "default": 5,
@@ -63,6 +47,11 @@ impl Skill for MemorySearchSkill {
                 "score_threshold": {
                     "type": "number",
                     "description": "Minimum similarity score (0-1)"
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["session", "workspace", "user", "global"],
+                    "description": "Optional scope filter"
                 },
                 "filter": {
                     "type": "object",
@@ -83,12 +72,6 @@ impl Skill for MemorySearchSkill {
                 message: "query is required".into(),
                 category: orka_core::ErrorCategory::Input,
             })?;
-
-        let collection = input
-            .args
-            .get("collection")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&self.default_collection);
 
         let limit = input
             .args
@@ -112,23 +95,28 @@ impl Skill for MemorySearchSkill {
                     .collect::<HashMap<String, String>>()
             });
 
-        // Generate query embedding
-        let embeddings = self.embeddings.embed(&[query.to_string()]).await?;
-
-        let vector = embeddings
-            .into_iter()
-            .next()
-            .ok_or_else(|| orka_core::Error::Knowledge("no embedding generated".into()))?;
+        let mut filter = filter.unwrap_or_default();
+        if let Some(scope) = input.args.get("scope").and_then(|v| v.as_str()) {
+            filter.insert("memory_scope".into(), scope.to_string());
+        }
 
         let results = self
-            .store
-            .search(collection, &vector, limit, score_threshold, filter)
+            .facts
+            .search(
+                query,
+                limit,
+                score_threshold,
+                if filter.is_empty() {
+                    None
+                } else {
+                    Some(filter)
+                },
+            )
             .await?;
 
         Ok(SkillOutput::new(serde_json::json!({
             "results": results,
             "count": results.len(),
-            "collection": collection,
         })))
     }
 }

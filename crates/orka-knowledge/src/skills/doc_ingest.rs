@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::{chunking, embeddings::EmbeddingProvider, parsers, vector_store::VectorStore};
 
 /// Skill that parses, chunks, embeds, and stores documents in the vector store.
-pub struct DocIngestSkill {
+pub struct IngestDocumentSkill {
     embeddings: Arc<dyn EmbeddingProvider>,
     store: Arc<dyn VectorStore>,
     default_collection: String,
@@ -15,7 +15,7 @@ pub struct DocIngestSkill {
     default_chunk_overlap: usize,
 }
 
-impl DocIngestSkill {
+impl IngestDocumentSkill {
     /// Create the skill with the given embedding provider, vector store, and
     /// chunking defaults.
     pub fn new(
@@ -36,13 +36,13 @@ impl DocIngestSkill {
 }
 
 #[async_trait]
-impl Skill for DocIngestSkill {
+impl Skill for IngestDocumentSkill {
     fn name(&self) -> &'static str {
-        "doc_ingest"
+        "ingest_document"
     }
 
     fn category(&self) -> &'static str {
-        "knowledge"
+        "memory"
     }
 
     fn description(&self) -> &'static str {

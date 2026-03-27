@@ -2,7 +2,8 @@
 //!
 //! - [`EmbeddingProvider`] — trait for text-to-vector embedding
 //! - [`VectorStore`] — trait for vector similarity search
-//! - Skills: `memory_store`, `memory_search`, `doc_ingest`, `doc_list`
+//! - Skills: `remember_fact`, `search_facts`, `list_facts`, `forget_fact`,
+//!   `ingest_document`, `list_documents`
 
 #![warn(missing_docs)]
 
@@ -11,9 +12,11 @@ pub mod chunking;
 /// Embedding providers: local ONNX (`local`) and OpenAI-compatible REST
 /// (`openai`).
 pub mod embeddings;
+/// Semantic fact storage with explicit memory semantics.
+pub mod fact_store;
 /// Document parsers for HTML, Markdown, PDF, and plain text.
 pub mod parsers;
-/// Knowledge skills: `doc_ingest`, `doc_list`, `memory_search`, `memory_store`.
+/// Memory and knowledge skills.
 pub mod skills;
 /// Core domain types: [`types::Chunk`], [`types::Document`],
 /// [`types::SearchResult`].
@@ -24,15 +27,32 @@ pub mod vector_store;
 use std::sync::Arc;
 
 pub use embeddings::EmbeddingProvider;
+pub use fact_store::{FactRecord, FactStore};
 use orka_core::{Result, config::KnowledgeConfig, traits::Skill};
 use tracing::info;
 pub use vector_store::VectorStore;
 
 /// Create knowledge/RAG skills from config.
 pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn Skill>>> {
+    let (embedding_provider, vector_store) = create_embedding_and_store(config)?;
+    create_knowledge_skills_with(config, embedding_provider, vector_store)
+}
+
+/// Create a semantic fact store from config.
+pub fn create_fact_store(config: &KnowledgeConfig) -> Result<Arc<FactStore>> {
+    let (embedding_provider, vector_store) = create_embedding_and_store(config)?;
+    Ok(Arc::new(FactStore::new(
+        embedding_provider,
+        vector_store,
+        config.vector_store.collection_name.clone(),
+    )))
+}
+
+fn create_embedding_and_store(
+    config: &KnowledgeConfig,
+) -> Result<(Arc<dyn EmbeddingProvider>, Arc<dyn VectorStore>)> {
     use orka_core::config::primitives::EmbeddingProvider;
 
-    // Initialize embedding provider
     let embedding_provider: Arc<dyn embeddings::EmbeddingProvider> =
         match config.embeddings.provider {
             #[cfg(feature = "openai-embeddings")]
@@ -57,47 +77,20 @@ pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn S
                 ));
             }
             #[cfg(feature = "local-embeddings")]
-            EmbeddingProvider::Anthropic => {
-                // Anthropic embeddings not yet implemented — use local as fallback
+            EmbeddingProvider::Anthropic | EmbeddingProvider::Custom | EmbeddingProvider::Local => {
                 Arc::new(embeddings::local::LocalEmbeddingProvider::new(
                     &config.embeddings.model,
                     embeddings::LOCAL_EMBEDDING_DIMS,
                 )?)
             }
             #[cfg(not(feature = "local-embeddings"))]
-            EmbeddingProvider::Anthropic => {
-                return Err(orka_core::Error::Config(
-                    "local embedding fallback requires the `local-embeddings` feature".into(),
-                ));
-            }
-            #[cfg(feature = "local-embeddings")]
-            EmbeddingProvider::Custom => {
-                // Custom endpoint not yet implemented — use local as fallback
-                Arc::new(embeddings::local::LocalEmbeddingProvider::new(
-                    &config.embeddings.model,
-                    embeddings::LOCAL_EMBEDDING_DIMS,
-                )?)
-            }
-            #[cfg(not(feature = "local-embeddings"))]
-            EmbeddingProvider::Custom => {
-                return Err(orka_core::Error::Config(
-                    "local embedding fallback requires the `local-embeddings` feature".into(),
-                ));
-            }
-            #[cfg(feature = "local-embeddings")]
-            EmbeddingProvider::Local => Arc::new(embeddings::local::LocalEmbeddingProvider::new(
-                &config.embeddings.model,
-                embeddings::LOCAL_EMBEDDING_DIMS,
-            )?),
-            #[cfg(not(feature = "local-embeddings"))]
-            EmbeddingProvider::Local => {
+            EmbeddingProvider::Anthropic | EmbeddingProvider::Custom | EmbeddingProvider::Local => {
                 return Err(orka_core::Error::Config(
                     "local embedding provider requires the `local-embeddings` feature".into(),
                 ));
             }
         };
 
-    // Initialize vector store
     #[cfg(feature = "qdrant")]
     let vector_store: Arc<dyn VectorStore> = Arc::new(vector_store::qdrant::QdrantStore::new(
         config
@@ -114,7 +107,7 @@ pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn S
         ));
     };
 
-    create_knowledge_skills_with(config, embedding_provider, vector_store)
+    Ok((embedding_provider, vector_store))
 }
 
 /// Create knowledge/RAG skills with pre-built provider and store.
@@ -127,20 +120,27 @@ pub fn create_knowledge_skills_with(
     vector_store: Arc<dyn VectorStore>,
 ) -> Result<Vec<Arc<dyn Skill>>> {
     let full_collection = config.vector_store.collection_name.clone();
-
-    let memory_store: Arc<dyn Skill> = Arc::new(skills::memory_store::MemoryStoreSkill::new(
+    let fact_store = Arc::new(FactStore::new(
         embedding_provider.clone(),
         vector_store.clone(),
         full_collection.clone(),
     ));
 
-    let memory_search: Arc<dyn Skill> = Arc::new(skills::memory_search::MemorySearchSkill::new(
-        embedding_provider.clone(),
-        vector_store.clone(),
-        full_collection.clone(),
+    let remember_fact: Arc<dyn Skill> = Arc::new(skills::memory_store::RememberFactSkill::new(
+        fact_store.clone(),
     ));
 
-    let doc_ingest: Arc<dyn Skill> = Arc::new(skills::doc_ingest::DocIngestSkill::new(
+    let search_facts: Arc<dyn Skill> = Arc::new(skills::memory_search::SearchFactsSkill::new(
+        fact_store.clone(),
+    ));
+
+    let list_facts: Arc<dyn Skill> =
+        Arc::new(skills::list_facts::ListFactsSkill::new(fact_store.clone()));
+
+    let forget_fact: Arc<dyn Skill> =
+        Arc::new(skills::forget_fact::ForgetFactSkill::new(fact_store));
+
+    let doc_ingest: Arc<dyn Skill> = Arc::new(skills::doc_ingest::IngestDocumentSkill::new(
         embedding_provider,
         vector_store.clone(),
         full_collection.clone(),
@@ -148,12 +148,21 @@ pub fn create_knowledge_skills_with(
         config.chunking.chunk_overlap,
     ));
 
-    let doc_list: Arc<dyn Skill> = Arc::new(skills::doc_list::DocListSkill::new(
+    let doc_list: Arc<dyn Skill> = Arc::new(skills::doc_list::ListDocumentsSkill::new(
         vector_store,
         full_collection,
     ));
 
-    info!("knowledge skills initialized (memory_store, memory_search, doc_ingest, doc_list)");
+    info!(
+        "knowledge skills initialized (remember_fact, search_facts, list_facts, forget_fact, ingest_document, list_documents)"
+    );
 
-    Ok(vec![memory_store, memory_search, doc_ingest, doc_list])
+    Ok(vec![
+        remember_fact,
+        search_facts,
+        list_facts,
+        forget_fact,
+        doc_ingest,
+        doc_list,
+    ])
 }

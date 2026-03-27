@@ -6,12 +6,12 @@ use orka_core::{Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 use crate::vector_store::VectorStore;
 
 /// Skill that lists documents ingested into a knowledge base collection.
-pub struct DocListSkill {
+pub struct ListDocumentsSkill {
     store: Arc<dyn VectorStore>,
     default_collection: String,
 }
 
-impl DocListSkill {
+impl ListDocumentsSkill {
     /// Create the skill with the given vector store and default collection
     /// name.
     pub fn new(store: Arc<dyn VectorStore>, default_collection: String) -> Self {
@@ -23,13 +23,13 @@ impl DocListSkill {
 }
 
 #[async_trait]
-impl Skill for DocListSkill {
+impl Skill for ListDocumentsSkill {
     fn name(&self) -> &'static str {
-        "doc_list"
+        "list_documents"
     }
 
     fn category(&self) -> &'static str {
-        "knowledge"
+        "memory"
     }
 
     fn description(&self) -> &'static str {

@@ -2,6 +2,10 @@
 pub mod doc_ingest;
 /// Skill that lists documents stored in a knowledge base collection.
 pub mod doc_list;
+/// Skill that deletes stored semantic facts.
+pub mod forget_fact;
+/// Skill that lists stored semantic facts.
+pub mod list_facts;
 /// Skill that performs semantic similarity search over the vector store.
 pub mod memory_search;
 /// Skill that embeds and stores a piece of text in the vector store.

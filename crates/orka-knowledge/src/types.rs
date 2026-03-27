@@ -48,3 +48,12 @@ pub struct SearchResult {
     /// Metadata payload returned alongside the vector.
     pub metadata: HashMap<String, String>,
 }
+
+/// A stored record returned by vector-store listing operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredRecord {
+    /// Logical identifier for the record.
+    pub id: String,
+    /// Metadata payload returned alongside the stored vector.
+    pub metadata: HashMap<String, String>,
+}

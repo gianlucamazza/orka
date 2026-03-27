@@ -5,13 +5,14 @@ use orka_core::Result;
 use qdrant_client::{
     Qdrant,
     qdrant::{
-        Condition, CreateCollectionBuilder, Distance, Filter, PointStruct, ScrollPointsBuilder,
-        SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
+        Condition, CreateCollectionBuilder, DeletePointsBuilder, Distance, Filter, PointStruct,
+        ScrollPointsBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
+        point_id::PointIdOptions,
     },
 };
 
 use super::VectorStore;
-use crate::types::SearchResult;
+use crate::types::{SearchResult, StoredRecord};
 
 /// Qdrant vector store implementation.
 pub struct QdrantStore {
@@ -28,6 +29,25 @@ impl QdrantStore {
         Ok(Self {
             client: Arc::new(client),
         })
+    }
+
+    fn point_id_to_string(
+        id: Option<qdrant_client::qdrant::PointId>,
+        payload: &HashMap<String, qdrant_client::qdrant::Value>,
+    ) -> String {
+        if let Some(id) = payload.get("id").and_then(|value| match &value.kind {
+            Some(qdrant_client::qdrant::value::Kind::StringValue(s)) => Some(s.clone()),
+            _ => None,
+        }) {
+            return id;
+        }
+
+        id.and_then(|point_id| match point_id.point_id_options {
+            Some(PointIdOptions::Num(n)) => Some(n.to_string()),
+            Some(PointIdOptions::Uuid(uuid)) => Some(uuid),
+            None => None,
+        })
+        .unwrap_or_default()
     }
 }
 
@@ -221,5 +241,84 @@ impl VectorStore for QdrantStore {
         }
 
         Ok(seen_docs.into_values().collect())
+    }
+
+    async fn list_records(
+        &self,
+        collection: &str,
+        limit: usize,
+        filter: Option<HashMap<String, String>>,
+    ) -> Result<Vec<StoredRecord>> {
+        let exists = self
+            .client
+            .collection_exists(collection)
+            .await
+            .map_err(|e| {
+                orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}"))
+            })?;
+        if !exists {
+            return Ok(Vec::new());
+        }
+
+        let mut scroll = ScrollPointsBuilder::new(collection)
+            .with_payload(true)
+            .limit(limit as u32);
+
+        if let Some(ref conditions) = filter {
+            let must: Vec<Condition> = conditions
+                .iter()
+                .map(|(key, value)| Condition::matches(key.as_str(), value.clone()))
+                .collect();
+            scroll = scroll.filter(Filter::must(must));
+        }
+
+        let result = self
+            .client
+            .scroll(scroll)
+            .await
+            .map_err(|e| orka_core::Error::Knowledge(format!("qdrant scroll failed: {e}")))?;
+
+        Ok(result
+            .result
+            .into_iter()
+            .map(|point| {
+                let mut metadata = HashMap::new();
+                for (key, value) in &point.payload {
+                    if let Some(qdrant_client::qdrant::value::Kind::StringValue(s)) = &value.kind {
+                        metadata.insert(key.clone(), s.clone());
+                    }
+                }
+                StoredRecord {
+                    id: Self::point_id_to_string(point.id, &point.payload),
+                    metadata,
+                }
+            })
+            .collect())
+    }
+
+    async fn delete_records(
+        &self,
+        collection: &str,
+        filter: HashMap<String, String>,
+    ) -> Result<usize> {
+        if filter.is_empty() {
+            return Ok(0);
+        }
+
+        let must: Vec<Condition> = filter
+            .iter()
+            .map(|(key, value)| Condition::matches(key.as_str(), value.clone()))
+            .collect();
+
+        self.client
+            .delete_points(
+                DeletePointsBuilder::new(collection)
+                    .points(Filter::must(must))
+                    .wait(true),
+            )
+            .await
+            .map_err(|e| orka_core::Error::Knowledge(format!("qdrant delete failed: {e}")))?;
+
+        Ok(1)
     }
 }

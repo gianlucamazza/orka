@@ -5,7 +5,7 @@ use orka_core::Result;
 use tokio::sync::Mutex;
 
 use super::VectorStore;
-use crate::types::SearchResult;
+use crate::types::{SearchResult, StoredRecord};
 
 /// Stored vector with its payload.
 struct VectorEntry {
@@ -150,6 +150,54 @@ impl VectorStore for InMemoryVectorStore {
             }
         }
         Ok(docs)
+    }
+
+    async fn list_records(
+        &self,
+        collection: &str,
+        limit: usize,
+        filter: Option<HashMap<String, String>>,
+    ) -> Result<Vec<StoredRecord>> {
+        let collections = self.collections.lock().await;
+        let Some(entries) = collections.get(collection) else {
+            return Ok(Vec::new());
+        };
+
+        let mut records = Vec::new();
+        for entry in entries {
+            if let Some(ref f) = filter
+                && !f.iter().all(|(k, v)| entry.payload.get(k) == Some(v))
+            {
+                continue;
+            }
+            records.push(StoredRecord {
+                id: entry.id.clone(),
+                metadata: entry.payload.clone(),
+            });
+            if records.len() >= limit {
+                break;
+            }
+        }
+        Ok(records)
+    }
+
+    async fn delete_records(
+        &self,
+        collection: &str,
+        filter: HashMap<String, String>,
+    ) -> Result<usize> {
+        if filter.is_empty() {
+            return Ok(0);
+        }
+
+        let mut collections = self.collections.lock().await;
+        let Some(entries) = collections.get_mut(collection) else {
+            return Ok(0);
+        };
+
+        let before = entries.len();
+        entries.retain(|entry| !filter.iter().all(|(k, v)| entry.payload.get(k) == Some(v)));
+        Ok(before.saturating_sub(entries.len()))
     }
 }
 

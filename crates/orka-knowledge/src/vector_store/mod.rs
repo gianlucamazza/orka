@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use orka_core::Result;
 
-use crate::types::SearchResult;
+use crate::types::{SearchResult, StoredRecord};
 
 /// Trait for vector storage backends.
 #[async_trait]
@@ -43,4 +43,19 @@ pub trait VectorStore: Send + Sync + 'static {
         limit: usize,
         filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<HashMap<String, String>>>;
+
+    /// List stored records in a collection with optional metadata filters.
+    async fn list_records(
+        &self,
+        collection: &str,
+        limit: usize,
+        filter: Option<HashMap<String, String>>,
+    ) -> Result<Vec<StoredRecord>>;
+
+    /// Delete records matching the given metadata filter.
+    async fn delete_records(
+        &self,
+        collection: &str,
+        filter: HashMap<String, String>,
+    ) -> Result<usize>;
 }

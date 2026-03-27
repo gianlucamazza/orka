@@ -1,47 +1,34 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use orka_core::{Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
-use uuid::Uuid;
+use orka_core::{MemoryScope, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill};
 
-use crate::{embeddings::EmbeddingProvider, vector_store::VectorStore};
+use crate::fact_store::FactStore;
 
-/// Skill that embeds a piece of text and stores it in the vector store for
-/// later retrieval.
-pub struct MemoryStoreSkill {
-    embeddings: Arc<dyn EmbeddingProvider>,
-    store: Arc<dyn VectorStore>,
-    default_collection: String,
+/// Skill that stores an explicit semantic fact for later retrieval.
+pub struct RememberFactSkill {
+    facts: Arc<FactStore>,
 }
 
-impl MemoryStoreSkill {
-    /// Create the skill with the given embedding provider, vector store, and
-    /// default collection.
-    pub fn new(
-        embeddings: Arc<dyn EmbeddingProvider>,
-        store: Arc<dyn VectorStore>,
-        default_collection: String,
-    ) -> Self {
-        Self {
-            embeddings,
-            store,
-            default_collection,
-        }
+impl RememberFactSkill {
+    /// Create the skill with the given fact store.
+    pub fn new(facts: Arc<FactStore>) -> Self {
+        Self { facts }
     }
 }
 
 #[async_trait]
-impl Skill for MemoryStoreSkill {
+impl Skill for RememberFactSkill {
     fn name(&self) -> &'static str {
-        "memory_store"
+        "remember_fact"
     }
 
     fn category(&self) -> &'static str {
-        "knowledge"
+        "memory"
     }
 
     fn description(&self) -> &'static str {
-        "Store content with semantic embedding in the vector store for later retrieval."
+        "Store a durable semantic fact for later retrieval."
     }
 
     fn schema(&self) -> SkillSchema {
@@ -50,11 +37,17 @@ impl Skill for MemoryStoreSkill {
             "properties": {
                 "content": {
                     "type": "string",
-                    "description": "The text content to store"
+                    "description": "The durable fact to remember"
                 },
-                "collection": {
+                "scope": {
                     "type": "string",
-                    "description": "Collection name (optional, uses default)"
+                    "enum": ["workspace", "user", "global"],
+                    "default": "workspace",
+                    "description": "Retention scope for the fact"
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Origin of the fact (optional, defaults to user)"
                 },
                 "metadata": {
                     "type": "object",
@@ -76,11 +69,22 @@ impl Skill for MemoryStoreSkill {
                 category: orka_core::ErrorCategory::Input,
             })?;
 
-        let collection = input
+        let scope = input
             .args
-            .get("collection")
+            .get("scope")
             .and_then(|v| v.as_str())
-            .unwrap_or(&self.default_collection);
+            .unwrap_or("workspace")
+            .parse::<MemoryScope>()
+            .map_err(|_| orka_core::Error::SkillCategorized {
+                message: "scope must be one of: workspace, user, global".into(),
+                category: orka_core::ErrorCategory::Input,
+            })?;
+
+        let source = input
+            .args
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("user");
 
         let mut metadata = HashMap::new();
         if let Some(meta) = input.args.get("metadata").and_then(|v| v.as_object()) {
@@ -90,30 +94,15 @@ impl Skill for MemoryStoreSkill {
                 }
             }
         }
-        metadata.insert("content".into(), content.to_string());
-
-        // Ensure collection exists
-        self.store
-            .ensure_collection(collection, self.embeddings.dimensions())
-            .await?;
-
-        // Generate embedding
-        let embeddings = self.embeddings.embed(&[content.to_string()]).await?;
-
-        let id = Uuid::now_v7().to_string();
-        self.store
-            .upsert(
-                collection,
-                std::slice::from_ref(&id),
-                &embeddings,
-                &[metadata],
-            )
+        let id = self
+            .facts
+            .store_fact(content, scope, source, metadata)
             .await?;
 
         Ok(SkillOutput::new(serde_json::json!({
             "stored": true,
             "id": id,
-            "collection": collection,
+            "scope": scope.to_string(),
         })))
     }
 }
