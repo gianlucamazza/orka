@@ -46,18 +46,29 @@ pub mod meta {
 
 /// Unique identifier for a message flowing through the system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct MessageId(pub Uuid);
+pub struct MessageId(Uuid);
 
 impl MessageId {
     /// Create a new unique message ID (UUID v7).
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    /// Return the underlying UUID.
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
 }
 
 impl Default for MessageId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<Uuid> for MessageId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
     }
 }
 
@@ -69,18 +80,29 @@ impl std::fmt::Display for MessageId {
 
 /// Unique identifier for a user session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct SessionId(pub Uuid);
+pub struct SessionId(Uuid);
 
 impl SessionId {
     /// Create a new unique session ID (UUID v7).
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    /// Return the underlying UUID.
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
 }
 
 impl Default for SessionId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<Uuid> for SessionId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
     }
 }
 
@@ -92,18 +114,29 @@ impl std::fmt::Display for SessionId {
 
 /// Unique identifier for a graph execution run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct RunId(pub Uuid);
+pub struct RunId(Uuid);
 
 impl RunId {
     /// Create a new unique run ID (UUID v7).
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    /// Return the underlying UUID.
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
 }
 
 impl Default for RunId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<Uuid> for RunId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
     }
 }
 
@@ -115,18 +148,29 @@ impl std::fmt::Display for RunId {
 
 /// Unique identifier for a domain event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct EventId(pub Uuid);
+pub struct EventId(Uuid);
 
 impl EventId {
     /// Create a new unique event ID (UUID v7).
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    /// Return the underlying UUID.
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
 }
 
 impl Default for EventId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<Uuid> for EventId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
     }
 }
 

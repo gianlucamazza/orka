@@ -133,7 +133,7 @@ impl CheckpointStore for RedisCheckpointStore {
             return Ok(None);
         };
 
-        let id = CheckpointId(
+        let id = CheckpointId::from(
             id_str
                 .parse::<uuid::Uuid>()
                 .map_err(|e| orka_core::Error::Other(e.to_string()))?,
@@ -179,7 +179,7 @@ impl CheckpointStore for RedisCheckpointStore {
         let mut result = Vec::with_capacity(ids.len());
         for id_str in ids {
             match id_str.parse::<uuid::Uuid>() {
-                Ok(uuid) => result.push(CheckpointId(uuid)),
+                Ok(uuid) => result.push(CheckpointId::from(uuid)),
                 Err(e) => warn!(%e, id = %id_str, "checkpoint.list: skipping malformed id"),
             }
         }

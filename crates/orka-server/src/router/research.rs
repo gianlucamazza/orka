@@ -215,7 +215,7 @@ pub(super) fn routes(
                             .metadata
                             .get("stream_session_id")
                             .and_then(|v| v.as_str())
-                            .and_then(|s| Uuid::parse_str(s).ok().map(SessionId))
+                            .and_then(|s| Uuid::parse_str(s).ok().map(SessionId::from))
                             .unwrap_or_else(SessionId::new);
 
                         let rx = reg.subscribe(session_id);

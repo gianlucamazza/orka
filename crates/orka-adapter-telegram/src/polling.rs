@@ -46,7 +46,7 @@ pub async fn resolve_session(
         && let Some(sid_str) = entry.value.as_str()
         && let Ok(uuid) = Uuid::parse_str(sid_str)
     {
-        let sid = SessionId(uuid);
+        let sid = SessionId::from(uuid);
         sessions.lock().await.insert(chat_id, sid);
         return sid;
     }

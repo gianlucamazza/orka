@@ -13,7 +13,7 @@ use chrono::Utc;
 use orka_checkpoint::{
     Checkpoint, CheckpointId, RunStatus, SerializableSlotKey, SerializableStateChange,
 };
-use orka_core::{Envelope, SessionId};
+use orka_core::{Envelope, RunId, SessionId};
 use orka_llm::client::ChatMessage;
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -23,29 +23,6 @@ use crate::{
     agent::AgentId,
     reducer::{ReducerStrategy, apply_reducer},
 };
-
-/// Unique identifier for a single graph execution run.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RunId(pub Uuid);
-
-impl RunId {
-    /// Generate a new time-ordered run identifier.
-    pub fn new() -> Self {
-        Self(Uuid::now_v7())
-    }
-}
-
-impl Default for RunId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for RunId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
 
 /// A typed key for values stored in the execution context.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -60,7 +37,7 @@ impl SlotKey {
     /// Create a slot key scoped to a specific agent.
     pub fn agent(agent_id: &AgentId, name: impl Into<String>) -> Self {
         Self {
-            namespace: agent_id.0.to_string(),
+            namespace: agent_id.to_string(),
             name: name.into(),
         }
     }
@@ -348,11 +325,11 @@ impl ExecutionContext {
             .collect();
 
         Self {
-            run_id: RunId(
+            run_id: RunId::from(
                 checkpoint
                     .run_id
-                    .parse()
-                    .unwrap_or_else(|_| uuid::Uuid::now_v7()),
+                    .parse::<Uuid>()
+                    .unwrap_or_else(|_| Uuid::now_v7()),
             ),
             session_id,
             trigger,

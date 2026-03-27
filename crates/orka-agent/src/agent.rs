@@ -34,7 +34,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Opaque, cheaply-cloneable agent identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AgentId(pub Arc<str>);
+pub struct AgentId(Arc<str>);
 
 impl Serialize for AgentId {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -53,6 +53,11 @@ impl AgentId {
     /// Create a new `AgentId` from any value that converts to `Arc<str>`.
     pub fn new(id: impl Into<Arc<str>>) -> Self {
         Self(id.into())
+    }
+
+    /// Return the identifier as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -307,7 +312,7 @@ mod tests {
     #[test]
     fn agent_id_from_string() {
         let id = AgentId::from("test".to_string());
-        assert_eq!(id.0.as_ref(), "test");
+        assert_eq!(id.as_str(), "test");
     }
 
     #[test]

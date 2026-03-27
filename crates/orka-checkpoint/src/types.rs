@@ -10,18 +10,29 @@ use uuid::Uuid;
 
 /// Unique identifier for a single checkpoint within a run.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct CheckpointId(pub Uuid);
+pub struct CheckpointId(Uuid);
 
 impl CheckpointId {
     /// Generate a new time-ordered checkpoint identifier.
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
+
+    /// Return the underlying UUID.
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
 }
 
 impl Default for CheckpointId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<Uuid> for CheckpointId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
     }
 }
 

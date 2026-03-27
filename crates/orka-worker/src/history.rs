@@ -2,7 +2,10 @@
 //! and the graph path in [`crate::WorkerPoolGraph`].
 
 use orka_core::{MemoryEntry, traits::MemoryStore};
-use orka_llm::client::{ChatContent, ChatMessage, ContentBlockInput};
+use orka_llm::{
+    client::{ChatContent, ChatMessage, ContentBlockInput},
+    context::sanitize_tool_result_history,
+};
 use tracing::warn;
 
 /// Compact oversized tool results in a message list.
@@ -36,6 +39,39 @@ pub fn compact_tool_results(messages: Vec<ChatMessage>, max_chars: usize) -> Vec
         .collect()
 }
 
+fn deserialize_history_value(key: &str, value: serde_json::Value) -> Option<Vec<ChatMessage>> {
+    match serde_json::from_value(value) {
+        Ok(messages) => Some(messages),
+        Err(e) => {
+            warn!(%e, key = %key, "failed to deserialize conversation history");
+            None
+        }
+    }
+}
+
+/// Load graph conversation history from the canonical key.
+pub async fn load_graph_history(memory: &dyn MemoryStore, history_key: &str) -> Vec<ChatMessage> {
+    let history = match memory.recall(history_key).await {
+        Ok(Some(entry)) => deserialize_history_value(history_key, entry.value).unwrap_or_default(),
+        Ok(None) => Vec::new(),
+        Err(e) => {
+            warn!(%e, key = %history_key, "failed to recall conversation history");
+            Vec::new()
+        }
+    };
+
+    let (sanitized, removed) = sanitize_tool_result_history(history);
+    if removed > 0 {
+        warn!(
+            key = %history_key,
+            removed_tool_results = removed,
+            "dropped orphaned tool_result blocks from conversation history"
+        );
+    }
+
+    sanitized
+}
+
 /// Persist a conversation history to the memory store with basic tool-result
 /// compaction.
 ///
@@ -47,6 +83,14 @@ pub async fn save_history_compact(
     messages: Vec<ChatMessage>,
 ) {
     const MAX_TOOL_RESULT_CHARS: usize = 2000;
+    let (messages, removed) = sanitize_tool_result_history(messages);
+    if removed > 0 {
+        warn!(
+            key = %history_key,
+            removed_tool_results = removed,
+            "dropping orphaned tool_result blocks before persisting history"
+        );
+    }
     let messages = compact_tool_results(messages, MAX_TOOL_RESULT_CHARS);
 
     if messages.is_empty() {
@@ -69,6 +113,7 @@ pub async fn save_history_compact(
 
 #[cfg(test)]
 mod tests {
+    use orka_core::{MemoryEntry, testing::InMemoryMemoryStore, traits::MemoryStore};
     use orka_llm::client::{ChatContent, ChatMessage, ContentBlockInput, Role};
 
     use super::*;
@@ -129,5 +174,57 @@ mod tests {
     fn compact_tool_results_empty_vec() {
         let result = compact_tool_results(vec![], 100);
         assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn load_graph_history_sanitizes_orphaned_tool_results() {
+        let memory = InMemoryMemoryStore::new();
+        let history_key = "conversation:test";
+        let entry = MemoryEntry::new(
+            history_key,
+            serde_json::json!([
+                ChatMessage::assistant("done"),
+                ChatMessage::new(
+                    Role::User,
+                    ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
+                        tool_use_id: "t1".into(),
+                        content: "stale".into(),
+                        is_error: false,
+                    }]),
+                )
+            ]),
+        );
+        memory.store(history_key, entry, None).await.unwrap();
+
+        let history = load_graph_history(&memory, history_key).await;
+        assert_eq!(history.len(), 1);
+        assert!(matches!(history[0].content, ChatContent::Text(ref t) if t == "done"));
+    }
+
+    #[tokio::test]
+    async fn save_history_compact_drops_orphaned_tool_results() {
+        let memory = InMemoryMemoryStore::new();
+        let history_key = "conversation:test";
+        save_history_compact(
+            &memory,
+            history_key,
+            vec![
+                ChatMessage::assistant("done"),
+                ChatMessage::new(
+                    Role::User,
+                    ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
+                        tool_use_id: "t1".into(),
+                        content: "stale".into(),
+                        is_error: false,
+                    }]),
+                ),
+            ],
+        )
+        .await;
+
+        let entry = memory.recall(history_key).await.unwrap().unwrap();
+        let history: Vec<ChatMessage> = serde_json::from_value(entry.value).unwrap();
+        assert_eq!(history.len(), 1);
+        assert!(matches!(history[0].content, ChatContent::Text(ref t) if t == "done"));
     }
 }

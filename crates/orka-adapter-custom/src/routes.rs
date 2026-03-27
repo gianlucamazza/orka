@@ -123,7 +123,7 @@ pub async fn handle_message(
     let session_id = req
         .session_id
         .and_then(|s| s.parse::<Uuid>().ok())
-        .map_or_else(SessionId::new, SessionId);
+        .map_or_else(SessionId::new, SessionId::from);
 
     let mut envelope = Envelope::text("custom", session_id, &req.text);
 
@@ -182,7 +182,7 @@ async fn handle_ws(
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
     let session_id = match params.session_id.parse::<Uuid>() {
-        Ok(uuid) => SessionId(uuid),
+        Ok(uuid) => SessionId::from(uuid),
         Err(_) => {
             return (StatusCode::BAD_REQUEST, "invalid session_id").into_response();
         }

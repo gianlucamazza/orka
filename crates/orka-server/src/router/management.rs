@@ -363,7 +363,7 @@ pub(super) fn routes(
                     match uuid::Uuid::parse_str(&id) {
                         Err(_) => (StatusCode::BAD_REQUEST, "invalid session ID").into_response(),
                         Ok(uuid) => {
-                            let sid = orka_core::SessionId(uuid);
+                            let sid = orka_core::SessionId::from(uuid);
                             match sessions.get(&sid).await {
                                 Ok(Some(s)) => axum::Json(s).into_response(),
                                 Ok(None) => {
@@ -385,7 +385,7 @@ pub(super) fn routes(
                     match uuid::Uuid::parse_str(&id) {
                         Err(_) => (StatusCode::BAD_REQUEST, "invalid session ID").into_response(),
                         Ok(uuid) => {
-                            let sid = orka_core::SessionId(uuid);
+                            let sid = orka_core::SessionId::from(uuid);
                             match sessions.delete(&sid).await {
                                 Ok(()) => {
                                     axum::Json(serde_json::json!({ "deleted": true }))

@@ -13,7 +13,7 @@ use orka_llm::{
     consume_stream,
     context::{
         TokenizerHint, available_history_budget_with_hint, estimate_message_tokens_with_hint,
-        truncate_history_with_hint,
+        sanitize_tool_result_history, truncate_history_with_hint,
     },
     infer_provider,
 };
@@ -237,7 +237,7 @@ pub(crate) async fn run_agent_node(
     // Retrieve principles if experience is available
     let principles = if let Some(ref exp) = deps.experience {
         match exp
-            .retrieve_principles(&trigger_text, agent.id.0.as_ref())
+            .retrieve_principles(&trigger_text, agent.id.as_str())
             .await
         {
             Ok(principles) if !principles.is_empty() => {
@@ -502,6 +502,15 @@ pub(crate) async fn run_agent_node(
             _ => raw,
         }
     };
+    let (sanitized_messages, removed_tool_results) = sanitize_tool_result_history(messages);
+    messages = sanitized_messages;
+    if removed_tool_results > 0 {
+        warn!(
+            agent = %agent.id,
+            removed_tool_results,
+            "dropped orphaned tool_result blocks before agent execution"
+        );
+    }
     // Input guardrail: check the trigger text before entering the LLM loop.
     // A Block terminates this node immediately; Modify replaces the trigger.
     if let Some(ref guardrail) = deps.guardrail {
@@ -573,6 +582,17 @@ pub(crate) async fn run_agent_node(
         let iteration = iterations;
         iterations += 1;
         let iteration_start = std::time::Instant::now();
+
+        let (sanitized_messages, removed_tool_results) = sanitize_tool_result_history(messages);
+        messages = sanitized_messages;
+        if removed_tool_results > 0 {
+            warn!(
+                agent = %agent.id,
+                iteration,
+                removed_tool_results,
+                "dropped orphaned tool_result blocks before llm call"
+            );
+        }
 
         // B1: Rebuild tool list from enabled categories each iteration
         if progressive {
@@ -992,7 +1012,7 @@ pub(crate) async fn run_agent_node(
             let reason = orka_checkpoint::InterruptReason::HumanApproval {
                 tool_name: call.name.clone(),
                 tool_input: call.input.clone(),
-                agent_id: agent.id.0.to_string(),
+                agent_id: agent.id.to_string(),
             };
             return Ok(AgentNodeResult {
                 response: None,

@@ -12,7 +12,6 @@ use orka_core::{
     CommandArgs, Envelope, OutboundMessage, Payload, Result, Session, traits::MemoryStore,
 };
 use orka_llm::client::ChatMessage;
-use tracing::warn;
 
 use crate::{commands::CommandRegistry, handler::AgentHandler, history};
 
@@ -114,18 +113,9 @@ impl Dispatcher for GraphDispatcher {
         // Load conversation history
         if let Some(ref mem) = self.memory {
             let history_key = format!("conversation:{}", envelope.session_id);
-            match mem.recall(&history_key).await {
-                Ok(Some(entry)) => {
-                    let history: Vec<ChatMessage> =
-                        serde_json::from_value(entry.value).unwrap_or_default();
-                    if !history.is_empty() {
-                        ctx.set_messages(history).await;
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    warn!(%e, session_id = %envelope.session_id, "failed to load conversation history");
-                }
+            let history = history::load_graph_history(mem.as_ref(), &history_key).await;
+            if !history.is_empty() {
+                ctx.set_messages(history).await;
             }
         }
 

@@ -70,7 +70,7 @@ pub(super) fn routes(queue: Arc<dyn DeadLetterQueue>) -> axum::Router {
                     let q = q.clone();
                     async move {
                         let msg_id = match uuid::Uuid::parse_str(&id) {
-                            Ok(uuid) => orka_core::MessageId(uuid),
+                            Ok(uuid) => orka_core::MessageId::from(uuid),
                             Err(_) => {
                                 return (axum::http::StatusCode::BAD_REQUEST, "invalid message ID")
                                     .into_response();

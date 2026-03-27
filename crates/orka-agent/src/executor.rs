@@ -13,7 +13,7 @@ use orka_experience::ExperienceService;
 use orka_llm::client::LlmClient;
 use orka_prompts::template::TemplateRegistry;
 use orka_skills::SkillRegistry;
-use tracing::{Instrument, debug, info, info_span, warn};
+use tracing::{Instrument, info, info_span, warn};
 
 use crate::{
     agent::AgentId,
@@ -384,8 +384,8 @@ impl GraphExecutor {
         let ckpt = ctx
             .to_checkpoint(
                 &graph.id,
-                snap.completed_node.0.as_ref(),
-                snap.resume_node.map(|id| id.0.as_ref()),
+                snap.completed_node.as_str(),
+                snap.resume_node.map(|id| id.as_str()),
                 snap.total_iterations,
                 snap.agents_executed.to_vec(),
                 snap.status,
@@ -432,37 +432,6 @@ impl GraphExecutor {
                 .await;
         }
 
-        // Load persisted cross-session history from MemoryStore
-        let history_key = format!("history:{}", ctx.session_id);
-        match self.deps.memory.recall(&history_key).await {
-            Ok(Some(entry)) => {
-                match serde_json::from_value::<Vec<orka_llm::client::ChatMessage>>(entry.value) {
-                    Ok(msgs) if !msgs.is_empty() => {
-                        // Prepend stored history, then append any current messages not
-                        // already present (dedup by serialised value to avoid repeating the trigger).
-                        let current = ctx.messages().await;
-                        let mut combined = msgs;
-                        for m in current {
-                            let m_json = serde_json::to_value(&m).ok();
-                            let already_in_history = combined.iter().any(|h| {
-                                h.role == m.role && serde_json::to_value(h).ok() == m_json
-                            });
-                            if !already_in_history {
-                                combined.push(m);
-                            }
-                        }
-                        ctx.set_messages(combined).await;
-                        debug!(session_id = %ctx.session_id, "history.loaded_from_store");
-                    }
-                    Ok(_) => {} // empty history, nothing to restore
-                    Err(e) => warn!(%e, session_id = %ctx.session_id,
-                        "history.deser_failed: schema may have changed, starting fresh"),
-                }
-            }
-            Ok(None) => {} // no history yet, fresh session
-            Err(e) => warn!(%e, session_id = %ctx.session_id, "history.load_failed"),
-        }
-
         loop {
             global_iteration += 1;
 
@@ -490,7 +459,7 @@ impl GraphExecutor {
                 break;
             };
 
-            agents_executed.push(current_id.0.to_string());
+            agents_executed.push(current_id.to_string());
 
             let agent_span = info_span!(
                 "agent.execute",
@@ -507,7 +476,7 @@ impl GraphExecutor {
                             ctx.trigger.channel.clone(),
                             Some(ctx.trigger.id),
                             StreamChunkKind::AgentSwitch {
-                                agent_id: node.agent.id.0.to_string(),
+                                agent_id: node.agent.id.to_string(),
                                 display_name: node.agent.display_name.clone(),
                             },
                         ));
@@ -524,7 +493,7 @@ impl GraphExecutor {
                         .event_sink
                         .emit(DomainEvent::new(DomainEventKind::AgentCompleted {
                             run_id: ctx.run_id.to_string(),
-                            agent_id: node.agent.id.0.to_string(),
+                            agent_id: node.agent.id.to_string(),
                             iterations: result.iterations,
                             tokens: ctx.total_tokens(),
                             duration_ms: start.elapsed().as_millis() as u64,
@@ -547,7 +516,7 @@ impl GraphExecutor {
                             .event_sink
                             .emit(DomainEvent::new(DomainEventKind::RunInterrupted {
                                 run_id: ctx.run_id.to_string(),
-                                agent_id: node.agent.id.0.to_string(),
+                                agent_id: node.agent.id.to_string(),
                                 tool_name,
                             }))
                             .await;
@@ -567,17 +536,6 @@ impl GraphExecutor {
                             },
                         )
                         .await;
-                        // Persist cross-session history so it survives the HITL pause.
-                        let interrupted_messages = ctx.messages().await;
-                        if !interrupted_messages.is_empty()
-                            && let Ok(value) = serde_json::to_value(&interrupted_messages)
-                        {
-                            let entry = orka_core::MemoryEntry::new(history_key.clone(), value);
-                            if let Err(e) = self.deps.memory.store(&history_key, entry, None).await
-                            {
-                                warn!(%e, session_id = %ctx.session_id, "history.persist_failed");
-                            }
-                        }
                         return Ok(ExecutionResult {
                             response: String::new(),
                             attachments: Vec::new(),
@@ -595,8 +553,8 @@ impl GraphExecutor {
                             .event_sink
                             .emit(DomainEvent::new(DomainEventKind::AgentDelegated {
                                 run_id: ctx.run_id.to_string(),
-                                source_agent: handoff.from.0.to_string(),
-                                target_agent: handoff.to.0.to_string(),
+                                source_agent: handoff.from.to_string(),
+                                target_agent: handoff.to.to_string(),
                                 mode: format!("{:?}", handoff.mode),
                                 reason: handoff.reason.clone(),
                             }))
@@ -665,7 +623,7 @@ impl GraphExecutor {
                                         ctx.trigger.channel.clone(),
                                         Some(ctx.trigger.id),
                                         StreamChunkKind::AgentSwitch {
-                                            agent_id: target_node.agent.id.0.to_string(),
+                                            agent_id: target_node.agent.id.to_string(),
                                             display_name: target_node.agent.display_name.clone(),
                                         },
                                     ));
@@ -808,7 +766,7 @@ impl GraphExecutor {
                                     ctx.trigger.channel.clone(),
                                     Some(ctx.trigger.id),
                                     StreamChunkKind::AgentSwitch {
-                                        agent_id: target_node.agent.id.0.to_string(),
+                                        agent_id: target_node.agent.id.to_string(),
                                         display_name: target_node.agent.display_name.clone(),
                                     },
                                 ));
@@ -848,7 +806,7 @@ impl GraphExecutor {
                             ctx.trigger.channel.clone(),
                             Some(ctx.trigger.id),
                             StreamChunkKind::AgentSwitch {
-                                agent_id: node.agent.id.0.to_string(),
+                                agent_id: node.agent.id.to_string(),
                                 display_name: node.agent.display_name.clone(),
                             },
                         ));
@@ -883,23 +841,6 @@ impl GraphExecutor {
             Some(ctx.trigger.id),
             StreamChunkKind::Done,
         ));
-
-        // Persist cross-session history to MemoryStore
-        let final_messages = ctx.messages().await;
-        if !final_messages.is_empty()
-            && let Ok(value) = serde_json::to_value(&final_messages)
-        {
-            let entry = orka_core::MemoryEntry::new(history_key.clone(), value);
-            if let Err(e) = self.deps.memory.store(&history_key, entry, None).await {
-                warn!(%e, session_id = %ctx.session_id, "history.persist_failed");
-            } else {
-                debug!(
-                    session_id = %ctx.session_id,
-                    messages = final_messages.len(),
-                    "history.persisted"
-                );
-            }
-        }
 
         Ok(ExecutionResult {
             response: final_response,
