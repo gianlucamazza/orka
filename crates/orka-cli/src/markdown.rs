@@ -1,7 +1,7 @@
 use std::{
     io::Write,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU16, Ordering},
     },
 };
@@ -12,6 +12,8 @@ use syntect::{
     easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet,
     util::as_24_bit_terminal_escaped,
 };
+
+use crate::term_caps::ColorLevel;
 
 /// Renders markdown to the terminal with syntax highlighting for code blocks.
 ///
@@ -24,22 +26,39 @@ pub struct MarkdownRenderer {
     theme_set: ThemeSet,
     theme_name: String,
     buffer: String,
-    /// Cached value of `NO_COLOR` env var at construction time.
-    no_color: bool,
+    /// Terminal color capability, set at construction time.
+    color: ColorLevel,
     /// Shared terminal width updated on SIGWINCH — used for horizontal rules
     /// and other width-dependent output so they reflow after resize.
     term_width: Arc<AtomicU16>,
+    /// Output sink — defaults to stdout, injectable for testing.
+    output: Arc<Mutex<Box<dyn Write + Send>>>,
 }
 
 impl MarkdownRenderer {
-    pub fn new(term_width: Arc<AtomicU16>) -> Self {
+    /// Create a renderer writing to stdout.
+    pub fn new(term_width: Arc<AtomicU16>, color: ColorLevel) -> Self {
+        Self::with_output(
+            term_width,
+            color,
+            Arc::new(Mutex::new(Box::new(std::io::stdout()))),
+        )
+    }
+
+    /// Create a renderer with a custom output sink (for testing).
+    pub fn with_output(
+        term_width: Arc<AtomicU16>,
+        color: ColorLevel,
+        output: Arc<Mutex<Box<dyn Write + Send>>>,
+    ) -> Self {
         Self {
             syntax_set: SyntaxSet::load_defaults_newlines(),
             theme_set: ThemeSet::load_defaults(),
             theme_name: "base16-eighties.dark".to_string(),
             buffer: String::new(),
-            no_color: std::env::var_os("NO_COLOR").is_some(),
+            color,
             term_width,
+            output,
         }
     }
 
@@ -52,14 +71,14 @@ impl MarkdownRenderer {
     /// Flush and render whatever remains in the buffer (call on Done).
     /// Returns `true` if anything was rendered.
     pub fn flush(&mut self) -> bool {
-        if !self.buffer.is_empty() {
+        if self.buffer.is_empty() {
+            false
+        } else {
             let remaining = std::mem::take(&mut self.buffer);
             // Use render_full so that mixed content (prose then code fence) is
             // handled correctly even when they arrive in the same final chunk.
             self.render_full(&remaining);
             true
-        } else {
-            false
         }
     }
 
@@ -126,6 +145,7 @@ impl MarkdownRenderer {
         // UI-7: incremental flush threshold — render up to the last newline when
         // the buffer grows large, so long paragraphs stream smoothly instead of
         // waiting for a paragraph break.
+        #[allow(clippy::items_after_statements)]
         const INCREMENTAL_THRESHOLD: usize = 200;
         if buf.len() >= INCREMENTAL_THRESHOLD
             && let Some(pos) = buf.rfind('\n')
@@ -149,8 +169,10 @@ impl MarkdownRenderer {
             self.render_code_block_inline(trimmed);
         } else if trimmed.starts_with("```") {
             // Unclosed code fence at flush — print raw to avoid markdown mangling
+            let mut guard = self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let out = &mut **guard;
             for line in trimmed.lines() {
-                println!("{line}");
+                let _ = writeln!(out, "{line}");
             }
         } else {
             self.render_prose_pulldown(block);
@@ -163,8 +185,9 @@ impl MarkdownRenderer {
     /// Supports: headings (h1–h6), bold, italic, strikethrough, task lists,
     /// blockquotes, ordered/unordered lists, GFM tables (via comfy-table),
     /// inline code, links with OSC 8 hyperlinks, and horizontal rules.
+    #[allow(clippy::too_many_lines, clippy::items_after_statements, clippy::fn_params_excessive_bools)]
     fn render_prose_pulldown(&self, text: &str) {
-        let no_color = self.no_color;
+        let no_color = self.color.is_none();
         let opts = Options::ENABLE_STRIKETHROUGH
             | Options::ENABLE_TASKLISTS
             | Options::ENABLE_TABLES
@@ -203,7 +226,8 @@ impl MarkdownRenderer {
         let mut cell_buf = String::new();
         let mut in_thead = false;
 
-        let mut out = std::io::stdout().lock();
+        let mut guard = self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let out = &mut **guard;
 
         fn apply_fmt(s: &str, strong: bool, em: bool, strike: bool, no_color: bool) -> String {
             if no_color || s.is_empty() {
@@ -251,7 +275,7 @@ impl MarkdownRenderer {
         for event in parser {
             match event {
                 // ── Paragraphs ──────────────────────────────────────────────────
-                Event::Start(Tag::Paragraph) => {
+                Event::Start(Tag::Paragraph | Tag::Item) => {
                     buf.clear();
                 }
                 Event::End(TagEnd::Paragraph) => {
@@ -277,7 +301,7 @@ impl MarkdownRenderer {
                             HeadingLevel::H2 => "\x1b[36m",
                             _ => "\x1b[33m",
                         };
-                        format!("{color}\x1b[1m{}\x1b[0m", buf)
+                        format!("{color}\x1b[1m{buf}\x1b[0m")
                     };
                     let _ = writeln!(out, "\n{text}");
                     buf.clear();
@@ -312,9 +336,6 @@ impl MarkdownRenderer {
                     if list_stack.is_empty() {
                         let _ = writeln!(out);
                     }
-                }
-                Event::Start(Tag::Item) => {
-                    buf.clear();
                 }
                 Event::End(TagEnd::Item) => {
                     let item_indent = "  ".repeat(indent_depth.saturating_sub(1));
@@ -452,15 +473,13 @@ impl MarkdownRenderer {
                 Event::HardBreak => {
                     if !buf.trim().is_empty() {
                         let prefix = bq_prefix(blockquote_depth, no_color);
-                        let _ = writeln!(out, "{prefix}{}", buf);
+                        let _ = writeln!(out, "{prefix}{buf}");
                         buf.clear();
                     }
                 }
 
                 // Code blocks within prose are handled by split_blocks /
                 // render_code_block_inline; ignore any that slip through here.
-                Event::Start(Tag::CodeBlock(_)) | Event::End(TagEnd::CodeBlock) => {}
-
                 _ => {}
             }
         }
@@ -474,9 +493,7 @@ impl MarkdownRenderer {
 
     /// Render a fenced code block with syntax highlighting via syntect.
     fn render_code_block_inline(&self, block: &str) {
-        // UI-5: respect NO_COLOR — cached at construction time to avoid per-call env
-        // lookup
-        let no_color = self.no_color;
+        let no_color = self.color.is_none();
 
         // Parse the fence: ```lang\n...\n```
         let mut lines = block.lines();
@@ -497,9 +514,11 @@ impl MarkdownRenderer {
             "\x1b[90m───\x1b[0m"
         };
 
+        let mut guard = self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let out = &mut **guard;
+
         let Some(theme) = self.theme_set.themes.get(&self.theme_name) else {
             // Theme missing — print without highlighting
-            let mut out = std::io::stdout().lock();
             let _ = writeln!(out, "{border}");
             for line in code_lines {
                 let _ = writeln!(out, "  {line}");
@@ -517,15 +536,17 @@ impl MarkdownRenderer {
         };
 
         let mut highlighter = HighlightLines::new(syntax, theme);
-        let mut out = std::io::stdout().lock();
 
         let _ = writeln!(out, "{border}");
         for line in code_lines {
-            if no_color {
+            if no_color || !self.color.supports_256() {
                 let _ = writeln!(out, "  {line}");
             } else {
                 match highlighter.highlight_line(line, &self.syntax_set) {
                     Ok(ranges) => {
+                        // Use 24-bit escape sequences only for true-color terminals;
+                        // fall back to the same sequence for 256-color (most terminals
+                        // accept 24-bit even when reporting 256color via TERM).
                         let escaped = as_24_bit_terminal_escaped(&ranges, false);
                         let _ = writeln!(out, "  {escaped}\x1b[0m");
                     }
@@ -541,7 +562,7 @@ impl MarkdownRenderer {
 
 impl Default for MarkdownRenderer {
     fn default() -> Self {
-        Self::new(Arc::new(AtomicU16::new(80)))
+        Self::new(Arc::new(AtomicU16::new(80)), ColorLevel::default())
     }
 }
 
@@ -616,7 +637,7 @@ fn split_blocks(text: &str) -> Vec<&str> {
             // Inside a code fence — look for matching close
             let close_len = trimmed.chars().take_while(|&c| c == '`').count();
             let is_close =
-                close_len >= open_len && trimmed.chars().skip(close_len).all(|c| c.is_whitespace());
+                close_len >= open_len && trimmed.chars().skip(close_len).all(char::is_whitespace);
             if is_close {
                 fence_len = None;
                 let block = &text[start..i];

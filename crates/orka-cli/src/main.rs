@@ -1,6 +1,7 @@
 //! Command-line interface for interacting with Orka services and local tooling.
 #![allow(unreachable_pub)]
 
+mod chat_renderer;
 mod client;
 mod cmd;
 mod completion;
@@ -10,6 +11,7 @@ mod prompt;
 mod protocol;
 mod shell;
 mod table;
+mod term_caps;
 mod util;
 mod workspace;
 

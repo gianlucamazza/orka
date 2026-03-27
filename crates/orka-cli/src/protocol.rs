@@ -1,12 +1,12 @@
-use orka_core::stream::StreamChunkKind;
+use orka_core::stream::{AgentStopReason, StreamChunkKind};
 
 /// Classified WebSocket message.
 #[derive(Debug)]
 pub enum WsMessage {
     /// A streaming chunk (delta, tool event, done).
     Stream(StreamChunkKind),
-    /// A final text message.
-    Final(String),
+    /// A final text message, with optional stop reason from execution metadata.
+    Final(String, Option<AgentStopReason>),
     /// An inlined media attachment (e.g. a generated chart).
     Media {
         /// MIME type of the media (e.g. `image/png`).
@@ -36,12 +36,17 @@ pub fn classify_ws_message(raw: &str) -> WsMessage {
         return WsMessage::Stream(kind);
     }
 
-    // OutboundMessage shape: { payload: { type: "...", data: ... } }
+    // OutboundMessage shape: { payload: { type: "...", data: ... }, metadata: { ... } }
     if let Some(payload) = parsed.get("payload") {
+        let stop_reason = parsed
+            .get("metadata")
+            .and_then(|m| m.get("stop_reason"))
+            .and_then(|v| serde_json::from_value::<AgentStopReason>(v.clone()).ok());
+
         match payload.get("type").and_then(|t| t.as_str()) {
             Some("Text") => {
                 if let Some(text) = payload.get("data").and_then(|d| d.as_str()) {
-                    return WsMessage::Final(text.to_string());
+                    return WsMessage::Final(text.to_string(), stop_reason);
                 }
             }
             Some("Media") => {
@@ -122,8 +127,31 @@ mod tests {
     fn classifies_outbound_message_as_final() {
         let raw = r#"{"channel":"custom","session_id":"abc","payload":{"type":"Text","data":"hello world"},"reply_to":null,"metadata":{}}"#;
         match classify_ws_message(raw) {
-            WsMessage::Final(text) => assert_eq!(text, "hello world"),
+            WsMessage::Final(text, stop_reason) => {
+                assert_eq!(text, "hello world");
+                assert!(stop_reason.is_none());
+            }
             other => panic!("expected Final, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_final_with_stop_reason() {
+        let raw = r#"{"channel":"custom","session_id":"abc","payload":{"type":"Text","data":"partial"},"reply_to":null,"metadata":{"stop_reason":"max_turns"}}"#;
+        match classify_ws_message(raw) {
+            WsMessage::Final(text, Some(AgentStopReason::MaxTurns)) => {
+                assert_eq!(text, "partial");
+            }
+            other => panic!("expected Final with MaxTurns, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_final_with_max_tokens_stop_reason() {
+        let raw = r#"{"channel":"custom","session_id":"abc","payload":{"type":"Text","data":"truncated"},"reply_to":null,"metadata":{"stop_reason":"max_tokens"}}"#;
+        match classify_ws_message(raw) {
+            WsMessage::Final(_, Some(AgentStopReason::MaxTokens)) => {}
+            other => panic!("expected Final with MaxTokens, got {other:?}"),
         }
     }
 

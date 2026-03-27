@@ -174,7 +174,22 @@ where
                 }
                 done_received = true;
             }
-            WsMessage::Final(content) => {
+            WsMessage::Final(content, stop_reason) => {
+                if let Some(reason) = stop_reason {
+                    use orka_core::stream::AgentStopReason;
+                    let warning = match reason {
+                        AgentStopReason::MaxTurns => {
+                            "⚠ Response may be incomplete (agent reached maximum turns)"
+                        }
+                        AgentStopReason::MaxTokens => {
+                            "⚠ Response was truncated by the output token limit"
+                        }
+                        _ => "",
+                    };
+                    if !warning.is_empty() {
+                        eprintln!("  {}", warning);
+                    }
+                }
                 if !got_content {
                     println!("\n{}", "Reply:".green().bold());
                 }

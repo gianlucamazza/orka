@@ -12,7 +12,7 @@ use std::{
 
 use colored::Colorize;
 use futures_util::{SinkExt, StreamExt, stream::SplitStream};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::MultiProgress;
 use orka_core::{parse_slash_command, stream::StreamChunkKind};
 use reedline::{FileBackedHistory, Reedline, Signal};
 use serde_json::json;
@@ -30,15 +30,46 @@ use crate::{
     shell::{self, Builtin, InputAction},
 };
 
-/// Map a category tag to a display icon.
-fn category_icon(category: Option<&str>) -> &'static str {
-    match category {
-        Some("search") => "\u{1f50d}",  // 🔍
-        Some("code") => "\u{1f4bb}",    // 💻
-        Some("http") => "\u{1f310}",    // 🌐
-        Some("memory") => "\u{1f4c1}",  // 📁
-        Some("schedule") => "\u{23f0}", // ⏰
-        _ => "\u{2699}\u{fe0f}",        // ⚙️
+/// Accumulated token usage and cost across all LLM calls in a single turn.
+#[derive(Default)]
+struct TurnUsage {
+    total_input_tokens: u32,
+    total_output_tokens: u32,
+    total_reasoning_tokens: u32,
+    total_cache_read_tokens: u32,
+    total_cache_creation_tokens: u32,
+    total_cost_usd: f64,
+    call_count: u32,
+    last_model: String,
+}
+
+impl TurnUsage {
+    fn accumulate(
+        &mut self,
+        input_tokens: u32,
+        output_tokens: u32,
+        reasoning_tokens: Option<u32>,
+        cache_read_tokens: Option<u32>,
+        cache_creation_tokens: Option<u32>,
+        cost_usd: Option<f64>,
+        model: String,
+    ) {
+        self.total_input_tokens += input_tokens;
+        self.total_output_tokens += output_tokens;
+        self.total_reasoning_tokens += reasoning_tokens.unwrap_or(0);
+        self.total_cache_read_tokens += cache_read_tokens.unwrap_or(0);
+        self.total_cache_creation_tokens += cache_creation_tokens.unwrap_or(0);
+        self.total_cost_usd += cost_usd.unwrap_or(0.0);
+        self.call_count += 1;
+        self.last_model = model;
+    }
+
+    /// Take the accumulated usage if any calls were recorded, resetting to default.
+    fn take(&mut self) -> Option<TurnUsage> {
+        if self.call_count == 0 {
+            return None;
+        }
+        Some(std::mem::take(self))
     }
 }
 
@@ -301,25 +332,6 @@ fn history_path() -> PathBuf {
     dir.join("history")
 }
 
-/// Print the agent turn separator with an optional display name.
-///
-/// UI-1: routed through `MultiProgress` so it serialises with spinner redraws.
-/// UI-4: adapts to the actual terminal width instead of a hardcoded 40-char
-/// bar. Reads the shared width atom so it reflows after terminal resize.
-fn print_agent_header(name: &str, multi: &MultiProgress, term_width: &AtomicU16) {
-    let label = if name.is_empty() { "Agent" } else { name };
-    let width = term_width.load(Ordering::Relaxed) as usize;
-    // 4 leading dashes + 2 spaces around the label
-    let bar_len = width.saturating_sub(label.len() + 6);
-    let bar = "\u{2500}".repeat(bar_len);
-    multi
-        .println(format!(
-            "\n{}",
-            format!("\u{2500}\u{2500}\u{2500}\u{2500} {label} {bar}").dimmed()
-        ))
-        .ok();
-}
-
 /// Format token counts compactly: `1.2k` for ≥1000, else the raw number.
 fn fmt_tokens(n: u32) -> String {
     if n >= 1000 {
@@ -488,6 +500,11 @@ pub async fn run(
     ));
     let term_width_ws = term_width.clone();
 
+    // Detect terminal capabilities once at startup. Sets colored::control override
+    // and is threaded into the renderer.
+    let term_caps = crate::term_caps::TermCaps::detect();
+    let color_ws = term_caps.color;
+
     // SIGWINCH handler: update the shared width atom whenever the terminal is
     // resized. This runs only when reedline is NOT reading (output phase), so
     // there is no conflict with reedline's own resize handling during input.
@@ -531,18 +548,8 @@ pub async fn run(
     // Activity signals — sent on every WS message to reset the idle timeout
     let (activity_tx, mut activity_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
-    // Shared last usage (overwritten by each Usage chunk; read after Done)
-    // (input, output, reasoning, model, cache_read, cache_creation, cost_usd)
-    type UsageInfo = Option<(
-        u32,
-        u32,
-        Option<u32>,
-        String,
-        Option<u32>,
-        Option<u32>,
-        Option<f64>,
-    )>;
-    let last_usage: Arc<Mutex<UsageInfo>> = Arc::new(Mutex::new(None));
+    // Accumulated token usage for the current turn (reset after each Done).
+    let last_usage: Arc<Mutex<TurnUsage>> = Arc::new(Mutex::new(TurnUsage::default()));
     let last_usage_ws = last_usage.clone();
 
     // Think toggle: when true, ThinkingDelta content is shown
@@ -551,36 +558,28 @@ pub async fn run(
 
     let disconnect_notify_ws = disconnect_notify.clone();
     let mut ws_task = tokio::spawn(async move {
-        let multi = multi_clone;
-        let spinner_style = ProgressStyle::with_template("{spinner:.cyan} {msg}")
-            .unwrap_or_else(|_| indicatif::ProgressStyle::default_spinner())
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
-
-        let mut renderer = crate::markdown::MarkdownRenderer::new(term_width_ws.clone());
+        let mut renderer = crate::chat_renderer::ChatRenderer::new(
+            multi_clone,
+            term_width_ws,
+            color_ws,
+            think_enabled_ws,
+        );
         let mut current_ws_read = ws_read;
 
         'reconnect: loop {
-            let mut streaming = false;
-            let mut streamed_this_turn = false;
-            let mut thinking_shown = false;
-            let mut active_tools: HashMap<String, (String, Option<String>, Instant, ProgressBar)> =
-                HashMap::new();
-            // Current agent name (updated on AgentSwitch)
-            let mut current_agent = String::new();
+            renderer.reset_turn();
             // Guard against duplicate Done signals in the same turn
             let mut turn_done_sent = false;
-            // Accumulate response text for /save and /history
-            let mut current_response = String::new();
+            // Track if any Delta was received (to skip on_final when streaming)
+            let mut streamed_this_turn = false;
 
             loop {
-                // Check for timeout flag before each message
-                // Use Acquire ordering to ensure visibility of the store in the main task
+                // Check for timeout flag before each message.
+                // Use Acquire ordering to ensure visibility of the store in the main task.
                 if ws_timeout_task.load(Ordering::Acquire) {
-                    // Timeout occurred: clear spinners and exit inner loop
-                    // The task will wait on reconnect_ws_rx for a new connection
-                    for (_, (_, _, _, pb)) in active_tools.drain() {
-                        pb.finish_and_clear();
-                    }
+                    // Timeout occurred: clear spinners and exit inner loop.
+                    // The task will wait on reconnect_ws_rx for a new connection.
+                    renderer.drain_tools_on_timeout();
                     break;
                 }
 
@@ -599,47 +598,23 @@ pub async fn run(
                                 display_name,
                                 ..
                             }) => {
-                                current_agent = display_name;
+                                renderer.on_agent_switch(display_name);
                             }
                             WsMessage::Stream(StreamChunkKind::PrinciplesUsed { count }) => {
-                                // UI-1: route through multi so output serialises with spinners
-                                multi
-                                    .println(format!(
-                                        "  {}",
-                                        format!(
-                                            "\u{1f9e0} {count} principle{} applied",
-                                            if count == 1 { "" } else { "s" }
-                                        )
-                                        .dimmed()
-                                    ))
-                                    .ok();
+                                renderer.on_principles_used(count);
                             }
                             WsMessage::Stream(StreamChunkKind::ContextInfo {
                                 history_tokens,
                                 context_window,
                                 messages_truncated,
-                                ..
+                                summary_generated,
                             }) => {
-                                let pct =
-                                    u64::from(history_tokens) * 100 / u64::from(context_window.max(1));
-                                let msg = format!(
-                                    "\u{26a0} Context: {pct}% | {messages_truncated} message{} removed",
-                                    if messages_truncated == 1 { "" } else { "s" }
+                                renderer.on_context_info(
+                                    history_tokens,
+                                    context_window,
+                                    messages_truncated,
+                                    summary_generated,
                                 );
-                                // UI-1: route through multi
-                                if pct >= 85 {
-                                    multi.println(format!("  {}", msg.red())).ok();
-                                    multi
-                                        .println(format!(
-                                            "  {}",
-                                            "Tip: use /reset to start a fresh context."
-                                                .red()
-                                                .dimmed()
-                                        ))
-                                        .ok();
-                                } else {
-                                    multi.println(format!("  {}", msg.yellow())).ok();
-                                }
                             }
                             WsMessage::Stream(StreamChunkKind::Usage {
                                 input_tokens,
@@ -651,54 +626,24 @@ pub async fn run(
                                 model,
                             }) => {
                                 if let Ok(mut guard) = last_usage_ws.lock() {
-                                    *guard = Some((
+                                    guard.accumulate(
                                         input_tokens,
                                         output_tokens,
                                         reasoning_tokens,
-                                        model,
                                         cache_read_tokens,
                                         cache_creation_tokens,
                                         cost_usd,
-                                    ));
+                                        model,
+                                    );
                                 }
                             }
                             WsMessage::Stream(StreamChunkKind::ThinkingDelta(delta)) => {
-                                if think_enabled_ws.load(Ordering::Relaxed) {
-                                    if !thinking_shown {
-                                        // UI-1: route through multi
-                                        multi
-                                            .println(format!("  {}", "\u{25cc} thinking".dimmed()))
-                                            .ok();
-                                        thinking_shown = true;
-                                    }
-                                    // Print thinking content indented and dimmed
-                                    for line in delta.lines() {
-                                        multi
-                                            .println(format!(
-                                                "  {} {}",
-                                                "\u{2502}".dimmed(),
-                                                line.dimmed()
-                                            ))
-                                            .ok();
-                                    }
-                                } else if !thinking_shown {
-                                    // UI-1: route through multi
-                                    multi
-                                        .println(format!("  {}", "\u{25cc} thinking...".dimmed()))
-                                        .ok();
-                                    thinking_shown = true;
-                                }
+                                renderer.on_thinking_delta(&delta);
                             }
                             WsMessage::Stream(StreamChunkKind::Delta(data)) => {
-                                if !streaming {
-                                    print_agent_header(&current_agent, &multi, &term_width_ws);
-                                    streaming = true;
-                                    thinking_shown = false;
-                                }
                                 streamed_this_turn = true;
                                 turn_done_sent = false; // new turn is streaming
-                                current_response.push_str(&data);
-                                renderer.push_delta(&data);
+                                renderer.on_delta(&data);
                             }
                             WsMessage::Stream(StreamChunkKind::ToolExecStart {
                                 name,
@@ -706,16 +651,7 @@ pub async fn run(
                                 input_summary,
                                 category,
                             }) => {
-                                let icon = category_icon(category.as_deref());
-                                let label = match &input_summary {
-                                    Some(s) => format!("{icon} {name}: {s}"),
-                                    None => format!("{icon} {name}..."),
-                                };
-                                let pb = multi.add(ProgressBar::new_spinner());
-                                pb.set_style(spinner_style.clone());
-                                pb.set_message(label);
-                                pb.enable_steady_tick(Duration::from_millis(80));
-                                active_tools.insert(id, (name, category, Instant::now(), pb));
+                                renderer.on_tool_exec_start(name, id, input_summary, category);
                             }
                             WsMessage::Stream(StreamChunkKind::ToolExecEnd {
                                 id,
@@ -724,70 +660,16 @@ pub async fn run(
                                 error,
                                 result_summary,
                             }) => {
-                                let dur = crate::util::format_duration_ms(duration_ms);
-                                if let Some((name, category, _, pb)) = active_tools.remove(&id) {
-                                    let icon = category_icon(category.as_deref());
-                                    if success {
-                                        let suffix = result_summary
-                                            .map(|s| format!(" \u{2014} {s}"))
-                                            .unwrap_or_default();
-                                        pb.finish_with_message(format!(
-                                            "{} {icon} {name} done ({dur}){suffix}",
-                                            "\u{2713}".green()
-                                        ));
-                                    } else {
-                                        let suffix = error
-                                            .or(result_summary)
-                                            .map(|s| format!(" \u{2014} {s}"))
-                                            .unwrap_or_default();
-                                        pb.finish_with_message(format!(
-                                            "{} {icon} {name} failed ({dur}){suffix}",
-                                            "\u{2717}".red()
-                                        ));
-                                    }
-                                } else {
-                                    let label = id;
-                                    if success {
-                                        multi
-                                            .println(format!(
-                                                "  {} {label} done ({dur})",
-                                                "\u{2713}".green()
-                                            ))
-                                            .ok();
-                                    } else {
-                                        multi
-                                            .println(format!(
-                                                "  {} {label} failed ({dur})",
-                                                "\u{2717}".red()
-                                            ))
-                                            .ok();
-                                    }
-                                }
+                                renderer.on_tool_exec_end(
+                                    id,
+                                    success,
+                                    duration_ms,
+                                    error,
+                                    result_summary,
+                                );
                             }
                             WsMessage::Stream(StreamChunkKind::Done) => {
-                                // UI-3: drain orphaned tool spinners with a full line each
-                                // (original used print! without flush, risking glued output).
-                                // UI-1: route through multi to serialise with progress bars.
-                                let had_tools = !active_tools.is_empty();
-                                for (_, (name, _cat, _, pb)) in active_tools.drain() {
-                                    pb.finish_and_clear();
-                                    multi.println(format!("[tool: {name}]")).ok();
-                                }
-                                if streaming {
-                                    if !renderer.flush() {
-                                        // UI-1: trailing newline through multi
-                                        multi.println("").ok();
-                                    }
-                                } else if !had_tools {
-                                    // UI-19: truly empty response (no deltas, no tools) —
-                                    // show a placeholder so the user isn't left confused
-                                    multi
-                                        .println(format!("  {}", "(empty response)".dimmed()))
-                                        .ok();
-                                }
-                                renderer.reset();
-                                streaming = false;
-                                thinking_shown = false;
+                                let response = renderer.on_done();
                                 // CRITICAL: Check timeout flag before sending signals.
                                 // The main task may have already drained the channels during
                                 // timeout handling; sending now would create spurious signals
@@ -795,21 +677,35 @@ pub async fn run(
                                 if !turn_done_sent && !ws_timeout_task.load(Ordering::Acquire) {
                                     // Send response before done so try_recv() in the REPL
                                     // always finds the response after receiving the done signal.
-                                    let _ = response_tx.send(std::mem::take(&mut current_response));
+                                    let _ = response_tx.send(response);
                                     let _ = done_tx.send(());
                                     turn_done_sent = true;
                                 }
                             }
-                            WsMessage::Final(content) => {
+                            WsMessage::Final(content, stop_reason) => {
+                                // Show stop-reason warning before rendering content.
+                                // Emitted even when content was already streamed via deltas.
+                                if let Some(reason) = stop_reason {
+                                    use orka_core::stream::AgentStopReason;
+                                    let warning = match reason {
+                                        AgentStopReason::MaxTurns => {
+                                            "⚠ Response may be incomplete (agent reached maximum turns)"
+                                        }
+                                        AgentStopReason::MaxTokens => {
+                                            "⚠ Response was truncated by the output token limit"
+                                        }
+                                        _ => "",
+                                    };
+                                    if !warning.is_empty() {
+                                        renderer.warn(format!("  {}", warning.yellow()));
+                                    }
+                                }
                                 if streamed_this_turn {
                                     streamed_this_turn = false;
-                                    continue;
+                                    // Content already rendered via Delta chunks; skip on_final.
+                                } else {
+                                    renderer.on_final(&content);
                                 }
-                                print_agent_header(&current_agent, &multi, &term_width_ws);
-                                renderer.render_full(&content);
-                                // UI-1: trailing newline through multi
-                                multi.println("").ok();
-                                thinking_shown = false;
                                 // CRITICAL: Check timeout flag before sending signals.
                                 // Prevents race condition with main task's channel drain.
                                 if !turn_done_sent && !ws_timeout_task.load(Ordering::Acquire) {
@@ -825,25 +721,19 @@ pub async fn run(
                                 data_base64,
                                 caption,
                             } => {
-                                crate::media::render_media(
-                                    &mime_type,
-                                    &data_base64,
-                                    caption.as_deref(),
-                                    Some(&multi),
-                                );
+                                renderer.on_media(&mime_type, &data_base64, caption.as_deref());
                             }
                             WsMessage::Stream(
                                 StreamChunkKind::ToolStart { .. }
-                                | StreamChunkKind::ToolEnd { .. }
-                                | _,
+                                | StreamChunkKind::ToolEnd { .. },
                             ) => {
-                                // Internal LLM events and unknown stream chunk kinds — silent
+                                // Internal LLM tool-block bookkeeping events — no UI action
+                            }
+                            WsMessage::Stream(unknown) => {
+                                tracing::debug!(?unknown, "unhandled stream chunk kind");
                             }
                             WsMessage::Unknown(raw) => {
-                                // UI-1: route through multi
-                                multi.println(format!("\n{raw}")).ok();
-                                // Intentionally no done_tx.send() — Unknown
-                                // events are not turn completions
+                                renderer.on_unknown(&raw);
                             }
                         }
                     }
@@ -871,7 +761,7 @@ pub async fn run(
                     ws_alive_task.store(true, Ordering::Release);
                     // Reset the timeout flag for the new connection
                     ws_timeout_task.store(false, Ordering::Release);
-                    renderer.reset();
+                    renderer.reset_turn();
                     // per-connection state is reset at the top of 'reconnect
                 }
                 None => break 'reconnect,
@@ -1335,89 +1225,98 @@ pub async fn run(
                         loop {
                             tokio::select! {
                                 result = done_rx.recv() => {
-                                    match result {
-                                        None => {
-                                            eprintln!("{}", "Connection lost.".red());
-                                            break_repl = true;
-                                            break;
+                                    if result.is_none() {
+                                        eprintln!("{}", "Connection lost.".red());
+                                        break_repl = true;
+                                        break;
+                                    } else {
+                                        let elapsed = start.elapsed().as_millis() as u64;
+                                        let response = response_rx.try_recv().unwrap_or_default();
+                                        last_response.clone_from(&response);
+                                        turn_history.push((user_input, response));
+
+                                        // Desktop notification for long responses
+                                        if elapsed >= 5000
+                                            && std::env::var_os("ORKA_NO_NOTIFY").is_none()
+                                        {
+                                            let elapsed_s = elapsed as f64 / 1000.0;
+                                            let _ = notify_rust::Notification::new()
+                                                .summary("Orka")
+                                                .body(&format!(
+                                                    "Response complete ({elapsed_s:.1}s)"
+                                                ))
+                                                .show();
                                         }
-                                        Some(()) => {
-                                            let elapsed = start.elapsed().as_millis() as u64;
-                                            let response = response_rx.try_recv().unwrap_or_default();
-                                            last_response = response.clone();
-                                            turn_history.push((user_input, response));
 
-                                            // Desktop notification for long responses
-                                            if elapsed >= 5000
-                                                && std::env::var_os("ORKA_NO_NOTIFY").is_none()
-                                            {
-                                                let elapsed_s = elapsed as f64 / 1000.0;
-                                                let _ = notify_rust::Notification::new()
-                                                    .summary("Orka")
-                                                    .body(&format!(
-                                                        "Response complete ({elapsed_s:.1}s)"
-                                                    ))
-                                                    .show();
-                                            }
-
-                                            // Show elapsed + usage if available
-                                            let usage_part = if let Ok(mut guard) = last_usage.lock()
-                                                && let Some((inp, out, reason, model, cache_read, cache_creation, cost_usd)) = guard.take()
-                                            {
-                                                let model_short = {
-                                                    let parts: Vec<&str> = model.split('-').collect();
-                                                    let non_date: Vec<&str> = parts
-                                                        .iter()
-                                                        .copied()
-                                                        .filter(|s| {
-                                                            !(s.len() == 8
-                                                                && s.chars().all(|c| c.is_ascii_digit()))
-                                                        })
-                                                        .collect();
-                                                    let joined = non_date.join("-");
-                                                    if joined.len() > 24 {
-                                                        format!("{}\u{2026}", &joined[..24])
-                                                    } else {
-                                                        joined
-                                                    }
-                                                };
-                                                let reason_part = reason
-                                                    .map(|r| format!(" {}\u{26a1}", fmt_tokens(r)))
-                                                    .unwrap_or_default();
-                                                let cache_total =
-                                                    match (cache_read, cache_creation) {
-                                                        (Some(r), Some(c)) => Some(r + c),
-                                                        (Some(r), None) => Some(r),
-                                                        (None, Some(c)) => Some(c),
-                                                        (None, None) => None,
-                                                    };
-                                                let cache_part = cache_total
-                                                    .map(|c| {
-                                                        format!(" \u{2502} cache: {}", fmt_tokens(c))
+                                        // Show elapsed + usage if available
+                                        let usage_part = if let Ok(mut guard) = last_usage.lock()
+                                            && let Some(usage) = guard.take()
+                                        {
+                                            let model = &usage.last_model;
+                                            let model_short = {
+                                                let parts: Vec<&str> = model.split('-').collect();
+                                                let non_date: Vec<&str> = parts
+                                                    .iter()
+                                                    .copied()
+                                                    .filter(|s: &&str| {
+                                                        !(s.len() == 8
+                                                            && s.chars().all(|c| c.is_ascii_digit()))
                                                     })
-                                                    .unwrap_or_default();
-                                                let cost_part = cost_usd
-                                                    .map(|c| format!(" \u{2502} ${c:.4}"))
-                                                    .unwrap_or_default();
+                                                    .collect();
+                                                let joined = non_date.join("-");
+                                                if joined.len() > 24 {
+                                                    format!("{}\u{2026}", &joined[..24])
+                                                } else {
+                                                    joined
+                                                }
+                                            };
+                                            let reason_part =
+                                                if usage.total_reasoning_tokens > 0 {
+                                                    format!(
+                                                        " {}\u{26a1}",
+                                                        fmt_tokens(usage.total_reasoning_tokens)
+                                                    )
+                                                } else {
+                                                    String::new()
+                                                };
+                                            let cache_total = usage.total_cache_read_tokens
+                                                + usage.total_cache_creation_tokens;
+                                            let cache_part = if cache_total > 0 {
                                                 format!(
-                                                    " \u{2502} {model_short} \u{2502} {}\u{2193} {}\u{2191}{reason_part}{cache_part}{cost_part}",
-                                                    fmt_tokens(inp),
-                                                    fmt_tokens(out),
+                                                    " \u{2502} cache: {}",
+                                                    fmt_tokens(cache_total)
                                                 )
                                             } else {
                                                 String::new()
                                             };
-                                            println!(
-                                                "{}",
-                                                format!(
-                                                    "  \u{23f1} {}{}",
-                                                    crate::util::format_duration_ms(elapsed),
-                                                    usage_part
-                                                )
-                                                .dimmed()
-                                            );
-                                            break;
-                                        }
+                                            let cost_part = if usage.total_cost_usd > 0.0 {
+                                                format!(" \u{2502} ${:.4}", usage.total_cost_usd)
+                                            } else {
+                                                String::new()
+                                            };
+                                            let calls_part = if usage.call_count > 1 {
+                                                format!(" \u{2502} {} calls", usage.call_count)
+                                            } else {
+                                                String::new()
+                                            };
+                                            format!(
+                                                " \u{2502} {model_short} \u{2502} {}\u{2193} {}\u{2191}{reason_part}{cache_part}{cost_part}{calls_part}",
+                                                fmt_tokens(usage.total_input_tokens),
+                                                fmt_tokens(usage.total_output_tokens),
+                                            )
+                                        } else {
+                                            String::new()
+                                        };
+                                        println!(
+                                            "{}",
+                                            format!(
+                                                "  \u{23f1} {}{}",
+                                                crate::util::format_duration_ms(elapsed),
+                                                usage_part
+                                            )
+                                            .dimmed()
+                                        );
+                                        break;
                                     }
                                 }
                                 // Each incoming chunk resets the idle deadline
@@ -1532,21 +1431,6 @@ mod tests {
         assert_eq!(fmt_tokens(1000), "1.0k");
         assert_eq!(fmt_tokens(1500), "1.5k");
         assert_eq!(fmt_tokens(10000), "10.0k");
-    }
-
-    #[test]
-    fn category_icon_known_categories() {
-        assert_eq!(category_icon(Some("search")), "\u{1f50d}");
-        assert_eq!(category_icon(Some("code")), "\u{1f4bb}");
-        assert_eq!(category_icon(Some("http")), "\u{1f310}");
-        assert_eq!(category_icon(Some("memory")), "\u{1f4c1}");
-        assert_eq!(category_icon(Some("schedule")), "\u{23f0}");
-    }
-
-    #[test]
-    fn category_icon_unknown_returns_gear() {
-        assert_eq!(category_icon(None), "\u{2699}\u{fe0f}");
-        assert_eq!(category_icon(Some("other")), "\u{2699}\u{fe0f}");
     }
 
     #[test]
