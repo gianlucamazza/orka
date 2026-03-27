@@ -2,24 +2,21 @@ use std::path::Path;
 
 use orka_core::{
     config::OrkaConfig,
-    migrate::{self, CURRENT_CONFIG_VERSION},
+    migrate::{self, CURRENT_CONFIG_VERSION, MigrationResult},
 };
 
-/// `orka config check` — validate config and show version + warnings.
-#[allow(clippy::unused_async)]
-pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    let path = config_path.map(Path::new);
-    let resolved = OrkaConfig::resolve_path(path);
-
-    if !resolved.exists() {
-        return Err(format!("Config file not found: {}", resolved.display()).into());
-    }
-
-    let raw = std::fs::read_to_string(&resolved)?;
-    let (_, result) = migrate::migrate_if_needed(&raw)?;
-    let schema_issues = migrate::inspect_config_issues(&raw)?;
-
-    match &result {
+fn print_check_status(result: &Option<MigrationResult>) {
+    match result {
+        Some(res) if res.from_version == res.to_version => {
+            println!("Config version: {CURRENT_CONFIG_VERSION} (up to date)");
+            if !res.warnings.is_empty() {
+                println!("\nWarnings:");
+                for w in &res.warnings {
+                    println!("  - {w}");
+                }
+            }
+            println!("\nNormalization available for current schema");
+        }
         Some(res) => {
             println!(
                 "Config version: {} (current is {})",
@@ -40,6 +37,23 @@ pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::
             println!("Config version: {CURRENT_CONFIG_VERSION} (up to date)");
         }
     }
+}
+
+/// `orka config check` — validate config and show version + warnings.
+#[allow(clippy::unused_async)]
+pub async fn check(config_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let path = config_path.map(Path::new);
+    let resolved = OrkaConfig::resolve_path(path);
+
+    if !resolved.exists() {
+        return Err(format!("Config file not found: {}", resolved.display()).into());
+    }
+
+    let raw = std::fs::read_to_string(&resolved)?;
+    let (migrated, result) = migrate::migrate_if_needed(&raw)?;
+    let schema_issues = migrate::inspect_config_issues(&migrated)?;
+
+    print_check_status(&result);
 
     if !schema_issues.is_empty() {
         return Err(format!("Schema errors:\n  - {}", schema_issues.join("\n  - ")).into());
@@ -75,15 +89,20 @@ pub async fn migrate_cmd(
 
     match result {
         None => {
-            println!(
-                "Config is already at version {CURRENT_CONFIG_VERSION}. Nothing to do."
-            );
+            if !schema_issues.is_empty() {
+                return Err(format!("Schema errors:\n  - {}", schema_issues.join("\n  - ")).into());
+            }
+            println!("Config is already at version {CURRENT_CONFIG_VERSION}. Nothing to do.");
         }
         Some(res) => {
-            println!(
-                "Migrating config: v{} → v{}",
-                res.from_version, res.to_version
-            );
+            if res.from_version == res.to_version {
+                println!("Normalizing config for current schema (v{CURRENT_CONFIG_VERSION}).");
+            } else {
+                println!(
+                    "Migrating config: v{} → v{}",
+                    res.from_version, res.to_version
+                );
+            }
 
             if !res.warnings.is_empty() {
                 println!("\nWarnings:");

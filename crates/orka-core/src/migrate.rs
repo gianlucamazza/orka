@@ -82,31 +82,35 @@ pub fn migrate_if_needed(raw: &str) -> Result<(String, Option<MigrationResult>),
         });
     }
 
-    // Already current — nothing to do.
-    if from_version == CURRENT_CONFIG_VERSION {
-        return Ok((raw.to_owned(), None));
-    }
-
     let mut warnings = Vec::new();
 
-    // Apply each step sequentially.
-    for &(target, migrate_fn) in MIGRATIONS {
-        if target <= from_version {
-            continue;
+    if from_version < CURRENT_CONFIG_VERSION {
+        // Apply each step sequentially.
+        for &(target, migrate_fn) in MIGRATIONS {
+            if target <= from_version {
+                continue;
+            }
+            if target > CURRENT_CONFIG_VERSION {
+                break;
+            }
+            migrate_fn(&mut doc, &mut warnings);
         }
-        if target > CURRENT_CONFIG_VERSION {
-            break;
-        }
-        migrate_fn(&mut doc, &mut warnings);
+    }
+
+    normalize_current_schema(&mut doc, &mut warnings);
+
+    let migrated = doc.to_string();
+    if migrated == raw {
+        return Ok((raw.to_owned(), None));
     }
 
     let result = MigrationResult {
         from_version,
-        to_version: CURRENT_CONFIG_VERSION,
+        to_version: read_version(&doc),
         warnings,
     };
 
-    Ok((doc.to_string(), Some(result)))
+    Ok((migrated, Some(result)))
 }
 
 /// Inspect the config for schema drift that would otherwise be ignored
@@ -1043,6 +1047,29 @@ fn inspect_plugins_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
     );
 }
 
+fn normalize_current_schema(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    normalize_agents_keys(doc, warnings);
+}
+
+fn normalize_agents_keys(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
+    let Some(agents) = doc.get_mut("agents").and_then(Item::as_array_of_tables_mut) else {
+        return;
+    };
+
+    for (idx, table) in agents.iter_mut().enumerate() {
+        let legacy_label = format!("[[agents]][{idx}].max_iterations");
+        let current_label = format!("[[agents]][{idx}].max_turns");
+        rename_key(
+            table,
+            "max_iterations",
+            "max_turns",
+            &legacy_label,
+            &current_label,
+            warnings,
+        );
+    }
+}
+
 fn rename_key(
     table: &mut Table,
     legacy_key: &str,
@@ -1173,6 +1200,71 @@ host = "127.0.0.1"
         let (migrated, result) = ok(migrate_if_needed(raw));
         assert!(result.is_none());
         assert_eq!(migrated, raw);
+    }
+
+    #[test]
+    fn current_version_normalizes_legacy_agent_keys() {
+        let raw = r#"
+config_version = 6
+
+[[agents]]
+id = "orka-default"
+max_iterations = 25
+
+[graph]
+"#;
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have normalization result");
+        assert_eq!(result.from_version, 6);
+        assert_eq!(result.to_version, 6);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("[[agents]][0].max_iterations"))
+        );
+
+        let doc: DocumentMut = ok(migrated.parse());
+        let agents = doc
+            .get("agents")
+            .and_then(Item::as_array_of_tables)
+            .unwrap_or_else(|| panic!("[[agents]] missing"));
+        let agent = some(agents.iter().next(), "at least one agent");
+        assert_eq!(agent["max_turns"].as_integer(), Some(25));
+        assert!(agent.get("max_iterations").is_none());
+    }
+
+    #[test]
+    fn current_version_prefers_max_turns_over_legacy_max_iterations() {
+        let raw = r#"
+config_version = 6
+
+[[agents]]
+id = "orka-default"
+max_iterations = 25
+max_turns = 10
+
+[graph]
+"#;
+        let (migrated, result) = ok(migrate_if_needed(raw));
+        let result = some(result, "should have normalization result");
+        assert_eq!(result.from_version, 6);
+        assert_eq!(result.to_version, 6);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("max_turns is already set"))
+        );
+
+        let doc: DocumentMut = ok(migrated.parse());
+        let agents = doc
+            .get("agents")
+            .and_then(Item::as_array_of_tables)
+            .unwrap_or_else(|| panic!("[[agents]] missing"));
+        let agent = some(agents.iter().next(), "at least one agent");
+        assert_eq!(agent["max_turns"].as_integer(), Some(10));
+        assert!(agent.get("max_iterations").is_none());
     }
 
     #[test]
