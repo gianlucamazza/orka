@@ -187,24 +187,28 @@ fn resolve_env_slot(
         )
     };
 
-    inline.clone().filter(|k| !k.is_empty()).or_else(|| {
-        env_name.and_then(|env| {
+    inline
+        .clone()
+        .filter(|k| !k.is_empty())
+        .or_else(|| {
+            env_name.and_then(|env| {
+                env_vars
+                    .get(env)
+                    .filter(|k| !k.is_empty())
+                    .cloned()
+                    .or_else(|| std::env::var(env).ok().filter(|k| !k.is_empty()))
+            })
+        })
+        .or_else(|| {
+            if default_env.is_empty() {
+                return None;
+            }
             env_vars
-                .get(env)
+                .get(default_env)
                 .filter(|k| !k.is_empty())
                 .cloned()
-                .or_else(|| std::env::var(env).ok().filter(|k| !k.is_empty()))
+                .or_else(|| std::env::var(default_env).ok().filter(|k| !k.is_empty()))
         })
-    }).or_else(|| {
-        if default_env.is_empty() {
-            return None;
-        }
-        env_vars
-            .get(default_env)
-            .filter(|k| !k.is_empty())
-            .cloned()
-            .or_else(|| std::env::var(default_env).ok().filter(|k| !k.is_empty()))
-    })
 }
 
 async fn resolve_credential_from_env(
@@ -212,10 +216,7 @@ async fn resolve_credential_from_env(
     config: &LlmProviderConfig,
     secrets: &dyn SecretManager,
 ) -> Option<ResolvedEnvCredential> {
-    async fn secret_value(
-        secrets: &dyn SecretManager,
-        path: Option<&str>,
-    ) -> Option<String> {
+    async fn secret_value(secrets: &dyn SecretManager, path: Option<&str>) -> Option<String> {
         let path = path?;
         let secret = secrets.get_secret(path).await.ok()?;
         let value = secret.expose_str().unwrap_or("").to_string();
@@ -262,13 +263,12 @@ async fn resolve_credential_from_env(
                 value = secret_value(secrets, config.api_key_secret.as_deref()).await;
             }
             let value = value?;
-            let auth_kind = if config.provider == "anthropic"
-                && looks_like_anthropic_bearer_token(&value)
-            {
-                LlmAuthKind::AuthToken
-            } else {
-                LlmAuthKind::ApiKey
-            };
+            let auth_kind =
+                if config.provider == "anthropic" && looks_like_anthropic_bearer_token(&value) {
+                    LlmAuthKind::AuthToken
+                } else {
+                    LlmAuthKind::ApiKey
+                };
             Some(ResolvedEnvCredential { value, auth_kind })
         }
     }

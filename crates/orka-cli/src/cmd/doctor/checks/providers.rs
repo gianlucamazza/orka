@@ -123,7 +123,11 @@ fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<St
 
     let resolve_auth_token = || {
         // 1. Inline auth token
-        if provider.auth_token.as_deref().is_some_and(|k| !k.is_empty()) {
+        if provider
+            .auth_token
+            .as_deref()
+            .is_some_and(|k| !k.is_empty())
+        {
             return Some("inline (auth_token)".to_string());
         }
 
@@ -158,7 +162,7 @@ fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<St
     };
 
     let resolve_api_key = || {
-    // 1. Inline key
+        // 1. Inline key
         if provider.api_key.as_deref().is_some_and(|k| !k.is_empty()) {
             return Some("inline (api_key)".to_string());
         }

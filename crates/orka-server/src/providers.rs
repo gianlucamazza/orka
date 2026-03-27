@@ -124,8 +124,8 @@ pub(crate) async fn resolve_llm_credential(
 ) -> Option<ResolvedCredential> {
     match config.auth_kind {
         LlmAuthKind::ApiKey => {
-            let (value, source) = resolve_slot(provider, CredentialSlot::ApiKey, config, secrets)
-                .await?;
+            let (value, source) =
+                resolve_slot(provider, CredentialSlot::ApiKey, config, secrets).await?;
             if provider == "anthropic" && looks_like_anthropic_bearer_token(&value) {
                 warn!(
                     provider = config.name,
@@ -179,8 +179,8 @@ pub(crate) async fn resolve_llm_credential(
                 });
             }
 
-            let (value, source) = resolve_slot(provider, CredentialSlot::ApiKey, config, secrets)
-                .await?;
+            let (value, source) =
+                resolve_slot(provider, CredentialSlot::ApiKey, config, secrets).await?;
             let auth_kind = if provider == "anthropic" && looks_like_anthropic_bearer_token(&value)
             {
                 LlmAuthKind::AuthToken
@@ -223,7 +223,8 @@ fn build_anthropic_client(
         resolved.value,
         anthropic_auth_kind(&resolved),
         model,
-        provider.timeout_secs
+        provider
+            .timeout_secs
             .unwrap_or(orka_core::config::defaults::default_llm_timeout_secs()),
         provider
             .max_tokens
@@ -442,7 +443,10 @@ mod tests {
 
     #[test]
     fn default_auth_token_env_var_is_available_for_anthropic() {
-        assert_eq!(default_auth_token_env_var("anthropic"), "ANTHROPIC_AUTH_TOKEN");
+        assert_eq!(
+            default_auth_token_env_var("anthropic"),
+            "ANTHROPIC_AUTH_TOKEN"
+        );
         assert_eq!(default_auth_token_env_var("openai"), "");
     }
 }

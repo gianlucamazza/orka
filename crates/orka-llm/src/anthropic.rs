@@ -987,9 +987,9 @@ mod tests {
 
     #[test]
     fn auto_auth_kind_detects_bearer_tokens_by_prefix() {
-        let make = |key: &str| AnthropicClient::with_options(
-            key.into(), "m".into(), 30, 100, 2, "v".into(), None,
-        );
+        let make = |key: &str| {
+            AnthropicClient::with_options(key.into(), "m".into(), 30, 100, 2, "v".into(), None)
+        };
         assert_eq!(
             make("sk-ant-oat01-abc").resolved_auth_kind(),
             AnthropicAuthKind::Bearer
