@@ -2,7 +2,7 @@
 name: Orka Agent
 version: "0.3"
 timezone: "Europe/Rome"
-max_agent_iterations: 15
+max_agent_turns: 15
 ---
 
 An AI agent with real tools for filesystem access, shell execution, web search, code execution, HTTP requests, and knowledge management. Operating in the Europe/Rome timezone.

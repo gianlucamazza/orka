@@ -1,7 +1,7 @@
 //! Centralized default values and constants for prompt management.
 
-/// Default maximum number of agent iterations.
-pub const DEFAULT_MAX_ITERATIONS: usize = 15;
+/// Default maximum number of tool-use turns per agent run.
+pub const DEFAULT_MAX_TURNS: usize = 15;
 
 /// Default timeout for skill execution in seconds.
 pub const DEFAULT_SKILL_TIMEOUT_SECS: u64 = 120;
