@@ -22,10 +22,22 @@ struct AnthropicSseState {
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1/messages";
 
+/// Transport auth mode for the Anthropic client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnthropicAuthKind {
+    /// Infer transport from the token shape for backward compatibility.
+    Auto,
+    /// Send the credential as `x-api-key`.
+    ApiKey,
+    /// Send the credential as `Authorization: Bearer`.
+    Bearer,
+}
+
 /// Anthropic Messages API client with retry and streaming support.
 pub struct AnthropicClient {
     client: Client,
     api_key: String,
+    auth_kind: AnthropicAuthKind,
     model: String,
     max_tokens: u32,
     max_retries: u32,
@@ -64,6 +76,29 @@ impl AnthropicClient {
         api_version: String,
         base_url: Option<String>,
     ) -> Self {
+        Self::with_auth_options(
+            api_key,
+            AnthropicAuthKind::Auto,
+            model,
+            timeout_secs,
+            max_tokens,
+            max_retries,
+            api_version,
+            base_url,
+        )
+    }
+
+    /// Create a client with explicit auth mode.
+    pub fn with_auth_options(
+        api_key: String,
+        auth_kind: AnthropicAuthKind,
+        model: String,
+        timeout_secs: u64,
+        max_tokens: u32,
+        max_retries: u32,
+        api_version: String,
+        base_url: Option<String>,
+    ) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .build()
@@ -71,6 +106,7 @@ impl AnthropicClient {
         Self {
             client,
             api_key,
+            auth_kind,
             model,
             max_tokens,
             max_retries,
@@ -79,9 +115,17 @@ impl AnthropicClient {
         }
     }
 
-    /// Returns true if the key is an OAuth access token (requires `Authorization: Bearer`).
-    fn is_oauth_token(&self) -> bool {
+    /// Returns true if the key looks like an OAuth/setup-token credential.
+    fn looks_like_bearer_token(&self) -> bool {
         self.api_key.starts_with("sk-ant-oat")
+    }
+
+    fn resolved_auth_kind(&self) -> AnthropicAuthKind {
+        match self.auth_kind {
+            AnthropicAuthKind::Auto if self.looks_like_bearer_token() => AnthropicAuthKind::Bearer,
+            AnthropicAuthKind::Auto => AnthropicAuthKind::ApiKey,
+            explicit => explicit,
+        }
     }
 
     /// Send a request with retry logic for 429/5xx and transient errors.
@@ -93,7 +137,7 @@ impl AnthropicClient {
             30_000,
             || async {
                 let req = self.client.post(&self.base_url);
-                let req = if self.is_oauth_token() {
+                let req = if self.resolved_auth_kind() == AnthropicAuthKind::Bearer {
                     req.header("Authorization", format!("Bearer {}", self.api_key))
                 } else {
                     req.header("x-api-key", &self.api_key)
@@ -942,14 +986,41 @@ mod tests {
     }
 
     #[test]
-    fn oauth_token_detected_by_prefix() {
+    fn auto_auth_kind_detects_bearer_tokens_by_prefix() {
         let make = |key: &str| AnthropicClient::with_options(
             key.into(), "m".into(), 30, 100, 2, "v".into(), None,
         );
-        assert!(make("sk-ant-oat01-abc").is_oauth_token());
-        assert!(make("sk-ant-oatXX-abc").is_oauth_token());
-        assert!(!make("sk-ant-api03-abc").is_oauth_token());
-        assert!(!make("sk-ant-api01-abc").is_oauth_token());
+        assert_eq!(
+            make("sk-ant-oat01-abc").resolved_auth_kind(),
+            AnthropicAuthKind::Bearer
+        );
+        assert_eq!(
+            make("sk-ant-oatXX-abc").resolved_auth_kind(),
+            AnthropicAuthKind::Bearer
+        );
+        assert_eq!(
+            make("sk-ant-api03-abc").resolved_auth_kind(),
+            AnthropicAuthKind::ApiKey
+        );
+        assert_eq!(
+            make("sk-ant-api01-abc").resolved_auth_kind(),
+            AnthropicAuthKind::ApiKey
+        );
+    }
+
+    #[test]
+    fn explicit_auth_kind_overrides_token_shape() {
+        let client = AnthropicClient::with_auth_options(
+            "sk-ant-oat01-abc".into(),
+            AnthropicAuthKind::ApiKey,
+            "m".into(),
+            30,
+            100,
+            2,
+            "v".into(),
+            None,
+        );
+        assert_eq!(client.resolved_auth_kind(), AnthropicAuthKind::ApiKey);
     }
 
     #[test]

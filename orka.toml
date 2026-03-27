@@ -167,9 +167,12 @@ default_max_tokens = 8192
 [[llm.providers]]
 name = "anthropic"
 provider = "anthropic"
+# auth_kind = "api_key"          # "auto" | "api_key" | "auth_token" | "subscription" | "cli"
 model = "claude-sonnet-4-6"
 api_key_env = "ANTHROPIC_API_KEY"
 api_key_secret = "llm/anthropic"
+# auth_token_env = "ANTHROPIC_AUTH_TOKEN"
+# auth_token_secret = "llm/anthropic-subscription"
 timeout_secs = 300
 max_retries = 3
 # cost_per_1k_input_tokens = 0.003    # Sonnet 4.6

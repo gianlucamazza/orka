@@ -104,10 +104,11 @@ impl DoctorCheck for PrvApiKeysResolvable {
 
     fn explain(&self) -> &'static str {
         "Orka resolves API keys in this order: \
-         1) inline api_key in config (not recommended), \
-         2) api_key_env — an environment variable name specified in config, \
-         3) the provider's default environment variable (ANTHROPIC_API_KEY, OPENAI_API_KEY), \
-         4) api_key_secret — a path in the Redis secret store. \
+         1) explicit auth_token/auth_token_env/default auth-token env when auth_kind requires bearer auth, \
+         2) inline api_key in config (not recommended), \
+         3) api_key_env — an environment variable name specified in config, \
+         4) the provider's default environment variable (ANTHROPIC_API_KEY, OPENAI_API_KEY), \
+         5) api_key_secret or auth_token_secret — a path in the secret store. \
          This check verifies that at least one source resolves for each provider \
          without revealing the actual key value."
     }
@@ -116,44 +117,95 @@ impl DoctorCheck for PrvApiKeysResolvable {
 /// Resolve where a provider's API key comes from. Returns None if no source is
 /// configured.
 fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<String> {
-    // 1. Inline key
-    if provider.api_key.as_deref().is_some_and(|k| !k.is_empty()) {
-        return Some("inline (api_key)".to_string());
-    }
+    use orka_core::config::LlmAuthKind;
 
-    // 2. Explicit env var
-    if let Some(env_name) = &provider.api_key_env
-        && std::env::var(env_name).is_ok()
-    {
-        return Some(format!("env:{env_name}"));
-    }
+    let auth_kind = provider.auth_kind;
 
-    // 3. Default env var by provider type
-    let default_env = match provider.provider.as_str() {
-        "anthropic" => Some("ANTHROPIC_API_KEY"),
-        "openai" => Some("OPENAI_API_KEY"),
-        "groq" => Some("GROQ_API_KEY"),
-        "mistral" => Some("MISTRAL_API_KEY"),
-        "together" => Some("TOGETHER_API_KEY"),
-        _ => None,
+    let resolve_auth_token = || {
+        // 1. Inline auth token
+        if provider.auth_token.as_deref().is_some_and(|k| !k.is_empty()) {
+            return Some("inline (auth_token)".to_string());
+        }
+
+        // 2. Explicit auth-token env var
+        if let Some(env_name) = &provider.auth_token_env
+            && std::env::var(env_name).is_ok()
+        {
+            return Some(format!("env:{env_name} (auth_token)"));
+        }
+
+        // 3. Default auth-token env var by provider type
+        let default_env = match provider.provider.as_str() {
+            "anthropic" => Some("ANTHROPIC_AUTH_TOKEN"),
+            _ => None,
+        };
+        if let Some(env_name) = default_env
+            && std::env::var(env_name).is_ok()
+        {
+            return Some(format!("env:{env_name} (default auth_token)"));
+        }
+
+        // 4. Secret store path configured
+        if provider
+            .auth_token_secret
+            .as_deref()
+            .is_some_and(|s| !s.is_empty())
+        {
+            return Some("secret store (auth_token)".to_string());
+        }
+
+        None
     };
-    if let Some(env_name) = default_env
-        && std::env::var(env_name).is_ok()
-    {
-        return Some(format!("env:{env_name} (default)"));
-    }
 
-    // 4. Secret store path configured (we can't resolve it without Redis
-    //    connection)
-    if provider
-        .api_key_secret
-        .as_deref()
-        .is_some_and(|s| !s.is_empty())
-    {
-        return Some("secret store (requires Redis)".to_string());
-    }
+    let resolve_api_key = || {
+    // 1. Inline key
+        if provider.api_key.as_deref().is_some_and(|k| !k.is_empty()) {
+            return Some("inline (api_key)".to_string());
+        }
 
-    None
+        // 2. Explicit env var
+        if let Some(env_name) = &provider.api_key_env
+            && std::env::var(env_name).is_ok()
+        {
+            return Some(format!("env:{env_name}"));
+        }
+
+        // 3. Default env var by provider type
+        let default_env = match provider.provider.as_str() {
+            "anthropic" => Some("ANTHROPIC_API_KEY"),
+            "openai" => Some("OPENAI_API_KEY"),
+            "groq" => Some("GROQ_API_KEY"),
+            "mistral" => Some("MISTRAL_API_KEY"),
+            "together" => Some("TOGETHER_API_KEY"),
+            _ => None,
+        };
+        if let Some(env_name) = default_env
+            && std::env::var(env_name).is_ok()
+        {
+            return Some(format!("env:{env_name} (default)"));
+        }
+
+        // 4. Secret store path configured (we can't resolve it without Redis
+        //    connection)
+        if provider
+            .api_key_secret
+            .as_deref()
+            .is_some_and(|s| !s.is_empty())
+        {
+            return Some("secret store (requires Redis)".to_string());
+        }
+
+        None
+    };
+
+    match auth_kind {
+        LlmAuthKind::ApiKey => resolve_api_key(),
+        LlmAuthKind::AuthToken | LlmAuthKind::Subscription => {
+            resolve_auth_token().or_else(resolve_api_key)
+        }
+        LlmAuthKind::Cli => Some("cli backend (no HTTP credential)".to_string()),
+        LlmAuthKind::Auto => resolve_auth_token().or_else(resolve_api_key),
+    }
 }
 
 #[async_trait]

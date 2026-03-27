@@ -4,6 +4,26 @@ use serde::Deserialize;
 
 use crate::config::defaults;
 
+/// Authentication mode for an LLM provider.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum LlmAuthKind {
+    /// Backward-compatible mode: infer the auth transport from explicit auth
+    /// settings first, then fall back to legacy token-shape detection.
+    #[default]
+    Auto,
+    /// Use API key semantics (for example `X-Api-Key` for Anthropic).
+    ApiKey,
+    /// Use bearer-token semantics (`Authorization: Bearer ...`).
+    AuthToken,
+    /// Subscription / setup-token style auth. Runtime maps this to the
+    /// provider's bearer-compatible code paths.
+    Subscription,
+    /// Delegate to a CLI-backed provider instead of direct HTTP.
+    Cli,
+}
+
 /// LLM provider configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
@@ -75,6 +95,9 @@ pub struct LlmProviderConfig {
     pub name: String,
     /// Provider type.
     pub provider: String,
+    /// Authentication mode for this provider.
+    #[serde(default)]
+    pub auth_kind: LlmAuthKind,
     /// Base URL for the API.
     pub base_url: Option<String>,
     /// Default model for this provider.
@@ -85,6 +108,12 @@ pub struct LlmProviderConfig {
     pub api_key_env: Option<String>,
     /// Secret store path for the API key.
     pub api_key_secret: Option<String>,
+    /// Bearer/auth token.
+    pub auth_token: Option<String>,
+    /// Environment variable containing the bearer/auth token.
+    pub auth_token_env: Option<String>,
+    /// Secret store path for the bearer/auth token.
+    pub auth_token_secret: Option<String>,
     /// Temperature for generation.
     pub temperature: Option<f32>,
     /// Maximum tokens to generate.
@@ -105,12 +134,19 @@ impl std::fmt::Debug for LlmProviderConfig {
         f.debug_struct("LlmProviderConfig")
             .field("name", &self.name)
             .field("provider", &self.provider)
+            .field("auth_kind", &self.auth_kind)
             .field("api_key", &self.api_key.as_ref().map(|_| "***"))
             .field(
                 "api_key_secret",
                 &self.api_key_secret.as_ref().map(|_| "***"),
             )
             .field("api_key_env", &self.api_key_env)
+            .field("auth_token", &self.auth_token.as_ref().map(|_| "***"))
+            .field(
+                "auth_token_secret",
+                &self.auth_token_secret.as_ref().map(|_| "***"),
+            )
+            .field("auth_token_env", &self.auth_token_env)
             .field("model", &self.model)
             .field("temperature", &self.temperature)
             .field("max_tokens", &self.max_tokens)
