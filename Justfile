@@ -11,6 +11,18 @@ check:
 test:
     cargo test --workspace
 
+# Run integration tests (requires Redis + Qdrant)
+test-ignored:
+    cargo test --workspace -- --ignored
+
+# Run doc tests only
+test-doc:
+    cargo test --workspace --doc
+
+# Run tests with all features enabled
+test-all-features:
+    cargo test --workspace --all-features
+
 # Run clippy lints
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
@@ -57,6 +69,18 @@ docker-build:
 # Clean build artifacts
 clean:
     cargo clean
+
+# Security audit for known vulnerabilities
+audit:
+    cargo audit
+
+# Check licenses, advisories, and banned crates
+deny:
+    cargo deny check
+
+# Generate HTML coverage report (requires cargo-llvm-cov)
+coverage:
+    cargo llvm-cov --workspace --html --open
 
 # Run a specific crate's tests
 test-crate crate:

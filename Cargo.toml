@@ -151,6 +151,7 @@ dotenvy = "0.15"
 
 # Concurrency
 arc-swap = "1"
+dashmap = "6"
 
 # Filesystem
 notify = { version = "7", default-features = false, features = [
@@ -323,6 +324,10 @@ libc = "0.2"
 [profile.dev]
 split-debuginfo = "unpacked"
 debug = "line-tables-only"
+
+[profile.test]
+inherits = "dev"
+opt-level = 1
 
 [profile.release]
 opt-level = 3
