@@ -58,6 +58,37 @@ run-debug:
 build-release:
     cargo build --workspace --release
 
+# Cross-compile for ARM (requires: cargo install cross)
+build-arm:
+    cross build --target aarch64-unknown-linux-gnu --release \
+        --bin orka-server --bin orka \
+        --no-default-features \
+        -F telegram,discord,slack,whatsapp,wasm
+
+# Build ARM image and push to homelab registry (run `just build-arm` first)
+# Usage: just push-homelab          → tag latest
+#        just push-homelab v1.2.3   → tag v1.2.3 + latest
+push-homelab tag="latest":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    REGISTRY="registry.home.gianlucamazza.it/gmazza/orka"
+    BIN="target/aarch64-unknown-linux-gnu/release/orka-server"
+    if [ ! -f "$BIN" ]; then
+        echo "ERROR: $BIN not found. Run 'just build-arm' first." >&2
+        exit 1
+    fi
+    docker buildx build \
+        --platform linux/arm64 \
+        -f Dockerfile.release \
+        --build-context binaries="$(dirname "$BIN")" \
+        --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+        --build-arg VCS_REF="$(git rev-parse --short HEAD)" \
+        --build-arg VERSION="{{tag}}" \
+        -t "${REGISTRY}:{{tag}}" \
+        -t "${REGISTRY}:latest" \
+        --push .
+    echo "Pushed ${REGISTRY}:{{tag}}"
+
 # Build Docker image with OCI labels
 docker-build:
     docker build \
