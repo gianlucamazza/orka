@@ -198,7 +198,7 @@ pub fn explain_check(meta: &CheckMeta, explanation: &str) {
     println!("{explanation}");
 }
 
-/// Build the DoctorReport summary from results.
+/// Build the [`DoctorReport`] summary from results.
 pub fn build_report(results: Vec<(CheckMeta, CheckOutcome)>) -> DoctorReport {
     let total = results.len();
     let passed = results

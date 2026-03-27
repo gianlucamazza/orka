@@ -79,15 +79,15 @@ pub async fn run(args: InitArgs) -> Result<()> {
     let secrets = create_file_secret_manager(&secrets_path)?;
 
     // Store bootstrap API key in the secret store (if provided).
-    if let Some(key_path) = &provider_info.api_key_secret {
-        if let Some(key_val) = args.api_key.as_deref() {
-            secrets
-                .set_secret(
-                    key_path,
-                    &orka_core::SecretValue::new(key_val.as_bytes().to_vec()),
-                )
-                .await?;
-        }
+    if let Some(key_path) = &provider_info.api_key_secret
+        && let Some(key_val) = args.api_key.as_deref()
+    {
+        secrets
+            .set_secret(
+                key_path,
+                &orka_core::SecretValue::new(key_val.as_bytes().to_vec()),
+            )
+            .await?;
     }
 
     let mut session = OnboardSession::new(client, secrets, provider_info);
@@ -101,10 +101,10 @@ pub async fn run(args: InitArgs) -> Result<()> {
     let toml = session.run(&mut io).await?;
 
     // Write the generated config.
-    if let Some(parent) = output_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = output_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&output_path, &toml)?;
 
@@ -149,7 +149,6 @@ const PROVIDERS: &[&str] = &[
 fn default_model(provider_key: &str) -> &'static str {
     match provider_key {
         "anthropic" => "claude-sonnet-4-6",
-        "openai" => "gpt-4o",
         "google" => "gemini-2.0-flash",
         "ollama" => "llama3",
         _ => "gpt-4o",

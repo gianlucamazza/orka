@@ -40,8 +40,7 @@ impl DoctorCheck for CfgFileExists {
                     description: format!("Generate a minimal orka.toml at {path}"),
                     apply: Box::new(move || {
                         let minimal = format!(
-                            "# Orka configuration (auto-generated)\nconfig_version = {}\n\n[[agents]]\nid = \"default\"\n",
-                            CURRENT_CONFIG_VERSION
+                            "# Orka configuration (auto-generated)\nconfig_version = {CURRENT_CONFIG_VERSION}\n\n[[agents]]\nid = \"default\"\n"
                         );
                         std::fs::write(&path, minimal)?;
                         Ok(format!("Created {path}"))
@@ -72,9 +71,8 @@ impl DoctorCheck for CfgTomlParses {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let raw = match &ctx.config_raw {
-            Some(r) => r,
-            None => return CheckOutcome::skip("config file not readable"),
+        let Some(raw) = &ctx.config_raw else {
+            return CheckOutcome::skip("config file not readable");
         };
         match toml::from_str::<toml::Value>(raw) {
             Ok(_) => CheckOutcome::pass("syntax OK"),
@@ -97,9 +95,8 @@ impl DoctorCheck for CfgVersionCurrent {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let raw = match &ctx.config_raw {
-            Some(r) => r,
-            None => return CheckOutcome::skip("config file not readable"),
+        let Some(raw) = &ctx.config_raw else {
+            return CheckOutcome::skip("config file not readable");
         };
         match migrate::migrate_if_needed(raw) {
             Err(e) => CheckOutcome::fail(format!("migration check failed: {e}")),
@@ -177,9 +174,8 @@ impl DoctorCheck for CfgNoDeprecated {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let raw = match &ctx.config_raw {
-            Some(r) => r,
-            None => return CheckOutcome::skip("config file not readable"),
+        let Some(raw) = &ctx.config_raw else {
+            return CheckOutcome::skip("config file not readable");
         };
 
         // Look for inline api_key values that look like actual keys (not empty, not a
@@ -243,9 +239,8 @@ impl DoctorCheck for CfgAgentDefs {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         if config.agents.is_empty() {
@@ -284,9 +279,8 @@ impl DoctorCheck for CfgGraphPresent {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         if config.agents.len() <= 1 {

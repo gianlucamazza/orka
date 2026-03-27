@@ -25,10 +25,10 @@ impl DoctorCheck for ConRedisReachable {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let url = match &ctx.config {
-            Some(c) => c.redis.url.clone(),
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(cfg) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
+        let url = cfg.redis.url.clone();
 
         let start = Instant::now();
         match redis_ping(&url, ctx.timeout).await {
@@ -63,10 +63,10 @@ impl DoctorCheck for ConRedisVersion {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let url = match &ctx.config {
-            Some(c) => c.redis.url.clone(),
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(cfg) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
+        let url = cfg.redis.url.clone();
 
         match redis_version(&url, ctx.timeout).await {
             Ok(version) => {
@@ -97,9 +97,8 @@ impl DoctorCheck for ConQdrantReachable {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         if !config.knowledge.enabled {
@@ -146,9 +145,8 @@ impl DoctorCheck for ConQdrantVersion {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         if !config.knowledge.enabled {

@@ -151,7 +151,7 @@ async fn run_loop(
             }
             maybe_event = events.next() => {
                 if let Some(Ok(event)) = maybe_event {
-                    handle_input(event, &mut quit, &mut refresh);
+                    handle_input(&event, &mut quit, &mut refresh);
                 }
             }
             _ = tokio::signal::ctrl_c() => {
@@ -176,7 +176,7 @@ async fn run_loop(
 
 // ── Input ─────────────────────────────────────────────────────────────────────
 
-fn handle_input(event: Event, quit: &mut bool, refresh: &mut bool) {
+fn handle_input(event: &Event, quit: &mut bool, refresh: &mut bool) {
     if let Event::Key(key) = event
         && key.kind == KeyEventKind::Press
     {
@@ -191,6 +191,7 @@ fn handle_input(event: Event, quit: &mut bool, refresh: &mut bool) {
 // ── Polling
 // ───────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_lines)]
 async fn poll_all(client: &OrkaClient, state: &mut DashboardState) {
     let (health, ready, version, metrics_resp, sessions, dlq) = tokio::join!(
         client.get_json("/health"),
@@ -237,7 +238,7 @@ async fn poll_all(client: &OrkaClient, state: &mut DashboardState) {
                         val.as_str().unwrap_or("?").to_string()
                     } else if let Some(obj) = val.as_object() {
                         let s = obj.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-                        if let Some(d) = obj.get("depth").and_then(|v| v.as_u64()) {
+                        if let Some(d) = obj.get("depth").and_then(serde_json::Value::as_u64) {
                             format!("{s} ({d})")
                         } else {
                             s.to_string()
@@ -287,8 +288,7 @@ async fn poll_all(client: &OrkaClient, state: &mut DashboardState) {
         Ok(body) => {
             state.sessions = body
                 .as_array()
-                .map(Vec::as_slice)
-                .unwrap_or(&[])
+                .map_or(&[] as &[_], Vec::as_slice)
                 .iter()
                 .map(|s| SessionRow {
                     id: s["id"].as_str().unwrap_or("?").to_string(),
@@ -308,7 +308,7 @@ async fn poll_all(client: &OrkaClient, state: &mut DashboardState) {
     // /api/v1/dlq
     match dlq {
         Ok(body) => {
-            state.dlq_count = body.as_array().map(|a| a.len()).unwrap_or(0);
+            state.dlq_count = body.as_array().map_or(0, Vec::len);
         }
         Err(e) => {
             if state.last_error.is_none() {
@@ -600,8 +600,7 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &DashboardState) {
     } else {
         let ago = state
             .last_refresh
-            .map(|t| format!("{}s ago", t.elapsed().as_secs()))
-            .unwrap_or_else(|| "never".to_string());
+            .map_or_else(|| "never".to_string(), |t| format!("{}s ago", t.elapsed().as_secs()));
         Line::from(Span::styled(
             format!(" Last refresh: {ago}   q: quit   r: refresh"),
             Style::default().fg(Color::DarkGray),

@@ -180,9 +180,8 @@ impl DoctorCheck for EnvMcpBinaries {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         let stdio_servers: Vec<_> = config
@@ -239,8 +238,7 @@ fn which_binary(cmd: &str) -> bool {
     }
     // Relative/bare name: search each directory in PATH
     std::env::var_os("PATH")
-        .map(|path_var| std::env::split_paths(&path_var).any(|dir| dir.join(cmd).is_file()))
-        .unwrap_or(false)
+        .is_some_and(|path_var| std::env::split_paths(&path_var).any(|dir| dir.join(cmd).is_file()))
 }
 
 #[async_trait]
@@ -256,9 +254,8 @@ impl DoctorCheck for EnvPluginDir {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         let Some(dir) = &config.plugins.dir else {
@@ -275,13 +272,12 @@ impl DoctorCheck for EnvPluginDir {
         match std::fs::read_dir(path) {
             Ok(entries) => {
                 let wasm_count = entries
-                    .filter_map(|e| e.ok())
+                    .filter_map(std::result::Result::ok)
                     .filter(|e| {
                         e.path()
                             .extension()
                             .and_then(|ext| ext.to_str())
-                            .map(|ext| ext == "wasm")
-                            .unwrap_or(false)
+                            .is_some_and(|ext| ext == "wasm")
                     })
                     .count();
 
@@ -310,9 +306,8 @@ impl DoctorCheck for EnvAdapterTokens {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         let mut configured = Vec::new();

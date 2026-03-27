@@ -24,9 +24,8 @@ impl DoctorCheck for PrvAtLeastOneProvider {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         if config.llm.providers.is_empty() {
@@ -61,9 +60,8 @@ impl DoctorCheck for PrvApiKeysResolvable {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         if config.llm.providers.is_empty() {
@@ -176,9 +174,8 @@ impl DoctorCheck for PrvProviderReachable {
             return CheckOutcome::skip("run with --verbose to probe provider endpoints");
         }
 
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         if config.llm.providers.is_empty() {
@@ -245,14 +242,12 @@ async fn probe_provider_url(
     };
 
     // We just check TCP connectivity to the host, not a full API call
-    let url = match resolved_url.parse::<reqwest::Url>() {
-        Ok(u) => u,
-        Err(_) => return "invalid URL",
+    let Ok(url) = resolved_url.parse::<reqwest::Url>() else {
+        return "invalid URL";
     };
 
-    let host = match url.host_str() {
-        Some(h) => h.to_string(),
-        None => return "no host",
+    let Some(host) = url.host_str().map(str::to_string) else {
+        return "no host";
     };
     let port = url.port_or_known_default().unwrap_or(443);
 
@@ -277,16 +272,15 @@ impl DoctorCheck for PrvEmbeddingProvider {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        use orka_core::config::EmbeddingProvider;
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         if !config.knowledge.enabled {
             return CheckOutcome::skip("knowledge.enabled = false");
         }
 
-        use orka_core::config::EmbeddingProvider;
         let provider = &config.knowledge.embeddings.provider;
         if *provider == EmbeddingProvider::Local {
             // Local (fastembed) doesn't need an API key
@@ -310,9 +304,8 @@ impl DoctorCheck for PrvWebSearchKey {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         let provider = &config.web.search_provider;

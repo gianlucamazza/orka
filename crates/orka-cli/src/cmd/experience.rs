@@ -31,7 +31,7 @@ pub async fn principles(
     }
     let resp = OrkaClient::ensure_ok(resp).await?;
     let body: serde_json::Value = resp.json().await?;
-    let principles = body.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let principles = body.as_array().map_or(&[] as &[_], Vec::as_slice);
     if principles.is_empty() {
         println!("{}", "No principles found.".yellow());
         return Ok(());

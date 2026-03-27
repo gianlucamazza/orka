@@ -29,9 +29,8 @@ impl DoctorCheck for SecNoInlineKeys {
         // This duplicates CFG-005 logic intentionally: SEC checks are about security
         // posture, CFG checks are about config validity. Having both makes
         // filtering by category useful.
-        let raw = match &ctx.config_raw {
-            Some(r) => r,
-            None => return CheckOutcome::skip("config file not readable"),
+        let Some(raw) = &ctx.config_raw else {
+            return CheckOutcome::skip("config file not readable");
         };
 
         // Scan for lines with api_key = "..." that contain long strings (likely real
@@ -109,7 +108,7 @@ impl DoctorCheck for SecFilePermissions {
             match std::fs::metadata(&ctx.config_path) {
                 Ok(meta) => {
                     let mode = meta.permissions().mode();
-                    if mode & 0o077 == 0 {
+                    if mode.trailing_zeros() >= 6 {
                         CheckOutcome::pass(format!("mode {:o}", mode & 0o777))
                     } else {
                         let path = ctx.config_path.clone();
@@ -152,9 +151,8 @@ impl DoctorCheck for SecWorkspaceDirs {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         let mut missing = Vec::new();
@@ -213,10 +211,10 @@ impl DoctorCheck for SecSudoConfig {
         }
     }
 
+    #[allow(clippy::items_after_statements)]
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         if !config.os.sudo.allowed {
@@ -267,9 +265,8 @@ impl DoctorCheck for SecNoNewPrivileges {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        let config = match &ctx.config {
-            Some(c) => c,
-            None => return CheckOutcome::skip("config not loaded"),
+        let Some(config) = &ctx.config else {
+            return CheckOutcome::skip("config not loaded");
         };
 
         if !config.os.sudo.allowed {

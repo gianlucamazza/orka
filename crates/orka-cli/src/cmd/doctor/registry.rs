@@ -1,6 +1,7 @@
+#[allow(clippy::wildcard_imports)]
 use crate::cmd::doctor::{
-    DoctorCheck,
     checks::{config::*, connectivity::*, environment::*, providers::*, security::*},
+    DoctorCheck,
 };
 
 /// Build the ordered list of all registered doctor checks.

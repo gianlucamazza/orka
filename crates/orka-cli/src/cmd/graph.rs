@@ -18,18 +18,15 @@ pub async fn show(client: &OrkaClient, dot: bool) -> crate::client::Result<()> {
     if let Some(termination) = body["termination"].as_object() {
         let max_iter = termination["max_total_iterations"].as_u64().unwrap_or(0);
         let max_dur = termination["max_duration_secs"].as_u64().unwrap_or(0);
-        println!("Termination: max_iterations={max_iter} max_duration={max_dur}s");
+        println!("Termination: max_turns={max_iter} max_duration={max_dur}s");
     }
 
-    let empty = serde_json::Value::Array(vec![]);
-    let nodes = body["nodes"]
-        .as_array()
-        .unwrap_or(empty.as_array().unwrap());
+    let nodes: &[serde_json::Value] = body["nodes"].as_array().map_or(&[], |a| a);
     if !nodes.is_empty() {
         println!();
-        let mut table = make_table(&["ID", "Kind", "Agent", "Max Iter"]);
+        let mut table = make_table(&["ID", "Kind", "Agent", "Max Turns"]);
         for node in nodes {
-            let max_iter = node["agent"]["max_iterations"]
+            let max_iter = node["agent"]["max_turns"]
                 .as_u64()
                 .unwrap_or(0)
                 .to_string();
@@ -43,9 +40,7 @@ pub async fn show(client: &OrkaClient, dot: bool) -> crate::client::Result<()> {
         println!("{table}");
     }
 
-    let edges = body["edges"]
-        .as_array()
-        .unwrap_or(empty.as_array().unwrap());
+    let edges: &[serde_json::Value] = body["edges"].as_array().map_or(&[], |a| a);
     if !edges.is_empty() {
         println!();
         let mut table = make_table(&["From", "To", "Priority", "Condition"]);
@@ -74,10 +69,7 @@ fn print_dot(body: &serde_json::Value) {
     let entry = body["entry"].as_str().unwrap_or("?");
     println!("  \"{entry}\" [fillcolor=lightgreen];");
 
-    let empty_nodes = serde_json::Value::Array(vec![]);
-    let nodes = body["nodes"]
-        .as_array()
-        .unwrap_or(empty_nodes.as_array().unwrap());
+    let nodes: &[serde_json::Value] = body["nodes"].as_array().map_or(&[], |a| a);
     for node in nodes {
         let nid = node["id"].as_str().unwrap_or("?");
         let name = node["agent"]["name"].as_str().unwrap_or("?");
@@ -85,10 +77,7 @@ fn print_dot(body: &serde_json::Value) {
         println!("  \"{nid}\" [label=\"{name}\\n({kind})\"];");
     }
 
-    let empty_edges = serde_json::Value::Array(vec![]);
-    let edges = body["edges"]
-        .as_array()
-        .unwrap_or(empty_edges.as_array().unwrap());
+    let edges: &[serde_json::Value] = body["edges"].as_array().map_or(&[], |a| a);
     for edge in edges {
         let from = edge["from"].as_str().unwrap_or("?");
         let to = edge["to"].as_str().unwrap_or("?");
