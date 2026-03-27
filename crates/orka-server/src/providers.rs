@@ -128,7 +128,7 @@ pub(crate) async fn resolve_llm_credential(
                 resolve_slot(provider, CredentialSlot::ApiKey, config, secrets).await?;
             if provider == "anthropic" && looks_like_anthropic_bearer_token(&value) {
                 warn!(
-                    provider = config.name,
+                    provider = %config.name,
                     source = %source,
                     "auth_kind=api_key but credential looks like an Anthropic bearer/setup-token"
                 );
@@ -154,7 +154,7 @@ pub(crate) async fn resolve_llm_credential(
             let (value, source) = resolved;
             if provider == "anthropic" && !looks_like_anthropic_bearer_token(&value) {
                 warn!(
-                    provider = config.name,
+                    provider = %config.name,
                     source = %source,
                     "auth_kind expects bearer semantics but credential does not look like a Claude setup-token/bearer token"
                 );

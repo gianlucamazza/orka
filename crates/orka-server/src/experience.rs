@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use orka_core::config::OrkaConfig;
+use orka_core::config::{LlmAuthKind, OrkaConfig};
 use orka_experience::ExperienceService;
 
 /// Create the experience / self-learning service from config.
@@ -20,22 +20,52 @@ pub(crate) fn create_experience_service(
         .first()
         .ok_or_else(|| anyhow::anyhow!("experience requires at least one LLM provider"))?;
 
-    let api_key = first_provider
-        .api_key
-        .clone()
-        .or_else(|| {
-            first_provider
-                .api_key_env
-                .as_ref()
-                .and_then(|env| std::env::var(env).ok())
-        })
-        .or_else(|| std::env::var(crate::providers::default_env_var(&first_provider.provider)).ok())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "experience reflection requires an API key for provider '{}'",
-                first_provider.name
-            )
-        })?;
+    let auth_kind = first_provider.auth_kind;
+    let credential = match auth_kind {
+        LlmAuthKind::AuthToken | LlmAuthKind::Subscription => first_provider
+            .auth_token
+            .clone()
+            .or_else(|| {
+                first_provider
+                    .auth_token_env
+                    .as_ref()
+                    .and_then(|env| std::env::var(env).ok())
+            })
+            .or_else(|| {
+                std::env::var(crate::providers::default_auth_token_env_var(
+                    &first_provider.provider,
+                ))
+                .ok()
+            })
+            .or_else(|| first_provider.api_key.clone())
+            .or_else(|| {
+                first_provider
+                    .api_key_env
+                    .as_ref()
+                    .and_then(|env| std::env::var(env).ok())
+            })
+            .or_else(|| {
+                std::env::var(crate::providers::default_env_var(&first_provider.provider)).ok()
+            }),
+        _ => first_provider
+            .api_key
+            .clone()
+            .or_else(|| {
+                first_provider
+                    .api_key_env
+                    .as_ref()
+                    .and_then(|env| std::env::var(env).ok())
+            })
+            .or_else(|| {
+                std::env::var(crate::providers::default_env_var(&first_provider.provider)).ok()
+            }),
+    }
+    .ok_or_else(|| {
+        anyhow::anyhow!(
+            "experience reflection requires a credential for provider '{}'",
+            first_provider.name
+        )
+    })?;
 
     let model = config
         .experience
@@ -45,10 +75,16 @@ pub(crate) fn create_experience_service(
         .unwrap_or_else(|| config.llm.default_model.clone());
 
     let reflection_llm: Arc<dyn orka_llm::LlmClient> = match first_provider.provider.as_str() {
-        "openai" => Arc::new(orka_llm::OpenAiClient::new(api_key, model)),
+        "openai" => Arc::new(orka_llm::OpenAiClient::new(credential, model)),
         "ollama" => Arc::new(orka_llm::OllamaClient::new(model)),
-        _ => Arc::new(orka_llm::AnthropicClient::with_options(
-            api_key,
+        _ => Arc::new(orka_llm::AnthropicClient::with_auth_options(
+            credential,
+            match auth_kind {
+                LlmAuthKind::AuthToken | LlmAuthKind::Subscription => {
+                    orka_llm::AnthropicAuthKind::Bearer
+                }
+                _ => orka_llm::AnthropicAuthKind::ApiKey,
+            },
             model,
             first_provider.timeout_secs.unwrap_or(30),
             first_provider
