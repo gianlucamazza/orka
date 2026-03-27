@@ -79,6 +79,11 @@ impl AnthropicClient {
         }
     }
 
+    /// Returns true if the key is an OAuth access token (requires `Authorization: Bearer`).
+    fn is_oauth_token(&self) -> bool {
+        self.api_key.starts_with("sk-ant-oat")
+    }
+
     /// Send a request with retry logic for 429/5xx and transient errors.
     /// Returns the raw successful HTTP response.
     async fn send_request_with_retry(&self, body: &serde_json::Value) -> Result<reqwest::Response> {
@@ -87,10 +92,13 @@ impl AnthropicClient {
             500,
             30_000,
             || async {
-                let result = self
-                    .client
-                    .post(&self.base_url)
-                    .header("x-api-key", &self.api_key)
+                let req = self.client.post(&self.base_url);
+                let req = if self.is_oauth_token() {
+                    req.header("Authorization", format!("Bearer {}", self.api_key))
+                } else {
+                    req.header("x-api-key", &self.api_key)
+                };
+                let result = req
                     .header("anthropic-version", &self.api_version)
                     .header("content-type", "application/json")
                     .json(body)
@@ -931,6 +939,17 @@ mod tests {
         let api_msgs = AnthropicClient::build_ext_messages(&messages);
         assert_eq!(api_msgs[0]["role"], "user");
         assert_eq!(api_msgs[0]["content"], "hello");
+    }
+
+    #[test]
+    fn oauth_token_detected_by_prefix() {
+        let make = |key: &str| AnthropicClient::with_options(
+            key.into(), "m".into(), 30, 100, 2, "v".into(), None,
+        );
+        assert!(make("sk-ant-oat01-abc").is_oauth_token());
+        assert!(make("sk-ant-oatXX-abc").is_oauth_token());
+        assert!(!make("sk-ant-api03-abc").is_oauth_token());
+        assert!(!make("sk-ant-api01-abc").is_oauth_token());
     }
 
     #[test]
