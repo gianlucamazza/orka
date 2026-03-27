@@ -151,7 +151,9 @@ fn render_markdown(report: &DoctorReport) {
         let escaped = outcome.message.replace('|', "\\|");
         println!(
             "| {status_icon} | `{}` | {:?} | {} | {escaped} |",
-            meta.id.as_str(), meta.severity, meta.name,
+            meta.id.as_str(),
+            meta.severity,
+            meta.name,
         );
     }
 

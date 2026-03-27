@@ -94,6 +94,8 @@ impl CheckpointStore for TestCheckpointStore {
 
 enum MockResp {
     Text(String),
+    Completion(CompletionResponse),
+    Failure(String),
     /// Emit a `transfer_to_agent` tool call.
     Transfer {
         to: String,
@@ -147,7 +149,17 @@ impl LlmClient for MockLlm {
     ) -> orka_core::Result<String> {
         match self.queue.lock().await.pop_front() {
             Some(MockResp::Text(t)) => Ok(t),
+            Some(MockResp::Completion(resp)) => Ok(resp
+                .blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::Text(t) => Some(t.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("")),
             Some(MockResp::ToolCallResp { name, .. }) => Ok(format!("[tool: {name}]")),
+            Some(MockResp::Failure(err)) => Err(orka_core::Error::Other(err)),
             _ => Ok("mock".into()),
         }
     }
@@ -167,6 +179,7 @@ impl LlmClient for MockLlm {
                 Usage::default(),
                 Some(StopReason::EndTurn),
             )),
+            Some(MockResp::Completion(resp)) => Ok(resp),
             Some(MockResp::Transfer { to, reason }) => Ok(CompletionResponse::new(
                 vec![ContentBlock::ToolUse(ToolCall::new(
                     "h1",
@@ -181,6 +194,7 @@ impl LlmClient for MockLlm {
                 Usage::default(),
                 Some(StopReason::ToolUse),
             )),
+            Some(MockResp::Failure(err)) => Err(orka_core::Error::Other(err)),
             None => Ok(CompletionResponse::new(
                 vec![ContentBlock::Text("mock".into())],
                 Usage::default(),
@@ -531,6 +545,123 @@ async fn termination_terminal_agent_policy() {
 
     assert_eq!(result.response, "a final");
     assert_eq!(result.agents_executed, vec!["a"]);
+}
+
+/// When an agent exhausts `max_turns` without producing a final response, the
+/// graph terminates instead of re-scheduling the same node.
+#[tokio::test]
+async fn max_turns_stops_graph_without_rerunning_agent() {
+    let a = AgentId::new("a");
+    let b = AgentId::new("b");
+
+    let mut agent_a = agent("a");
+    agent_a.max_turns = 1;
+
+    let mut graph = AgentGraph::new("g", a.clone());
+    graph.add_node(GraphNode {
+        agent: agent_a,
+        kind: NodeKind::Agent,
+    });
+    graph.add_node(agent_node("b"));
+    graph.add_edge(
+        a.clone(),
+        Edge {
+            target: b.clone(),
+            condition: Some(EdgeCondition::Always),
+            priority: 0,
+        },
+    );
+
+    let llm = Arc::new(MockLlm::new(vec![MockResp::ToolCallResp {
+        name: "nonexistent".into(),
+        input: serde_json::json!({}),
+    }]));
+    let ctx = make_ctx();
+    let result = GraphExecutor::new(make_deps(llm))
+        .execute(&graph, &ctx)
+        .await
+        .unwrap();
+
+    assert!(result.response.is_empty());
+    assert_eq!(result.agents_executed, vec!["a"]);
+    assert_eq!(
+        result.stop_reason,
+        orka_core::stream::AgentStopReason::MaxTurns
+    );
+}
+
+/// When an agent returns partial text with `MaxTokens`, the graph must stop at
+/// that agent and preserve the partial response.
+#[tokio::test]
+async fn max_tokens_stops_graph_and_preserves_response() {
+    let a = AgentId::new("a");
+    let b = AgentId::new("b");
+
+    let mut graph = AgentGraph::new("g", a.clone());
+    graph.add_node(agent_node("a"));
+    graph.add_node(agent_node("b"));
+    graph.add_edge(
+        a.clone(),
+        Edge {
+            target: b.clone(),
+            condition: Some(EdgeCondition::Always),
+            priority: 0,
+        },
+    );
+
+    let llm = Arc::new(MockLlm::new(vec![MockResp::Completion(
+        CompletionResponse::new(
+            vec![ContentBlock::Text("partial".into())],
+            Usage::default(),
+            Some(StopReason::MaxTokens),
+        ),
+    )]));
+    let ctx = make_ctx();
+    let result = GraphExecutor::new(make_deps(llm))
+        .execute(&graph, &ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(result.response, "partial");
+    assert_eq!(result.agents_executed, vec!["a"]);
+    assert_eq!(
+        result.stop_reason,
+        orka_core::stream::AgentStopReason::MaxTokens
+    );
+}
+
+/// LLM failures surfaced as `AgentStopReason::Error` must terminate the graph
+/// without traversing outgoing edges.
+#[tokio::test]
+async fn agent_error_stops_graph_without_routing() {
+    let a = AgentId::new("a");
+    let b = AgentId::new("b");
+
+    let mut graph = AgentGraph::new("g", a.clone());
+    graph.add_node(agent_node("a"));
+    graph.add_node(agent_node("b"));
+    graph.add_edge(
+        a.clone(),
+        Edge {
+            target: b.clone(),
+            condition: Some(EdgeCondition::Always),
+            priority: 0,
+        },
+    );
+
+    let llm = Arc::new(MockLlm::new(vec![MockResp::Failure("boom".into())]));
+    let ctx = make_ctx();
+    let result = GraphExecutor::new(make_deps(llm))
+        .execute(&graph, &ctx)
+        .await
+        .unwrap();
+
+    assert!(result.response.contains("LLM request failed"));
+    assert_eq!(result.agents_executed, vec!["a"]);
+    assert_eq!(
+        result.stop_reason,
+        orka_core::stream::AgentStopReason::Error
+    );
 }
 
 /// `FanOut` node dispatches all successors; all three agent IDs appear in
@@ -947,6 +1078,62 @@ async fn fan_out_continues_to_fan_in() {
     assert!(result.agents_executed.contains(&"synthesizer".to_string()));
 }
 
+/// A non-complete stop in a fan-out branch must prevent the graph from
+/// continuing into the `FanIn` synthesizer.
+#[tokio::test]
+async fn fan_out_non_complete_branch_stops_before_fan_in() {
+    let llm = Arc::new(MockLlm::new(vec![MockResp::Completion(
+        CompletionResponse::new(
+            vec![ContentBlock::Text("worker partial".into())],
+            Usage::default(),
+            Some(StopReason::MaxTokens),
+        ),
+    )]));
+    let deps = make_deps(llm);
+    let executor = GraphExecutor::new(deps);
+
+    let mut graph = AgentGraph::new("g", AgentId::from("fanout"));
+    graph.add_node(GraphNode {
+        agent: agent("fanout"),
+        kind: NodeKind::FanOut,
+    });
+    graph.add_node(GraphNode {
+        agent: agent("worker"),
+        kind: NodeKind::Agent,
+    });
+    graph.add_node(GraphNode {
+        agent: agent("synthesizer"),
+        kind: NodeKind::FanIn,
+    });
+
+    graph.add_edge(
+        AgentId::from("fanout"),
+        Edge {
+            target: AgentId::from("worker"),
+            condition: Some(EdgeCondition::Always),
+            priority: 0,
+        },
+    );
+    graph.add_edge(
+        AgentId::from("fanout"),
+        Edge {
+            target: AgentId::from("synthesizer"),
+            condition: Some(EdgeCondition::Always),
+            priority: 0,
+        },
+    );
+
+    let ctx = make_ctx();
+    let result = executor.execute(&graph, &ctx).await.unwrap();
+
+    assert_eq!(result.response, "worker partial");
+    assert_eq!(
+        result.stop_reason,
+        orka_core::stream::AgentStopReason::MaxTokens
+    );
+    assert_eq!(result.agents_executed, vec!["fanout"]);
+}
+
 /// `FanIn` node with outgoing edges continues graph traversal after synthesis.
 #[tokio::test]
 async fn fan_in_continues_to_next_node() {
@@ -1161,4 +1348,52 @@ async fn delegate_handoff_returns_to_parent() {
     assert_eq!(result.response, "a final after delegate");
     // A is tracked as the primary agent in this run
     assert!(result.agents_executed.contains(&"a".to_string()));
+}
+
+/// If a delegated agent stops with a non-complete reason, the parent agent
+/// must not resume execution.
+#[tokio::test]
+async fn delegate_non_complete_stop_terminates_graph() {
+    let a = AgentId::new("a");
+    let b = AgentId::new("b");
+
+    let mut agent_a = agent("a");
+    agent_a.handoff_targets = vec![b.clone()];
+
+    let mut graph = AgentGraph::new("g", a.clone());
+    graph.add_node(GraphNode {
+        agent: agent_a,
+        kind: NodeKind::Agent,
+    });
+    graph.add_node(agent_node("b"));
+
+    let llm = Arc::new(MockLlm::new(vec![
+        MockResp::ToolCallResp {
+            name: "delegate_to_agent".into(),
+            input: serde_json::json!({
+                "agent_id": "b",
+                "reason": "sub-task",
+                "task": "do the work"
+            }),
+        },
+        MockResp::Completion(CompletionResponse::new(
+            vec![ContentBlock::Text("delegate partial".into())],
+            Usage::default(),
+            Some(StopReason::MaxTokens),
+        )),
+        MockResp::Text("parent should never resume".into()),
+    ]));
+
+    let ctx = make_ctx();
+    let result = GraphExecutor::new(make_deps(llm))
+        .execute(&graph, &ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(result.response, "delegate partial");
+    assert_eq!(
+        result.stop_reason,
+        orka_core::stream::AgentStopReason::MaxTokens
+    );
+    assert_eq!(result.agents_executed, vec!["a"]);
 }

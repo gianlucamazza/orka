@@ -633,6 +633,21 @@ impl GraphExecutor {
                                         .await?;
                                 total_iterations += delegate_result.iterations;
                                 all_attachments.extend(delegate_result.attachments.iter().cloned());
+                                if delegate_result.stop_reason
+                                    != orka_core::stream::AgentStopReason::Complete
+                                {
+                                    final_stop_reason = delegate_result.stop_reason;
+                                    if let Some(resp) = delegate_result.response {
+                                        final_response = resp;
+                                    }
+                                    warn!(
+                                        agent_id = %target_node.agent.id,
+                                        parent_agent_id = %node.agent.id,
+                                        stop_reason = ?delegate_result.stop_reason,
+                                        "delegate agent stopped with non-complete reason; graph execution terminated"
+                                    );
+                                    break;
+                                }
 
                                 if let Some(resp) = delegate_result.response {
                                     // Feed the delegate result back as a tool result message
@@ -650,6 +665,29 @@ impl GraphExecutor {
                     }
 
                     final_stop_reason = result.stop_reason;
+                    if result.stop_reason != orka_core::stream::AgentStopReason::Complete {
+                        if let Some(resp) = result.response {
+                            final_response = resp;
+                        }
+                        warn!(
+                            agent_id = %node.agent.id,
+                            stop_reason = ?result.stop_reason,
+                            "agent stopped with non-complete reason; graph execution terminated"
+                        );
+                        self.maybe_save_checkpoint(
+                            ctx,
+                            graph,
+                            CheckpointSnap {
+                                completed_node: &node.agent.id,
+                                resume_node: None,
+                                total_iterations,
+                                agents_executed: &agents_executed,
+                                status: checkpoint_status_for_stop_reason(result.stop_reason),
+                            },
+                        )
+                        .await;
+                        break;
+                    }
                     if let Some(resp) = result.response {
                         final_response = resp.clone();
 
@@ -780,13 +818,44 @@ impl GraphExecutor {
                             Ok(Ok(node_result)) => {
                                 total_iterations += node_result.iterations;
                                 all_attachments.extend(node_result.attachments.iter().cloned());
+                                if node_result.stop_reason
+                                    != orka_core::stream::AgentStopReason::Complete
+                                {
+                                    final_stop_reason = node_result.stop_reason;
+                                    if let Some(resp) = node_result.response {
+                                        final_response = resp;
+                                    }
+                                    warn!(
+                                        fan_out_node = %current_id,
+                                        stop_reason = ?node_result.stop_reason,
+                                        "fan-out branch stopped with non-complete reason; graph execution terminated"
+                                    );
+                                    join_set.abort_all();
+                                    break;
+                                }
                                 if let Some(resp) = node_result.response {
                                     final_response = resp;
                                 }
                             }
-                            Ok(Err(e)) => warn!(%e, "fan-out agent failed"),
-                            Err(e) => warn!(%e, "fan-out task panicked"),
+                            Ok(Err(e)) => {
+                                final_stop_reason = orka_core::stream::AgentStopReason::Error;
+                                final_response = format!("Fan-out agent failed: {e}");
+                                warn!(%e, fan_out_node = %current_id, "fan-out agent failed");
+                                join_set.abort_all();
+                                break;
+                            }
+                            Err(e) => {
+                                final_stop_reason = orka_core::stream::AgentStopReason::Error;
+                                final_response = format!("Fan-out task panicked: {e}");
+                                warn!(%e, fan_out_node = %current_id, "fan-out task panicked");
+                                join_set.abort_all();
+                                break;
+                            }
                         }
+                    }
+
+                    if final_stop_reason != orka_core::stream::AgentStopReason::Complete {
+                        break;
                     }
 
                     // Continue to FanIn node if present, otherwise terminate.
@@ -817,6 +886,29 @@ impl GraphExecutor {
                     total_iterations += result.iterations;
                     all_attachments.extend(result.attachments.iter().cloned());
                     final_stop_reason = result.stop_reason;
+                    if result.stop_reason != orka_core::stream::AgentStopReason::Complete {
+                        if let Some(resp) = result.response {
+                            final_response = resp;
+                        }
+                        warn!(
+                            agent_id = %node.agent.id,
+                            stop_reason = ?result.stop_reason,
+                            "fan-in node stopped with non-complete reason; graph execution terminated"
+                        );
+                        self.maybe_save_checkpoint(
+                            ctx,
+                            graph,
+                            CheckpointSnap {
+                                completed_node: &node.agent.id,
+                                resume_node: None,
+                                total_iterations,
+                                agents_executed: &agents_executed,
+                                status: checkpoint_status_for_stop_reason(result.stop_reason),
+                            },
+                        )
+                        .await;
+                        break;
+                    }
                     if let Some(resp) = result.response {
                         final_response = resp.clone();
                         // Evaluate outgoing edges — FanIn can feed into further nodes.
@@ -882,5 +974,17 @@ impl GraphExecutor {
                 ctx.get(key).await.as_ref() == Some(pattern)
             }
         }
+    }
+}
+
+fn checkpoint_status_for_stop_reason(stop_reason: orka_core::stream::AgentStopReason) -> RunStatus {
+    match stop_reason {
+        orka_core::stream::AgentStopReason::Error => RunStatus::Failed {
+            error: "agent execution terminated with error".to_string(),
+        },
+        orka_core::stream::AgentStopReason::Complete
+        | orka_core::stream::AgentStopReason::MaxTurns
+        | orka_core::stream::AgentStopReason::MaxTokens
+        | orka_core::stream::AgentStopReason::Interrupted => RunStatus::Completed,
     }
 }

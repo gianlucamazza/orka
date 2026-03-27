@@ -85,12 +85,10 @@ pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn S
                 ));
             }
             #[cfg(feature = "local-embeddings")]
-            EmbeddingProvider::Local => {
-                Arc::new(embeddings::local::LocalEmbeddingProvider::new(
-                    &config.embeddings.model,
-                    embeddings::LOCAL_EMBEDDING_DIMS,
-                )?)
-            }
+            EmbeddingProvider::Local => Arc::new(embeddings::local::LocalEmbeddingProvider::new(
+                &config.embeddings.model,
+                embeddings::LOCAL_EMBEDDING_DIMS,
+            )?),
             #[cfg(not(feature = "local-embeddings"))]
             EmbeddingProvider::Local => {
                 return Err(orka_core::Error::Config(
