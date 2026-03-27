@@ -14,6 +14,8 @@ pub enum TemplateError {
     NotFound(String),
     /// Invalid template name.
     InvalidName(String),
+    /// Filesystem watcher error.
+    Watch(notify::Error),
 }
 
 impl fmt::Display for TemplateError {
@@ -23,6 +25,7 @@ impl fmt::Display for TemplateError {
             TemplateError::Rendering(e) => write!(f, "template rendering failed: {e}"),
             TemplateError::NotFound(name) => write!(f, "template not found: {name}"),
             TemplateError::InvalidName(name) => write!(f, "invalid template name: {name}"),
+            TemplateError::Watch(e) => write!(f, "template watcher error: {e}"),
         }
     }
 }
@@ -38,6 +41,7 @@ impl std::error::Error for TemplateError {
         match self {
             TemplateError::Compilation(e) => Some(e),
             TemplateError::Rendering(e) => Some(e),
+            TemplateError::Watch(e) => Some(e),
             _ => None,
         }
     }
@@ -52,6 +56,12 @@ impl From<HandlebarsError> for TemplateError {
 impl From<RenderError> for TemplateError {
     fn from(e: RenderError) -> Self {
         TemplateError::Rendering(e)
+    }
+}
+
+impl From<notify::Error> for TemplateError {
+    fn from(e: notify::Error) -> Self {
+        TemplateError::Watch(e)
     }
 }
 

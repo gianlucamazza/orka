@@ -5996,7 +5996,6 @@ dependencies = [
 name = "orka-eval"
 version = "1.0.0"
 dependencies = [
- "anyhow",
  "glob",
  "insta",
  "orka-core",
@@ -6006,6 +6005,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "toml 0.8.23",
  "tracing",

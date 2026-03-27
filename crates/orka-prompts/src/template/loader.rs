@@ -7,7 +7,7 @@ use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tracing::debug;
 
-use super::registry::TemplateRegistry;
+use super::{engine::TemplateError, registry::TemplateRegistry};
 
 /// Events emitted by the template loader.
 #[derive(Debug, Clone)]
@@ -84,7 +84,7 @@ impl TemplateLoader {
     /// Returns a receiver for template loader events.
     pub fn watch(
         &mut self,
-    ) -> Result<mpsc::Receiver<TemplateLoaderEvent>, Box<dyn std::error::Error>> {
+    ) -> Result<mpsc::Receiver<TemplateLoaderEvent>, TemplateError> {
         let (tx, rx) = mpsc::channel(100);
         let registry = self.registry.clone();
         let templates_dir = self.templates_dir.clone();

@@ -350,12 +350,15 @@ impl OtelEventSink {
 /// Returns a tracer that can be used to create the `OtelEventSink`.
 pub fn init_otel_tracer(
     service_name: &str,
-) -> Result<opentelemetry_sdk::trace::Tracer, Box<dyn std::error::Error>> {
+) -> orka_core::Result<opentelemetry_sdk::trace::Tracer> {
     use opentelemetry::trace::TracerProvider;
     use opentelemetry_otlp::SpanExporter;
     use opentelemetry_sdk::trace::SdkTracerProvider;
 
-    let exporter = SpanExporter::builder().with_tonic().build()?;
+    let exporter = SpanExporter::builder()
+        .with_tonic()
+        .build()
+        .map_err(|e| orka_core::Error::observe(e, "failed to build OTLP span exporter"))?;
 
     let provider = SdkTracerProvider::builder()
         .with_batch_exporter(exporter)

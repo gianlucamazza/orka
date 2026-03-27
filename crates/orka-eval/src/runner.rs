@@ -5,6 +5,7 @@ use orka_skills::SkillRegistry;
 
 use crate::{
     assertion::check_all,
+    error::EvalResult,
     llm_judge::LlmJudge,
     report::{EvalReport, ScenarioResult},
     scenario::EvalFile,
@@ -39,7 +40,7 @@ impl EvalRunner {
         &self,
         dir: &Path,
         skill_filter: Option<&str>,
-    ) -> anyhow::Result<EvalReport> {
+    ) -> EvalResult<EvalReport> {
         let mut results = Vec::new();
         let start = Instant::now();
 
@@ -69,7 +70,7 @@ impl EvalRunner {
         &self,
         path: &Path,
         skill_filter: Option<&str>,
-    ) -> anyhow::Result<Vec<ScenarioResult>> {
+    ) -> EvalResult<Vec<ScenarioResult>> {
         let content = std::fs::read_to_string(path)?;
         let eval: EvalFile = toml::from_str(&content)?;
 
