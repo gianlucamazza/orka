@@ -15,7 +15,7 @@ pub struct PrvWebSearchKey;
 impl DoctorCheck for PrvAtLeastOneProvider {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("PRV-001"),
+            id: CheckId::new("PRV-001"),
             category: Category::Providers,
             severity: Severity::Critical,
             name: "At least one LLM provider",
@@ -51,7 +51,7 @@ impl DoctorCheck for PrvAtLeastOneProvider {
 impl DoctorCheck for PrvApiKeysResolvable {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("PRV-002"),
+            id: CheckId::new("PRV-002"),
             category: Category::Providers,
             severity: Severity::Error,
             name: "API keys resolvable",
@@ -160,7 +160,7 @@ fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<St
 impl DoctorCheck for PrvProviderReachable {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("PRV-003"),
+            id: CheckId::new("PRV-003"),
             category: Category::Providers,
             severity: Severity::Info,
             name: "Provider reachable",
@@ -263,7 +263,7 @@ async fn probe_provider_url(
 impl DoctorCheck for PrvEmbeddingProvider {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("PRV-004"),
+            id: CheckId::new("PRV-004"),
             category: Category::Providers,
             severity: Severity::Error,
             name: "Embedding provider configured",
@@ -295,7 +295,7 @@ impl DoctorCheck for PrvEmbeddingProvider {
 impl DoctorCheck for PrvWebSearchKey {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("PRV-005"),
+            id: CheckId::new("PRV-005"),
             category: Category::Providers,
             severity: Severity::Warning,
             name: "Web search API key",

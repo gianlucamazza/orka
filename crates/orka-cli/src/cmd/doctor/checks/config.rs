@@ -21,7 +21,7 @@ pub struct CfgGraphPresent;
 impl DoctorCheck for CfgFileExists {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CFG-001"),
+            id: CheckId::new("CFG-001"),
             category: Category::Config,
             severity: Severity::Critical,
             name: "Config file exists",
@@ -62,7 +62,7 @@ impl DoctorCheck for CfgFileExists {
 impl DoctorCheck for CfgTomlParses {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CFG-002"),
+            id: CheckId::new("CFG-002"),
             category: Category::Config,
             severity: Severity::Critical,
             name: "TOML syntax valid",
@@ -86,7 +86,7 @@ impl DoctorCheck for CfgTomlParses {
 impl DoctorCheck for CfgVersionCurrent {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CFG-003"),
+            id: CheckId::new("CFG-003"),
             category: Category::Config,
             severity: Severity::Warning,
             name: "Config version current",
@@ -116,19 +116,19 @@ impl DoctorCheck for CfgVersionCurrent {
                     format!("Migrate config v{from} → v{to} (backup created)")
                 };
                 CheckOutcome::fail(message)
-                .with_hint("Run `orka config migrate` to rewrite the config file.")
-                .with_fix(FixAction {
-                    description,
-                    apply: Box::new(move || {
-                        let backup = config_path.with_extension("toml.bak");
-                        std::fs::copy(&config_path, &backup)?;
-                        std::fs::write(&config_path, &migrated_toml)?;
-                        Ok(format!(
-                            "Backup saved to {}, config rewritten to v{to}",
-                            backup.display()
-                        ))
-                    }),
-                })
+                    .with_hint("Run `orka config migrate` to rewrite the config file.")
+                    .with_fix(FixAction {
+                        description,
+                        apply: Box::new(move || {
+                            let backup = config_path.with_extension("toml.bak");
+                            std::fs::copy(&config_path, &backup)?;
+                            std::fs::write(&config_path, &migrated_toml)?;
+                            Ok(format!(
+                                "Backup saved to {}, config rewritten to v{to}",
+                                backup.display()
+                            ))
+                        }),
+                    })
             }
         }
     }
@@ -145,7 +145,7 @@ impl DoctorCheck for CfgVersionCurrent {
 impl DoctorCheck for CfgValidation {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CFG-004"),
+            id: CheckId::new("CFG-004"),
             category: Category::Config,
             severity: Severity::Error,
             name: "Full validation passes",
@@ -173,7 +173,7 @@ impl DoctorCheck for CfgValidation {
 impl DoctorCheck for CfgNoDeprecated {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CFG-005"),
+            id: CheckId::new("CFG-005"),
             category: Category::Config,
             severity: Severity::Warning,
             name: "No deprecated fields",
@@ -238,7 +238,7 @@ fn scan_inline_keys(doc: &toml_edit::DocumentMut, issues: &mut Vec<String>) {
 impl DoctorCheck for CfgAgentDefs {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CFG-006"),
+            id: CheckId::new("CFG-006"),
             category: Category::Config,
             severity: Severity::Error,
             name: "Agent definitions valid",
@@ -278,7 +278,7 @@ impl DoctorCheck for CfgAgentDefs {
 impl DoctorCheck for CfgGraphPresent {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CFG-007"),
+            id: CheckId::new("CFG-007"),
             category: Category::Config,
             severity: Severity::Error,
             name: "Graph config (multi-agent)",

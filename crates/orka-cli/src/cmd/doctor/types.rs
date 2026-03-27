@@ -2,7 +2,31 @@ use serde::Serialize;
 
 /// Stable identifier for a check (e.g., "CFG-001").
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
-pub struct CheckId(pub &'static str);
+pub struct CheckId(&'static str);
+
+impl CheckId {
+    /// Create a new check identifier from a static string.
+    pub const fn new(id: &'static str) -> Self {
+        Self(id)
+    }
+
+    /// Return the identifier as a string slice.
+    pub fn as_str(&self) -> &str {
+        self.0
+    }
+}
+
+impl std::fmt::Display for CheckId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl AsRef<str> for CheckId {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
 
 /// Check category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, clap::ValueEnum)]

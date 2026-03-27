@@ -69,7 +69,7 @@ pub async fn run(
         .filter(|c| {
             let meta = c.meta();
             category.is_none_or(|cat| meta.category == cat)
-                && check_id.is_none_or(|id| meta.id.0 == id)
+                && check_id.is_none_or(|id| meta.id.as_str() == id)
                 && meta.severity >= min_severity
         })
         .collect();
@@ -114,7 +114,7 @@ pub fn list_checks() -> Result<(), Box<dyn std::error::Error>> {
 /// Explain a specific check by ID.
 pub fn explain_check(id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let checks = registry::build_registry();
-    match checks.iter().find(|c| c.meta().id.0 == id) {
+    match checks.iter().find(|c| c.meta().id.as_str() == id) {
         Some(check) => {
             output::explain_check(&check.meta(), check.explain());
             Ok(())
@@ -216,7 +216,7 @@ async fn run_checks(
                 // A check task panicked or was cancelled — surface it as a synthetic
                 // failure rather than silently dropping the result.
                 let meta = CheckMeta {
-                    id: CheckId("ERR-000"),
+                    id: CheckId::new("ERR-000"),
                     category: Category::Connectivity,
                     severity: Severity::Error,
                     name: "check task panicked",
@@ -231,7 +231,7 @@ async fn run_checks(
     }
 
     // Sort network results by check ID for deterministic output
-    network_results.sort_by(|a, b| a.0.id.0.cmp(b.0.id.0));
+    network_results.sort_by(|a, b| a.0.id.as_str().cmp(b.0.id.as_str()));
     results.extend(network_results);
 
     results
@@ -271,7 +271,7 @@ async fn run_fixes(
         if let Some(fix) = outcome.fix.take() {
             let prompt = format!(
                 "Apply fix for {} ({}): {}?",
-                meta.id.0, meta.name, fix.description
+                meta.id, meta.name, fix.description
             );
             let confirmed = Confirm::new()
                 .with_prompt(&prompt)

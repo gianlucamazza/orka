@@ -17,7 +17,7 @@ pub struct SecNoNewPrivileges;
 impl DoctorCheck for SecNoInlineKeys {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("SEC-001"),
+            id: CheckId::new("SEC-001"),
             category: Category::Security,
             severity: Severity::Warning,
             name: "No inline API keys",
@@ -89,7 +89,7 @@ fn extract_string_value(line: &str) -> Option<String> {
 impl DoctorCheck for SecFilePermissions {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("SEC-002"),
+            id: CheckId::new("SEC-002"),
             category: Category::Security,
             severity: Severity::Warning,
             name: "Config file permissions",
@@ -142,7 +142,7 @@ impl DoctorCheck for SecFilePermissions {
 impl DoctorCheck for SecWorkspaceDirs {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("SEC-003"),
+            id: CheckId::new("SEC-003"),
             category: Category::Security,
             severity: Severity::Error,
             name: "Workspace directories exist",
@@ -203,7 +203,7 @@ fn is_not_writable(path: &std::path::Path) -> bool {
 impl DoctorCheck for SecSudoConfig {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("SEC-004"),
+            id: CheckId::new("SEC-004"),
             category: Category::Security,
             severity: Severity::Warning,
             name: "Sudo configuration valid",
@@ -256,7 +256,7 @@ impl DoctorCheck for SecSudoConfig {
 impl DoctorCheck for SecNoNewPrivileges {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("SEC-005"),
+            id: CheckId::new("SEC-005"),
             category: Category::Security,
             severity: Severity::Warning,
             name: "NoNewPrivileges check",

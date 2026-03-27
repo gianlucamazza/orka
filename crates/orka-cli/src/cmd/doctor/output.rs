@@ -61,7 +61,7 @@ fn render_text(report: &DoctorReport, verbose: bool) {
             let sev = severity_label(meta.severity);
             println!(
                 "  [{label}] {id:<8} {sev:<5} {name}",
-                id = meta.id.0,
+                id = meta.id.as_str(),
                 name = meta.name,
             );
 
@@ -114,7 +114,7 @@ fn render_json(report: &DoctorReport) {
         .results
         .iter()
         .map(|(meta, outcome)| CheckResultJson {
-            id: meta.id.0.to_string(),
+            id: meta.id.to_string(),
             category: format!("{:?}", meta.category).to_lowercase(),
             severity: format!("{:?}", meta.severity).to_lowercase(),
             name: meta.name.to_string(),
@@ -151,7 +151,7 @@ fn render_markdown(report: &DoctorReport) {
         let escaped = outcome.message.replace('|', "\\|");
         println!(
             "| {status_icon} | `{}` | {:?} | {} | {escaped} |",
-            meta.id.0, meta.severity, meta.name,
+            meta.id.as_str(), meta.severity, meta.name,
         );
     }
 
@@ -177,7 +177,7 @@ pub fn list_checks(checks: &[(CheckMeta, &str)]) {
 
     for (meta, _) in checks {
         table.add_row([
-            meta.id.0,
+            meta.id.as_str(),
             meta.category.to_string().as_str(),
             &format!("{:?}", meta.severity),
             meta.name,
@@ -189,7 +189,7 @@ pub fn list_checks(checks: &[(CheckMeta, &str)]) {
 
 /// Print detailed explanation for a single check.
 pub fn explain_check(meta: &CheckMeta, explanation: &str) {
-    println!("{} — {}", meta.id.0.bold(), meta.name.bold());
+    println!("{} — {}", meta.id.as_str().bold(), meta.name.bold());
     println!(
         "Category: {}  |  Severity: {:?}",
         meta.category, meta.severity

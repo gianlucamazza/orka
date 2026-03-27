@@ -20,7 +20,7 @@ const MSRV: &str = "1.91";
 impl DoctorCheck for EnvRustToolchain {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("ENV-001"),
+            id: CheckId::new("ENV-001"),
             category: Category::Environment,
             severity: Severity::Info,
             name: "Rust toolchain",
@@ -72,7 +72,7 @@ fn version_ok(version_str: &str, min: &str) -> bool {
 impl DoctorCheck for EnvDockerAvailable {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("ENV-002"),
+            id: CheckId::new("ENV-002"),
             category: Category::Environment,
             severity: Severity::Info,
             name: "Docker available",
@@ -103,7 +103,7 @@ impl DoctorCheck for EnvDockerAvailable {
 impl DoctorCheck for EnvOsCapabilities {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("ENV-003"),
+            id: CheckId::new("ENV-003"),
             category: Category::Environment,
             severity: Severity::Info,
             name: "OS capabilities",
@@ -171,7 +171,7 @@ impl DoctorCheck for EnvOsCapabilities {
 impl DoctorCheck for EnvMcpBinaries {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("ENV-004"),
+            id: CheckId::new("ENV-004"),
             category: Category::Environment,
             severity: Severity::Warning,
             name: "MCP server binaries",
@@ -245,7 +245,7 @@ fn which_binary(cmd: &str) -> bool {
 impl DoctorCheck for EnvPluginDir {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("ENV-005"),
+            id: CheckId::new("ENV-005"),
             category: Category::Environment,
             severity: Severity::Warning,
             name: "Plugin directory",
@@ -297,7 +297,7 @@ impl DoctorCheck for EnvPluginDir {
 impl DoctorCheck for EnvAdapterTokens {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("ENV-006"),
+            id: CheckId::new("ENV-006"),
             category: Category::Environment,
             severity: Severity::Error,
             name: "Adapter tokens configured",

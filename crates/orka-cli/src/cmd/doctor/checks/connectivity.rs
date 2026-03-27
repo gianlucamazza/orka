@@ -16,7 +16,7 @@ pub struct ConQdrantVersion;
 impl DoctorCheck for ConRedisReachable {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CON-001"),
+            id: CheckId::new("CON-001"),
             category: Category::Connectivity,
             severity: Severity::Critical,
             name: "Redis reachable",
@@ -54,7 +54,7 @@ impl DoctorCheck for ConRedisReachable {
 impl DoctorCheck for ConRedisVersion {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CON-002"),
+            id: CheckId::new("CON-002"),
             category: Category::Connectivity,
             severity: Severity::Warning,
             name: "Redis version >= 7.0",
@@ -88,7 +88,7 @@ impl DoctorCheck for ConRedisVersion {
 impl DoctorCheck for ConQdrantReachable {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CON-003"),
+            id: CheckId::new("CON-003"),
             category: Category::Connectivity,
             severity: Severity::Error,
             name: "Qdrant reachable",
@@ -136,7 +136,7 @@ impl DoctorCheck for ConQdrantReachable {
 impl DoctorCheck for ConQdrantVersion {
     fn meta(&self) -> CheckMeta {
         CheckMeta {
-            id: CheckId("CON-004"),
+            id: CheckId::new("CON-004"),
             category: Category::Connectivity,
             severity: Severity::Info,
             name: "Qdrant version",
