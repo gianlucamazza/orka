@@ -65,6 +65,14 @@ chore: bump dependencies
 - Update documentation if the public API changes
 - Ensure `just ci` passes before requesting review
 
+### Documentation Sources of Truth
+
+- Treat `README.md` as onboarding and high-level product overview only.
+- Treat `docs/reference/*.md` as the normative reference for CLI, config, deployment, and architecture.
+- Treat code as the final source of truth when docs drift: `crates/orka-cli/src/main.rs` for CLI and `crates/orka-core/src/config/` for config schema.
+- Mark preview or internal-only features explicitly instead of documenting them as generally available.
+- Keep crate-local `README.md` files focused on crate-specific behavior; avoid duplicating cross-cutting reference material from `docs/reference/`.
+
 ## Code Style
 
 - Follow standard Rust conventions (`rustfmt` defaults, no `rustfmt.toml`)
@@ -137,7 +145,8 @@ async fn test_async_function() {
 
 ## Architecture
 
-Orka is organized as a Cargo workspace with ~34 crates. Each crate has a single responsibility:
+Orka is organized as a Cargo workspace with about 40 packages across `crates/`
+and `sdk/`. Each crate has a single responsibility:
 
 - **orka-core**: Shared types, traits, and error definitions
 - **orka-bus**: Message bus abstraction (Redis Streams)

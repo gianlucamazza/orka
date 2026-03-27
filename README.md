@@ -176,6 +176,8 @@ curl -X POST http://localhost:8081/api/v1/message \
 ## Configuration
 
 Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
+The repository root `orka.toml` is the canonical sample config kept in sync with
+the current parser.
 
 For a complete reference of all configuration options, see the [Configuration Guide](docs/reference/configuration.md).
 
@@ -214,11 +216,14 @@ Config fields can also be overridden via `ORKA__<SECTION>__<KEY>` (e.g., `ORKA__
 | `GET`    | `/metrics`                      | Prometheus metrics (when `observe.backend = "otlp"` or `prometheus`) |
 | `GET`    | `/docs`                         | Swagger UI (OpenAPI)                                 |
 | `GET`    | `/api/v1/version`               | Version info                                         |
+| `GET`    | `/api/v1/info`                  | Server info and feature flags                        |
 | `GET`    | `/api/v1/dlq`                   | List dead-letter entries                             |
 | `DELETE` | `/api/v1/dlq`                   | Purge dead-letter queue                              |
 | `POST`   | `/api/v1/dlq/{id}/replay`       | Replay a dead-letter entry                           |
 | `GET`    | `/api/v1/skills`                | List registered skills                               |
+| `GET`    | `/api/v1/soft-skills`           | List discovered soft skills                          |
 | `GET`    | `/api/v1/skills/{name}`         | Skill detail with schema                             |
+| `POST`   | `/api/v1/eval`                  | Run eval scenarios                                   |
 | `GET`    | `/api/v1/schedules`             | List scheduled tasks                                 |
 | `POST`   | `/api/v1/schedules`             | Create a schedule                                    |
 | `DELETE` | `/api/v1/schedules/{id}`        | Delete a schedule                                    |
@@ -267,14 +272,15 @@ Workspaces support hot-reloading via filesystem watcher.
 
 ## Documentation
 
-For a full table of contents, see the [Documentation Index](docs/README.md).
+Use the [Documentation Index](docs/README.md) as the canonical navigation hub.
+The table below is a curated subset of the most common entrypoints.
 
 | Guide                                          | Description                                               |
 | ---------------------------------------------- | --------------------------------------------------------- |
 | [Architecture](docs/reference/architecture.md) | End-to-end message flow and subsystem overview            |
 | [Deployment](docs/reference/deployment.md)     | Docker, bare-metal, systemd, reverse proxy, observability |
 | [Configuration](docs/reference/configuration.md) | Detailed reference for `orka.toml` and env vars         |
-| [CLI Reference](docs/reference/cli-reference.md) | Available commands and flags for the `orka` binary      |
+| [CLI Reference](docs/reference/cli-reference.md) | Current commands and flags exposed by the `orka` binary |
 | [Prompt Architecture](docs/guides/agents.md)   | Guide to the prompt pipeline, templates, and Workspaces   |
 | [Skill Development](docs/guides/skill-development.md) | Built-in, WASM, and soft skills; eval framework     |
 | [WASM Tutorial](docs/guides/tutorials/build-a-wasm-plugin.md) | Step-by-step guide to writing WebAssembly plugins |
@@ -282,6 +288,12 @@ For a full table of contents, see the [Documentation Index](docs/README.md).
 | [Experience System](docs/guides/experience-system.md) | Self-learning loop, reflection, distillation        |
 | [Eval Framework](docs/guides/eval-guide.md)    | TOML scenario runner for offline skill testing            |
 | [Security](SECURITY.md)                        | Vulnerability reporting, hardening checklist              |
+
+Internal-only or preview material lives under `docs/internal/` or is explicitly
+marked as preview when it documents code paths that are not currently exposed by
+the public CLI.
+
+Companion docs that sit outside `docs/` are also indexed from [docs/README.md](docs/README.md), including examples, packaging, SDK, tooling, tests, and selected crate-local READMEs.
 
 ## Development
 
@@ -306,6 +318,9 @@ The `orka` command-line tool provides a full suite of management commands for se
 For a complete list of commands and global options, see the [CLI Reference](docs/reference/cli-reference.md).
 
 ## Project Structure
+
+Curated overview of the main repository areas; this is intentionally not an
+exhaustive listing of every workspace package.
 
 ```
 orka/
