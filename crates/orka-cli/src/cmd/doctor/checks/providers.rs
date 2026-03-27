@@ -114,7 +114,7 @@ impl DoctorCheck for PrvApiKeysResolvable {
     }
 }
 
-/// Resolve where a provider's API key comes from. Returns None if no source is
+/// Resolve where a provider credential comes from. Returns None if no source is
 /// configured.
 fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<String> {
     use orka_core::config::LlmAuthKind;
@@ -209,6 +209,7 @@ fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<St
         }
         LlmAuthKind::Cli => Some("cli backend (no HTTP credential)".to_string()),
         LlmAuthKind::Auto => resolve_auth_token().or_else(resolve_api_key),
+        _ => resolve_auth_token().or_else(resolve_api_key),
     }
 }
 
