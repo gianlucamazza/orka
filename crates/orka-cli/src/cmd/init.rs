@@ -256,6 +256,7 @@ fn phase1_bootstrap(args: &InitArgs) -> Result<(Arc<dyn LlmClient>, BootstrapPro
 }
 
 /// Collect provider, API key, base URL, and model interactively.
+#[allow(clippy::type_complexity)]
 fn interactive_phase1(
     args: &InitArgs,
 ) -> Result<(String, Option<String>, Option<String>, Option<String>)> {
@@ -283,7 +284,7 @@ fn interactive_phase1(
                 None // Will be resolved from env at runtime
             } else {
                 let key = dialoguer::Password::new()
-                    .with_prompt(format!("API key (or set {} env var)", env_name))
+                    .with_prompt(format!("API key (or set {env_name} env var)"))
                     .interact()?;
                 if key.is_empty() {
                     return Err("API key must not be empty".into());
