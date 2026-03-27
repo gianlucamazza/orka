@@ -9,6 +9,10 @@ license.workspace = true
 name = "orka"
 path = "src/main.rs"
 
+[features]
+default = ["wasm"]
+wasm = ["dep:orka-wasm", "orka-skills/wasm"]
+
 [dependencies]
 clap = { workspace = true, features = ["env"] }
 clap_complete.workspace = true
@@ -24,7 +28,7 @@ orka-mcp.workspace = true
 orka-onboard.workspace = true
 orka-secrets.workspace = true
 orka-skills.workspace = true
-orka-wasm.workspace = true
+orka-wasm = { workspace = true, optional = true }
 similar = { workspace = true }
 colored.workspace = true
 dirs = "6"

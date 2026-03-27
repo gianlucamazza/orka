@@ -91,9 +91,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     }
 
     // 2. Init tracing (RUST_LOG takes precedence over config)
-    let filter =
-        EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(config.logging.level.as_str()));
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(config.logging.level.as_str()));
     if config.logging.json {
         tracing_subscriber::fmt()
             .with_env_filter(filter)
@@ -137,27 +136,30 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let mut skills = orka_skills::create_skill_registry();
     skills.register(Arc::new(orka_skills::EchoSkill));
 
-    // 4b. Shared WASM engine + Sandbox + SandboxSkill
-    let wasm_engine =
-        orka_wasm::WasmEngine::new().context("failed to create shared WASM engine")?;
+    // 4b. Sandbox + SandboxSkill
     let sandbox =
         orka_sandbox::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
     skills.register(Arc::new(orka_sandbox::SandboxSkill::new(sandbox)));
 
-    // 4c. Load WASM plugins
-    if let Some(ref plugin_dir) = config.plugins.dir {
-        match orka_skills::load_plugins(
-            std::path::Path::new(plugin_dir),
-            &wasm_engine,
-            &config.plugins,
-        ) {
-            Ok(plugins) => {
-                for plugin in plugins {
-                    skills.register(plugin);
+    // 4c. Shared WASM engine + WASM plugins
+    #[cfg(feature = "wasm")]
+    {
+        let wasm_engine =
+            orka_wasm::WasmEngine::new().context("failed to create shared WASM engine")?;
+        if let Some(ref plugin_dir) = config.plugins.dir {
+            match orka_skills::load_plugins(
+                std::path::Path::new(plugin_dir),
+                &wasm_engine,
+                &config.plugins,
+            ) {
+                Ok(plugins) => {
+                    for plugin in plugins {
+                        skills.register(plugin);
+                    }
                 }
-            }
-            Err(e) => {
-                warn!(%e, "failed to load plugins");
+                Err(e) => {
+                    warn!(%e, "failed to load plugins");
+                }
             }
         }
     }

@@ -5,6 +5,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["qdrant", "local-embeddings", "openai-embeddings", "pdf"]
+qdrant = ["dep:qdrant-client"]
+local-embeddings = ["dep:fastembed"]
+openai-embeddings = []
+pdf = ["dep:pdf-extract"]
+
 [dependencies]
 orka-core.workspace = true
 async-trait.workspace = true
@@ -15,10 +22,10 @@ tracing.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 reqwest.workspace = true
-qdrant-client.workspace = true
-fastembed.workspace = true
+qdrant-client = { workspace = true, optional = true }
+fastembed = { workspace = true, optional = true }
 text-splitter.workspace = true
-pdf-extract.workspace = true
+pdf-extract = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }

@@ -3,6 +3,7 @@ pub mod html;
 /// Markdown document parser — passes content through as plain text.
 pub mod markdown;
 /// PDF document parser using `pdf-extract`.
+#[cfg(feature = "pdf")]
 pub mod pdf;
 /// Plain-text document parser — returns content as-is.
 pub mod plaintext;
@@ -19,9 +20,11 @@ pub trait DocumentParser: Send + Sync {
 pub fn detect_format(path: &str) -> Box<dyn DocumentParser> {
     let p = std::path::Path::new(path);
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+    #[cfg(feature = "pdf")]
     if ext.eq_ignore_ascii_case("pdf") {
-        Box::new(pdf::PdfParser)
-    } else if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
+        return Box::new(pdf::PdfParser);
+    }
+    if ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm") {
         Box::new(html::HtmlParser)
     } else if ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown") {
         Box::new(markdown::MarkdownParser)

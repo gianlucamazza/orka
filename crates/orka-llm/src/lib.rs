@@ -11,6 +11,7 @@
 #![warn(missing_docs)]
 
 /// Anthropic Messages API client with retry and streaming support.
+#[cfg(feature = "anthropic")]
 pub mod anthropic;
 /// Core LLM types: [`LlmClient`] trait, message structs, streaming types.
 pub mod client;
@@ -19,8 +20,10 @@ pub mod context;
 /// Structured error types for LLM provider failures.
 pub mod error;
 /// Ollama client — delegates to OpenAI-compatible local API.
+#[cfg(feature = "ollama")]
 pub mod ollama;
 /// `OpenAI` Chat Completions API client with retry and streaming support.
+#[cfg(feature = "openai")]
 pub mod openai;
 /// [`LlmRouter`] — model-prefix routing with per-provider circuit breakers.
 pub mod router;
@@ -50,6 +53,7 @@ pub fn infer_provider(model: &str) -> String {
     }
 }
 
+#[cfg(feature = "anthropic")]
 pub use anthropic::AnthropicClient;
 pub use client::{
     ChatContent, ChatMessage, CompletionOptions, CompletionResponse, ContentBlock,
@@ -58,7 +62,9 @@ pub use client::{
 };
 pub use context::TokenizerHint;
 pub use error::LlmError;
+#[cfg(feature = "ollama")]
 pub use ollama::OllamaClient;
+#[cfg(feature = "openai")]
 pub use openai::OpenAiClient;
 pub use router::LlmRouter;
 pub use stream_consumer::consume_stream;

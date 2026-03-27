@@ -1,5 +1,6 @@
 use std::sync::OnceLock;
 
+#[cfg(feature = "openai")]
 use tiktoken_rs::CoreBPE;
 
 use crate::client::{ChatContent, ChatMessage, ContentBlockInput, Role, ToolDefinition};
@@ -31,6 +32,7 @@ impl TokenizerHint {
 
 /// Thread-safe singleton for the `cl100k_base` tokenizer (used by GPT-series /
 /// o-series).
+#[cfg(feature = "openai")]
 fn cl100k_bpe() -> &'static CoreBPE {
     static BPE: OnceLock<CoreBPE> = OnceLock::new();
     BPE.get_or_init(|| match tiktoken_rs::cl100k_base() {
@@ -41,7 +43,8 @@ fn cl100k_bpe() -> &'static CoreBPE {
 
 /// Estimate token count from text using a model-aware strategy.
 ///
-/// - `OpenAI`: exact count via `cl100k_base` tokenizer.
+/// - `OpenAI`: exact count via `cl100k_base` tokenizer (when the `openai`
+///   feature is enabled) or chars/4 heuristic otherwise.
 /// - Anthropic: chars / 3.5 (empirically closer than chars / 4).
 /// - Unknown: chars / 4 heuristic.
 pub fn estimate_tokens(text: &str) -> u32 {
@@ -51,7 +54,16 @@ pub fn estimate_tokens(text: &str) -> u32 {
 /// Estimate token count using a specific tokenizer hint.
 pub fn estimate_tokens_with_hint(text: &str, hint: TokenizerHint) -> u32 {
     match hint {
-        TokenizerHint::OpenAi => cl100k_bpe().encode_ordinary(text).len() as u32,
+        TokenizerHint::OpenAi => {
+            #[cfg(feature = "openai")]
+            {
+                cl100k_bpe().encode_ordinary(text).len() as u32
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                (text.len() / 4) as u32
+            }
+        }
         TokenizerHint::Anthropic => (text.len() as f64 / 3.5).ceil() as u32,
         TokenizerHint::Unknown => (text.len() / 4) as u32,
     }
@@ -154,6 +166,21 @@ fn is_user_text_turn(msg: &ChatMessage) -> bool {
     }
 }
 
+fn assistant_has_tool_use(msg: &ChatMessage, tool_use_id: &str) -> bool {
+    if msg.role != Role::Assistant {
+        return false;
+    }
+    match &msg.content {
+        ChatContent::Blocks(blocks) => blocks.iter().any(|block| {
+            matches!(
+                block,
+                ContentBlockInput::ToolUse { id, .. } if id == tool_use_id
+            )
+        }),
+        ChatContent::Text(_) => false,
+    }
+}
+
 /// Group `messages` into logical conversation turns.
 ///
 /// A turn begins with a user text message and extends until (but not including)
@@ -177,6 +204,46 @@ pub fn group_into_turns(messages: &[ChatMessage]) -> Vec<std::ops::Range<usize>>
         turns.push(start..messages.len());
     }
     turns
+}
+
+/// Remove orphaned `tool_result` blocks that no longer have a matching
+/// assistant `tool_use` immediately before them.
+///
+/// Returns (`sanitized_messages`, `removed_tool_results`).
+pub fn sanitize_tool_result_history(messages: Vec<ChatMessage>) -> (Vec<ChatMessage>, usize) {
+    let mut sanitized = Vec::with_capacity(messages.len());
+    let mut removed = 0usize;
+
+    for mut msg in messages {
+        let ChatContent::Blocks(blocks) = &mut msg.content else {
+            sanitized.push(msg);
+            continue;
+        };
+
+        if msg.role != Role::User {
+            sanitized.push(msg);
+            continue;
+        }
+
+        let prev_msg = sanitized.last();
+        let original_len = blocks.len();
+        blocks.retain(|block| match block {
+            ContentBlockInput::ToolResult { tool_use_id, .. } => {
+                prev_msg.is_some_and(|prev| assistant_has_tool_use(prev, tool_use_id))
+            }
+            _ => true,
+        });
+
+        removed += original_len.saturating_sub(blocks.len());
+
+        if blocks.is_empty() {
+            continue;
+        }
+
+        sanitized.push(msg);
+    }
+
+    (sanitized, removed)
 }
 
 /// Truncate history to fit within available tokens, dropping oldest turns
@@ -498,5 +565,114 @@ mod tests {
         assert_eq!(turns.len(), 2);
         assert_eq!(turns[0], 0..2);
         assert_eq!(turns[1], 2..3);
+    }
+
+    #[test]
+    fn sanitize_tool_result_history_keeps_valid_pairs() {
+        let messages = vec![
+            ChatMessage::new(
+                Role::Assistant,
+                ChatContent::Blocks(vec![ContentBlockInput::ToolUse {
+                    id: "t1".into(),
+                    name: "search".into(),
+                    input: serde_json::json!({}),
+                }]),
+            ),
+            ChatMessage::new(
+                Role::User,
+                ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
+                    tool_use_id: "t1".into(),
+                    content: "ok".into(),
+                    is_error: false,
+                }]),
+            ),
+        ];
+
+        let (sanitized, removed) = sanitize_tool_result_history(messages);
+        assert_eq!(removed, 0);
+        assert_eq!(sanitized.len(), 2);
+    }
+
+    #[test]
+    fn sanitize_tool_result_history_drops_orphan_result_message() {
+        let messages = vec![ChatMessage::new(
+            Role::User,
+            ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
+                tool_use_id: "t1".into(),
+                content: "orphan".into(),
+                is_error: false,
+            }]),
+        )];
+
+        let (sanitized, removed) = sanitize_tool_result_history(messages);
+        assert_eq!(removed, 1);
+        assert!(sanitized.is_empty());
+    }
+
+    #[test]
+    fn sanitize_tool_result_history_drops_stale_replayed_result() {
+        let messages = vec![
+            ChatMessage::new(
+                Role::Assistant,
+                ChatContent::Blocks(vec![ContentBlockInput::ToolUse {
+                    id: "t1".into(),
+                    name: "search".into(),
+                    input: serde_json::json!({}),
+                }]),
+            ),
+            ChatMessage::new(
+                Role::User,
+                ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
+                    tool_use_id: "t1".into(),
+                    content: "ok".into(),
+                    is_error: false,
+                }]),
+            ),
+            ChatMessage::assistant("done"),
+            ChatMessage::new(
+                Role::User,
+                ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
+                    tool_use_id: "t1".into(),
+                    content: "stale".into(),
+                    is_error: false,
+                }]),
+            ),
+        ];
+
+        let (sanitized, removed) = sanitize_tool_result_history(messages);
+        assert_eq!(removed, 1);
+        assert_eq!(sanitized.len(), 3);
+        assert!(matches!(sanitized[2].content, ChatContent::Text(ref t) if t == "done"));
+    }
+
+    #[test]
+    fn sanitize_tool_result_history_preserves_non_tool_blocks_in_user_message() {
+        let messages = vec![
+            ChatMessage::assistant("done"),
+            ChatMessage::new(
+                Role::User,
+                ChatContent::Blocks(vec![
+                    ContentBlockInput::ToolResult {
+                        tool_use_id: "t1".into(),
+                        content: "stale".into(),
+                        is_error: false,
+                    },
+                    ContentBlockInput::Text {
+                        text: "next question".into(),
+                    },
+                ]),
+            ),
+        ];
+
+        let (sanitized, removed) = sanitize_tool_result_history(messages);
+        assert_eq!(removed, 1);
+        assert_eq!(sanitized.len(), 2);
+        match &sanitized[1].content {
+            ChatContent::Blocks(blocks) => {
+                assert_eq!(blocks.len(), 1);
+                assert!(matches!(blocks[0], ContentBlockInput::Text { .. }));
+            }
+            other => panic!("expected blocks, got {other:?}"),
+        }
     }
 }

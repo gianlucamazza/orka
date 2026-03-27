@@ -35,6 +35,7 @@ pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn S
     // Initialize embedding provider
     let embedding_provider: Arc<dyn embeddings::EmbeddingProvider> =
         match config.embeddings.provider {
+            #[cfg(feature = "openai-embeddings")]
             EmbeddingProvider::Openai => {
                 let api_key = std::env::var("OPENAI_API_KEY").or_else(|_| {
                     config.embeddings.api_key.clone().ok_or_else(|| {
@@ -49,30 +50,57 @@ pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn S
                     embeddings::OPENAI_EMBEDDING_DIMS,
                 ))
             }
+            #[cfg(not(feature = "openai-embeddings"))]
+            EmbeddingProvider::Openai => {
+                return Err(orka_core::Error::Config(
+                    "openai embedding provider requires the `openai-embeddings` feature".into(),
+                ));
+            }
+            #[cfg(feature = "local-embeddings")]
             EmbeddingProvider::Anthropic => {
-                // Anthropic embeddings not yet implemented - use local as fallback
+                // Anthropic embeddings not yet implemented — use local as fallback
                 Arc::new(embeddings::local::LocalEmbeddingProvider::new(
                     &config.embeddings.model,
                     embeddings::LOCAL_EMBEDDING_DIMS,
                 )?)
             }
+            #[cfg(not(feature = "local-embeddings"))]
+            EmbeddingProvider::Anthropic => {
+                return Err(orka_core::Error::Config(
+                    "local embedding fallback requires the `local-embeddings` feature".into(),
+                ));
+            }
+            #[cfg(feature = "local-embeddings")]
             EmbeddingProvider::Custom => {
-                // Custom endpoint not yet implemented - use local as fallback
+                // Custom endpoint not yet implemented — use local as fallback
                 Arc::new(embeddings::local::LocalEmbeddingProvider::new(
                     &config.embeddings.model,
                     embeddings::LOCAL_EMBEDDING_DIMS,
                 )?)
             }
+            #[cfg(not(feature = "local-embeddings"))]
+            EmbeddingProvider::Custom => {
+                return Err(orka_core::Error::Config(
+                    "local embedding fallback requires the `local-embeddings` feature".into(),
+                ));
+            }
+            #[cfg(feature = "local-embeddings")]
             EmbeddingProvider::Local => {
-                // Default: local fastembed
                 Arc::new(embeddings::local::LocalEmbeddingProvider::new(
                     &config.embeddings.model,
                     embeddings::LOCAL_EMBEDDING_DIMS,
                 )?)
+            }
+            #[cfg(not(feature = "local-embeddings"))]
+            EmbeddingProvider::Local => {
+                return Err(orka_core::Error::Config(
+                    "local embedding provider requires the `local-embeddings` feature".into(),
+                ));
             }
         };
 
     // Initialize vector store
+    #[cfg(feature = "qdrant")]
     let vector_store: Arc<dyn VectorStore> = Arc::new(vector_store::qdrant::QdrantStore::new(
         config
             .vector_store
@@ -80,6 +108,13 @@ pub fn create_knowledge_skills(config: &KnowledgeConfig) -> Result<Vec<Arc<dyn S
             .as_deref()
             .unwrap_or(&orka_core::config::defaults::default_qdrant_url()),
     )?);
+
+    #[cfg(not(feature = "qdrant"))]
+    let vector_store: Arc<dyn VectorStore> = {
+        return Err(orka_core::Error::Config(
+            "qdrant vector store requires the `qdrant` feature".into(),
+        ));
+    };
 
     create_knowledge_skills_with(config, embedding_provider, vector_store)
 }

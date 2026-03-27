@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["wasm"]
+wasm = ["dep:orka-wasm"]
+
 [dependencies]
 orka-core.workspace = true
 async-trait.workspace = true
@@ -12,7 +16,7 @@ tracing.workspace = true
 serde_json.workspace = true
 serde = { workspace = true }
 serde_yml.workspace = true
-orka-wasm.workspace = true
+orka-wasm = { workspace = true, optional = true }
 tokio.workspace = true
 jsonschema.workspace = true
 orka-circuit-breaker.workspace = true

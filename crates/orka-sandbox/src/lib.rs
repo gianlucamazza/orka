@@ -13,6 +13,7 @@ pub mod process;
 /// Skill wrapper that exposes sandbox execution as an agent tool.
 pub mod skill;
 /// WebAssembly (WASI) sandbox backed by Wasmtime.
+#[cfg(feature = "wasm")]
 pub mod wasm;
 
 #[cfg(feature = "test-util")]
@@ -25,11 +26,13 @@ pub use executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, 
 use orka_core::{Result, config::SandboxConfig};
 pub use process::ProcessSandbox;
 pub use skill::SandboxSkill;
+#[cfg(feature = "wasm")]
 pub use wasm::WasmSandbox;
 
 /// Create a [`SandboxExecutor`] from the given configuration.
 pub fn create_sandbox(config: &SandboxConfig) -> Result<Arc<dyn SandboxExecutor>> {
     match config.backend.as_str() {
+        #[cfg(feature = "wasm")]
         "wasm" => Ok(Arc::new(WasmSandbox::new(config)?)),
         _ => Ok(Arc::new(ProcessSandbox::new(config))),
     }

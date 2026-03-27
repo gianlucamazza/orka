@@ -14,7 +14,7 @@ name = "orka_server"
 path = "src/lib.rs"
 
 [features]
-default = ["telegram", "discord", "slack", "whatsapp"]
+default = ["telegram", "discord", "slack", "whatsapp", "wasm"]
 ## Enable the Telegram bot adapter.
 telegram = ["dep:orka-adapter-telegram"]
 ## Enable the Discord bot adapter.
@@ -23,6 +23,8 @@ discord = ["dep:orka-adapter-discord"]
 slack = ["dep:orka-adapter-slack"]
 ## Enable the WhatsApp Cloud API adapter.
 whatsapp = ["dep:orka-adapter-whatsapp"]
+## Enable the WASM plugin runtime (wasmtime).
+wasm = ["dep:orka-wasm", "orka-skills/wasm", "orka-sandbox/wasm"]
 
 [dependencies]
 orka-core.workspace = true
@@ -44,7 +46,7 @@ orka-observe.workspace = true
 orka-skills.workspace = true
 orka-circuit-breaker.workspace = true
 orka-sandbox.workspace = true
-orka-wasm.workspace = true
+orka-wasm = { workspace = true, optional = true }
 orka-llm.workspace = true
 orka-mcp.workspace = true
 orka-guardrails.workspace = true

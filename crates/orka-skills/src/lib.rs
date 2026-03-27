@@ -12,6 +12,7 @@
 /// Built-in skill implementations (e.g. [`EchoSkill`]).
 pub mod builtins;
 /// WASM plugin loader — scans a directory for `.wasm` skill files.
+#[cfg(feature = "wasm")]
 pub mod loader;
 /// In-process skill registry keyed by skill name.
 pub mod registry;
@@ -22,14 +23,17 @@ pub mod soft_registry;
 /// Instruction-based soft skills loaded from SKILL.md directories.
 pub mod soft_skill;
 /// WASM-backed skill that executes a compiled plugin module via Wasmtime.
+#[cfg(feature = "wasm")]
 pub mod wasm_plugin;
 
 pub use builtins::EchoSkill;
+#[cfg(feature = "wasm")]
 pub use loader::load_plugins;
 pub use registry::SkillRegistry;
 pub use soft_loader::scan_soft_skills;
 pub use soft_registry::{SoftSkillRegistry, SoftSkillSelectionMode};
 pub use soft_skill::{SoftSkill, SoftSkillMeta, SoftSkillSummary};
+#[cfg(feature = "wasm")]
 pub use wasm_plugin::WasmPluginSkill;
 
 /// Create an empty [`SkillRegistry`].

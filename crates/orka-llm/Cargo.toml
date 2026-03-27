@@ -5,6 +5,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["anthropic", "openai", "ollama"]
+anthropic = []
+openai = ["dep:tiktoken-rs"]
+ollama = ["openai"]
+
 [dependencies]
 orka-core.workspace = true
 thiserror.workspace = true
@@ -17,7 +23,7 @@ tokio.workspace = true
 tracing.workspace = true
 futures-util.workspace = true
 arc-swap.workspace = true
-tiktoken-rs.workspace = true
+tiktoken-rs = { workspace = true, optional = true }
 
 [lints]
 workspace = true

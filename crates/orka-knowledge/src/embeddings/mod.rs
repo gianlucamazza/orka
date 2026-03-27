@@ -1,13 +1,17 @@
 /// Embedding vector dimensions for `OpenAI` ada-002 model.
+#[cfg(feature = "openai-embeddings")]
 pub const OPENAI_EMBEDDING_DIMS: u32 = 1536;
 /// Embedding vector dimensions for local BGE-small model.
+#[cfg(feature = "local-embeddings")]
 pub const LOCAL_EMBEDDING_DIMS: u32 = 384;
 
 /// Local ONNX-based embedding provider using fastembed.
+#[cfg(feature = "local-embeddings")]
 pub mod local;
 /// In-memory embedding provider for testing.
 pub mod memory;
 /// OpenAI-compatible embedding provider via REST API.
+#[cfg(feature = "openai-embeddings")]
 pub mod openai;
 
 use async_trait::async_trait;
