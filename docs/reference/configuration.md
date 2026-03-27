@@ -15,6 +15,7 @@ current parser.
 | `ORKA_ENV_FILE` | Optional `.env` file watched for secret rotation |
 | `RUST_LOG` | Overrides tracing filter |
 | `ANTHROPIC_API_KEY` | Fallback API key for Anthropic providers |
+| `ANTHROPIC_AUTH_TOKEN` | Fallback bearer/setup-token for Anthropic providers |
 | `OPENAI_API_KEY` | Fallback API key for OpenAI providers |
 | `TAVILY_API_KEY` | Tavily search key |
 | `BRAVE_API_KEY` | Brave search key |
@@ -298,16 +299,26 @@ Each `[[llm.providers]]` supports:
 | --- | --- | --- |
 | `name` | `string` | Unique provider name |
 | `provider` | `string` | `anthropic`, `openai`, `ollama`, etc. |
+| `auth_kind` | `enum` | `auto`, `api_key`, `auth_token`, `subscription`, `cli` |
 | `base_url` | `string?` | Optional override |
 | `model` | `string?` | Default model for that provider |
 | `api_key` | `string?` | Inline API key |
 | `api_key_env` | `string?` | Env var containing API key |
 | `api_key_secret` | `string?` | Secret-store path |
+| `auth_token` | `string?` | Inline bearer/auth token |
+| `auth_token_env` | `string?` | Env var containing bearer/auth token |
+| `auth_token_secret` | `string?` | Secret-store path for bearer/auth token |
 | `temperature` | `f32?` | Provider default |
 | `max_tokens` | `u32?` | Provider default |
 | `top_p` | `f32?` | Provider default |
 | `timeout_secs` | `u64?` | Per-provider timeout |
 | `max_retries` | `u32?` | Per-provider retries |
+
+Anthropic auth behavior:
+- `auth_kind = "api_key"` uses `ANTHROPIC_API_KEY` / `api_key_*`.
+- `auth_kind = "auth_token"` or `auth_kind = "subscription"` uses `ANTHROPIC_AUTH_TOKEN` / `auth_token_*` first, then legacy `api_key_*` for backward compatibility.
+- `auth_kind = "auto"` keeps backward-compatible inference and may promote legacy Anthropic token shapes to bearer auth.
+- `auth_kind = "cli"` is reserved for CLI-backed integration paths; delegated coding still belongs under `os.coding.providers.claude_code`.
 
 The current schema does not define `llm.timeout_secs`, `llm.max_tokens`, `llm.api_version`, or provider `prefixes`.
 
