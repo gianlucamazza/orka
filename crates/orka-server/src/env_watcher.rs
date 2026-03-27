@@ -209,14 +209,16 @@ fn resolve_env_slot(
             })
         })
         .or_else(|| {
-            (!default_env.is_empty()).then_some(default_env).and_then(|env| {
-                env_vars
-                    .get(env)
-                    .map(String::as_str)
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_owned)
-                    .or_else(|| std::env::var(env).ok().filter(|value| !value.is_empty()))
-            })
+            (!default_env.is_empty())
+                .then_some(default_env)
+                .and_then(|env| {
+                    env_vars
+                        .get(env)
+                        .map(String::as_str)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned)
+                        .or_else(|| std::env::var(env).ok().filter(|value| !value.is_empty()))
+                })
         })
 }
 
@@ -388,8 +390,7 @@ mod tests {
         provider.auth_kind = LlmAuthKind::Cli;
         provider.api_key = Some("ignored".into());
 
-        let resolved =
-            resolve_credential_from_env(&HashMap::new(), &provider, &NoopSecrets).await;
+        let resolved = resolve_credential_from_env(&HashMap::new(), &provider, &NoopSecrets).await;
         assert!(resolved.is_none());
     }
 
@@ -399,8 +400,7 @@ mod tests {
         provider.auth_kind = LlmAuthKind::Auto;
         provider.api_key = Some("sk-ant-oat01-test".into());
 
-        let resolved =
-            resolve_credential_from_env(&HashMap::new(), &provider, &NoopSecrets).await;
+        let resolved = resolve_credential_from_env(&HashMap::new(), &provider, &NoopSecrets).await;
         let resolved = resolved.expect("credential");
         assert_eq!(resolved.auth_kind, LlmAuthKind::AuthToken);
         assert_eq!(resolved.value, "sk-ant-oat01-test");
