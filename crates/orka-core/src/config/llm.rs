@@ -160,6 +160,16 @@ impl std::fmt::Debug for LlmProviderConfig {
 }
 
 impl LlmProviderConfig {
+    /// Create a minimal provider config with the given name and provider type.
+    #[must_use]
+    pub fn for_provider(name: impl Into<String>, provider: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            provider: provider.into(),
+            ..Self::default()
+        }
+    }
+
     /// Validate the provider configuration.
     pub fn validate(&self) -> crate::Result<()> {
         if self.name.is_empty() {

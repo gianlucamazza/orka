@@ -348,11 +348,7 @@ mod tests {
     }
 
     fn provider() -> LlmProviderConfig {
-        LlmProviderConfig {
-            name: "anthropic".into(),
-            provider: "anthropic".into(),
-            ..LlmProviderConfig::default()
-        }
+        LlmProviderConfig::for_provider("anthropic", "anthropic")
     }
 
     #[test]
