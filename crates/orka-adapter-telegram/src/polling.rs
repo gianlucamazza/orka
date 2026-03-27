@@ -110,9 +110,15 @@ pub(crate) async fn run_polling_loop(
                 }
             }
             Err(e) => {
-                error!(%e, "Telegram getUpdates failed");
-                tokio::time::sleep(backoff_delay(error_count, 1, 60)).await;
                 error_count = error_count.saturating_add(1);
+                error!(
+                    error = %e,
+                    consecutive_failures = error_count,
+                    "Telegram getUpdates failed"
+                );
+                let delay = backoff_delay(error_count.saturating_sub(1), 1, 60);
+                debug!(delay_ms = delay.as_millis() as u64, "backing off before retry");
+                tokio::time::sleep(delay).await;
             }
         }
     }

@@ -1329,11 +1329,20 @@ pub type MessageSink = tokio::sync::mpsc::Sender<Envelope>;
 /// Type alias for the message stream returned by the bus.
 pub type MessageStream = tokio::sync::mpsc::Receiver<Envelope>;
 
-/// Exponential backoff delay capped at `max_secs`.
-/// Returns `base_secs * 2^attempt`, clamped to `max_secs`.
+/// Exponential backoff delay with full jitter, capped at `max_secs`.
+///
+/// Computes a ceiling of `base_secs * 2^attempt` (capped at `max_secs`), then
+/// returns a uniformly random duration in `[0, ceiling]`.  Full jitter prevents
+/// thundering-herd retry storms when multiple workers fail simultaneously.
 pub fn backoff_delay(attempt: u32, base_secs: u64, max_secs: u64) -> std::time::Duration {
     let secs = base_secs.saturating_mul(1u64.checked_shl(attempt).unwrap_or(u64::MAX));
-    std::time::Duration::from_secs(secs.min(max_secs))
+    let ceiling = secs.min(max_secs);
+    let jittered = if ceiling > 0 {
+        rand::random::<u64>() % (ceiling + 1)
+    } else {
+        0
+    };
+    std::time::Duration::from_secs(jittered)
 }
 
 // --- CommandArgs conversions ---
@@ -1575,19 +1584,29 @@ mod tests {
 
     #[test]
     fn backoff_delay_first_attempt() {
-        assert_eq!(backoff_delay(0, 2, 60), Duration::from_secs(2));
+        // ceiling = 2 * 2^0 = 2; jitter in [0, 2]
+        let d = backoff_delay(0, 2, 60);
+        assert!(d <= Duration::from_secs(2), "expected <= 2s, got {d:?}");
     }
 
     #[test]
     fn backoff_delay_exponential() {
-        // 1 * 2^3 = 8
-        assert_eq!(backoff_delay(3, 1, 60), Duration::from_secs(8));
+        // ceiling = 1 * 2^3 = 8; jitter in [0, 8]
+        let d = backoff_delay(3, 1, 60);
+        assert!(d <= Duration::from_secs(8), "expected <= 8s, got {d:?}");
     }
 
     #[test]
     fn backoff_delay_capped_at_max() {
-        // 1 * 2^10 = 1024, capped at 30
-        assert_eq!(backoff_delay(10, 1, 30), Duration::from_secs(30));
+        // ceiling = min(1 * 2^10, 30) = 30; jitter in [0, 30]
+        let d = backoff_delay(10, 1, 30);
+        assert!(d <= Duration::from_secs(30), "expected <= 30s, got {d:?}");
+    }
+
+    #[test]
+    fn backoff_delay_zero_base() {
+        // base=0 → ceiling=0 → always 0
+        assert_eq!(backoff_delay(5, 0, 60), Duration::from_secs(0));
     }
 
     // --- resolve_path ---

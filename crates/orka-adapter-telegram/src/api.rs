@@ -75,13 +75,16 @@ impl TelegramApi {
                     context: format!("Telegram {method}: ok=true but result is null"),
                 });
             }
+            let description = tg_resp
+                .description
+                .unwrap_or_else(|| "unknown error".into());
+            let error_code = tg_resp
+                .error_code
+                .map(|c| format!(" (error_code={c})"))
+                .unwrap_or_default();
             return Err(Error::Adapter {
-                source: Box::new(std::io::Error::other(
-                    tg_resp
-                        .description
-                        .unwrap_or_else(|| "unknown error".into()),
-                )),
-                context: format!("Telegram {method} API error"),
+                source: Box::new(std::io::Error::other(description)),
+                context: format!("Telegram {method} API error{error_code}"),
             });
         }
 

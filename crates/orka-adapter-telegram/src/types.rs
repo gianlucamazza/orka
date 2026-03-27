@@ -11,6 +11,7 @@ pub(crate) struct TelegramResponse<T> {
     pub ok: bool,
     pub result: Option<T>,
     pub description: Option<String>,
+    pub error_code: Option<u32>,
     pub parameters: Option<ResponseParameters>,
 }
 
