@@ -2,21 +2,11 @@ use std::path::Path;
 
 use orka_core::{
     config::OrkaConfig,
-    migrate::{self, CURRENT_CONFIG_VERSION, MigrationResult},
+    migrate::{self, CURRENT_CONFIG_VERSION},
 };
 
-fn print_check_status(result: &Option<MigrationResult>) {
+fn print_check_status(result: &Option<migrate::MigrationResult>) {
     match result {
-        Some(res) if res.from_version == res.to_version => {
-            println!("Config version: {CURRENT_CONFIG_VERSION} (up to date)");
-            if !res.warnings.is_empty() {
-                println!("\nWarnings:");
-                for w in &res.warnings {
-                    println!("  - {w}");
-                }
-            }
-            println!("\nNormalization available for current schema");
-        }
         Some(res) => {
             println!(
                 "Config version: {} (current is {})",
@@ -84,7 +74,7 @@ pub async fn migrate_cmd(
     }
 
     let raw = std::fs::read_to_string(&resolved)?;
-    let (migrated_toml, result) = migrate::migrate_if_needed(&raw)?;
+    let (migrated_toml, result) = migrate::migrate_for_write(&raw)?;
     let schema_issues = migrate::inspect_config_issues(&migrated_toml)?;
 
     match result {
@@ -96,7 +86,7 @@ pub async fn migrate_cmd(
         }
         Some(res) => {
             if res.from_version == res.to_version {
-                println!("Normalizing config for current schema (v{CURRENT_CONFIG_VERSION}).");
+                println!("Rewriting config to the canonical v{CURRENT_CONFIG_VERSION} schema.");
             } else {
                 println!(
                     "Migrating config: v{} → v{}",

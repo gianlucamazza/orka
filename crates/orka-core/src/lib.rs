@@ -67,7 +67,9 @@ pub mod testing;
 pub use config::OrkaConfig;
 pub use error::{Error, Result};
 #[cfg(feature = "migrate")]
-pub use migrate::{MigrationError, MigrationResult, inspect_config_issues, migrate_if_needed};
+pub use migrate::{
+    MigrationError, MigrationResult, inspect_config_issues, migrate_for_write, migrate_if_needed,
+};
 pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry, forward_delegate_progress};
 pub use traits::NoopEventSink;

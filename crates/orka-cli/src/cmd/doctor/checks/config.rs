@@ -98,25 +98,33 @@ impl DoctorCheck for CfgVersionCurrent {
         let Some(raw) = &ctx.config_raw else {
             return CheckOutcome::skip("config file not readable");
         };
-        match migrate::migrate_if_needed(raw) {
+        match migrate::migrate_for_write(raw) {
             Err(e) => CheckOutcome::fail(format!("migration check failed: {e}")),
             Ok((_, None)) => CheckOutcome::pass(format!("v{CURRENT_CONFIG_VERSION} (up to date)")),
             Ok((migrated_toml, Some(res))) => {
                 let from = res.from_version;
                 let to = res.to_version;
                 let config_path = ctx.config_path.clone();
-                CheckOutcome::fail(format!(
-                    "config is v{from}, current is v{to}. Migration available."
-                ))
-                .with_hint("Run `orka config migrate` to apply the migration.")
+                let message = if from == to {
+                    format!("config is v{to}, but canonical rewrite is available.")
+                } else {
+                    format!("config is v{from}, current is v{to}. Migration available.")
+                };
+                let description = if from == to {
+                    format!("Rewrite config to canonical v{to} schema (backup created)")
+                } else {
+                    format!("Migrate config v{from} → v{to} (backup created)")
+                };
+                CheckOutcome::fail(message)
+                .with_hint("Run `orka config migrate` to rewrite the config file.")
                 .with_fix(FixAction {
-                    description: format!("Migrate config v{from} → v{to} (backup created)"),
+                    description,
                     apply: Box::new(move || {
                         let backup = config_path.with_extension("toml.bak");
                         std::fs::copy(&config_path, &backup)?;
                         std::fs::write(&config_path, &migrated_toml)?;
                         Ok(format!(
-                            "Backup saved to {}, config migrated to v{to}",
+                            "Backup saved to {}, config rewritten to v{to}",
                             backup.display()
                         ))
                     }),

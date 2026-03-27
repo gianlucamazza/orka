@@ -750,7 +750,7 @@ do_install() {
 		info "Config ${CONFIG_DIR}/orka.toml already exists, skipping."
 		info "Checking config migration..."
 		if "${CLI_BIN_PATH}" config migrate --config "${CONFIG_DIR}/orka.toml"; then
-			ok "Config up to date."
+			ok "Config migration/rewrite completed."
 			if "${CLI_BIN_PATH}" config check --config "${CONFIG_DIR}/orka.toml"; then
 				ok "Config validation passed."
 			else

@@ -71,6 +71,23 @@ fn read_version(doc: &DocumentMut) -> u32 {
 /// Returns the (possibly transformed) TOML string and an optional
 /// [`MigrationResult`] if any migration was applied.
 pub fn migrate_if_needed(raw: &str) -> Result<(String, Option<MigrationResult>), MigrationError> {
+    transform_config(raw, false)
+}
+
+/// Migrate raw TOML config text and normalize known current-schema aliases so
+/// the result can be written back to disk.
+///
+/// Unlike [`migrate_if_needed`], this can return a migration result even when
+/// `config_version` is already current if legacy keys can be rewritten to the
+/// canonical schema.
+pub fn migrate_for_write(raw: &str) -> Result<(String, Option<MigrationResult>), MigrationError> {
+    transform_config(raw, true)
+}
+
+fn transform_config(
+    raw: &str,
+    normalize_current: bool,
+) -> Result<(String, Option<MigrationResult>), MigrationError> {
     let mut doc: DocumentMut = raw.parse()?;
     let from_version = read_version(&doc);
 
@@ -97,7 +114,9 @@ pub fn migrate_if_needed(raw: &str) -> Result<(String, Option<MigrationResult>),
         }
     }
 
-    normalize_current_schema(&mut doc, &mut warnings);
+    if normalize_current {
+        normalize_current_schema(&mut doc, &mut warnings);
+    }
 
     let migrated = doc.to_string();
     if migrated == raw {
@@ -1203,7 +1222,7 @@ host = "127.0.0.1"
     }
 
     #[test]
-    fn current_version_normalizes_legacy_agent_keys() {
+    fn current_version_runtime_migration_remains_strict() {
         let raw = r#"
 config_version = 6
 
@@ -1214,6 +1233,22 @@ max_iterations = 25
 [graph]
 "#;
         let (migrated, result) = ok(migrate_if_needed(raw));
+        assert!(result.is_none());
+        assert_eq!(migrated, raw);
+    }
+
+    #[test]
+    fn current_version_normalizes_legacy_agent_keys_for_write() {
+        let raw = r#"
+config_version = 6
+
+[[agents]]
+id = "orka-default"
+max_iterations = 25
+
+[graph]
+"#;
+        let (migrated, result) = ok(migrate_for_write(raw));
         let result = some(result, "should have normalization result");
         assert_eq!(result.from_version, 6);
         assert_eq!(result.to_version, 6);
@@ -1223,7 +1258,6 @@ max_iterations = 25
                 .iter()
                 .any(|w| w.contains("[[agents]][0].max_iterations"))
         );
-
         let doc: DocumentMut = ok(migrated.parse());
         let agents = doc
             .get("agents")
@@ -1235,7 +1269,7 @@ max_iterations = 25
     }
 
     #[test]
-    fn current_version_prefers_max_turns_over_legacy_max_iterations() {
+    fn current_version_prefers_max_turns_over_legacy_max_iterations_for_write() {
         let raw = r#"
 config_version = 6
 
@@ -1246,7 +1280,7 @@ max_turns = 10
 
 [graph]
 "#;
-        let (migrated, result) = ok(migrate_if_needed(raw));
+        let (migrated, result) = ok(migrate_for_write(raw));
         let result = some(result, "should have normalization result");
         assert_eq!(result.from_version, 6);
         assert_eq!(result.to_version, 6);
