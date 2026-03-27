@@ -2,5 +2,5 @@
 pre-build = [
   "dpkg --add-architecture arm64",
   "apt-get update",
-  "apt-get install -y libfreetype-dev:arm64",
+  "apt-get install -y clang libfreetype6-dev:arm64",
 ]
