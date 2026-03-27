@@ -294,3 +294,33 @@ pub enum ExperienceBackend {
     /// Disk storage.
     Disk,
 }
+
+/// Thinking/reasoning effort level for LLM extended reasoning.
+///
+/// Maps to Anthropic adaptive thinking and OpenAI reasoning effort.
+/// Omit `thinking` in agent config to disable thinking entirely.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingEffort {
+    /// Minimal thinking — fastest, for simple queries.
+    Low,
+    /// Moderate thinking — balanced default.
+    Medium,
+    /// Deep thinking — for complex tasks.
+    High,
+    /// Maximum depth — only available on Claude Opus 4.6+.
+    Max,
+}
+
+impl ThinkingEffort {
+    /// Return the canonical string value.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Max => "max",
+        }
+    }
+}

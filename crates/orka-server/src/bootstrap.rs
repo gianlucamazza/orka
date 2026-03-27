@@ -92,7 +92,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
 
     // 2. Init tracing (RUST_LOG takes precedence over config)
     let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.logging.level));
+        EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new(config.logging.level.as_str()));
     if config.logging.json {
         tracing_subscriber::fmt()
             .with_env_filter(filter)
@@ -524,7 +525,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         bus.clone(),
         sessions.clone(),
         queue.clone(),
-        workspace_registry.default_loader().clone(),
+        workspace_registry
+            .default_loader()
+            .context("default workspace not registered")?
+            .clone(),
         event_sink.clone(),
         Some(&config.redis.url),
         config.gateway.rate_limit,
@@ -569,7 +573,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         &config
             .agents
             .first()
-            .expect("at least one agent after validation")
+            .context("no agents defined after configuration validation")?
             .config,
         experience_service.clone(),
     );
@@ -772,7 +776,9 @@ pub(crate) async fn run() -> anyhow::Result<()> {
 
     // 13. Get template registry from workspace
     let templates = {
-        let default_state = workspace_registry.default_state();
+        let default_state = workspace_registry
+            .default_state()
+            .context("default workspace not registered")?;
         let state = default_state.read().await;
         state.templates.clone()
     };

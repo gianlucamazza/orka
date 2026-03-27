@@ -37,12 +37,10 @@ impl WorkspaceRegistry {
         &self.default_name
     }
 
-    /// Return the loader for the default workspace. Panics if not registered.
-    #[allow(clippy::expect_used)]
-    pub fn default_loader(&self) -> &Arc<WorkspaceLoader> {
-        self.loaders
-            .get(&self.default_name)
-            .expect("default workspace must be registered")
+    /// Return the loader for the default workspace, or `None` if it has not
+    /// been registered yet.
+    pub fn default_loader(&self) -> Option<&Arc<WorkspaceLoader>> {
+        self.loaders.get(&self.default_name)
     }
 
     /// List all registered workspace names, sorted alphabetically.
@@ -61,9 +59,10 @@ impl WorkspaceRegistry {
         self.loaders.get(name).map(|l| l.state())
     }
 
-    /// Return the state handle for the default workspace.
-    pub fn default_state(&self) -> Arc<RwLock<WorkspaceState>> {
-        self.default_loader().state()
+    /// Return the state handle for the default workspace, or `None` if the
+    /// default workspace has not been registered yet.
+    pub fn default_state(&self) -> Option<Arc<RwLock<WorkspaceState>>> {
+        self.default_loader().map(|l| l.state())
     }
 }
 
@@ -90,8 +89,15 @@ mod tests {
     fn default_loader_works() {
         let mut registry = WorkspaceRegistry::new("main".into());
         registry.register("main".into(), make_loader("."));
-        let loader = registry.default_loader();
+        let loader = registry.default_loader().expect("main was registered");
         assert_eq!(loader.root().to_str().unwrap(), ".");
+    }
+
+    #[test]
+    fn default_loader_returns_none_when_not_registered() {
+        let registry = WorkspaceRegistry::new("missing".into());
+        assert!(registry.default_loader().is_none());
+        assert!(registry.default_state().is_none());
     }
 
     #[test]

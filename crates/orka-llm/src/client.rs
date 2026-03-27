@@ -168,29 +168,9 @@ pub enum ThinkingConfig {
 }
 
 /// Effort level for Anthropic adaptive thinking.
-#[derive(Debug, Clone, Copy)]
-pub enum ThinkingEffort {
-    /// Minimal thinking — fastest, for simple queries.
-    Low,
-    /// Moderate thinking — balanced default.
-    Medium,
-    /// Deep thinking — for complex tasks.
-    High,
-    /// Maximum depth — only available on Claude Opus 4.6+.
-    Max,
-}
-
-impl ThinkingEffort {
-    /// Return the string value expected by the Anthropic API.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ThinkingEffort::Low => "low",
-            ThinkingEffort::Medium => "medium",
-            ThinkingEffort::High => "high",
-            ThinkingEffort::Max => "max",
-        }
-    }
-}
+///
+/// Re-exported from `orka-core` so callers can use a single canonical type.
+pub use orka_core::config::primitives::ThinkingEffort;
 
 /// `OpenAI` o-series / GPT-5.x reasoning effort level.
 #[derive(Debug, Clone, Copy)]

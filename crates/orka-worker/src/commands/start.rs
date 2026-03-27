@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::{CommandArgs, Envelope, OutboundMessage, Result, Session, config::AgentConfig};
+use orka_core::{CommandArgs, Envelope, Error, OutboundMessage, Result, Session, config::AgentConfig};
 use orka_workspace::WorkspaceRegistry;
 
 use super::ServerCommand;
@@ -41,8 +41,11 @@ impl ServerCommand for StartCommand {
         envelope: &Envelope,
         _session: &Session,
     ) -> Result<Vec<OutboundMessage>> {
-        let state = self.workspace_registry.default_state();
-        let state = state.read().await;
+        let state_lock = self
+            .workspace_registry
+            .default_state()
+            .ok_or_else(|| Error::Workspace("default workspace not registered".into()))?;
+        let state = state_lock.read().await;
 
         let agent_name = state
             .soul

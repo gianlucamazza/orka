@@ -214,10 +214,13 @@ impl WorkspaceHandler {
     /// Resolve workspace from the registry by name. Falls back to default if
     /// not found.
     async fn resolve_from_registry(&self, ws_name: &str) -> (String, String, String) {
-        let state_lock = self.workspace_registry.state(ws_name).unwrap_or_else(|| {
+        let state_lock = self.workspace_registry.state(ws_name).or_else(|| {
             warn!(workspace = %ws_name, "workspace not found in registry, using default");
             self.workspace_registry.default_state()
         });
+        let Some(state_lock) = state_lock else {
+            return (self.agent_config.name.clone(), String::new(), String::new());
+        };
         let state = state_lock.read().await;
         let soul_name = state
             .soul
@@ -253,9 +256,8 @@ impl WorkspaceHandler {
                     (self.agent_config.name.clone(), raw.to_string())
                 }
             }
-        } else {
-            let state = self.workspace_registry.default_state();
-            let state = state.read().await;
+        } else if let Some(state_lock) = self.workspace_registry.default_state() {
+            let state = state_lock.read().await;
             let name = state
                 .soul
                 .as_ref()
@@ -267,14 +269,17 @@ impl WorkspaceHandler {
                 .map(|doc| doc.body.clone())
                 .unwrap_or_default();
             (name, body)
+        } else {
+            (self.agent_config.name.clone(), String::new())
         };
 
         let tools = if let Some(raw) = raw_tools {
             orka_workspace::strip_frontmatter(raw)
-        } else {
-            let state = self.workspace_registry.default_state();
-            let state = state.read().await;
+        } else if let Some(state_lock) = self.workspace_registry.default_state() {
+            let state = state_lock.read().await;
             state.tools_body.clone().unwrap_or_default()
+        } else {
+            String::new()
         };
 
         (name, body, tools)
@@ -693,10 +698,14 @@ impl AgentHandler for WorkspaceHandler {
                 .and_then(|v| v.as_str());
 
             // Get template registry from workspace state
-            let state_lock = self.workspace_registry.default_state();
-            let state = state_lock.read().await;
-            let template_registry = state.templates.clone();
-            drop(state);
+            let template_registry = if let Some(state_lock) =
+                self.workspace_registry.default_state()
+            {
+                let state = state_lock.read().await;
+                state.templates.clone()
+            } else {
+                None
+            };
 
             // Build system prompt using the configurable pipeline
             let pipeline_config = PipelineConfig::default();

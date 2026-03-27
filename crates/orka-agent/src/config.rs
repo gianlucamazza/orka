@@ -1,7 +1,7 @@
 //! Translates `OrkaConfig` into `Agent` and `AgentGraph` objects.
 
 use orka_core::config::{AgentDef, NodeKindDef, OrkaConfig, primitives::GraphExecutionMode};
-use orka_llm::{ThinkingConfig, ThinkingEffort};
+use orka_llm::ThinkingConfig;
 use orka_workspace::WorkspaceRegistry;
 use tracing::warn;
 
@@ -215,8 +215,8 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
     let ws_name = def.id.as_str();
     let state_lock = workspace_registry
         .state(ws_name)
-        .unwrap_or_else(|| workspace_registry.default_state());
-    {
+        .or_else(|| workspace_registry.default_state());
+    if let Some(state_lock) = state_lock {
         let state = state_lock.read().await;
         if let Some(soul) = &state.soul {
             system_prompt.persona = soul.body.clone();
@@ -228,28 +228,16 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
         if let Some(tools_body) = &state.tools_body {
             system_prompt.tool_instructions = tools_body.clone();
         }
+    } else if !cfg.system_prompt.is_empty() {
+        system_prompt.persona = cfg.system_prompt.clone();
     }
 
     agent.system_prompt = system_prompt;
     agent.max_turns = cfg.max_turns;
 
-    let thinking = cfg.thinking.as_deref().map(|effort| {
-        let level = match effort.to_lowercase().as_str() {
-            "low" => ThinkingEffort::Low,
-            "medium" => ThinkingEffort::Medium,
-            "high" => ThinkingEffort::High,
-            "max" => ThinkingEffort::Max,
-            other => {
-                tracing::warn!(
-                    agent = %def.id,
-                    value = %other,
-                    "unknown thinking effort value, falling back to medium"
-                );
-                ThinkingEffort::Medium
-            }
-        };
-        ThinkingConfig::Adaptive { effort: level }
-    });
+    let thinking = cfg
+        .thinking
+        .map(|effort| ThinkingConfig::Adaptive { effort });
 
     // Use simplified LLM config
     agent.llm_config = AgentLlmConfig {
@@ -513,7 +501,7 @@ mod tests {
     #[tokio::test]
     async fn thinking_effort_high_builds_adaptive_config() {
         let mut def = agent_def("thinker");
-        def.config.thinking = Some("high".to_string());
+        def.config.thinking = Some(orka_core::config::primitives::ThinkingEffort::High);
         let registry = make_registry();
         let agent = super::build_agent_from_def(&def, &registry).await;
         assert!(matches!(
@@ -527,7 +515,7 @@ mod tests {
     #[tokio::test]
     async fn thinking_effort_max_builds_adaptive_config() {
         let mut def = agent_def("thinker");
-        def.config.thinking = Some("max".to_string());
+        def.config.thinking = Some(orka_core::config::primitives::ThinkingEffort::Max);
         let registry = make_registry();
         let agent = super::build_agent_from_def(&def, &registry).await;
         assert!(matches!(

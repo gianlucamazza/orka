@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::config::{
     defaults,
-    primitives::{GraphExecutionMode, HistoryFilter, NodeKindDef},
+    primitives::{GraphExecutionMode, HistoryFilter, NodeKindDef, ThinkingEffort},
 };
 
 /// Per-agent runtime configuration.
@@ -28,14 +28,13 @@ pub struct AgentConfig {
     /// Maximum tokens per response.
     #[serde(default = "defaults::default_max_tokens")]
     pub max_tokens: u32,
-    /// Thinking/reasoning effort level: `"low"`, `"medium"`, `"high"`, or
-    /// `"max"`.
+    /// Thinking/reasoning effort level.
     ///
     /// Enables Anthropic adaptive thinking (Claude 4.6+) or maps to `OpenAI`
     /// `reasoning_effort` depending on the provider. `"max"` is only available
     /// on Claude Opus 4.6+. Omit to disable thinking entirely.
     #[serde(default)]
-    pub thinking: Option<String>,
+    pub thinking: Option<ThinkingEffort>,
     /// Maximum tool-use turns before the agent stops.
     #[serde(default = "defaults::default_max_turns")]
     pub max_turns: usize,

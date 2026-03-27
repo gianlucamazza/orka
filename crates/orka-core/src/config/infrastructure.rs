@@ -205,8 +205,8 @@ impl Default for WorkerConfig {
 #[non_exhaustive]
 pub struct LoggingConfig {
     /// Log level filter.
-    #[serde(default = "defaults::default_log_level")]
-    pub level: String,
+    #[serde(default)]
+    pub level: crate::config::primitives::LogLevel,
     /// Emit logs as JSON (useful for log aggregators).
     #[serde(default)]
     pub json: bool,
@@ -215,7 +215,7 @@ pub struct LoggingConfig {
 impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
-            level: defaults::default_log_level(),
+            level: crate::config::primitives::LogLevel::default(),
             json: false,
         }
     }

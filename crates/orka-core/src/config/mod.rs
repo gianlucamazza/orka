@@ -296,7 +296,6 @@ impl OrkaConfig {
         self.llm.apply_defaults();
         self.validate_sub_configs()?;
         self.validate_agents()?;
-        self.validate_enum_fields()?;
         self.validate_graph()?;
         self.validate_workspaces()?;
         self.warn_deprecations();
@@ -341,43 +340,6 @@ impl OrkaConfig {
         for agent_def in &self.agents {
             if agent_def.id.is_empty() {
                 return Err(crate::Error::Config("agent id must not be empty".into()));
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_enum_fields(&self) -> crate::Result<()> {
-        if !matches!(
-            self.logging.level.to_ascii_lowercase().as_str(),
-            "trace" | "debug" | "info" | "warn" | "error"
-        ) {
-            return Err(crate::Error::Config(format!(
-                "logging.level must be one of trace/debug/info/warn/error, got: '{}'",
-                self.logging.level
-            )));
-        }
-        if self.os.enabled
-            && !matches!(
-                self.os.permission_level.as_str(),
-                "read-only" | "readonly" | "interact" | "write" | "execute" | "admin"
-            )
-        {
-            return Err(crate::Error::Config(format!(
-                "os.permission_level must be one of read-only/interact/write/execute/admin, got: '{:?}'",
-                self.os.permission_level
-            )));
-        }
-        for agent_def in &self.agents {
-            if let Some(ref thinking) = agent_def.config.thinking
-                && !matches!(
-                    thinking.to_lowercase().as_str(),
-                    "low" | "medium" | "high" | "max"
-                )
-            {
-                return Err(crate::Error::Config(format!(
-                    "[[agents]] id={}: thinking must be one of: low, medium, high, max (got: '{thinking}')",
-                    agent_def.id
-                )));
             }
         }
         Ok(())

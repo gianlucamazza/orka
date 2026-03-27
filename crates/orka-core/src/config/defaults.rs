@@ -56,11 +56,6 @@ pub fn default_qdrant_url() -> String {
     "http://localhost:6333".to_string()
 }
 
-/// Default log level.
-pub fn default_log_level() -> String {
-    "info".to_string()
-}
-
 /// Default worker concurrency.
 pub const fn default_concurrency() -> usize {
     4
@@ -194,11 +189,6 @@ pub const fn default_tool_result_max_chars() -> usize {
 /// Default OS enabled state.
 pub const fn default_os_enabled() -> bool {
     false
-}
-
-/// Default OS permission level.
-pub fn default_os_permission_level() -> String {
-    "read-only".to_string()
 }
 
 /// Default Claude Code enabled state.
