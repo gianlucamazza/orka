@@ -184,6 +184,8 @@ pub struct ExecutionResult {
     pub total_tokens: u64,
     /// Wall-clock duration in milliseconds.
     pub duration_ms: u64,
+    /// Why the agent stopped executing.
+    pub stop_reason: orka_core::stream::AgentStopReason,
 }
 
 impl ExecutionResult {
@@ -205,6 +207,12 @@ impl ExecutionResult {
             msg.metadata
                 .entry("source_channel".into())
                 .or_insert_with(|| serde_json::Value::String(ctx.trigger.channel.clone()));
+            if self.stop_reason != orka_core::stream::AgentStopReason::Complete {
+                msg.metadata.insert(
+                    "stop_reason".into(),
+                    serde_json::to_value(self.stop_reason).unwrap_or_default(),
+                );
+            }
             out.push(msg);
         }
 
@@ -411,6 +419,7 @@ impl GraphExecutor {
         let mut final_response = String::new();
         let mut all_attachments: Vec<MediaPayload> = Vec::new();
         let mut global_iteration = 0usize;
+        let mut final_stop_reason = orka_core::stream::AgentStopReason::Complete;
 
         // Add initial user message to context if not already present
         let trigger_text = match &ctx.trigger.payload {
@@ -577,6 +586,7 @@ impl GraphExecutor {
                             total_iterations,
                             total_tokens: ctx.total_tokens(),
                             duration_ms: start.elapsed().as_millis() as u64,
+                            stop_reason: orka_core::stream::AgentStopReason::Interrupted,
                         });
                     }
 
@@ -682,6 +692,7 @@ impl GraphExecutor {
                         }
                     }
 
+                    final_stop_reason = result.stop_reason;
                     if let Some(resp) = result.response {
                         final_response = resp.clone();
 
@@ -848,6 +859,7 @@ impl GraphExecutor {
                         .await?;
                     total_iterations += result.iterations;
                     all_attachments.extend(result.attachments.iter().cloned());
+                    final_stop_reason = result.stop_reason;
                     if let Some(resp) = result.response {
                         final_response = resp.clone();
                         // Evaluate outgoing edges — FanIn can feed into further nodes.
@@ -897,6 +909,7 @@ impl GraphExecutor {
             total_iterations,
             total_tokens: ctx.total_tokens(),
             duration_ms: start.elapsed().as_millis() as u64,
+            stop_reason: final_stop_reason,
         })
     }
 

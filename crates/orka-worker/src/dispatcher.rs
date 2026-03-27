@@ -188,6 +188,7 @@ impl Dispatcher for GraphDispatcher {
                     total_iterations: 0,
                     total_tokens: 0,
                     duration_ms: 0,
+                    stop_reason: orka_core::stream::AgentStopReason::Complete,
                 },
             }
         } else {

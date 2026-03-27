@@ -548,7 +548,7 @@ impl AgentHandler for WorkspaceHandler {
         let agent = &self.agent_config;
         let soul_model = agent.model.clone();
         let soul_max_tokens = agent.max_tokens;
-        let max_iterations = agent.max_iterations;
+        let max_turns = agent.max_turns;
         let context_window = self.default_context_window;
 
         // Apply input guardrail
@@ -780,11 +780,16 @@ impl AgentHandler for WorkspaceHandler {
 
             // Agent loop: call LLM, execute tool calls, feed results back
             let mut final_text = String::new();
+            let mut agent_stop_reason = orka_core::stream::AgentStopReason::Complete;
             let llm_model = soul_model.clone();
             let max_tool_retries = 3; // Default max retries
             // Track per-tool-name consecutive error counts for self-correction
             let mut tool_error_counts: HashMap<String, u32> = HashMap::new();
-            for iteration in 0..max_iterations {
+            let mut lm_calls: usize = 0;
+            let mut tool_turns_count: usize = 0;
+            loop {
+                let iteration = lm_calls;
+                lm_calls += 1;
                 // Check for cancellation between iterations.
                 if let Some(ref tokens) = self.session_cancel_tokens {
                     let cancelled = if let Ok(t) = tokens.lock() {
@@ -934,6 +939,7 @@ impl AgentHandler for WorkspaceHandler {
 
                 if completion.stop_reason == Some(StopReason::MaxTokens) {
                     warn!("LLM response truncated (max_tokens reached)");
+                    agent_stop_reason = orka_core::stream::AgentStopReason::MaxTokens;
                 }
 
                 // Collect thinking, text and tool calls from response
@@ -1087,11 +1093,11 @@ impl AgentHandler for WorkspaceHandler {
                     }))
                     .await;
 
-                if iteration == max_iterations - 1 {
-                    warn!(max_iterations, "agent loop reached max iterations");
-                    final_text =
-                        "I reached the maximum number of reasoning steps. Here's what I have so far."
-                            .to_string();
+                tool_turns_count += 1;
+                if tool_turns_count >= max_turns {
+                    warn!(max_turns, "agent loop reached max tool turns");
+                    agent_stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
+                    break;
                 }
             }
 
@@ -1200,7 +1206,14 @@ impl AgentHandler for WorkspaceHandler {
                     final_text
                 };
 
-                return Ok(vec![Self::make_reply(envelope, final_text)]);
+                let mut reply = Self::make_reply(envelope, final_text);
+                if agent_stop_reason != orka_core::stream::AgentStopReason::Complete {
+                    reply.metadata.insert(
+                        "stop_reason".into(),
+                        serde_json::to_value(agent_stop_reason).unwrap_or_default(),
+                    );
+                }
+                return Ok(vec![reply]);
             }
         }
 

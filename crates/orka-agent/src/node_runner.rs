@@ -46,6 +46,8 @@ pub(crate) struct AgentNodeResult {
     /// Media attachments produced by skills during this node's execution.
     /// Forwarded by the executor as separate outbound media messages.
     pub attachments: Vec<MediaPayload>,
+    /// Why the agent stopped executing.
+    pub stop_reason: orka_core::stream::AgentStopReason,
 }
 
 /// Parse a handoff from a tool call issued by the LLM.
@@ -123,6 +125,7 @@ pub(crate) async fn run_agent_node(
                 iterations: 0,
                 interrupted: None,
                 attachments: Vec::new(),
+                stop_reason: orka_core::stream::AgentStopReason::Error,
             });
         }
     };
@@ -509,6 +512,7 @@ pub(crate) async fn run_agent_node(
                     iterations: 0,
                     interrupted: None,
                     attachments: Vec::new(),
+                    stop_reason: orka_core::stream::AgentStopReason::Error,
                 });
             }
             Ok(GuardrailDecision::Modify(filtered)) => {
@@ -550,8 +554,10 @@ pub(crate) async fn run_agent_node(
     }
 
     let mut iterations = 0usize;
+    let mut tool_turns = 0usize;
     let mut final_response: Option<String> = None;
     let mut handoff: Option<Handoff> = None;
+    let mut stop_reason = orka_core::stream::AgentStopReason::Complete;
     // Accumulated media attachments from all skill invocations in this node.
     let mut collected_attachments: Vec<MediaPayload> = Vec::new();
     // Active worktree path for this agent run. Set when `git_worktree_create`
@@ -559,8 +565,9 @@ pub(crate) async fn run_agent_node(
     // every `SkillContext` so tools operate inside the worktree automatically.
     let mut worktree_cwd: Option<String> = None;
 
-    for iteration in 0..agent.max_iterations {
-        iterations = iteration + 1;
+    loop {
+        let iteration = iterations;
+        iterations += 1;
         let iteration_start = std::time::Instant::now();
 
         // B1: Rebuild tool list from enabled categories each iteration
@@ -665,6 +672,7 @@ pub(crate) async fn run_agent_node(
             Err(e) => {
                 warn!(%e, "LLM stream init failed");
                 final_response = Some(format!("LLM request failed: {e}"));
+                stop_reason = orka_core::stream::AgentStopReason::Error;
                 break;
             }
         };
@@ -683,9 +691,15 @@ pub(crate) async fn run_agent_node(
             Err(e) => {
                 warn!(%e, "LLM stream failed");
                 final_response = Some(format!("LLM request failed: {e}"));
+                stop_reason = orka_core::stream::AgentStopReason::Error;
                 break;
             }
         };
+
+        if completion.stop_reason == Some(orka_llm::client::StopReason::MaxTokens) {
+            warn!("LLM response truncated (max_tokens reached)");
+            stop_reason = orka_core::stream::AgentStopReason::MaxTokens;
+        }
 
         let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
         let iteration_tokens =
@@ -979,6 +993,7 @@ pub(crate) async fn run_agent_node(
                 iterations,
                 interrupted: Some(reason),
                 attachments: Vec::new(),
+                stop_reason: orka_core::stream::AgentStopReason::Interrupted,
             });
         }
 
@@ -1195,12 +1210,11 @@ pub(crate) async fn run_agent_node(
             }))
             .await;
 
-        if iteration == agent.max_iterations - 1 {
-            warn!(
-                max_iterations = agent.max_iterations,
-                "agent reached max iterations"
-            );
-            final_response = Some("I reached the maximum number of reasoning steps.".to_string());
+        tool_turns += 1;
+        if tool_turns >= agent.max_turns {
+            warn!(max_turns = agent.max_turns, "agent reached max tool turns");
+            stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
+            break;
         }
     }
 
@@ -1233,6 +1247,7 @@ pub(crate) async fn run_agent_node(
         iterations,
         interrupted: None,
         attachments: collected_attachments,
+        stop_reason,
     })
 }
 
@@ -1590,8 +1605,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn max_iterations_cap() {
-        // Queue enough tool-call responses to saturate max_iterations.
+    async fn max_turns_cap() {
+        // Queue enough tool-call responses to saturate max_turns.
         // The skill registry is empty so every tool call returns an error,
         // keeping the loop running until it hits the cap.
         let tool_resp = CompletionResponseBuilder::new()
@@ -1603,7 +1618,7 @@ mod tests {
         });
 
         let mut agent = Agent::new(AgentId::new("test"), "Test");
-        agent.max_iterations = 3;
+        agent.max_turns = 3;
 
         let ctx = minimal_ctx();
         let deps = minimal_deps(mock);
@@ -1612,10 +1627,9 @@ mod tests {
         let result = run_agent_node(&agent, &ctx, &deps, &graph).await.unwrap();
 
         assert_eq!(result.iterations, 3);
-        let response = result.response.unwrap_or_default();
-        assert!(
-            response.contains("maximum"),
-            "expected max-iterations message, got: {response}"
+        assert_eq!(
+            result.stop_reason,
+            orka_core::stream::AgentStopReason::MaxTurns
         );
     }
 

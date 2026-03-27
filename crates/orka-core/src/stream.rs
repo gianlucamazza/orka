@@ -126,6 +126,25 @@ pub enum StreamChunkKind {
     Done,
 }
 
+/// Why the agent stopped executing.
+///
+/// Propagated through [`crate::OutboundMessage`] metadata so that clients can
+/// distinguish a natural completion from a limit-induced truncation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentStopReason {
+    /// Agent finished naturally (no pending tool calls).
+    Complete,
+    /// Agent loop exhausted `max_turns`.
+    MaxTurns,
+    /// The LLM's final response was truncated by the output token limit.
+    MaxTokens,
+    /// Human-in-the-loop interrupt.
+    Interrupted,
+    /// Agent loop terminated due to an error.
+    Error,
+}
+
 impl StreamChunk {
     /// Create a new stream chunk.
     pub fn new(
