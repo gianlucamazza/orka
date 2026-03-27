@@ -1,7 +1,9 @@
 //! Shared conversation-history helpers used by both [`crate::WorkspaceHandler`]
 //! and the graph path in [`crate::WorkerPoolGraph`].
 
-use orka_core::{MemoryEntry, traits::MemoryStore};
+use std::collections::HashMap;
+
+use orka_core::{MemoryEntry, MemoryScope, traits::MemoryStore};
 use orka_llm::{
     client::{ChatContent, ChatMessage, ContentBlockInput},
     context::sanitize_tool_result_history,
@@ -99,8 +101,14 @@ pub async fn save_history_compact(
 
     match serde_json::to_value(&messages) {
         Ok(v) => {
-            let entry =
-                MemoryEntry::new(history_key, v).with_tags(vec!["conversation".to_string()]);
+            let entry = MemoryEntry::working(history_key, v)
+                .with_scope(MemoryScope::Session)
+                .with_source("graph_dispatcher")
+                .with_metadata(HashMap::from([(
+                    "session_id".into(),
+                    history_key.replace("conversation:", ""),
+                )]))
+                .with_tags(vec!["conversation".to_string()]);
             if let Err(e) = memory.store(history_key, entry, None).await {
                 warn!(%e, key = %history_key, "failed to persist conversation history");
             }

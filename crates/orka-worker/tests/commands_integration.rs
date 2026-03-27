@@ -49,6 +49,7 @@ fn command_registry_help_lists_all_commands() {
         &mut registry,
         skills,
         memory,
+        None,
         secrets,
         workspace_registry,
         &agent_config,
@@ -58,7 +59,7 @@ fn command_registry_help_lists_all_commands() {
     let help_text = registry.help_text();
     // Core commands must be present
     assert!(help_text.contains("/help"), "missing /help");
-    assert!(help_text.contains("/reset"), "missing /reset");
+    assert!(help_text.contains("/memory"), "missing /memory");
     assert!(help_text.contains("/status"), "missing /status");
     assert!(help_text.contains("/skills"), "missing /skills");
     assert!(help_text.contains("/cancel"), "missing /cancel");
@@ -207,14 +208,15 @@ async fn rate_limiter_allows_commands_under_limit() {
         &mut registry,
         skills,
         memory,
+        None,
         secrets,
         workspace_registry,
         &agent_config,
         None,
     );
 
-    // The reset command should be registered
-    assert!(registry.get("reset").is_some());
+    // The memory command should be registered
+    assert!(registry.get("memory").is_some());
     assert!(registry.get("status").is_some());
 }
 

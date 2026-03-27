@@ -10,8 +10,8 @@ use std::{
 
 use async_trait::async_trait;
 use orka_core::{
-    CommandArgs, DomainEvent, DomainEventKind, Envelope, MemoryEntry, OutboundMessage, Payload,
-    Result, Session, SessionId,
+    CommandArgs, DomainEvent, DomainEventKind, Envelope, MemoryEntry, MemoryScope, OutboundMessage,
+    Payload, Result, Session, SessionId,
     config::AgentConfig,
     traits::{EventSink, Guardrail, MemoryStore, SecretManager},
 };
@@ -339,7 +339,13 @@ impl WorkspaceHandler {
                 }
                 let override_key = format!("workspace_override:{}", session.id);
                 let override_val = serde_json::json!({ "workspace_name": target });
-                let entry = MemoryEntry::new(override_key.clone(), override_val);
+                let entry = MemoryEntry::working(override_key.clone(), override_val)
+                    .with_scope(MemoryScope::Session)
+                    .with_source("workspace_switch")
+                    .with_metadata(HashMap::from([(
+                        "session_id".into(),
+                        session.id.to_string(),
+                    )]));
                 if let Err(e) = self.memory.store(&override_key, entry, None).await {
                     return Some((format!("Error storing workspace override: {e}"), true));
                 }
@@ -397,7 +403,14 @@ impl WorkspaceHandler {
 
             // Persist the summary separately so it can be injected into the system
             // prompt on the next request without polluting the message list.
-            let summary_entry = MemoryEntry::new(summary_key, serde_json::json!(summary_text))
+            let session_id = memory_key
+                .strip_prefix("conversation:")
+                .unwrap_or_default()
+                .to_string();
+            let summary_entry = MemoryEntry::episodic(summary_key, serde_json::json!(summary_text))
+                .with_scope(MemoryScope::Session)
+                .with_source("workspace_handler")
+                .with_metadata(HashMap::from([("session_id".into(), session_id.clone())]))
                 .with_tags(vec!["conversation_summary".to_string()]);
             if let Err(e) = self.memory.store(summary_key, summary_entry, None).await {
                 warn!(%e, key = %summary_key, "failed to persist conversation summary");
@@ -415,13 +428,23 @@ impl WorkspaceHandler {
                 return;
             }
         };
-        let entry =
-            MemoryEntry::new(memory_key, history_value).with_tags(vec!["conversation".to_string()]);
+        let session_id = memory_key
+            .strip_prefix("conversation:")
+            .unwrap_or_default()
+            .to_string();
+        let entry = MemoryEntry::working(memory_key, history_value)
+            .with_scope(MemoryScope::Session)
+            .with_source("workspace_handler")
+            .with_metadata(HashMap::from([("session_id".into(), session_id.clone())]))
+            .with_tags(vec!["conversation".to_string()]);
         if let Err(e) = self.memory.store(memory_key, entry, None).await {
             warn!(%e, key = %memory_key, "failed to persist conversation history");
         }
 
-        let token_entry = MemoryEntry::new(token_key, serde_json::json!(session_tokens))
+        let token_entry = MemoryEntry::working(token_key, serde_json::json!(session_tokens))
+            .with_scope(MemoryScope::Session)
+            .with_source("workspace_handler")
+            .with_metadata(HashMap::from([("session_id".into(), session_id)]))
             .with_tags(vec!["token_usage".to_string()]);
         if let Err(e) = self.memory.store(token_key, token_entry, None).await {
             warn!(%e, key = %token_key, "failed to persist token usage");
@@ -1297,6 +1320,7 @@ mod tests {
             &mut commands,
             skills.clone(),
             memory.clone(),
+            None,
             secrets.clone(),
             ws_registry.clone(),
             &agent_config,

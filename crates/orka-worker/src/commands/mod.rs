@@ -4,8 +4,8 @@ pub mod cancel;
 pub mod experience;
 /// `/help` command — shows available commands and usage.
 pub mod help;
-/// `/reset` command — clears session memory.
-pub mod reset;
+/// `/memory` command — inspects and manages memory layers.
+pub mod memory;
 /// `/skill` command — invokes a named skill directly.
 pub mod skill;
 /// `/skills` command — lists registered skills.
@@ -26,10 +26,11 @@ use orka_core::{
     traits::{MemoryStore, SecretManager},
 };
 use orka_experience::ExperienceService;
+use orka_knowledge::FactStore;
 use orka_skills::SkillRegistry;
 use orka_workspace::WorkspaceRegistry;
 
-/// A slash command that can be invoked by users (e.g. `/reset`, `/skills`).
+/// A slash command that can be invoked by users (e.g. `/memory`, `/skills`).
 #[async_trait]
 pub trait ServerCommand: Send + Sync {
     /// The command keyword (without the leading `/`).
@@ -103,6 +104,7 @@ pub fn register_all(
     registry: &mut CommandRegistry,
     skills: Arc<SkillRegistry>,
     memory: Arc<dyn MemoryStore>,
+    facts: Option<Arc<FactStore>>,
     secrets: Arc<dyn SecretManager>,
     workspace_registry: Arc<WorkspaceRegistry>,
     agent_config: &AgentConfig,
@@ -111,7 +113,12 @@ pub fn register_all(
     registry.register(Arc::new(cancel::CancelCommand::new()));
     registry.register(Arc::new(skill::SkillCommand::new(skills.clone(), secrets)));
     registry.register(Arc::new(skills::SkillsCommand::new(skills)));
-    registry.register(Arc::new(reset::ResetCommand::new(memory.clone())));
+    registry.register(Arc::new(memory::MemoryCommand::new(
+        memory.clone(),
+        facts,
+        experience.clone(),
+        workspace_registry.clone(),
+    )));
     registry.register(Arc::new(status::StatusCommand::new(
         workspace_registry.clone(),
         agent_config.clone(),
@@ -218,10 +225,10 @@ mod tests {
     fn help_text_includes_all_commands() {
         let mut reg = CommandRegistry::new();
         reg.register(mock_cmd("skills", "list skills"));
-        reg.register(mock_cmd("reset", "clear memory"));
+        reg.register(mock_cmd("memory", "inspect memory"));
         let help = reg.help_text();
         assert!(help.contains("/skills"));
-        assert!(help.contains("/reset"));
+        assert!(help.contains("/memory"));
         assert!(help.contains("list skills"));
     }
 }

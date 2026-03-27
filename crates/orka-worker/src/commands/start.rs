@@ -70,7 +70,8 @@ impl ServerCommand for StartCommand {
             • **/help** — List all available commands\n\
             • **/status** — Show session info\n\
             • **/skills** — List available skills\n\
-            • **/reset** — Clear conversation history\n\n\
+            • **/memory status** — Inspect memory layers\n\
+            • **/memory clear** — Clear current session memory\n\n\
             Just send me a message to get started!"
         );
 

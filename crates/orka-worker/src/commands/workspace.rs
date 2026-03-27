@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use orka_core::{
-    CommandArgs, Envelope, MemoryEntry, OutboundMessage, Result, Session, traits::MemoryStore,
+    CommandArgs, Envelope, MemoryEntry, MemoryScope, OutboundMessage, Result, Session,
+    traits::MemoryStore,
 };
 use orka_workspace::WorkspaceRegistry;
 
@@ -89,7 +90,13 @@ impl ServerCommand for WorkspaceCommand {
                 self.memory
                     .store(
                         &override_key,
-                        MemoryEntry::new(override_key.clone(), serde_json::json!({})),
+                        MemoryEntry::working(override_key.clone(), serde_json::json!({}))
+                            .with_scope(MemoryScope::Session)
+                            .with_source("workspace_command")
+                            .with_metadata(std::collections::HashMap::from([(
+                                "session_id".into(),
+                                session.id.to_string(),
+                            )])),
                         None,
                     )
                     .await?;
@@ -118,10 +125,16 @@ impl ServerCommand for WorkspaceCommand {
                 self.memory
                     .store(
                         &override_key,
-                        MemoryEntry::new(
+                        MemoryEntry::working(
                             override_key.clone(),
                             serde_json::json!({ "workspace_name": name }),
-                        ),
+                        )
+                        .with_scope(MemoryScope::Session)
+                        .with_source("workspace_command")
+                        .with_metadata(std::collections::HashMap::from([(
+                            "session_id".into(),
+                            session.id.to_string(),
+                        )])),
                         None,
                     )
                     .await?;
