@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = ["qdrant", "local-embeddings", "openai-embeddings", "pdf"]
+default = ["qdrant", "openai-embeddings", "pdf"]
 qdrant = ["dep:qdrant-client"]
 local-embeddings = ["dep:fastembed"]
 openai-embeddings = []

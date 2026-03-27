@@ -14,7 +14,16 @@ name = "orka_server"
 path = "src/lib.rs"
 
 [features]
-default = ["telegram", "discord", "slack", "whatsapp", "wasm"]
+default = [
+  "telegram",
+  "discord",
+  "slack",
+  "whatsapp",
+  "wasm",
+  "local-embeddings",
+]
+## Enable local embedding models (ONNX Runtime, not available on all platforms).
+local-embeddings = ["orka-knowledge/local-embeddings"]
 ## Enable the Telegram bot adapter.
 telegram = ["dep:orka-adapter-telegram"]
 ## Enable the Discord bot adapter.

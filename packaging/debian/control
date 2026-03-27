@@ -7,8 +7,7 @@ Build-Depends:
  debhelper-compat (= 13),
  cargo,
  rustc,
- pkg-config,
- libssl-dev
+ pkg-config
 Standards-Version: 4.7.0
 Homepage: https://github.com/gianlucamazza/orka
 
