@@ -169,7 +169,10 @@ impl MarkdownRenderer {
             self.render_code_block_inline(trimmed);
         } else if trimmed.starts_with("```") {
             // Unclosed code fence at flush — print raw to avoid markdown mangling
-            let mut guard = self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = self
+                .output
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let out = &mut **guard;
             for line in trimmed.lines() {
                 let _ = writeln!(out, "{line}");
@@ -185,7 +188,11 @@ impl MarkdownRenderer {
     /// Supports: headings (h1–h6), bold, italic, strikethrough, task lists,
     /// blockquotes, ordered/unordered lists, GFM tables (via comfy-table),
     /// inline code, links with OSC 8 hyperlinks, and horizontal rules.
-    #[allow(clippy::too_many_lines, clippy::items_after_statements, clippy::fn_params_excessive_bools)]
+    #[allow(
+        clippy::too_many_lines,
+        clippy::items_after_statements,
+        clippy::fn_params_excessive_bools
+    )]
     fn render_prose_pulldown(&self, text: &str) {
         let no_color = self.color.is_none();
         let opts = Options::ENABLE_STRIKETHROUGH
@@ -226,7 +233,10 @@ impl MarkdownRenderer {
         let mut cell_buf = String::new();
         let mut in_thead = false;
 
-        let mut guard = self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .output
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let out = &mut **guard;
 
         fn apply_fmt(s: &str, strong: bool, em: bool, strike: bool, no_color: bool) -> String {
@@ -514,7 +524,10 @@ impl MarkdownRenderer {
             "\x1b[90m───\x1b[0m"
         };
 
-        let mut guard = self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .output
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let out = &mut **guard;
 
         let Some(theme) = self.theme_set.themes.get(&self.theme_name) else {

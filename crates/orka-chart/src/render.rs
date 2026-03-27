@@ -10,8 +10,8 @@ use plotters::{
 };
 
 use crate::{
-    types::{ChartData, ChartSpec, ChartType, Series},
     Error,
+    types::{ChartData, ChartSpec, ChartType, Series},
 };
 
 // ---------------------------------------------------------------------------

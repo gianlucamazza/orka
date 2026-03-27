@@ -334,7 +334,8 @@ impl CircuitBreaker {
         if stored == 0 {
             return false;
         }
-        let elapsed_since_open = (self.base_instant.elapsed().as_nanos() as u64).saturating_sub(stored);
+        let elapsed_since_open =
+            (self.base_instant.elapsed().as_nanos() as u64).saturating_sub(stored);
         elapsed_since_open >= self.config.open_duration.as_nanos() as u64
     }
 }

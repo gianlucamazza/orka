@@ -146,8 +146,7 @@ impl OrkaClient {
 
     /// Resolve an optional session ID, generating a new UUID v7 if absent.
     pub fn resolve_session_id(session_id: Option<&str>) -> String {
-        session_id
-            .map_or_else(|| uuid::Uuid::now_v7().to_string(), String::from)
+        session_id.map_or_else(|| uuid::Uuid::now_v7().to_string(), String::from)
     }
 
     /// Poll the health endpoint until the server responds 200.

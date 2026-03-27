@@ -598,9 +598,10 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &DashboardState) {
             Style::default().fg(Color::Red),
         ))
     } else {
-        let ago = state
-            .last_refresh
-            .map_or_else(|| "never".to_string(), |t| format!("{}s ago", t.elapsed().as_secs()));
+        let ago = state.last_refresh.map_or_else(
+            || "never".to_string(),
+            |t| format!("{}s ago", t.elapsed().as_secs()),
+        );
         Line::from(Span::styled(
             format!(" Last refresh: {ago}   q: quit   r: refresh"),
             Style::default().fg(Color::DarkGray),

@@ -445,8 +445,7 @@ impl GraphExecutor {
                         for m in current {
                             let m_json = serde_json::to_value(&m).ok();
                             let already_in_history = combined.iter().any(|h| {
-                                h.role == m.role
-                                    && serde_json::to_value(h).ok() == m_json
+                                h.role == m.role && serde_json::to_value(h).ok() == m_json
                             });
                             if !already_in_history {
                                 combined.push(m);
@@ -573,9 +572,9 @@ impl GraphExecutor {
                         if !interrupted_messages.is_empty()
                             && let Ok(value) = serde_json::to_value(&interrupted_messages)
                         {
-                            let entry =
-                                orka_core::MemoryEntry::new(history_key.clone(), value);
-                            if let Err(e) = self.deps.memory.store(&history_key, entry, None).await {
+                            let entry = orka_core::MemoryEntry::new(history_key.clone(), value);
+                            if let Err(e) = self.deps.memory.store(&history_key, entry, None).await
+                            {
                                 warn!(%e, session_id = %ctx.session_id, "history.persist_failed");
                             }
                         }
@@ -661,7 +660,7 @@ impl GraphExecutor {
                                     continue;
                                 };
                                 {
-                                                self.deps.stream_registry.send(StreamChunk::new(
+                                    self.deps.stream_registry.send(StreamChunk::new(
                                         ctx.session_id,
                                         ctx.trigger.channel.clone(),
                                         Some(ctx.trigger.id),
@@ -804,7 +803,7 @@ impl GraphExecutor {
 
                         join_set.spawn(async move {
                             {
-                                        deps.stream_registry.send(StreamChunk::new(
+                                deps.stream_registry.send(StreamChunk::new(
                                     ctx.session_id,
                                     ctx.trigger.channel.clone(),
                                     Some(ctx.trigger.id),

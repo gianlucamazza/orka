@@ -221,7 +221,11 @@ pub(crate) async fn run_agent_node(
         .and_then(|v| v.as_array())
         .map_or_else(
             || vec![workspace_name.to_string()],
-            |arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+            |arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            },
         );
     let cwd = ctx
         .trigger
@@ -967,7 +971,10 @@ pub(crate) async fn run_agent_node(
                     }
                     other => {
                         tracing::warn!(call_name = %other, "unexpected progressive tool call — skipped");
-                        (format!("Error: unrecognized progressive call '{other}'"), true)
+                        (
+                            format!("Error: unrecognized progressive call '{other}'"),
+                            true,
+                        )
                     }
                 };
                 results_map.insert(call.id.clone(), result);

@@ -51,7 +51,7 @@ pub mod in_memory {
 
     use tokio::sync::RwLock;
 
-    use super::{async_trait, Checkpoint, CheckpointId, CheckpointStore, Result};
+    use super::{Checkpoint, CheckpointId, CheckpointStore, Result, async_trait};
 
     /// Inner map: `run_id` → ordered list of checkpoints.
     type Inner = Arc<RwLock<std::collections::HashMap<String, Vec<Checkpoint>>>>;

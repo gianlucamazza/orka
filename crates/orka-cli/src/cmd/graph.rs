@@ -26,10 +26,7 @@ pub async fn show(client: &OrkaClient, dot: bool) -> crate::client::Result<()> {
         println!();
         let mut table = make_table(&["ID", "Kind", "Agent", "Max Turns"]);
         for node in nodes {
-            let max_iter = node["agent"]["max_turns"]
-                .as_u64()
-                .unwrap_or(0)
-                .to_string();
+            let max_iter = node["agent"]["max_turns"].as_u64().unwrap_or(0).to_string();
             table.add_row([
                 node["id"].as_str().unwrap_or("?"),
                 node["kind"].as_str().unwrap_or("?"),

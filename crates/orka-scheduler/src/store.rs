@@ -78,9 +78,7 @@ impl ScheduleStore for RedisScheduleStore {
             .ignore()
             .query_async::<()>(&mut *conn)
             .await
-            .map_err(|e| {
-                orka_core::Error::Scheduler(format!("failed to store schedule: {e}"))
-            })?;
+            .map_err(|e| orka_core::Error::Scheduler(format!("failed to store schedule: {e}")))?;
 
         Ok(())
     }
@@ -100,9 +98,7 @@ impl ScheduleStore for RedisScheduleStore {
             .ignore()
             .query_async(&mut *conn)
             .await
-            .map_err(|e| {
-                orka_core::Error::Scheduler(format!("failed to remove schedule: {e}"))
-            })?;
+            .map_err(|e| orka_core::Error::Scheduler(format!("failed to remove schedule: {e}")))?;
 
         Ok(removed > 0)
     }

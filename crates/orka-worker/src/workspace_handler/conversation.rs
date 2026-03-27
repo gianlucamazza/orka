@@ -31,7 +31,6 @@ impl WorkspaceHandler {
                                 parts.push(format!("[result: {excerpt}]"));
                             }
                             _ => {}
-
                         }
                     }
                     if parts.is_empty() {

@@ -724,8 +724,7 @@ pub async fn run(
                                 renderer.on_media(&mime_type, &data_base64, caption.as_deref());
                             }
                             WsMessage::Stream(
-                                StreamChunkKind::ToolStart { .. }
-                                | StreamChunkKind::ToolEnd { .. },
+                                StreamChunkKind::ToolStart { .. } | StreamChunkKind::ToolEnd { .. },
                             ) => {
                                 // Internal LLM tool-block bookkeeping events — no UI action
                             }
@@ -848,7 +847,9 @@ pub async fn run(
     // Shell state — initialise cwd and sync the shared reference used by
     // tab-completion
     let mut cwd = {
-        let guard = shell_cwd_shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = shell_cwd_shared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.clone()
     };
     let mut env_overrides: HashMap<String, String> = HashMap::new();
@@ -882,7 +883,9 @@ pub async fn run(
         }
 
         // Wait for the line from the editor thread
-        let Some(result) = line_rx.recv().await else { break };
+        let Some(result) = line_rx.recv().await else {
+            break;
+        };
 
         let line = match result {
             Ok(line) => {
@@ -955,7 +958,10 @@ pub async fn run(
                     last_exit = Some(0);
                     // Keep the tab-completion helper in sync when the directory changes
                     if matches!(b, Builtin::Cd(_)) {
-                        (*shell_cwd_shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner)).clone_from(&cwd);
+                        (*shell_cwd_shared
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner))
+                        .clone_from(&cwd);
                     }
                 } else {
                     eprintln!("{msg}");
@@ -1103,7 +1109,10 @@ pub async fn run(
                             } else {
                                 match open::that(url) {
                                     Ok(()) => {
-                                        println!("{}", format!("  \u{2714} Opening {url}").dimmed());
+                                        println!(
+                                            "{}",
+                                            format!("  \u{2714} Opening {url}").dimmed()
+                                        );
                                     }
                                     Err(e) => eprintln!("Failed to open: {e}"),
                                 }

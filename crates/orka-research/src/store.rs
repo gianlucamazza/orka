@@ -565,11 +565,9 @@ impl ResearchStore for RedisResearchStore {
                 if ttl > 0 {
                     pipe.expire(promotion_request_key(&id), ttl).ignore();
                 }
-                pipe.query_async::<()>(conn)
-                    .await
-                    .map_err(|e| {
-                        Error::Research(format!("failed to store promotion request: {e}"))
-                    })?;
+                pipe.query_async::<()>(conn).await.map_err(|e| {
+                    Error::Research(format!("failed to store promotion request: {e}"))
+                })?;
                 Ok(())
             })
         })
@@ -632,10 +630,7 @@ impl ResearchStore for RedisResearchStore {
     }
 
     async fn delete_promotion_request(&self, id: &str) -> Result<bool> {
-        let campaign_id = self
-            .get_promotion_request(id)
-            .await?
-            .map(|r| r.campaign_id);
+        let campaign_id = self.get_promotion_request(id).await?.map(|r| r.campaign_id);
         let id = id.to_string();
         self.with_conn(move |conn| {
             Box::pin(async move {
@@ -647,12 +642,9 @@ impl ResearchStore for RedisResearchStore {
                 if let Some(ref cid) = campaign_id {
                     pipe.srem(campaign_promotions_key(cid), &id).ignore();
                 }
-                let (removed,): (i64,) = pipe
-                    .query_async(conn)
-                    .await
-                    .map_err(|e| {
-                        Error::Research(format!("failed to delete promotion request: {e}"))
-                    })?;
+                let (removed,): (i64,) = pipe.query_async(conn).await.map_err(|e| {
+                    Error::Research(format!("failed to delete promotion request: {e}"))
+                })?;
                 Ok(removed > 0)
             })
         })

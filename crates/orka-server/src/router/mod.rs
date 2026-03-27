@@ -287,13 +287,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
 
     // --- Public routes (no auth) ---
 
-    let mut public_routes = health::routes(
-        &queue,
-        start_time,
-        concurrency,
-        redis_url,
-        qdrant_url,
-    );
+    let mut public_routes = health::routes(&queue, start_time, concurrency, redis_url, qdrant_url);
 
     if let Some(handle) = metrics_handle {
         let handle = Arc::new(handle);

@@ -54,8 +54,10 @@ impl TaskStore for InMemoryTaskStore {
         // Evict the oldest entry if we're at capacity and this is a new task.
         if tasks.len() >= IN_MEMORY_MAX_TASKS
             && !tasks.contains_key(&task.id)
-            && let Some(oldest_id) =
-                tasks.values().min_by_key(|t| t.created_at).map(|t| t.id.clone())
+            && let Some(oldest_id) = tasks
+                .values()
+                .min_by_key(|t| t.created_at)
+                .map(|t| t.id.clone())
         {
             tasks.remove(&oldest_id);
         }
