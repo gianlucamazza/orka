@@ -46,7 +46,7 @@ impl ContextProvider for WorkspaceProvider {
             cwd: ctx.cwd.clone(),
         };
 
-        Ok(serde_json::to_value(workspace_ctx)?)
+        Ok(serde_json::json!({ "workspace": workspace_ctx }))
     }
 }
 

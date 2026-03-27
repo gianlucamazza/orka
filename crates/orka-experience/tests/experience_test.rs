@@ -12,7 +12,7 @@ use orka_experience::{
     types::{OutcomeSignal, PrincipleKind},
 };
 use orka_knowledge::{
-    embeddings::EmbeddingProvider, types::SearchResult, vector_store::VectorStore,
+    embeddings::EmbeddingProvider, types::{SearchResult, StoredRecord}, vector_store::VectorStore,
 };
 use orka_llm::client::{ChatMessage, CompletionOptions, LlmClient};
 
@@ -109,6 +109,42 @@ impl VectorStore for MockVectorStore {
             })
         });
         Ok(iter.take(limit).cloned().collect())
+    }
+
+    async fn list_records(
+        &self,
+        _collection: &str,
+        limit: usize,
+        filter: Option<HashMap<String, String>>,
+    ) -> Result<Vec<StoredRecord>> {
+        let data = self.data.lock().await;
+        let results = data
+            .iter()
+            .filter(|p| {
+                filter.as_ref().is_none_or(|f| {
+                    f.iter().all(|(k, v)| p.get(k).is_some_and(|pv| pv == v))
+                })
+            })
+            .take(limit)
+            .map(|p| StoredRecord {
+                id: p.get("_id").cloned().unwrap_or_default(),
+                metadata: p.clone(),
+            })
+            .collect();
+        Ok(results)
+    }
+
+    async fn delete_records(
+        &self,
+        _collection: &str,
+        filter: HashMap<String, String>,
+    ) -> Result<usize> {
+        let mut data = self.data.lock().await;
+        let before = data.len();
+        data.retain(|p| {
+            !filter.iter().all(|(k, v)| p.get(k).is_some_and(|pv| pv == v))
+        });
+        Ok(before - data.len())
     }
 }
 

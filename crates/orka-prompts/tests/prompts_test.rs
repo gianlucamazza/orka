@@ -3,15 +3,14 @@
 
 use std::collections::HashMap;
 
+use orka_prompts::pipeline::StaticSection;
 use orka_prompts::{
-    PipelineConfig, SystemPromptPipeline, TemplateEngine, TemplateRegistry,
+    BuildContext, PipelineConfig, PromptSection, SystemPromptPipeline,
+    TemplateEngine, TemplateRegistry,
     context::{
-        SessionContext,
-        concrete_providers::{
-            ContextCoordinator, SectionsContextProvider, ShellContextProvider, WorkspaceProvider,
-        },
+        ContextCoordinator, SectionsContextProvider, SessionContext, ShellContextProvider,
+        WorkspaceProvider,
     },
-    pipeline::{BuildContext, section::StaticSection},
 };
 
 // ---------------------------------------------------------------------------
@@ -148,7 +147,6 @@ fn pipeline_config_deserialize_custom() {
 
 #[tokio::test]
 async fn static_section_renders_content() {
-    use orka_prompts::pipeline::section::PromptSection;
     let section = StaticSection::new("intro", "You are Orka.");
     let ctx = BuildContext::default();
     let out = section.render(&ctx).await.unwrap();
@@ -157,7 +155,6 @@ async fn static_section_renders_content() {
 
 #[tokio::test]
 async fn static_section_empty_returns_none() {
-    use orka_prompts::pipeline::section::PromptSection;
     let section = StaticSection::new("empty", "");
     let ctx = BuildContext::default();
     let out = section.render(&ctx).await.unwrap();
@@ -166,7 +163,6 @@ async fn static_section_empty_returns_none() {
 
 #[tokio::test]
 async fn static_section_required_empty_returns_some() {
-    use orka_prompts::pipeline::section::PromptSection;
     let section = StaticSection::new("req", "").required();
     let ctx = BuildContext::default();
     assert!(section.is_required());
@@ -226,7 +222,7 @@ async fn pipeline_with_explicit_sections_respects_order() {
 
 #[tokio::test]
 async fn workspace_provider_returns_correct_fields() {
-    use orka_prompts::context::provider::ContextProvider;
+    use orka_prompts::ContextProvider;
     let provider = WorkspaceProvider::new(vec!["default".to_string(), "other".to_string()]);
     let session = SessionContext {
         workspace: "default".to_string(),
@@ -234,10 +230,10 @@ async fn workspace_provider_returns_correct_fields() {
         ..Default::default()
     };
     let value = provider.provide(&session).await.unwrap();
-    let obj = value.as_object().unwrap();
-    assert_eq!(obj["name"].as_str(), Some("default"));
-    assert_eq!(obj["cwd"].as_str(), Some("/home/gianluca"));
-    let available: Vec<&str> = obj["available"]
+    let ws = value["workspace"].as_object().unwrap();
+    assert_eq!(ws["name"].as_str(), Some("default"));
+    assert_eq!(ws["cwd"].as_str(), Some("/home/gianluca"));
+    let available: Vec<&str> = ws["available"]
         .as_array()
         .unwrap()
         .iter()
@@ -248,7 +244,7 @@ async fn workspace_provider_returns_correct_fields() {
 
 #[tokio::test]
 async fn sections_provider_returns_all_sections() {
-    use orka_prompts::context::provider::ContextProvider;
+    use orka_prompts::ContextProvider;
     let mut map = HashMap::new();
     map.insert("custom_a".to_string(), "value_a".to_string());
     map.insert("custom_b".to_string(), "value_b".to_string());
@@ -262,7 +258,7 @@ async fn sections_provider_returns_all_sections() {
 
 #[tokio::test]
 async fn shell_provider_empty_when_no_commands() {
-    use orka_prompts::context::provider::ContextProvider;
+    use orka_prompts::ContextProvider;
     let provider = ShellContextProvider::new();
     let session = SessionContext::default();
     let value = provider.provide(&session).await.unwrap();
@@ -271,7 +267,7 @@ async fn shell_provider_empty_when_no_commands() {
 
 #[tokio::test]
 async fn shell_provider_returns_commands_from_metadata() {
-    use orka_prompts::context::provider::ContextProvider;
+    use orka_prompts::ContextProvider;
     let provider = ShellContextProvider::new();
     let mut session = SessionContext::default();
     session.metadata.insert(
@@ -313,7 +309,7 @@ async fn coordinator_merges_workspace_provider() {
 #[tokio::test]
 async fn coordinator_provider_failure_does_not_abort() {
     use async_trait::async_trait;
-    use orka_prompts::context::provider::ContextProvider;
+    use orka_prompts::ContextProvider;
 
     struct FailingProvider;
 

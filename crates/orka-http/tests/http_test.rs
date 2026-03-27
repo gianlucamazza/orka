@@ -1,6 +1,6 @@
 //! Unit tests for orka-http: SSRF guard and HTTP skill schema.
 
-use orka_http::guard::SsrfGuard;
+use orka_http::SsrfGuard;
 
 // ---------------------------------------------------------------------------
 // SsrfGuard
