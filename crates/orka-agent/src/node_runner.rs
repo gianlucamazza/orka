@@ -1671,6 +1671,7 @@ mod tests {
             coding_runtime: None,
             guardrail: None,
             checkpoint_store: None,
+            bus: None,
         };
         let agent = Agent::new(AgentId::new("test"), "Test");
         let ctx = minimal_ctx();
