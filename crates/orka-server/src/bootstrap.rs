@@ -273,16 +273,28 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     }
 
     // 4g. Knowledge/RAG skills
-    if config.knowledge.enabled {
+    let fact_store = if config.knowledge.enabled {
         match orka_knowledge::create_knowledge_skills(&config.knowledge) {
             Ok(knowledge_skills) => {
                 for skill in knowledge_skills {
                     skills.register(skill);
                 }
+                match orka_knowledge::create_fact_store(&config.knowledge) {
+                    Ok(store) => Some(store),
+                    Err(e) => {
+                        warn!(%e, "failed to initialize semantic fact store");
+                        None
+                    }
+                }
             }
-            Err(e) => warn!(%e, "failed to initialize knowledge skills"),
+            Err(e) => {
+                warn!(%e, "failed to initialize knowledge skills");
+                None
+            }
         }
-    }
+    } else {
+        None
+    };
 
     // 4h. Scheduler skills
     let scheduler_store = if config.scheduler.enabled {
@@ -570,6 +582,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         &mut commands,
         skills.clone(),
         memory.clone(),
+        fact_store.clone(),
         secrets.clone(),
         workspace_registry.clone(),
         &config
@@ -797,11 +810,13 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         event_sink: event_sink.clone(),
         stream_registry,
         experience: experience_service.clone(),
+        facts: fact_store,
         soft_skills,
         templates,
         coding_runtime,
         guardrail,
         checkpoint_store,
+        bus: Some(bus.clone()),
     }));
 
     let dispatcher = Arc::new(GraphDispatcher::new(
