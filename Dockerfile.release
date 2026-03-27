@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+# Minimal runtime image built from pre-compiled binaries.
+# Usage: docker buildx build --platform linux/arm64 -f Dockerfile.release \
+#          --build-context binaries=target/aarch64-unknown-linux-gnu/release \
+#          -t registry.home.gianlucamazza.it/gmazza/orka:<tag> --push .
+
+FROM gcr.io/distroless/cc-debian12
+
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION
+
+LABEL org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.title="orka-server" \
+      org.opencontainers.image.source="https://github.com/gianlucamazza/orka"
+
+COPY --from=binaries orka-server /usr/local/bin/orka-server
+
+USER nonroot:nonroot
+
+EXPOSE 8080 8081
+
+STOPSIGNAL SIGTERM
+
+ENTRYPOINT ["orka-server"]

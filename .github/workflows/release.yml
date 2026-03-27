@@ -32,9 +32,36 @@ jobs:
             target/release/orka-server
             target/release/orka
 
+  build-arm:
+    name: Build Linux aarch64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-arm64
+
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfreetype-dev
+
+      - name: Build release binaries
+        run: |
+          cargo build --release --bin orka-server --bin orka \
+            --no-default-features \
+            -F telegram,discord,slack,whatsapp,wasm
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-linux-aarch64
+          path: |
+            target/release/orka-server
+            target/release/orka
+
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, build-arm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,33 +75,50 @@ jobs:
         env:
           OUTPUT: RELEASE_NOTES.md
 
-      - name: Download artifacts
+      - name: Download x86_64 artifacts
         uses: actions/download-artifact@v4
         with:
           name: binaries-linux-x86_64
-          path: artifacts
+          path: artifacts/x86_64
+
+      - name: Download aarch64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-linux-aarch64
+          path: artifacts/aarch64
 
       - name: Package binaries
         run: |
-          cd artifacts
+          cd artifacts/x86_64
           chmod +x orka-server orka
-          tar czf orka-linux-x86_64.tar.gz orka-server orka
-          sha256sum orka-linux-x86_64.tar.gz > sha256sums.txt
+          tar czf ../../orka-linux-x86_64.tar.gz orka-server orka
+          cd ../../artifacts/aarch64
+          chmod +x orka-server orka
+          tar czf ../../orka-linux-aarch64.tar.gz orka-server orka
+          cd ../..
+          sha256sum orka-linux-x86_64.tar.gz orka-linux-aarch64.tar.gz > sha256sums.txt
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           body_path: RELEASE_NOTES.md
           files: |
-            artifacts/orka-linux-x86_64.tar.gz
-            artifacts/sha256sums.txt
+            orka-linux-x86_64.tar.gz
+            orka-linux-aarch64.tar.gz
+            sha256sums.txt
 
   docker:
     name: Push Docker Image
-    needs: build
+    needs: [build, build-arm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -96,9 +140,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
