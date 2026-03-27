@@ -12,6 +12,7 @@ orka-core = { workspace = true }
 orka-llm = { workspace = true }
 orka-skills = { workspace = true }
 orka-experience = { workspace = true }
+orka-knowledge = { workspace = true }
 orka-workspace = { workspace = true }
 orka-guardrails = { workspace = true }
 orka-prompts = { workspace = true }

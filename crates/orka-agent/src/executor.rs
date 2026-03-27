@@ -10,6 +10,7 @@ use orka_core::{
     types::MediaPayload,
 };
 use orka_experience::ExperienceService;
+use orka_knowledge::FactStore;
 use orka_llm::client::LlmClient;
 use orka_prompts::template::TemplateRegistry;
 use orka_skills::SkillRegistry;
@@ -152,6 +153,8 @@ pub struct ExecutorDeps {
     pub stream_registry: orka_core::StreamRegistry,
     /// Optional experience service for post-run reflection.
     pub experience: Option<Arc<ExperienceService>>,
+    /// Optional semantic fact store for prompt enrichment.
+    pub facts: Option<Arc<FactStore>>,
     /// Optional registry of soft (instruction-based) skills.
     pub soft_skills: Option<std::sync::Arc<orka_skills::SoftSkillRegistry>>,
     /// Optional template registry for prompt rendering.
@@ -167,6 +170,10 @@ pub struct ExecutorDeps {
     /// A crashed run can be resumed via [`GraphExecutor::resume`] without
     /// reprocessing completed nodes.
     pub checkpoint_store: Option<Arc<dyn CheckpointStore>>,
+    /// Message bus used to forward coding-delegate progress events to the
+    /// originating chat channel.  When `None`, progress forwarding is
+    /// disabled.
+    pub bus: Option<Arc<dyn orka_core::traits::MessageBus>>,
 }
 
 /// Result of a complete graph execution.

@@ -281,6 +281,48 @@ pub(crate) async fn run_agent_node(
         vec![]
     };
 
+    let relevant_facts_section = if let Some(ref facts) = deps.facts {
+        match facts.search(&trigger_text, 8, Some(0.6), None).await {
+            Ok(results) => {
+                let filtered: Vec<_> = results
+                    .into_iter()
+                    .filter(|result| {
+                        match result.metadata.get("memory_scope").map(String::as_str) {
+                            Some("session") => result
+                                .metadata
+                                .get("session_id")
+                                .is_some_and(|sid| sid == &ctx.session_id.to_string()),
+                            Some("workspace") => result
+                                .metadata
+                                .get("workspace")
+                                .is_some_and(|ws| ws == workspace_name),
+                            Some("global") | None => true,
+                            Some("user") => false,
+                            Some(_) => false,
+                        }
+                    })
+                    .take(5)
+                    .collect();
+
+                if filtered.is_empty() {
+                    String::new()
+                } else {
+                    let mut lines = vec!["## Relevant Facts".to_string(), String::new()];
+                    for result in filtered {
+                        lines.push(format!("- {}", result.content));
+                    }
+                    lines.join("\n")
+                }
+            }
+            Err(e) => {
+                warn!(%e, "failed to retrieve semantic facts");
+                String::new()
+            }
+        }
+    } else {
+        String::new()
+    };
+
     // Get soft skill section
     let soft_skill_section = if let Some(ref soft_reg) = deps.soft_skills {
         if soft_reg.is_empty() {
@@ -433,6 +475,9 @@ pub(crate) async fn run_agent_node(
         let mut sections = std::collections::HashMap::new();
         if !soft_skill_section.is_empty() {
             sections.insert("soft_skills".to_string(), soft_skill_section);
+        }
+        if !relevant_facts_section.is_empty() {
+            sections.insert("relevant_facts".to_string(), relevant_facts_section);
         }
         if !shell_commands.is_empty() {
             sections.insert("shell_commands".to_string(), shell_commands);
@@ -1084,6 +1129,31 @@ pub(crate) async fn run_agent_node(
                 .map(String::from);
             let worktree_cwd_for_task = worktree_cwd.clone();
 
+            // For coding_delegate on non-custom channels, spawn a progress
+            // bridge that forwards significant events to the originating chat.
+            let progress_tx_for_spawn = if call_name == "coding_delegate"
+                && ctx.trigger.channel != "custom"
+            {
+                if let Some(ref bus) = deps.bus {
+                    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                    let bridge_config = orka_core::progress_bridge::ProgressBridgeConfig::default();
+                    tokio::spawn(orka_core::progress_bridge::forward_progress_to_chat(
+                        rx,
+                        bus.clone(),
+                        ctx.trigger.channel.clone(),
+                        ctx.session_id,
+                        ctx.trigger.metadata.clone(),
+                        ctx.trigger.id,
+                        bridge_config,
+                    ));
+                    Some(tx)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             join_set.spawn(async move {
                 let args: HashMap<String, serde_json::Value> = match call_input {
                     serde_json::Value::Object(map) => map.into_iter().collect(),
@@ -1099,6 +1169,9 @@ pub(crate) async fn run_agent_node(
                         max_duration_ms: skill_max_duration_ms,
                         max_output_bytes: skill_max_output_bytes,
                     });
+                }
+                if let Some(tx) = progress_tx_for_spawn {
+                    skill_ctx = skill_ctx.with_progress(tx);
                 }
                 let skill_input = SkillInput::new(args).with_context(skill_ctx);
 
@@ -1472,11 +1545,13 @@ mod tests {
             event_sink: Arc::new(InMemoryEventSink::new()),
             stream_registry: StreamRegistry::new(),
             experience: None,
+            facts: None,
             soft_skills: None,
             templates: None,
             coding_runtime: None,
             guardrail: None,
             checkpoint_store: None,
+            bus: None,
         }
     }
 
@@ -1590,6 +1665,7 @@ mod tests {
             event_sink: Arc::new(InMemoryEventSink::new()),
             stream_registry: StreamRegistry::new(),
             experience: None,
+            facts: None,
             soft_skills: None,
             templates: None,
             coding_runtime: None,
