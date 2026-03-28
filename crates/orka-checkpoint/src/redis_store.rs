@@ -219,6 +219,7 @@ impl CheckpointStore for RedisCheckpointStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use orka_core::{Envelope, SessionId};
     use orka_llm::client::ChatMessage;

@@ -18,6 +18,7 @@ pub(crate) struct EnvWatcher {
 
 impl EnvWatcher {
     /// Start watching the env file. Returns `None` if no env file is found.
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn start(
         providers: Vec<LlmProviderConfig>,
         default_model: String,
@@ -326,6 +327,7 @@ fn resolve_env_path() -> Option<PathBuf> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use orka_config::{LlmAuthKind, LlmProviderConfig};
     use orka_core::{SecretValue, traits::SecretManager};

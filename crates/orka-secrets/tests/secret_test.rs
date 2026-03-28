@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use orka_core::{SecretValue, traits::SecretManager};
 use orka_secrets::RedisSecretManager;
@@ -18,7 +18,7 @@ async fn setup() -> (
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn set_get_roundtrip() {
     let (mgr, _container) = setup().await;
     let secret = SecretValue::new(b"my-secret-value".to_vec());
@@ -30,7 +30,7 @@ async fn set_get_roundtrip() {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn get_nonexistent_returns_error() {
     let (mgr, _container) = setup().await;
     let result = mgr.get_secret("does/not/exist").await;
@@ -38,7 +38,7 @@ async fn get_nonexistent_returns_error() {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn overwrite_works() {
     let (mgr, _container) = setup().await;
 
@@ -54,7 +54,7 @@ async fn overwrite_works() {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn binary_data_preserved() {
     let (mgr, _container) = setup().await;
     let binary: Vec<u8> = (0..=255).collect();

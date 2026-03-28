@@ -285,8 +285,8 @@ pub enum SecurityScheme {
     },
     /// OAuth 2.0 with one or more flow definitions.
     Oauth2 {
-        /// OAuth 2.0 flow definitions (`AuthorizationCode`, `ClientCredentials`,
-        /// `DeviceCode`).
+        /// OAuth 2.0 flow definitions (`AuthorizationCode`,
+        /// `ClientCredentials`, `DeviceCode`).
         flows: serde_json::Value,
     },
     /// `OpenID` Connect discovery.

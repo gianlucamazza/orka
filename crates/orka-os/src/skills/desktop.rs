@@ -226,14 +226,21 @@ impl Skill for DesktopScreenshotSkill {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
-    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
-
     use super::*;
+    use crate::config::{OsConfig, PermissionLevel};
 
     fn make_guard() -> Arc<PermissionGuard> {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Execute;
+        config.permission_level = PermissionLevel::Execute;
         config.allowed_paths = vec!["/tmp".into()];
         Arc::new(PermissionGuard::new(&config))
     }
@@ -254,7 +261,7 @@ mod tests {
     #[tokio::test]
     async fn desktop_open_requires_execute() {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::ReadOnly;
+        config.permission_level = PermissionLevel::ReadOnly;
         let guard = Arc::new(PermissionGuard::new(&config));
         let skill = DesktopOpenSkill::new(guard);
         let mut args = std::collections::HashMap::new();

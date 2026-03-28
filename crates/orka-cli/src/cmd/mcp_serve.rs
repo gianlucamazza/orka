@@ -33,7 +33,7 @@ pub async fn run(config_path: Option<&str>) -> Result<()> {
 
     // Use Redis-backed secret manager if Redis URL is available, else in-memory
     let secrets: Arc<dyn SecretManager> = if let Some(ref cfg) = config {
-        match orka_secrets::create_secret_manager(cfg) {
+        match orka_secrets::create_secret_manager(&cfg.secrets, &cfg.redis.url) {
             Ok(mgr) => mgr,
             Err(_) => Arc::new(InMemorySecretManager::new()),
         }

@@ -8,8 +8,7 @@
 //! # Quick start
 //!
 //! ```no_run
-//! use orka_git::GitConfig;
-//! use orka_git::create_git_skills;
+//! use orka_git::{GitConfig, create_git_skills};
 //!
 //! let config = GitConfig::default();
 //! let skills = create_git_skills(&config, None).unwrap();

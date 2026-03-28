@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use async_trait::async_trait;
 use orka_core::Result;
 

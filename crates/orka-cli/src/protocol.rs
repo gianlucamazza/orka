@@ -36,7 +36,8 @@ pub fn classify_ws_message(raw: &str) -> WsMessage {
         return WsMessage::Stream(kind);
     }
 
-    // OutboundMessage shape: { payload: { type: "...", data: ... }, metadata: { ... } }
+    // OutboundMessage shape: { payload: { type: "...", data: ... }, metadata: { ...
+    // } }
     if let Some(payload) = parsed.get("payload") {
         let stop_reason = parsed
             .get("metadata")

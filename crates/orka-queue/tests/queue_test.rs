@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use std::time::Duration;
 
@@ -11,7 +11,7 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::redis::Redis;
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn push_pop_priority_order() {
     let container = Redis::default().start().await.unwrap();
     let port = container.get_host_port_ipv4(6379).await.unwrap();
@@ -52,7 +52,7 @@ async fn push_pop_priority_order() {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn pop_empty_returns_none() {
     let container = Redis::default().start().await.unwrap();
     let port = container.get_host_port_ipv4(6379).await.unwrap();

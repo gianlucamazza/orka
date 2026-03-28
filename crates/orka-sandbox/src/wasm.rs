@@ -1,10 +1,13 @@
 use std::time::Instant;
 
 use async_trait::async_trait;
-use orka_core::{Error, Result, config::SandboxConfig};
+use orka_core::{Error, Result};
 use orka_wasm::{WasmEngine, WasmInstance, WasmLimits};
 
-use crate::executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult};
+use crate::{
+    SandboxConfig,
+    executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult},
+};
 
 /// WASM-based sandbox executor using a shared [`WasmEngine`].
 pub struct WasmSandbox {
@@ -91,6 +94,14 @@ fn run_wasm_sync(
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
     use std::collections::HashMap;
 

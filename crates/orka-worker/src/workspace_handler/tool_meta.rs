@@ -24,18 +24,8 @@ pub(super) fn tool_metadata(
             (Some("http".into()), summary)
         }
         "sandbox" | "code_exec" | "code_interpreter" => (Some("code".into()), None),
-        n if matches!(
-            n,
-            "remember_fact"
-                | "search_facts"
-                | "list_facts"
-                | "forget_fact"
-                | "ingest_document"
-                | "list_documents"
-        ) =>
-        {
-            (Some("memory".into()), None)
-        }
+        "remember_fact" | "search_facts" | "list_facts" | "forget_fact" | "ingest_document"
+        | "list_documents" => (Some("memory".into()), None),
         n if n.starts_with("schedule_") => (Some("schedule".into()), None),
         _ => (None, None),
     }

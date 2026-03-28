@@ -6,6 +6,8 @@ use orka_core::{Envelope, Error, MessageId, MessageStream, Result, traits::Messa
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, warn};
 
+use crate::config::BusConfig;
+
 /// Redis Streams implementation of [`orka_core::traits::MessageBus`].
 pub struct RedisBus {
     pool: Pool,
@@ -21,7 +23,7 @@ pub struct RedisBus {
 
 impl RedisBus {
     /// Connect to Redis and create a new bus with the given configuration.
-    pub fn new(redis_url: &str, config: &orka_core::config::BusConfig) -> Result<Self> {
+    pub fn new(redis_url: &str, config: &BusConfig) -> Result<Self> {
         let cfg = DeadpoolConfig::from_url(redis_url);
         let pool = cfg
             .create_pool(Some(Runtime::Tokio1))
@@ -372,6 +374,7 @@ fn value_to_string(value: &redis::Value) -> Option<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

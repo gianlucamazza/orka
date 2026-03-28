@@ -5,17 +5,17 @@
 
 #![warn(missing_docs)]
 
+/// Memory store configuration owned by `orka-memory`.
+pub mod config;
 /// Redis implementation of the memory store.
 pub mod redis_store;
 
 use std::sync::Arc;
 
-use orka_core::{
-    config::primitives::MemoryBackend,
-    traits::{MemoryStore, SessionLock},
-};
+use orka_core::traits::{MemoryStore, SessionLock};
 
-pub use crate::redis_store::RedisMemoryStore;
+use crate::config::MemoryBackend;
+pub use crate::{config::MemoryConfig, redis_store::RedisMemoryStore};
 
 /// Paired trait objects produced by [`create_memory_store`].
 ///
@@ -30,10 +30,13 @@ pub struct MemoryBundle {
 }
 
 /// Create a [`MemoryBundle`] from the given configuration.
-pub fn create_memory_store(config: &orka_config::OrkaConfig) -> orka_core::Result<MemoryBundle> {
-    if config.memory.backend == MemoryBackend::Memory {
+pub fn create_memory_store(
+    config: &MemoryConfig,
+    redis_url: &str,
+) -> orka_core::Result<MemoryBundle> {
+    if config.backend == MemoryBackend::Memory {
         tracing::debug!(
-            max_entries = config.memory.max_entries,
+            max_entries = config.max_entries,
             "in-memory memory store created"
         );
         let store = Arc::new(orka_core::testing::InMemoryMemoryStore::new());
@@ -42,14 +45,8 @@ pub fn create_memory_store(config: &orka_config::OrkaConfig) -> orka_core::Resul
             store: store as Arc<dyn MemoryStore>,
         })
     } else {
-        let store = Arc::new(RedisMemoryStore::new(
-            &config.redis.url,
-            config.memory.max_entries,
-        )?);
-        tracing::debug!(
-            max_entries = config.memory.max_entries,
-            "memory store created"
-        );
+        let store = Arc::new(RedisMemoryStore::new(redis_url, config.max_entries)?);
+        tracing::debug!(max_entries = config.max_entries, "memory store created");
         Ok(MemoryBundle {
             lock: Arc::clone(&store) as Arc<dyn SessionLock>,
             store: store as Arc<dyn MemoryStore>,
@@ -59,10 +56,9 @@ pub fn create_memory_store(config: &orka_config::OrkaConfig) -> orka_core::Resul
 
 #[cfg(test)]
 mod tests {
-    use orka_core::config::{
-        MemoryConfig,
-        primitives::{BusBackend, MemoryBackend},
-    };
+    use orka_bus::BusBackend;
+
+    use crate::config::{MemoryBackend, MemoryConfig};
 
     /// Mirrors the runtime logic: if memory backend is Auto, follow the bus
     /// backend.

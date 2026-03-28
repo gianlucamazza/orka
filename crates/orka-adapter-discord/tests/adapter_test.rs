@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -12,7 +12,8 @@ fn channel_id_returns_discord() {
     assert_eq!(adapter.channel_id(), "discord");
 }
 
-/// Same `channel_id` string maps to the same `SessionId`; different strings differ.
+/// Same `channel_id` string maps to the same `SessionId`; different strings
+/// differ.
 #[tokio::test]
 async fn session_map_consistency() {
     let sessions: Arc<Mutex<HashMap<String, SessionId>>> = Arc::new(Mutex::new(HashMap::new()));

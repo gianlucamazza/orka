@@ -86,19 +86,27 @@ fn parse_frontmatter(content: &str) -> Result<(SoftSkillMeta, String)> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
     use super::*;
 
     #[test]
     fn parse_valid_frontmatter() {
-        let content = r#"---
+        let content = r"---
 name: code-review
 description: Reviews code quality. Use when asked for code review.
 tags: [development]
 ---
 # Code Review
 Do the review.
-"#;
+";
         let (meta, body) = parse_frontmatter(content).unwrap();
         assert_eq!(meta.name, "code-review");
         assert_eq!(meta.tags, vec!["development"]);

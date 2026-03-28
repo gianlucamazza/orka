@@ -10,30 +10,69 @@ use std::path::Path;
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 
+mod runtime;
+
+pub use orka_a2a::A2aConfig;
 pub use orka_adapter_custom::CustomAdapterConfig;
 pub use orka_adapter_discord::DiscordAdapterConfig;
 pub use orka_adapter_slack::SlackAdapterConfig;
 pub use orka_adapter_telegram::TelegramAdapterConfig;
 pub use orka_adapter_whatsapp::WhatsAppAdapterConfig;
-pub use orka_core::config::{
-    A2aConfig, AgentConfig, AgentDef, AuditConfig, AuthConfig, BusConfig, ChartConfig,
-    CodingConfig, CodingProvider, CodingProvidersConfig, CodingSelectionPolicy, GatewayConfig,
-    GraphDef, GuardrailsConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MemoryConfig,
-    NodeKindDef, ObserveConfig, OsConfig, PluginConfig, PromptsConfig, QueueConfig, ResearchConfig,
-    SandboxConfig, SchedulerConfig, SecretConfig, ServerConfig, SessionConfig, SoftSkillConfig,
-    ToolsConfig, WorkerConfig, WorkspaceEntry,
-    defaults::{self, SYSTEM_CONFIG_PATH},
-};
+pub use orka_auth::{ApiKeyEntry, AuthConfig, JwtAuthConfig};
+pub use orka_bus::BusConfig;
+pub use orka_chart::ChartConfig;
 pub use orka_core::{
-    MigrationError, MigrationResult, inspect_config_issues, migrate_for_write, migrate_if_needed,
+    MigrationError, MigrationResult,
+    config::{AgentConfig, AgentDef, GraphDef, NodeKindDef, defaults},
+    inspect_config_issues, migrate_for_write, migrate_if_needed,
 };
+pub use orka_experience::ExperienceConfig;
+pub use orka_gateway::GatewayConfig;
 pub use orka_git::{GitAuthorshipConfig, GitAuthorshipMode, GitConfig, GitWorktreeConfig};
+pub use orka_guardrails::{
+    GuardrailRules, GuardrailsConfig, LlmModerationConfig, ModerationCategory, RedactPattern,
+};
+pub use orka_http::HttpClientConfig;
 pub use orka_knowledge::{
     ChunkingConfig, EmbeddingProviderKind, EmbeddingsConfig, KnowledgeConfig, RetrievalConfig,
     VectorStoreBackend, VectorStoreConfig,
 };
 pub use orka_llm::{LlmAuthKind, LlmConfig, LlmProviderConfig};
+pub use orka_mcp::{McpAuthEntry, McpClientConfig, McpConfig, McpServerEntry};
+pub use orka_memory::MemoryConfig;
+pub use orka_observe::{AuditConfig, ObserveConfig};
+pub use orka_os::{
+    ApprovalPolicy, ClaudeCodeConfig, CodexConfig, CodingConfig, CodingProvider,
+    CodingProvidersConfig, CodingSelectionPolicy, OpenCodeConfig, OsConfig, SandboxMode,
+    SudoConfig,
+};
+pub use orka_prompts::PromptsConfig;
+pub use orka_research::ResearchConfig;
+pub use orka_sandbox::{SandboxConfig, SandboxLimitsConfig};
+pub use orka_scheduler::{ScheduledJob, SchedulerConfig};
+pub use orka_secrets::{SecretBackend, SecretConfig};
+pub use orka_session::SessionConfig;
+pub use orka_skills::{PluginCapabilities, PluginConfig, PluginInstanceConfig, SoftSkillConfig};
 pub use orka_web::{SearchProviderKind, WebConfig};
+pub use runtime::{
+    LogLevel, LoggingConfig, QueueConfig, RedisConfig, SYSTEM_CONFIG_PATH, ServerConfig,
+    WorkerConfig, WorkspaceEntry,
+};
+
+/// Tool enable/disable configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[non_exhaustive]
+pub struct ToolsConfig {
+    /// Globally allowed tools.
+    #[serde(default)]
+    pub allow: Vec<String>,
+    /// Globally denied tools (takes precedence).
+    #[serde(default)]
+    pub deny: Vec<String>,
+    /// Tool-specific configuration.
+    #[serde(default)]
+    pub config: std::collections::HashMap<String, serde_json::Value>,
+}
 
 /// Channel adapter configuration (Telegram, Discord, Slack, `WhatsApp`,
 /// custom).
@@ -56,7 +95,7 @@ pub struct AdapterConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct OrkaConfig {
     /// Config schema version.
-    #[serde(default = "defaults::default_config_version")]
+    #[serde(default = "runtime::default_config_version")]
     pub config_version: u32,
     /// HTTP server bind configuration.
     #[serde(default)]
@@ -66,7 +105,7 @@ pub struct OrkaConfig {
     pub bus: BusConfig,
     /// Redis connection configuration.
     #[serde(default)]
-    pub redis: orka_core::config::RedisConfig,
+    pub redis: RedisConfig,
     /// Structured logging configuration.
     #[serde(default)]
     pub logging: LoggingConfig,
@@ -153,7 +192,7 @@ pub struct OrkaConfig {
     pub prompts: PromptsConfig,
     /// Self-learning experience configuration.
     #[serde(default)]
-    pub experience: orka_core::config::ExperienceConfig,
+    pub experience: ExperienceConfig,
     /// Git integration configuration.
     #[serde(default)]
     pub git: GitConfig,
@@ -174,10 +213,11 @@ pub struct OrkaConfig {
 impl Default for OrkaConfig {
     fn default() -> Self {
         Self {
-            config_version: defaults::default_config_version(),
+            config_version: runtime::default_config_version(),
+
             server: ServerConfig::default(),
             bus: BusConfig::default(),
-            redis: orka_core::config::RedisConfig::default(),
+            redis: RedisConfig::default(),
             logging: LoggingConfig::default(),
             workspace_dir: defaults::default_workspace_dir(),
             workspaces: Vec::new(),
@@ -206,7 +246,7 @@ impl Default for OrkaConfig {
             scheduler: SchedulerConfig::default(),
             http: HttpClientConfig::default(),
             prompts: PromptsConfig::default(),
-            experience: orka_core::config::ExperienceConfig::default(),
+            experience: ExperienceConfig::default(),
             git: GitConfig::default(),
             agents: Vec::new(),
             graph: None,
@@ -437,6 +477,12 @@ impl OrkaConfig {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default
+)]
 mod tests {
     use std::fs;
 
@@ -466,6 +512,24 @@ chunk_overlap = 32
 [web]
 search_provider = "brave"
 
+[http]
+timeout_secs = 45
+
+[prompts]
+templates_dir = "CUSTOM_PROMPTS"
+max_principles = 7
+
+[experience]
+enabled = true
+reflect_on = "all"
+
+[research]
+enabled = true
+protected_target_branches = ["main", "release/*"]
+
+[chart]
+enabled = true
+
 [adapters.telegram]
 bot_token_secret = "telegram/bot"
 workspace = "ops"
@@ -489,6 +553,17 @@ auth_token_env = "ANTHROPIC_AUTH_TOKEN"
         assert!(loaded.knowledge.enabled);
         assert_eq!(loaded.knowledge.chunking.chunk_size, 256);
         assert_eq!(loaded.web.search_provider, SearchProviderKind::Brave);
+        assert_eq!(loaded.http.timeout_secs, 45);
+        assert_eq!(loaded.prompts.templates_dir, "CUSTOM_PROMPTS");
+        assert_eq!(loaded.prompts.max_principles, 7);
+        assert!(loaded.experience.enabled);
+        assert_eq!(loaded.experience.reflect_on, "all");
+        assert!(loaded.research.enabled);
+        assert_eq!(
+            loaded.research.protected_target_branches,
+            vec!["main".to_string(), "release/*".to_string()]
+        );
+        assert!(loaded.chart.enabled);
         assert_eq!(
             loaded
                 .adapters

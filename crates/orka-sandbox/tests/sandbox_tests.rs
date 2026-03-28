@@ -1,14 +1,11 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use std::{collections::HashMap, sync::Arc};
 
-use orka_core::{
-    config::{SandboxConfig, SandboxLimitsConfig},
-    traits::Skill,
-    types::SkillInput,
-};
+use orka_core::{traits::Skill, types::SkillInput};
 use orka_sandbox::{
-    ProcessSandbox, SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxSkill,
+    ProcessSandbox, SandboxConfig, SandboxExecutor, SandboxLang, SandboxLimits,
+    SandboxLimitsConfig, SandboxRequest, SandboxSkill,
 };
 
 fn default_config() -> SandboxConfig {

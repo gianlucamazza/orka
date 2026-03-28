@@ -82,6 +82,11 @@ pub(crate) fn build_handoff_tools(agent: &Agent, graph: &AgentGraph) -> Vec<Tool
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::needless_pass_by_value
+)]
 mod tests {
     use super::*;
     use crate::{

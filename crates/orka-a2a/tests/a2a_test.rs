@@ -1,4 +1,9 @@
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::default_trait_access
+)]
 
 use std::sync::Arc;
 

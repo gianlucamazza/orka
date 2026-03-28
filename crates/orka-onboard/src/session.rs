@@ -1,8 +1,8 @@
 //! Onboarding wizard session: LLM-driven configuration loop.
 //!
 //! [`OnboardSession`] manages a streaming tool-use conversation with an LLM,
-//! calling [`OnboardIo`] for terminal I/O and [`orka_core::traits::SecretManager`]
-//! for secret storage.
+//! calling [`OnboardIo`] for terminal I/O and
+//! [`orka_core::traits::SecretManager`] for secret storage.
 
 use std::sync::Arc;
 
@@ -49,7 +49,8 @@ pub trait OnboardIo: Send {
     async fn on_config_updated(&mut self, toml_preview: &str);
 }
 
-// ── Session ───────────────────────────────────────────────────────────────────
+// ── Session
+// ───────────────────────────────────────────────────────────────────
 
 /// Provider metadata captured during Phase 1 bootstrap.
 #[derive(Debug, Clone)]
@@ -355,7 +356,8 @@ impl OnboardSession {
     }
 }
 
-// ── Stream consumer ───────────────────────────────────────────────────────────
+// ── Stream consumer
+// ───────────────────────────────────────────────────────────
 
 struct TurnResult {
     content_blocks: Vec<ContentBlock>,
@@ -421,6 +423,7 @@ async fn consume_stream(
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::sync::Arc;
 

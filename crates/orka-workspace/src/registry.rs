@@ -67,6 +67,14 @@ impl WorkspaceRegistry {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
     use super::*;
 

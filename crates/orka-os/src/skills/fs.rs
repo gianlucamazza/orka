@@ -968,18 +968,25 @@ impl Skill for FsWatchSkill {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
     use std::collections::HashMap;
 
-    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
-
     use super::*;
+    use crate::config::{OsConfig, PermissionLevel};
 
     fn test_guard(level: &str) -> Arc<PermissionGuard> {
         let mut config = OsConfig::default();
         config.permission_level = match level {
-            "read-only" => OsPermissionLevel::ReadOnly,
-            "write" => OsPermissionLevel::Write,
+            "read-only" => PermissionLevel::ReadOnly,
+            "write" => PermissionLevel::Write,
             other => panic!("unsupported test permission level: {other}"),
         };
         config.allowed_paths = vec!["/tmp".into()];
@@ -1056,7 +1063,7 @@ mod tests {
         let file = dir.path().join("out.txt");
 
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Write;
+        config.permission_level = PermissionLevel::Write;
         config.allowed_paths = vec![dir.path().to_string_lossy().to_string()];
         let guard = Arc::new(PermissionGuard::new(&config));
         let skill = FsWriteSkill::new(guard);

@@ -1,4 +1,10 @@
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::float_cmp,
+    clippy::default_trait_access
+)]
 
 //! Integration tests for `GraphExecutor` covering linear, fan-out, handoff,
 //! and termination-policy scenarios using an in-memory mock LLM.
@@ -1013,8 +1019,8 @@ impl Guardrail for BlockGuardrail {
 // FanOut → FanIn pipeline test
 // ---------------------------------------------------------------------------
 
-/// A `FanOut` node dispatches parallel branches; a `FanIn` node with an outgoing
-/// edge from `FanOut` should be reached after all branches complete.
+/// A `FanOut` node dispatches parallel branches; a `FanIn` node with an
+/// outgoing edge from `FanOut` should be reached after all branches complete.
 #[tokio::test]
 async fn fan_out_continues_to_fan_in() {
     // Graph: fanout → {worker_a, worker_b, synthesizer}

@@ -12,7 +12,6 @@
 //! - **Error** ([`Error`]): unified error type for the entire platform
 //! - **Config** ([`config`]): shared config submodules and primitives used by
 //!   the composed workspace config
-//! - **Container** ([`container`]): lightweight dependency injection container
 //! - **Testing** ([`testing`]): in-memory test doubles for all core traits
 //!
 //! # Examples
@@ -33,8 +32,6 @@
 //! ```
 #![warn(missing_docs)]
 
-/// Lightweight dependency injection container.
-pub mod container;
 /// Unified error type and `Result` alias.
 pub mod error;
 /// Slash-command parser for user input.

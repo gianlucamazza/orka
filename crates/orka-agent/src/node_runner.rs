@@ -297,7 +297,7 @@ pub(crate) async fn run_agent_node(
                                 .get("workspace")
                                 .is_some_and(|ws| ws == workspace_name),
                             Some("global") | None => true,
-                            Some("user") | Some(_) => false,
+                            Some(_) => false,
                         }
                     })
                     .take(5)
@@ -1511,6 +1511,7 @@ async fn generate_plan(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 

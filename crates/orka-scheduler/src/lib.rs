@@ -5,6 +5,8 @@
 
 #![warn(missing_docs)]
 
+/// Scheduler configuration.
+pub mod config;
 /// In-memory schedule store for testing.
 pub mod memory_store;
 /// Async scheduler tick loop.
@@ -18,8 +20,9 @@ pub mod types;
 
 use std::sync::Arc;
 
+pub use config::{ScheduledJob, SchedulerConfig};
 pub use memory_store::InMemoryScheduleStore;
-use orka_core::{Result, config::SchedulerConfig, traits::Skill};
+use orka_core::{Result, traits::Skill};
 pub use scheduler::{Scheduler, SkillRegistry};
 pub use store::{RedisScheduleStore, ScheduleStore};
 use tracing::info;

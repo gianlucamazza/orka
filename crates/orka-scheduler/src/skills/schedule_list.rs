@@ -61,6 +61,7 @@ impl Skill for ScheduleListSkill {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::needless_pass_by_value)]
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 

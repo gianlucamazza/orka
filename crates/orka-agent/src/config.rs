@@ -294,11 +294,17 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::default_trait_access,
+    clippy::field_reassign_with_default
+)]
 mod tests {
     use std::sync::Arc;
 
-    use orka_config::OrkaConfig;
-    use orka_core::config::{AgentDef, EdgeDef, GraphDef, ServerConfig};
+    use orka_config::{OrkaConfig, ServerConfig};
+    use orka_core::config::{AgentDef, EdgeDef, GraphDef};
     use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 
     fn base_config() -> OrkaConfig {

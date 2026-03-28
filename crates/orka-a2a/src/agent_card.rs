@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use orka_core::config::AuthConfig;
+use orka_auth::AuthConfig;
 use orka_skills::SkillRegistry;
 
 use crate::types::{
@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn build_agent_card_with_auth_api_key() {
-        use orka_core::config::{ApiKeyEntry, AuthConfig};
+        use orka_auth::ApiKeyEntry;
 
         let skills = SkillRegistry::new();
         let mut auth = AuthConfig::default();
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn build_agent_card_with_auth_jwt() {
-        use orka_core::config::{AuthConfig, JwtAuthConfig};
+        use orka_auth::JwtAuthConfig;
 
         let skills = SkillRegistry::new();
         let mut auth = AuthConfig::default();
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn build_agent_card_with_both_auth_methods() {
-        use orka_core::config::{ApiKeyEntry, AuthConfig, JwtAuthConfig};
+        use orka_auth::{ApiKeyEntry, JwtAuthConfig};
 
         let skills = SkillRegistry::new();
         let mut auth = AuthConfig::default();

@@ -5,8 +5,7 @@
 
 #![allow(dead_code, missing_docs)]
 
-use std::error::Error;
-use std::sync::Arc;
+use std::{error::Error, sync::Arc};
 
 use axum::{body::Body, response::Response};
 use orka_a2a::AgentDirectory;
@@ -213,8 +212,10 @@ pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::R
         A2aState, InMemoryPushNotificationStore, InMemoryTaskStore, WebhookDeliverer,
         build_agent_card,
     };
-    use orka_auth::{ApiKeyAuthenticator, AuthLayer, middleware::AuthMiddlewareConfig};
-    use orka_core::{config::ApiKeyEntry, testing::InMemorySecretManager};
+    use orka_auth::{
+        ApiKeyAuthenticator, ApiKeyEntry, AuthLayer, middleware::AuthMiddlewareConfig,
+    };
+    use orka_core::testing::InMemorySecretManager;
     use sha2::{Digest, Sha256};
 
     let mut skills = SkillRegistry::new();
@@ -279,8 +280,9 @@ pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::R
 ///
 /// Protected routes require `X-Api-Key: <key>`.
 pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
-    use orka_auth::{ApiKeyAuthenticator, AuthLayer, middleware::AuthMiddlewareConfig};
-    use orka_core::config::ApiKeyEntry;
+    use orka_auth::{
+        ApiKeyAuthenticator, ApiKeyEntry, AuthLayer, middleware::AuthMiddlewareConfig,
+    };
     use sha2::{Digest, Sha256};
 
     let mut skills = SkillRegistry::new();
@@ -333,8 +335,10 @@ pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
 /// Uses in-memory stub skills so the full research pipeline can run
 /// without external tools.
 pub(crate) fn test_router_with_research() -> axum::Router {
-    use orka_core::{config::ResearchConfig, testing::InMemorySecretManager};
-    use orka_research::{InMemoryResearchStore, create_research_service, create_research_skills};
+    use orka_core::testing::InMemorySecretManager;
+    use orka_research::{
+        InMemoryResearchStore, ResearchConfig, create_research_service, create_research_skills,
+    };
 
     let store = Arc::new(InMemoryResearchStore::new());
     let service = create_research_service(

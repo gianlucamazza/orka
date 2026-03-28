@@ -5,11 +5,11 @@ use std::{
 
 use axum::{body::Body, response::IntoResponse};
 use http::{Request, Response};
-use orka_core::config::AuthConfig;
 use tower_layer::Layer;
 use tower_service::Service;
 
 use crate::{
+    AuthConfig,
     authenticator::Authenticator,
     types::{AuthIdentity, Credentials},
 };
@@ -146,6 +146,16 @@ where
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive,
+    clippy::unused_async,
+    clippy::map_unwrap_or
+)]
 mod tests {
     use http::StatusCode;
     use tower::ServiceExt;

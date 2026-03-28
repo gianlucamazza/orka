@@ -12,18 +12,21 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_config::OrkaConfig;
 use orka_core::{DomainEvent, DomainEventKind, traits::EventSink};
 use tracing::{debug, info, warn};
 
 /// Append-only JSONL audit log for skill invocations.
 pub mod audit_sink;
+/// Observability configuration owned by `orka-observe`.
+pub mod config;
 /// Prometheus-compatible counter and histogram metrics.
 pub mod metrics;
 /// OpenTelemetry OTLP span exporter event sink.
 pub mod otel_sink;
 /// Redis Streams event sink with batched writes.
 pub mod redis_sink;
+
+pub use crate::config::{AuditConfig, ObserveConfig};
 
 struct LogEventSink;
 
@@ -194,14 +197,18 @@ impl EventSink for LogEventSink {
 
 /// Create an [`EventSink`] from the given configuration.
 ///
-/// If `config.audit.enabled` is true, the primary sink is wrapped in a
+/// If `audit.enabled` is true, the primary sink is wrapped in a
 /// [`FanoutSink`] that also writes to the [`audit_sink::AuditSink`].
-pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
-    let primary: Arc<dyn EventSink> = match config.observe.backend.as_str() {
+pub fn create_event_sink(
+    observe: &ObserveConfig,
+    audit: &AuditConfig,
+    redis_url: &str,
+) -> Arc<dyn EventSink> {
+    let primary: Arc<dyn EventSink> = match observe.backend.as_str() {
         "redis" => match redis_sink::RedisEventSink::new(
-            &config.redis.url,
-            config.observe.batch_size,
-            config.observe.flush_interval_ms,
+            redis_url,
+            observe.batch_size,
+            observe.flush_interval_ms,
         ) {
             Ok(sink) => {
                 info!("event sink: Redis Streams");
@@ -228,9 +235,8 @@ pub fn create_event_sink(config: &OrkaConfig) -> Arc<dyn EventSink> {
         }
     };
 
-    if config.audit.enabled {
-        let path_str = config
-            .audit
+    if audit.enabled {
+        let path_str = audit
             .path
             .as_deref()
             .map_or_else(|| "orka-audit.jsonl".into(), |p| p.to_string_lossy());
@@ -262,6 +268,7 @@ impl EventSink for FanoutSink {
 }
 
 #[cfg(test)]
+#[allow(clippy::default_trait_access, clippy::too_many_lines)]
 pub(crate) mod test_helpers {
     use orka_core::{
         DomainEvent, DomainEventKind,
@@ -388,54 +395,27 @@ pub(crate) mod test_helpers {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use orka_core::{DomainEvent, config::*};
+    use orka_core::DomainEvent;
 
     use super::{test_helpers::*, *};
 
-    fn test_config() -> OrkaConfig {
-        OrkaConfig {
-            config_version: 1,
-            server: ServerConfig::default(),
-            bus: BusConfig::default(),
-            redis: RedisConfig::default(),
-            logging: LoggingConfig::default(),
-            workspace_dir: ".".into(),
-            workspaces: Vec::new(),
-            default_workspace: None,
-            adapters: AdapterConfig::default(),
-            worker: WorkerConfig::default(),
-            memory: MemoryConfig::default(),
-            secrets: SecretConfig::default(),
-            auth: AuthConfig::default(),
-            sandbox: SandboxConfig::default(),
-            plugins: PluginConfig::default(),
-            soft_skills: SoftSkillConfig::default(),
-            session: SessionConfig::default(),
-            queue: QueueConfig::default(),
-            llm: LlmConfig::default(),
-            tools: ToolsConfig::default(),
-            observe: ObserveConfig::default(),
-            audit: AuditConfig::default(),
-            gateway: GatewayConfig::default(),
-            prompts: PromptsConfig::default(),
-            mcp: McpConfig::default(),
-            guardrails: GuardrailsConfig::default(),
-            web: WebConfig::default(),
-            os: OsConfig::default(),
-            a2a: A2aConfig::default(),
-            knowledge: KnowledgeConfig::default(),
-            scheduler: SchedulerConfig::default(),
-            http: HttpClientConfig::default(),
-            experience: ExperienceConfig::default(),
-            git: Default::default(),
-            agents: Vec::new(),
-            graph: None,
-            research: Default::default(),
-            chart: Default::default(),
-        }
+    fn test_config() -> (ObserveConfig, AuditConfig, String) {
+        (
+            ObserveConfig::default(),
+            AuditConfig::default(),
+            "redis://127.0.0.1:6379".into(),
+        )
     }
 
     /// Recording sink that collects emitted events for assertions.
@@ -472,17 +452,16 @@ mod tests {
 
     #[test]
     fn create_event_sink_returns_log_for_unknown_backend() {
-        let mut config = test_config();
-        config.observe.backend = "unknown".into();
-        let _sink = create_event_sink(&config);
+        let (mut observe, audit, redis_url) = test_config();
+        observe.backend = "unknown".into();
+        let _sink = create_event_sink(&observe, &audit, &redis_url);
     }
 
     #[test]
     fn create_event_sink_falls_back_to_log_for_invalid_redis_url() {
-        let mut config = test_config();
-        config.observe.backend = "redis".into();
-        config.redis.url = "not-a-valid-url".into();
-        let _sink = create_event_sink(&config);
+        let (mut observe, audit, _) = test_config();
+        observe.backend = "redis".into();
+        let _sink = create_event_sink(&observe, &audit, "not-a-valid-url");
     }
 
     #[tokio::test]
@@ -510,11 +489,11 @@ mod tests {
         let tmp = NamedTempFile::new().unwrap();
         let path = tmp.path().to_path_buf();
 
-        let mut config = test_config();
-        config.audit.enabled = true;
-        config.audit.path = Some(path.clone());
+        let (observe, mut audit, redis_url) = test_config();
+        audit.enabled = true;
+        audit.path = Some(path.clone());
 
-        let sink = create_event_sink(&config);
+        let sink = create_event_sink(&observe, &audit, &redis_url);
 
         // Emit a SkillInvoked event — the audit sink only writes skill events
         sink.emit(DomainEvent::new(DomainEventKind::SkillInvoked {

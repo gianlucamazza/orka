@@ -2,12 +2,15 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use nix::sys::resource::{Resource, setrlimit};
-use orka_core::{Error, Result, config::SandboxConfig};
+use orka_core::{Error, Result};
 use tempfile::NamedTempFile;
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
 
-use crate::executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult};
+use crate::{
+    SandboxConfig,
+    executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult},
+};
 
 /// Process-based sandbox executor for Python and Bash.
 pub struct ProcessSandbox {
@@ -163,6 +166,14 @@ fn which_js_runtime() -> JsRuntime {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
     use std::collections::HashMap;
 

@@ -67,6 +67,7 @@ pub(crate) struct AdapterStartArgs {
 /// Returns the custom adapter separately (needed for routing) plus a vec of
 /// all adapters (including custom) for outbound routing and command
 /// registration.
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn start_all_adapters(
     args: AdapterStartArgs,
 ) -> anyhow::Result<(Arc<dyn ChannelAdapter>, Vec<Arc<dyn ChannelAdapter>>)> {

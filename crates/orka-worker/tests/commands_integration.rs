@@ -1,4 +1,10 @@
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::float_cmp,
+    clippy::default_trait_access
+)]
 
 //! Integration tests for slash commands end-to-end through the worker pipeline.
 

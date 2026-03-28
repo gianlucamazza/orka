@@ -23,7 +23,7 @@ fn make_entry(key: &str, tags: Vec<&str>) -> MemoryEntry {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn store_recall_roundtrip() {
     let (store, _container) = setup().await;
     let entry = make_entry("test-key", vec!["tag1"]);
@@ -37,7 +37,7 @@ async fn store_recall_roundtrip() {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn ttl_expiry() {
     use std::time::Duration;
 
@@ -57,7 +57,7 @@ async fn ttl_expiry() {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn search_by_key_pattern() {
     let (store, _container) = setup().await;
 
@@ -88,7 +88,7 @@ async fn search_by_key_pattern() {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn search_by_tag() {
     let (store, _container) = setup().await;
 
@@ -107,7 +107,7 @@ async fn search_by_tag() {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn compact_returns_zero() {
     let (store, _container) = setup().await;
     let count = store.compact().await.unwrap();

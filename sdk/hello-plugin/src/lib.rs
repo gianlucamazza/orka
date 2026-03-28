@@ -1,6 +1,6 @@
 //! Example Orka WASM plugin that returns a greeting.
 // The export_plugin! macro generates undocumented types; allow missing_docs for this example.
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::same_length_and_capacity)]
 
 use orka_plugin_sdk_component::{Plugin, export_plugin};
 

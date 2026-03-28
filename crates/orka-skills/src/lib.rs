@@ -11,6 +11,8 @@
 
 /// Built-in skill implementations (e.g. [`EchoSkill`]).
 pub mod builtins;
+/// WASM plugin loading configuration owned by `orka-skills`.
+pub mod config;
 /// WASM plugin loader — scans a directory for `.wasm` skill files.
 #[cfg(feature = "wasm")]
 pub mod loader;
@@ -27,6 +29,7 @@ pub mod soft_skill;
 pub mod wasm_plugin;
 
 pub use builtins::EchoSkill;
+pub use config::{PluginCapabilities, PluginConfig, PluginInstanceConfig, SoftSkillConfig};
 #[cfg(feature = "wasm")]
 pub use loader::load_plugins;
 pub use registry::SkillRegistry;

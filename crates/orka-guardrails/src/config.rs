@@ -1,125 +1,13 @@
-//! Protocol configurations (MCP, A2A, Guardrails).
-
-use std::collections::HashMap;
+//! Content guardrails configuration.
 
 use serde::Deserialize;
-
-use crate::config::defaults;
-
-/// MCP (Model Context Protocol) server and client configuration.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[non_exhaustive]
-pub struct McpConfig {
-    /// MCP servers to connect to.
-    #[serde(default)]
-    pub servers: Vec<McpServerEntry>,
-    /// MCP client configuration.
-    #[serde(default)]
-    pub client: McpClientConfig,
-}
-
-/// MCP server entry configuration.
-#[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
-pub struct McpServerEntry {
-    /// Server name.
-    pub name: String,
-    /// Transport type.
-    #[serde(default = "defaults::default_mcp_transport")]
-    pub transport: String,
-    /// Command to execute (for stdio transport).
-    pub command: Option<String>,
-    /// Arguments for the command.
-    #[serde(default)]
-    pub args: Vec<String>,
-    /// Environment variables.
-    #[serde(default)]
-    pub env: HashMap<String, String>,
-    /// HTTP URL (for streamable HTTP transport).
-    pub url: Option<String>,
-    /// Working directory for the command.
-    pub working_dir: Option<std::path::PathBuf>,
-    /// OAuth configuration.
-    pub auth: Option<McpAuthEntry>,
-}
-
-/// MCP OAuth configuration.
-#[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
-pub struct McpAuthEntry {
-    /// OAuth token URL.
-    pub token_url: String,
-    /// OAuth client ID.
-    pub client_id: String,
-    /// Environment variable containing client secret.
-    pub client_secret_env: String,
-    /// OAuth scopes.
-    #[serde(default)]
-    pub scopes: Vec<String>,
-}
-
-/// MCP client configuration.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[non_exhaustive]
-pub struct McpClientConfig {
-    /// Client name.
-    #[serde(default)]
-    pub name: String,
-    /// Client version.
-    #[serde(default)]
-    pub version: String,
-}
-
-/// Agent-to-Agent (A2A) protocol configuration.
-#[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
-pub struct A2aConfig {
-    /// Enable A2A discovery.
-    #[serde(default = "defaults::default_a2a_discovery_enabled")]
-    pub discovery_enabled: bool,
-    /// Discovery interval in seconds.
-    #[serde(default = "default_discovery_interval_secs")]
-    pub discovery_interval_secs: u64,
-    /// Known agent endpoints.
-    #[serde(default)]
-    pub known_agents: Vec<String>,
-    /// Require authentication on the `POST /a2a` endpoint.
-    ///
-    /// When `true`, the A2A JSON-RPC endpoint is mounted inside the
-    /// authenticated route group (behind `AuthLayer`). The agent-card
-    /// discovery endpoint (`GET /.well-known/agent.json`) is always public.
-    #[serde(default)]
-    pub auth_enabled: bool,
-    /// Storage backend for A2A task and push-notification state.
-    ///
-    /// - `"memory"` (default): in-memory stores, state lost on restart.
-    /// - `"redis"`: Redis-backed stores using `redis.url`; survives restarts.
-    #[serde(default = "defaults::default_a2a_store_backend")]
-    pub store_backend: String,
-}
-
-impl Default for A2aConfig {
-    fn default() -> Self {
-        Self {
-            discovery_enabled: defaults::default_a2a_discovery_enabled(),
-            discovery_interval_secs: default_discovery_interval_secs(),
-            known_agents: Vec::new(),
-            auth_enabled: false,
-            store_backend: defaults::default_a2a_store_backend(),
-        }
-    }
-}
-
-const fn default_discovery_interval_secs() -> u64 {
-    300
-}
 
 /// Content guardrails configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
 pub struct GuardrailsConfig {
     /// Enable guardrails.
-    #[serde(default = "defaults::default_guardrails_enabled")]
+    #[serde(default = "default_guardrails_enabled")]
     pub enabled: bool,
     /// Input validation rules.
     #[serde(default)]
@@ -132,7 +20,7 @@ pub struct GuardrailsConfig {
 impl Default for GuardrailsConfig {
     fn default() -> Self {
         Self {
-            enabled: defaults::default_guardrails_enabled(),
+            enabled: default_guardrails_enabled(),
             input: GuardrailRules::default(),
             output: GuardrailRules::default(),
         }
@@ -160,6 +48,10 @@ impl GuardrailsConfig {
         self.output = rules;
         self
     }
+}
+
+const fn default_guardrails_enabled() -> bool {
+    false
 }
 
 /// Guardrail validation rules.
@@ -285,21 +177,21 @@ impl LlmModerationConfig {
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ModerationCategory {
-    /// Hate speech, discrimination
+    /// Hate speech, discrimination.
     Hate,
-    /// Harassment, bullying
+    /// Harassment, bullying.
     Harassment,
-    /// Self-harm, suicide
+    /// Self-harm, suicide.
     SelfHarm,
-    /// Violence, physical harm
+    /// Violence, physical harm.
     Violence,
-    /// Sexual content
+    /// Sexual content.
     Sexual,
-    /// Dangerous activities
+    /// Dangerous activities.
     Dangerous,
-    /// Spam, misleading content
+    /// Spam, misleading content.
     Spam,
-    /// Profanity, obscenity
+    /// Profanity, obscenity.
     Profanity,
 }
 

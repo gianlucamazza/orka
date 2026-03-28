@@ -70,7 +70,8 @@ pub(crate) struct ChatRenderer {
     thinking_shown: bool,
     think_enabled: Arc<AtomicBool>,
     current_response: String,
-    /// Accumulated thinking content, flushed as markdown before the first response delta.
+    /// Accumulated thinking content, flushed as markdown before the first
+    /// response delta.
     thinking_buffer: String,
 }
 
@@ -360,7 +361,8 @@ impl ChatRenderer {
             .ok();
     }
 
-    /// Reset per-turn state (called from `on_done` and externally after reconnect).
+    /// Reset per-turn state (called from `on_done` and externally after
+    /// reconnect).
     pub(crate) fn reset_turn(&mut self) {
         self.markdown.reset();
         self.streaming = false;

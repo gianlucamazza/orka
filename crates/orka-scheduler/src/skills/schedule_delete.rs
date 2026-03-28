@@ -78,6 +78,7 @@ impl Skill for ScheduleDeleteSkill {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::needless_pass_by_value)]
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 
@@ -109,7 +110,7 @@ mod tests {
                 skill: None,
                 args: None,
                 message: None,
-                next_run: 4102444800,
+                next_run: 4_102_444_800,
                 created_at: Utc::now().to_rfc3339(),
                 completed: false,
             })

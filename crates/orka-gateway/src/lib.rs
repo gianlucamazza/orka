@@ -9,6 +9,9 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+/// Gateway configuration owned by `orka-gateway`.
+pub mod config;
+
 /// Duration of the rate-limiting sliding window in seconds.
 const RATE_LIMIT_WINDOW_SECS: i64 = 60;
 
@@ -22,6 +25,8 @@ use orka_workspace::WorkspaceLoader;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+
+pub use crate::config::GatewayConfig;
 
 const DEDUP_KEY_PREFIX: &str = "orka:dedup:";
 
@@ -312,6 +317,15 @@ fn resolve_user_id(envelope: &Envelope) -> String {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive,
+    clippy::too_many_lines
+)]
 mod tests {
     use std::time::Duration;
 

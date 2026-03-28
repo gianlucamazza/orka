@@ -93,6 +93,7 @@ pub fn apply_reducer(strategy: ReducerStrategy, old: Option<&Value>, new: &Value
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::float_cmp)]
 mod tests {
     use serde_json::json;
 

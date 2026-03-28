@@ -10,6 +10,7 @@ use orka_llm::LlmAuthKind;
 ///
 /// Reuses the knowledge config for embedding provider and vector store
 /// settings. Returns `None` if experience is disabled or initialization fails.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn create_experience_service(
     config: &OrkaConfig,
 ) -> anyhow::Result<Option<Arc<ExperienceService>>> {

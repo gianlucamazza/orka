@@ -66,7 +66,8 @@ impl TurnUsage {
         self.last_model = model;
     }
 
-    /// Take the accumulated usage if any calls were recorded, resetting to default.
+    /// Take the accumulated usage if any calls were recorded, resetting to
+    /// default.
     fn take(&mut self) -> Option<TurnUsage> {
         if self.call_count == 0 {
             return None;
@@ -705,7 +706,8 @@ pub async fn run(
                                 }
                                 if streamed_this_turn {
                                     streamed_this_turn = false;
-                                    // Content already rendered via Delta chunks; skip on_final.
+                                    // Content already rendered via Delta
+                                    // chunks; skip on_final.
                                 } else {
                                     renderer.on_final(&content);
                                 }
@@ -729,7 +731,8 @@ pub async fn run(
                             WsMessage::Stream(
                                 StreamChunkKind::ToolStart { .. } | StreamChunkKind::ToolEnd { .. },
                             ) => {
-                                // Internal LLM tool-block bookkeeping events — no UI action
+                                // Internal LLM tool-block bookkeeping events —
+                                // no UI action
                             }
                             WsMessage::Stream(unknown) => {
                                 tracing::debug!(?unknown, "unhandled stream chunk kind");

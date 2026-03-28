@@ -452,6 +452,17 @@ impl ChannelAdapter for WhatsAppAdapter {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive,
+    clippy::map_unwrap_or,
+    clippy::unnecessary_literal_bound,
+    clippy::redundant_closure_for_method_calls
+)]
 mod tests {
     use orka_core::types::{OutboundMessage, SessionId};
 
@@ -493,7 +504,7 @@ mod tests {
 
     #[test]
     fn deserialize_webhook_payload_none_entry() {
-        let json = r#"{}"#;
+        let json = r"{}";
         let payload: WebhookPayload = serde_json::from_str(json).unwrap();
         assert!(payload.entry.is_none());
     }

@@ -12,6 +12,8 @@
 
 /// Trajectory collection during handler invocations.
 pub mod collector;
+/// Experience subsystem configuration.
+pub mod config;
 /// Offline distillation of cross-trajectory patterns into principles.
 pub mod distiller;
 /// Single-trajectory principle reflection using an LLM.
@@ -30,7 +32,8 @@ pub(crate) mod utils;
 use std::sync::Arc;
 
 pub use collector::TrajectoryCollector;
-use orka_core::{Result, config::ExperienceConfig};
+pub use config::ExperienceConfig;
+use orka_core::Result;
 use orka_knowledge::{embeddings::EmbeddingProvider, vector_store::VectorStore};
 use orka_llm::client::LlmClient;
 pub use service::{ExperienceService, ReflectionResult};

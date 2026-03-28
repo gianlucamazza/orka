@@ -120,6 +120,7 @@ pub async fn save_history_compact(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::float_cmp)]
 mod tests {
     use orka_core::{MemoryEntry, testing::InMemoryMemoryStore, traits::MemoryStore};
     use orka_llm::client::{ChatContent, ChatMessage, ContentBlockInput, Role};

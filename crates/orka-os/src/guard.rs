@@ -1,9 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use orka_core::config::OsConfig;
 use regex::Regex;
 
-use crate::config::PermissionLevel;
+use crate::config::{OsConfig, PermissionLevel};
 
 /// Central safety enforcement for all OS skills.
 pub struct PermissionGuard {
@@ -21,7 +20,7 @@ pub struct PermissionGuard {
 impl PermissionGuard {
     /// Build a guard from the given OS configuration.
     pub fn new(config: &OsConfig) -> Self {
-        let level = config.permission_level.into();
+        let level = config.permission_level;
         let allowed_paths = config
             .allowed_paths
             .iter()
@@ -285,15 +284,19 @@ fn shellexpand(s: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default
+)]
 mod tests {
-    use orka_core::config::primitives::OsPermissionLevel;
-
     use super::*;
+    use crate::config::PermissionLevel;
 
     fn test_config() -> OsConfig {
         let mut config = OsConfig::default();
         config.enabled = true;
-        config.permission_level = OsPermissionLevel::ReadOnly;
+        config.permission_level = PermissionLevel::ReadOnly;
         config.allowed_paths = vec!["/tmp".into()];
         config.denied_paths = vec!["/tmp/secret".into()];
         config
@@ -390,9 +393,9 @@ mod tests {
     fn sudo_config() -> OsConfig {
         let mut config = OsConfig::default();
         config.enabled = true;
-        config.permission_level = OsPermissionLevel::Admin;
+        config.permission_level = PermissionLevel::Admin;
         config.allowed_paths = vec!["/tmp".into()];
-        let mut sudo = orka_core::config::SudoConfig::default();
+        let mut sudo = crate::config::SudoConfig::default();
         sudo.allowed = true;
         sudo.allowed_commands = vec![
             "systemctl restart".into(),
@@ -439,7 +442,7 @@ mod tests {
     #[test]
     fn sudo_requires_admin_level() {
         let mut config = sudo_config();
-        config.permission_level = OsPermissionLevel::Execute;
+        config.permission_level = PermissionLevel::Execute;
         let guard = PermissionGuard::new(&config);
         assert!(
             guard

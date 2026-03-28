@@ -10,7 +10,6 @@ pub mod redis_queue;
 
 use std::sync::Arc;
 
-use orka_config::OrkaConfig;
 use orka_core::{
     Result,
     traits::{DeadLetterQueue, PriorityQueue},
@@ -28,10 +27,10 @@ pub struct QueueBundle {
     pub dlq: Arc<dyn DeadLetterQueue>,
 }
 
-/// Create a [`QueueBundle`] from the given configuration.
+/// Create a [`QueueBundle`] from the given Redis configuration.
 /// Uses Redis backend (queue is always Redis-backed in production).
-pub fn create_queue(config: &OrkaConfig) -> Result<QueueBundle> {
-    let queue = Arc::new(RedisPriorityQueue::new(&config.redis.url)?);
+pub fn create_queue(redis_url: &str) -> Result<QueueBundle> {
+    let queue = Arc::new(RedisPriorityQueue::new(redis_url)?);
     Ok(QueueBundle {
         dlq: Arc::clone(&queue) as Arc<dyn DeadLetterQueue>,
         queue: queue as Arc<dyn PriorityQueue>,

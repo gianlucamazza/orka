@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 /// End-to-end test: adapter → bus(inbound) → gateway → queue → worker →
 /// bus(outbound)

@@ -126,7 +126,8 @@ impl SkillRegistry {
         map
     }
 
-    /// Return the names of skills whose circuit breaker is Closed or `HalfOpen`.
+    /// Return the names of skills whose circuit breaker is Closed or
+    /// `HalfOpen`.
     ///
     /// Use this when building the tool list for an LLM call so that skills
     /// with open circuits (persistent environmental failures) are not offered.
@@ -292,6 +293,16 @@ impl Default for SkillRegistry {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive,
+    clippy::unnecessary_literal_bound,
+    clippy::items_after_statements
+)]
 mod tests {
     use orka_core::testing::EchoSkill;
 

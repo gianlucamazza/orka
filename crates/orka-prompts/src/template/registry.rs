@@ -252,6 +252,17 @@ impl Clone for TemplateRegistry {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive,
+    clippy::map_unwrap_or,
+    clippy::unnecessary_literal_bound,
+    clippy::redundant_closure_for_method_calls
+)]
 mod tests {
     use std::io::Write;
 

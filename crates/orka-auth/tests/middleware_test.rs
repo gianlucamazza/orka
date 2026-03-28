@@ -1,15 +1,14 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::Arc;
 
 use axum::{body::Body, response::IntoResponse};
 use http::{Request, StatusCode};
 use orka_auth::{
-    ApiKeyAuthenticator,
+    ApiKeyAuthenticator, ApiKeyEntry,
     middleware::{AuthLayer, AuthMiddlewareConfig},
     types::AuthIdentity,
 };
-use orka_core::config::ApiKeyEntry;
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 

@@ -12,13 +12,14 @@ use std::sync::Arc;
 
 use orka_core::{
     Result,
-    config::{GuardrailRules, LlmModerationConfig},
     traits::{Guardrail, GuardrailDecision},
     types::Session,
 };
 use orka_llm::client::{ChatMessage, LlmClient};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
+
+use crate::config::{GuardrailRules, LlmModerationConfig};
 
 /// Default system prompt for content moderation.
 const DEFAULT_MODERATION_PROMPT: &str = r#"You are a content moderation assistant. Analyze the following text and identify any policy violations.
@@ -261,10 +262,17 @@ impl Guardrail for LlmModerationGuardrail {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
-    use orka_core::config::ModerationCategory;
-
     use super::*;
+    use crate::config::ModerationCategory;
 
     // Mock LLM for testing
     struct MockLlm {

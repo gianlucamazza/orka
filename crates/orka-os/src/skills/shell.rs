@@ -277,16 +277,23 @@ impl Skill for ShellExecSkill {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
     use std::collections::HashMap;
 
-    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
-
     use super::*;
+    use crate::config::{OsConfig, PermissionLevel, SudoConfig};
 
     fn make_skill() -> ShellExecSkill {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Execute;
+        config.permission_level = PermissionLevel::Execute;
         ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)))
     }
 
@@ -316,7 +323,7 @@ mod tests {
     #[tokio::test]
     async fn exec_requires_execute_permission() {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::ReadOnly;
+        config.permission_level = PermissionLevel::ReadOnly;
         let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)));
         let mut args = HashMap::new();
         args.insert("command".into(), serde_json::json!("echo"));
@@ -326,7 +333,7 @@ mod tests {
     #[tokio::test]
     async fn exec_blocked_command() {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Execute;
+        config.permission_level = PermissionLevel::Execute;
         config.allowed_shell_commands = vec!["echo".into()];
         let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)));
         let mut args = HashMap::new();
@@ -344,9 +351,8 @@ mod tests {
 
     #[tokio::test]
     async fn exec_sudo_requires_admin() {
-        use orka_core::config::{OsConfig, SudoConfig};
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Execute;
+        config.permission_level = PermissionLevel::Execute;
         let mut sudo = SudoConfig::default();
         sudo.allowed = true;
         sudo.allowed_commands = vec!["echo".into()];
@@ -362,9 +368,8 @@ mod tests {
 
     #[test]
     fn schema_includes_sudo_for_admin() {
-        use orka_core::config::{OsConfig, SudoConfig};
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Admin;
+        config.permission_level = PermissionLevel::Admin;
         let mut sudo = SudoConfig::default();
         sudo.allowed = true;
         config.sudo = sudo;
@@ -417,7 +422,7 @@ mod tests {
     #[tokio::test]
     async fn exec_split_blocked_command() {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Execute;
+        config.permission_level = PermissionLevel::Execute;
         config.allowed_shell_commands = vec!["echo".into()];
         let skill = ShellExecSkill::new(Arc::new(PermissionGuard::new(&config)));
         let mut args = HashMap::new();
@@ -427,9 +432,8 @@ mod tests {
 
     #[test]
     fn schema_hides_sudo_for_non_admin() {
-        use orka_core::config::{OsConfig, SudoConfig};
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Execute;
+        config.permission_level = PermissionLevel::Execute;
         let mut sudo = SudoConfig::default();
         sudo.allowed = true;
         config.sudo = sudo;

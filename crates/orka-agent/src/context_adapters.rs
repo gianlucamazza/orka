@@ -1,8 +1,8 @@
 //! Adapters for connecting orka-prompts traits to orka service implementations.
 //!
 //! This module provides bridge implementations that adapt the concrete services
-//! (`ExperienceService`, `SoftSkillRegistry`) to the trait interfaces expected by
-//! the context provider system in orka-prompts.
+//! (`ExperienceService`, `SoftSkillRegistry`) to the trait interfaces expected
+//! by the context provider system in orka-prompts.
 
 use std::sync::Arc;
 

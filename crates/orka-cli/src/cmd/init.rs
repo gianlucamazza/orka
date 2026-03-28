@@ -43,7 +43,8 @@ pub struct InitArgs {
     pub extend: bool,
 }
 
-// ── Entry point ───────────────────────────────────────────────────────────────
+// ── Entry point
+// ───────────────────────────────────────────────────────────────
 
 pub async fn run(args: InitArgs) -> Result<()> {
     print_banner();
@@ -134,7 +135,8 @@ pub async fn run(args: InitArgs) -> Result<()> {
     Ok(())
 }
 
-// ── Phase 1 ───────────────────────────────────────────────────────────────────
+// ── Phase 1
+// ───────────────────────────────────────────────────────────────────
 
 /// Supported LLM providers for the wizard bootstrap.
 const PROVIDERS: &[&str] = &[
@@ -410,7 +412,8 @@ fn build_client(
     Ok(client)
 }
 
-// ── Minimal mode ──────────────────────────────────────────────────────────────
+// ── Minimal mode
+// ──────────────────────────────────────────────────────────────
 
 /// Write a minimal working `orka.toml` without LLM conversation.
 fn write_minimal_config(output: &PathBuf, provider: &BootstrapProvider) -> Result<()> {
@@ -456,7 +459,8 @@ fn write_minimal_config(output: &PathBuf, provider: &BootstrapProvider) -> Resul
     Ok(())
 }
 
-// ── Terminal I/O ──────────────────────────────────────────────────────────────
+// ── Terminal I/O
+// ──────────────────────────────────────────────────────────────
 
 struct TerminalIo {
     show_config_preview: bool,
@@ -541,7 +545,8 @@ impl OnboardIo for TerminalIo {
     }
 }
 
-// ── Welcome banner ────────────────────────────────────────────────────────────
+// ── Welcome banner
+// ────────────────────────────────────────────────────────────
 
 fn print_banner() {
     println!(

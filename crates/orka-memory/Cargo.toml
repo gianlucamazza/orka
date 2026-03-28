@@ -7,7 +7,6 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
-orka-config.workspace = true
 redis.workspace = true
 deadpool-redis.workspace = true
 serde.workspace = true
@@ -18,6 +17,7 @@ tracing.workspace = true
 chrono.workspace = true
 
 [dev-dependencies]
+orka-bus.workspace = true
 testcontainers.workspace = true
 testcontainers-modules.workspace = true
 

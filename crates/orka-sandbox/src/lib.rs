@@ -6,6 +6,8 @@
 
 #![warn(missing_docs)]
 
+/// Sandbox configuration owned by `orka-sandbox`.
+pub mod config;
 /// Core trait, types, and limits for sandbox execution.
 pub mod executor;
 /// Subprocess-based sandbox (Python / Bash).
@@ -23,11 +25,13 @@ pub mod testing;
 use std::sync::Arc;
 
 pub use executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult};
-use orka_core::{Result, config::SandboxConfig};
+use orka_core::Result;
 pub use process::ProcessSandbox;
 pub use skill::SandboxSkill;
 #[cfg(feature = "wasm")]
 pub use wasm::WasmSandbox;
+
+pub use crate::config::{SandboxConfig, SandboxLimitsConfig};
 
 /// Create a [`SandboxExecutor`] from the given configuration.
 pub fn create_sandbox(config: &SandboxConfig) -> Result<Arc<dyn SandboxExecutor>> {

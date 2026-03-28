@@ -74,9 +74,9 @@ pub fn extract_text_from_message(message: &Value) -> String {
 
 /// Find a skill for the given message text:
 /// 1. Exact lookup by `skillId` param if present.
-/// 2. Fallback: longest skill name that matches `text` as a whole word
-///    (i.e. text equals the name, or the name is followed by a space).
-///    Using longest-match prevents "echo" from shadowing "echoplus".
+/// 2. Fallback: longest skill name that matches `text` as a whole word (i.e.
+///    text equals the name, or the name is followed by a space). Using
+///    longest-match prevents "echo" from shadowing "echoplus".
 fn find_skill_name(skills: &SkillRegistry, text: &str, skill_id: Option<&str>) -> Option<String> {
     if let Some(id) = skill_id
         && skills.get(id).is_some()

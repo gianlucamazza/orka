@@ -1,5 +1,75 @@
 use std::collections::HashMap;
 
+use serde::Deserialize;
+
+/// MCP (Model Context Protocol) server and client configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[non_exhaustive]
+pub struct McpConfig {
+    /// MCP servers to connect to.
+    #[serde(default)]
+    pub servers: Vec<McpServerEntry>,
+    /// MCP client configuration.
+    #[serde(default)]
+    pub client: McpClientConfig,
+}
+
+/// MCP server entry configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct McpServerEntry {
+    /// Server name.
+    pub name: String,
+    /// Transport type.
+    #[serde(default = "default_mcp_transport")]
+    pub transport: String,
+    /// Command to execute (for stdio transport).
+    pub command: Option<String>,
+    /// Arguments for the command.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    /// HTTP URL (for streamable HTTP transport).
+    pub url: Option<String>,
+    /// Working directory for the command.
+    pub working_dir: Option<std::path::PathBuf>,
+    /// OAuth configuration.
+    pub auth: Option<McpAuthEntry>,
+}
+
+/// MCP OAuth configuration for declarative config loading.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct McpAuthEntry {
+    /// OAuth token URL.
+    pub token_url: String,
+    /// OAuth client ID.
+    pub client_id: String,
+    /// Environment variable containing client secret.
+    pub client_secret_env: String,
+    /// OAuth scopes.
+    #[serde(default)]
+    pub scopes: Vec<String>,
+}
+
+/// MCP client metadata configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[non_exhaustive]
+pub struct McpClientConfig {
+    /// Client name.
+    #[serde(default)]
+    pub name: String,
+    /// Client version.
+    #[serde(default)]
+    pub version: String,
+}
+
+fn default_mcp_transport() -> String {
+    "stdio".to_string()
+}
+
 /// OAuth 2.1 Client Credentials configuration for an MCP server.
 #[derive(Debug, Clone)]
 pub struct McpOAuthConfig {

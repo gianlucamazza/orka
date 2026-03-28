@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use orka_core::Result;
 
 use super::DocumentParser;

@@ -582,14 +582,21 @@ impl Skill for PackageInstallSkill {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
-    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
-
     use super::*;
+    use crate::config::{OsConfig, PermissionLevel};
 
     fn make_guard() -> Arc<PermissionGuard> {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Admin;
+        config.permission_level = PermissionLevel::Admin;
         Arc::new(PermissionGuard::new(&config))
     }
 
@@ -614,7 +621,7 @@ mod tests {
         let required = schema.parameters.get("required");
         // required should be empty array
         assert!(
-            required.is_none_or(|r| r.as_array().is_none_or(|a| a.is_empty())),
+            required.is_none_or(|r| r.as_array().is_none_or(Vec::is_empty)),
             "package_updates should have no required params"
         );
     }
@@ -622,7 +629,7 @@ mod tests {
     #[tokio::test]
     async fn package_search_allowed_at_read_only() {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::ReadOnly;
+        config.permission_level = PermissionLevel::ReadOnly;
         let guard = Arc::new(PermissionGuard::new(&config));
         let skill = PackageSearchSkill::new(guard);
         let mut args = std::collections::HashMap::new();
@@ -643,7 +650,7 @@ mod tests {
     #[tokio::test]
     async fn package_updates_allowed_at_read_only() {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::ReadOnly;
+        config.permission_level = PermissionLevel::ReadOnly;
         let guard = Arc::new(PermissionGuard::new(&config));
         let skill = PackageUpdatesSkill::new(guard, None);
         let result = skill.execute(SkillInput::new(Default::default())).await;

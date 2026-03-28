@@ -1,9 +1,18 @@
 //! Integration tests for orka-prompts: template engine, registry, pipeline,
 //! context providers and coordinator.
 
+#![allow(
+    missing_docs,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::default_trait_access,
+    clippy::map_unwrap_or,
+    clippy::manual_string_new,
+    clippy::unnecessary_literal_bound
+)]
+
 use std::collections::HashMap;
 
-use orka_prompts::pipeline::StaticSection;
 use orka_prompts::{
     BuildContext, PipelineConfig, PromptSection, SystemPromptPipeline, TemplateEngine,
     TemplateRegistry,
@@ -11,6 +20,7 @@ use orka_prompts::{
         ContextCoordinator, SectionsContextProvider, SessionContext, ShellContextProvider,
         WorkspaceProvider,
     },
+    pipeline::StaticSection,
 };
 
 // ---------------------------------------------------------------------------
@@ -264,7 +274,12 @@ async fn shell_provider_empty_when_no_commands() {
     let provider = ShellContextProvider::new();
     let session = SessionContext::default();
     let value = provider.provide(&session).await.unwrap();
-    assert!(value.as_object().map(|o| o.is_empty()).unwrap_or(true));
+    assert!(
+        value
+            .as_object()
+            .map(serde_json::Map::is_empty)
+            .unwrap_or(true)
+    );
 }
 
 #[tokio::test]

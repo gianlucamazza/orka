@@ -1263,6 +1263,7 @@ impl AgentHandler for WorkspaceHandler {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::default_trait_access)]
 mod tests {
     use orka_core::{
         SessionId,

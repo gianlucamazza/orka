@@ -1,4 +1,9 @@
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::redundant_clone
+)]
 
 //! Integration tests for `WasmEngine`, `WasmModule`, and `WasmInstance`.
 

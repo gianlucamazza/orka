@@ -26,7 +26,8 @@ pub use types::{SearchProviderKind, WebConfig};
 /// Create web skills (`web_search` + `web_read`) from config.
 ///
 /// Returns an empty vec if the provider is set to `none`.
-/// The API key is resolved from: `config.api_key` > env var (`config.api_key_env`)
+/// The API key is resolved from: `config.api_key` > env var
+/// (`config.api_key_env`)
 /// > provider-specific env var.
 pub fn create_web_skills(config: &WebConfig) -> Result<Vec<Arc<dyn Skill>>> {
     if config.search_provider == SearchProviderKind::None {

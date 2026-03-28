@@ -1,11 +1,10 @@
 use std::{path::Path, sync::Arc};
 
-use orka_core::{
-    config::{PluginCapabilities as ConfigCaps, PluginConfig, PluginInstanceConfig},
-    traits::Skill,
-};
+use orka_core::traits::Skill;
 use orka_wasm::{PluginCapabilities, WasmEngine};
 use tracing::{info, warn};
+
+use crate::{PluginCapabilities as ConfigCaps, PluginConfig, PluginInstanceConfig};
 
 /// Scan `dir` for `.wasm` files and load each as a WASM Component plugin skill.
 ///
@@ -83,9 +82,16 @@ fn resolve_capabilities(
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive,
+    clippy::redundant_closure_for_method_calls
+)]
 mod tests {
-    use orka_core::config::PluginCapabilities as ConfigCaps;
-
     use super::*;
 
     // `ConfigCaps` and `PluginInstanceConfig` are #[non_exhaustive], so we

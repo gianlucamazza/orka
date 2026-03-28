@@ -1,4 +1,4 @@
-//! HTTP client, webhook, and prompt configuration.
+//! HTTP client and webhook configuration.
 
 use serde::Deserialize;
 
@@ -108,9 +108,9 @@ const fn default_webhook_retry_delay_secs() -> u64 {
 
 impl HttpClientConfig {
     /// Validate the HTTP client configuration.
-    pub fn validate(&self) -> crate::Result<()> {
+    pub fn validate(&self) -> orka_core::Result<()> {
         if self.timeout_secs == 0 {
-            return Err(crate::Error::Config(
+            return Err(orka_core::Error::Config(
                 "http.timeout_secs must be greater than 0".into(),
             ));
         }

@@ -19,6 +19,7 @@ chrono.workspace = true
 redis.workspace = true
 deadpool-redis.workspace = true
 uuid.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 orka-core.workspace = true

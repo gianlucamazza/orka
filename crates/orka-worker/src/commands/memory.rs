@@ -64,6 +64,7 @@ impl MemoryCommand {
             .to_string()
     }
 
+    #[allow(clippy::unused_self)]
     fn current_session_entries(
         &self,
         entries: Vec<MemoryEntry>,
@@ -83,6 +84,7 @@ impl MemoryCommand {
 }
 
 #[async_trait]
+#[allow(clippy::too_many_lines)]
 impl ServerCommand for MemoryCommand {
     fn name(&self) -> &'static str {
         "memory"
@@ -170,7 +172,7 @@ impl ServerCommand for MemoryCommand {
                         .filter(|entry| entry.kind == target_kind)
                         .collect::<Vec<_>>();
                     if entries.is_empty() {
-                        format!("No {} memory entries for this session.", target_kind)
+                        format!("No {target_kind} memory entries for this session.")
                     } else {
                         let mut lines = vec![format!("**{} memory**", target_kind)];
                         for entry in entries {

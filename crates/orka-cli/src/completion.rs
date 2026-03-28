@@ -146,7 +146,7 @@ impl Completer for OrkaCompleter {
                 || text[..at_pos]
                     .chars()
                     .next_back()
-                    .map_or(true, char::is_whitespace);
+                    .is_none_or(char::is_whitespace);
             if preceded_by_ws {
                 let fragment = &text[at_pos + 1..];
                 let cwd = self
@@ -439,9 +439,9 @@ fn collect_path_commands() -> Vec<String> {
     cmds
 }
 
-/// Complete a file path fragment. Returns (`replacement_start_offset`, (display,
-/// replacement) pairs). When `dirs_only` is `true`, only directory entries are
-/// included.
+/// Complete a file path fragment. Returns (`replacement_start_offset`,
+/// (display, replacement) pairs). When `dirs_only` is `true`, only directory
+/// entries are included.
 fn complete_path(
     fragment: &str,
     dirs_only: bool,
@@ -627,9 +627,9 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut hinter = OrkaHinter::new();
-        let hist = FileBackedHistory::default();
+        let history = FileBackedHistory::default();
         unsafe { std::env::set_var("NO_COLOR", "1") };
-        let hint = hinter.handle("/qu", 3, &hist, false, "");
+        let hint = hinter.handle("/qu", 3, &history, false, "");
         unsafe { std::env::remove_var("NO_COLOR") };
         // With NO_COLOR=1 and use_ansi_coloring=false, hint should not contain ANSI
         // escapes

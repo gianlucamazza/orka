@@ -109,16 +109,24 @@ fn clean_text(text: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
     use super::*;
 
     #[test]
     fn extracts_text_from_article() {
-        let html = r#"<html><body>
+        let html = r"<html><body>
             <nav>Menu Item</nav>
             <article><p>Hello world.</p><p>Second paragraph.</p></article>
             <footer>Copyright</footer>
-        </body></html>"#;
+        </body></html>";
         let text = extract_text(html);
         assert!(text.contains("Hello world."));
         assert!(text.contains("Second paragraph."));

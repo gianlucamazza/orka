@@ -1,8 +1,6 @@
-use std::sync::Arc;
+use std::{fmt::Write as _, sync::Arc};
 
-use std::fmt::Write as _;
-
-use orka_core::{ErrorCategory, Result, config::ExperienceConfig};
+use orka_core::{ErrorCategory, Result};
 use orka_llm::client::LlmClient;
 use orka_prompts::template::TemplateRegistry;
 use rand::Rng as _;
@@ -10,6 +8,7 @@ use tracing::{debug, info, warn};
 
 use crate::{
     collector::TrajectoryCollector,
+    config::ExperienceConfig,
     distiller::Distiller,
     reflector::PrincipleReflector,
     store::PrincipleStore,

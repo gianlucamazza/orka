@@ -2,25 +2,23 @@
 
 use serde::Deserialize;
 
-use crate::config::defaults;
-
-/// Experience & self-learning configuration.
+/// Experience and self-learning configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
 pub struct ExperienceConfig {
     /// Whether the experience / self-learning subsystem is enabled.
-    #[serde(default = "defaults::default_experience_enabled")]
+    #[serde(default = "default_experience_enabled")]
     pub enabled: bool,
     /// Maximum number of principles to inject into the system prompt.
     #[serde(default = "default_experience_max_principles")]
     pub max_principles: usize,
-    /// Minimum relevance score (0.0–1.0) for a principle to be injected.
+    /// Minimum relevance score (0.0-1.0) for a principle to be injected.
     #[serde(default = "default_experience_min_relevance")]
     pub min_relevance_score: f32,
     /// When to trigger reflection: "failures", "all", or "sampled".
     #[serde(default = "default_experience_reflect_on")]
     pub reflect_on: String,
-    /// Sampling rate for reflection when `reflect_on` = "sampled" (0.0–1.0).
+    /// Sampling rate for reflection when `reflect_on` = "sampled" (0.0-1.0).
     #[serde(default = "default_experience_sample_rate")]
     pub sample_rate: f64,
     /// Qdrant collection name for principles.
@@ -38,25 +36,25 @@ pub struct ExperienceConfig {
     /// Number of trajectories to load per offline distillation run.
     #[serde(default = "default_experience_distillation_batch_size")]
     pub distillation_batch_size: usize,
-    /// Similarity threshold for principle deduplication (0.0–1.0).
+    /// Similarity threshold for principle deduplication (0.0-1.0).
     #[serde(default = "default_experience_dedup_threshold")]
     pub dedup_threshold: f32,
     /// How often to run offline distillation, in seconds (0 = disabled).
-    #[serde(default = "defaults::default_experience_distillation_interval_secs")]
+    #[serde(default = "default_experience_distillation_interval_secs")]
     pub distillation_interval_secs: u64,
 }
 
 impl ExperienceConfig {
     /// Validate the experience configuration.
-    pub fn validate(&self) -> crate::Result<()> {
+    pub fn validate(&self) -> orka_core::Result<()> {
         if !(0.0..=1.0).contains(&self.min_relevance_score) {
-            return Err(crate::Error::Config(format!(
+            return Err(orka_core::Error::Config(format!(
                 "experience.min_relevance must be in 0.0..=1.0, got: {}",
                 self.min_relevance_score
             )));
         }
         if !(0.0..=1.0).contains(&self.sample_rate) {
-            return Err(crate::Error::Config(format!(
+            return Err(orka_core::Error::Config(format!(
                 "experience.sample_rate must be in 0.0..=1.0, got: {}",
                 self.sample_rate
             )));
@@ -68,7 +66,7 @@ impl ExperienceConfig {
 impl Default for ExperienceConfig {
     fn default() -> Self {
         Self {
-            enabled: defaults::default_experience_enabled(),
+            enabled: default_experience_enabled(),
             max_principles: default_experience_max_principles(),
             min_relevance_score: default_experience_min_relevance(),
             reflect_on: default_experience_reflect_on(),
@@ -79,9 +77,13 @@ impl Default for ExperienceConfig {
             reflection_max_tokens: default_experience_reflection_max_tokens(),
             distillation_batch_size: default_experience_distillation_batch_size(),
             dedup_threshold: default_experience_dedup_threshold(),
-            distillation_interval_secs: defaults::default_experience_distillation_interval_secs(),
+            distillation_interval_secs: default_experience_distillation_interval_secs(),
         }
     }
+}
+
+const fn default_experience_enabled() -> bool {
+    false
 }
 
 fn default_experience_max_principles() -> usize {
@@ -118,4 +120,23 @@ fn default_experience_distillation_batch_size() -> usize {
 
 fn default_experience_dedup_threshold() -> f32 {
     0.85
+}
+
+const fn default_experience_distillation_interval_secs() -> u64 {
+    3600
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExperienceConfig;
+
+    #[test]
+    fn experience_defaults_match_expected_policy() {
+        let config = ExperienceConfig::default();
+
+        assert!(!config.enabled);
+        assert_eq!(config.max_principles, 5);
+        assert_eq!(config.reflect_on, "failures");
+        assert_eq!(config.distillation_interval_secs, 3600);
+    }
 }

@@ -34,6 +34,7 @@ pub fn detect_format(path: &str) -> Box<dyn DocumentParser> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

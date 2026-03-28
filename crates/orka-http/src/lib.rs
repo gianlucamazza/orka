@@ -5,13 +5,15 @@
 
 #![warn(missing_docs)]
 
+pub mod config;
 mod guard;
 mod skills;
 
 use std::sync::Arc;
 
+pub use config::{HttpClientConfig, WebhookConfig, WebhookRetryConfig};
 pub use guard::SsrfGuard;
-use orka_core::{Result, config::HttpClientConfig, traits::Skill};
+use orka_core::{Result, traits::Skill};
 use tracing::info;
 
 /// Create HTTP skills from config.

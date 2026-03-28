@@ -2,8 +2,6 @@
 
 use serde::Deserialize;
 
-use crate::{Error, Result, config::defaults};
-
 /// Native research subsystem configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -21,28 +19,54 @@ pub struct ResearchConfig {
 impl Default for ResearchConfig {
     fn default() -> Self {
         Self {
-            enabled: defaults::default_research_enabled(),
-            require_promotion_approval: defaults::default_research_require_promotion_approval(),
-            protected_target_branches: defaults::default_research_protected_target_branches(),
+            enabled: default_research_enabled(),
+            require_promotion_approval: default_research_require_promotion_approval(),
+            protected_target_branches: default_research_protected_target_branches(),
         }
     }
 }
 
+const fn default_research_enabled() -> bool {
+    false
+}
+
+const fn default_research_require_promotion_approval() -> bool {
+    true
+}
+
+fn default_research_protected_target_branches() -> Vec<String> {
+    vec!["main".to_string(), "master".to_string()]
+}
+
 impl ResearchConfig {
     /// Validate research configuration values.
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> orka_core::Result<()> {
         for pattern in &self.protected_target_branches {
             if pattern.trim().is_empty() {
-                return Err(Error::Config(
+                return Err(orka_core::Error::Config(
                     "research.protected_target_branches must not contain empty patterns".into(),
                 ));
             }
             glob::Pattern::new(pattern).map_err(|e| {
-                Error::Config(format!(
+                orka_core::Error::Config(format!(
                     "research.protected_target_branches contains invalid glob pattern '{pattern}': {e}"
                 ))
             })?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ResearchConfig;
+
+    #[test]
+    fn research_defaults_match_expected_policy() {
+        let config = ResearchConfig::default();
+
+        assert!(!config.enabled);
+        assert!(config.require_promotion_approval);
+        assert_eq!(config.protected_target_branches, ["main", "master"]);
     }
 }

@@ -30,6 +30,7 @@ pub struct Schedule {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -46,7 +47,7 @@ mod tests {
                 serde_json::json!("general"),
             )])),
             message: None,
-            next_run: 1735689600,
+            next_run: 1_735_689_600,
             created_at: "2025-01-01T00:00:00Z".into(),
             completed: false,
         }

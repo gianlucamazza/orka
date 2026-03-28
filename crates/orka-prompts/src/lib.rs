@@ -21,6 +21,8 @@
 //! ```
 #![warn(missing_docs)]
 
+/// Prompt-system configuration.
+pub mod config;
 /// Centralized default values and constants.
 pub mod defaults;
 
@@ -33,6 +35,7 @@ pub mod pipeline;
 /// Template engine and registry with hot-reload support.
 pub mod template;
 
+pub use config::PromptsConfig;
 pub use context::{BuildContext, ContextProvider, SessionContext};
 pub use defaults::*;
 pub use pipeline::{PipelineConfig, PromptSection, SystemPromptPipeline};

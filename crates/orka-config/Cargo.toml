@@ -6,18 +6,38 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+orka-auth.workspace = true
+orka-bus.workspace = true
+orka-os.workspace = true
+orka-scheduler.workspace = true
+orka-gateway.workspace = true
+orka-memory.workspace = true
+orka-observe.workspace = true
+orka-sandbox.workspace = true
+orka-secrets.workspace = true
+orka-session.workspace = true
+orka-skills.workspace = true
 orka-core.workspace = true
 orka-adapter-custom.workspace = true
 orka-adapter-discord.workspace = true
 orka-adapter-slack.workspace = true
 orka-adapter-telegram.workspace = true
 orka-adapter-whatsapp.workspace = true
+orka-chart.workspace = true
+orka-experience.workspace = true
 orka-git.workspace = true
+orka-guardrails.workspace = true
+orka-http.workspace = true
 orka-knowledge.workspace = true
 orka-llm.workspace = true
+orka-mcp.workspace = true
+orka-prompts.workspace = true
+orka-research.workspace = true
+orka-a2a.workspace = true
 orka-web.workspace = true
 config.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

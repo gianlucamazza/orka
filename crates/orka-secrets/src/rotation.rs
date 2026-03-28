@@ -252,6 +252,7 @@ impl SecretManager for RotatingSecretManager {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use orka_core::testing::InMemorySecretManager;
 

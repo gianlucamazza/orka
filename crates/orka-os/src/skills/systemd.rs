@@ -359,14 +359,21 @@ impl Skill for ServiceControlSkill {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
-    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
-
     use super::*;
+    use crate::config::{OsConfig, PermissionLevel, SudoConfig};
 
     fn make_guard() -> Arc<PermissionGuard> {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Admin;
+        config.permission_level = PermissionLevel::Admin;
         Arc::new(PermissionGuard::new(&config))
     }
 
@@ -393,9 +400,8 @@ mod tests {
 
     #[tokio::test]
     async fn service_control_requires_admin() {
-        use orka_core::config::SudoConfig;
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Execute;
+        config.permission_level = PermissionLevel::Execute;
         let mut sudo = SudoConfig::default();
         sudo.allowed = true;
         sudo.allowed_commands = vec!["systemctl restart".into()];
@@ -411,7 +417,7 @@ mod tests {
     #[tokio::test]
     async fn service_status_allowed_at_read_only() {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::ReadOnly;
+        config.permission_level = PermissionLevel::ReadOnly;
         let guard = Arc::new(PermissionGuard::new(&config));
         let skill = ServiceStatusSkill::new(guard);
         let mut args = std::collections::HashMap::new();

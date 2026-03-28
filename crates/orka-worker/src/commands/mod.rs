@@ -100,6 +100,7 @@ impl Default for CommandRegistry {
 }
 
 /// Register all built-in server commands.
+#[allow(clippy::too_many_arguments)]
 pub fn register_all(
     registry: &mut CommandRegistry,
     skills: Arc<SkillRegistry>,
@@ -155,6 +156,7 @@ pub fn register_all(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

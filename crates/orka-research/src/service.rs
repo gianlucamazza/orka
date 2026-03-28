@@ -8,7 +8,6 @@ use orka_checkpoint::{Checkpoint, CheckpointId, CheckpointStore, InterruptReason
 use orka_core::{
     Envelope, Error, ErrorCategory, NoopEventSink, Result, SessionId, SkillContext, SkillInput,
     StreamRegistry,
-    config::ResearchConfig,
     traits::{EventSink, SecretManager},
 };
 use orka_scheduler::{ScheduleStore, types::Schedule};
@@ -18,6 +17,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
+    config::ResearchConfig,
     store::ResearchStore,
     types::{
         CandidateStatus, ComparisonDirection, CreateResearchCampaign, EvaluationMetricConfig,
@@ -1027,6 +1027,7 @@ fn compare_against_metric(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::{collections::HashMap, sync::Arc};
 

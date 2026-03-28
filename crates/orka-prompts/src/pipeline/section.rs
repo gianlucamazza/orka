@@ -129,6 +129,17 @@ where
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive,
+    clippy::map_unwrap_or,
+    clippy::unnecessary_literal_bound,
+    clippy::redundant_closure_for_method_calls
+)]
 mod tests {
     use super::*;
 
@@ -160,6 +171,6 @@ mod tests {
 
         assert!(section.is_required());
         let result = section.render(&ctx).await.unwrap();
-        assert_eq!(result, Some("".to_string()));
+        assert_eq!(result, Some(String::new()));
     }
 }

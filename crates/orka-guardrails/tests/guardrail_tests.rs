@@ -1,16 +1,14 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 //! Integration tests for orka-guardrails.
 
 use orka_core::{
     Session,
-    config::{
-        GuardrailRules, GuardrailsConfig, LlmModerationConfig, ModerationCategory, RedactPattern,
-    },
     traits::{Guardrail, GuardrailDecision},
 };
 use orka_guardrails::{
-    KeywordGuardrail, PromptInjectionGuardrail, RegexGuardrail, create_guardrail,
+    GuardrailRules, GuardrailsConfig, KeywordGuardrail, LlmModerationConfig, ModerationCategory,
+    PromptInjectionGuardrail, RedactPattern, RegexGuardrail, create_guardrail,
 };
 
 fn session() -> Session {

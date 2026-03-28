@@ -195,15 +195,21 @@ fn os_info() -> serde_json::Value {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
     use std::collections::HashMap;
 
     use super::*;
 
     fn make_skill() -> SystemInfoSkill {
-        use orka_core::config::OsConfig;
-
-        use crate::guard::PermissionGuard;
+        use crate::{config::OsConfig, guard::PermissionGuard};
         let config = OsConfig::default();
         SystemInfoSkill::new(Arc::new(PermissionGuard::new(&config)))
     }

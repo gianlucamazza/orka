@@ -238,10 +238,8 @@ pub(crate) async fn resolve_llm_credential(
 
 fn anthropic_auth_kind(resolved: &ResolvedCredential) -> AnthropicAuthKind {
     match resolved.auth_kind {
-        LlmAuthKind::ApiKey => AnthropicAuthKind::ApiKey,
+        LlmAuthKind::ApiKey | LlmAuthKind::Cli => AnthropicAuthKind::ApiKey,
         LlmAuthKind::AuthToken | LlmAuthKind::Subscription => AnthropicAuthKind::Bearer,
-        LlmAuthKind::Auto => AnthropicAuthKind::Auto,
-        LlmAuthKind::Cli => AnthropicAuthKind::ApiKey,
         _ => AnthropicAuthKind::Auto,
     }
 }
@@ -293,6 +291,7 @@ pub(crate) struct LlmClients {
 
 /// Build the LLM client(s) from the config, resolving credentials from env and
 /// the secret store.
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn build_llm_clients(
     config: &OrkaConfig,
     secrets: &dyn SecretManager,
@@ -442,6 +441,7 @@ pub(crate) async fn build_llm_clients(
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use orka_config::{LlmAuthKind, LlmProviderConfig};
     use orka_core::{SecretValue, traits::SecretManager};

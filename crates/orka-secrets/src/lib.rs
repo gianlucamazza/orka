@@ -17,15 +17,18 @@ pub mod redis_secret;
 /// File-backed secret manager with optional AES-256-GCM encryption.
 pub mod file_secret;
 
+/// Secret manager configuration owned by `orka-secrets`.
+pub mod config;
 /// Secret rotation support for zero-downtime key rotation.
 pub mod rotation;
 
 use std::{path::PathBuf, sync::Arc};
 
-use orka_core::{config::security::SecretBackend, traits::SecretManager};
+use orka_core::traits::SecretManager;
 use tracing::warn;
 
 pub use crate::{
+    config::{SecretBackend, SecretConfig},
     file_secret::FileSecretManager,
     redis_secret::RedisSecretManager,
     rotation::{RotatingSecretManager, RotationConfig, RotationStatus},
@@ -46,9 +49,8 @@ pub fn default_secrets_file_path() -> PathBuf {
     base.join("orka").join("secrets.json")
 }
 
-fn resolve_encryption_key(config: &orka_config::OrkaConfig) -> Option<Vec<u8>> {
+fn resolve_encryption_key(config: &SecretConfig) -> Option<Vec<u8>> {
     config
-        .secrets
         .encryption_key_env
         .as_deref()
         .or(Some("ORKA_SECRET_ENCRYPTION_KEY"))
@@ -77,16 +79,16 @@ fn resolve_encryption_key(config: &orka_config::OrkaConfig) -> Option<Vec<u8>> {
 
 /// Create a [`SecretManager`] from the given configuration.
 ///
-/// Dispatches to the appropriate backend based on `config.secrets.backend`.
+/// Dispatches to the appropriate backend based on `config.backend`.
 pub fn create_secret_manager(
-    config: &orka_config::OrkaConfig,
+    config: &SecretConfig,
+    redis_url: &str,
 ) -> orka_core::Result<Arc<dyn SecretManager>> {
     let encryption_key = resolve_encryption_key(config);
     let key_ref = encryption_key.as_deref();
 
-    if config.secrets.backend == SecretBackend::File {
+    if config.backend == SecretBackend::File {
         let path = config
-            .secrets
             .file_path
             .as_deref()
             .map_or_else(default_secrets_file_path, PathBuf::from);
@@ -107,12 +109,11 @@ pub fn create_secret_manager(
             "ORKA_SECRET_ENCRYPTION_KEY not set — secrets stored in PLAINTEXT. \
              Do NOT use in production."
         );
-        return Ok(Arc::new(RedisSecretManager::new(&config.redis.url)?));
+        return Ok(Arc::new(RedisSecretManager::new(redis_url)?));
     }
 
     Ok(Arc::new(RedisSecretManager::with_encryption(
-        &config.redis.url,
-        key_ref,
+        redis_url, key_ref,
     )?))
 }
 

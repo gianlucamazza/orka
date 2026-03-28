@@ -168,6 +168,7 @@ pub(crate) fn planning_tools() -> Vec<orka_llm::client::ToolDefinition> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

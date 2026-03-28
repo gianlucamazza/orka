@@ -11,6 +11,8 @@
 pub mod api_key;
 /// `Authenticator` trait definition.
 pub mod authenticator;
+/// Authentication configuration owned by `orka-auth`.
+pub mod config;
 /// JWT authenticator (HMAC / RSA).
 pub mod jwt;
 /// Tower middleware that performs authentication on incoming requests.
@@ -25,6 +27,7 @@ pub mod testing;
 
 pub use api_key::ApiKeyAuthenticator;
 pub use authenticator::Authenticator;
+pub use config::{ApiKeyEntry, AuthConfig, JwtAuthConfig};
 pub use jwt::JwtAuthenticator;
 pub use middleware::{AuthLayer, AuthService};
 #[cfg(any(feature = "test-util", test))]

@@ -15,6 +15,8 @@
 
 /// Agent card builder — constructs the `/.well-known/agent.json` payload.
 pub mod agent_card;
+/// A2A configuration types.
+pub mod config;
 /// Outbound A2A discovery client and in-memory agent directory.
 pub mod discovery;
 /// JSON-RPC and A2A-specific error types.
@@ -33,6 +35,7 @@ pub mod types;
 pub mod webhook;
 
 pub use agent_card::{build_agent_card, build_agent_card_with_auth};
+pub use config::A2aConfig;
 pub use discovery::{AgentDirectory, DiscoveryClient};
 pub use error::A2aError;
 pub use push_store::{

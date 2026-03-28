@@ -60,6 +60,7 @@ fn select_coding_backend(
 }
 
 /// Run the Orka server until SIGINT or SIGTERM.
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn run() -> anyhow::Result<()> {
     // 0. Load .env file (no-op if missing — production uses systemd
     //    EnvironmentFile)
@@ -111,19 +112,22 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     debug!(?config, "loaded configuration");
 
     // 3. Create infra
-    let bus = create_bus(&config).context("failed to create message bus")?;
-    let sessions = create_session_store(&config).context("failed to create session store")?;
+    let bus = create_bus(&config.bus, &config.redis.url).context("failed to create message bus")?;
+    let sessions = create_session_store(&config.session, &config.redis.url)
+        .context("failed to create session store")?;
     let QueueBundle { queue, dlq } =
-        create_queue(&config).context("failed to create priority queue")?;
+        create_queue(&config.redis.url).context("failed to create priority queue")?;
     let orka_memory::MemoryBundle {
         store: memory,
         lock: memory_lock,
-    } = orka_memory::create_memory_store(&config).context("failed to create memory store")?;
+    } = orka_memory::create_memory_store(&config.memory, &config.redis.url)
+        .context("failed to create memory store")?;
     info!("memory store ready");
-    let secrets =
-        orka_secrets::create_secret_manager(&config).context("failed to create secret manager")?;
+    let secrets = orka_secrets::create_secret_manager(&config.secrets, &config.redis.url)
+        .context("failed to create secret manager")?;
     info!("secret manager ready");
-    let event_sink = orka_observe::create_event_sink(&config);
+    let event_sink =
+        orka_observe::create_event_sink(&config.observe, &config.audit, &config.redis.url);
     info!("event sink ready");
 
     // 3b. Install Prometheus metrics recorder
@@ -476,11 +480,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let workspace_registry = Arc::new(workspace_registry);
 
     // 6a. Start workspace file watchers
-    let mut _watchers = Vec::new();
+    let mut watchers = Vec::new();
     for ws_name in workspace_registry.list_names() {
         if let Some(loader) = workspace_registry.get(ws_name) {
             match orka_workspace::WorkspaceWatcher::start(loader.clone()) {
-                Ok(w) => _watchers.push(w),
+                Ok(w) => watchers.push(w),
                 Err(e) => warn!(workspace = %ws_name, %e, "failed to start workspace watcher"),
             }
         }
@@ -614,18 +618,21 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             Arc<dyn orka_a2a::PushNotificationStore>,
         ) = if use_redis {
             let redis_url = &config.redis.url;
-            let ts = orka_a2a::RedisTaskStore::new(redis_url)
-                .map(|s| Arc::new(s) as Arc<dyn orka_a2a::TaskStore>)
-                .unwrap_or_else(|e| {
+            let ts = orka_a2a::RedisTaskStore::new(redis_url).map_or_else(
+                |e| {
                     tracing::warn!(%e, "failed to create RedisTaskStore, falling back to memory");
-                    Arc::new(orka_a2a::InMemoryTaskStore::default())
-                });
+                    Arc::new(orka_a2a::InMemoryTaskStore::default()) as Arc<dyn orka_a2a::TaskStore>
+                },
+                |s| Arc::new(s) as Arc<dyn orka_a2a::TaskStore>,
+            );
             let ps = orka_a2a::RedisPushNotificationStore::new(redis_url)
-                .map(|s| Arc::new(s) as Arc<dyn orka_a2a::PushNotificationStore>)
-                .unwrap_or_else(|e| {
-                    tracing::warn!(%e, "failed to create RedisPushNotificationStore, falling back to memory");
-                    Arc::new(orka_a2a::InMemoryPushNotificationStore::default())
-                });
+                .map_or_else(
+                    |e| {
+                        tracing::warn!(%e, "failed to create RedisPushNotificationStore, falling back to memory");
+                        Arc::new(orka_a2a::InMemoryPushNotificationStore::default()) as Arc<dyn orka_a2a::PushNotificationStore>
+                    },
+                    |s| Arc::new(s) as Arc<dyn orka_a2a::PushNotificationStore>,
+                );
             (ts, ps)
         } else {
             (
@@ -639,7 +646,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             skills: skills.clone(),
             secrets: secrets.clone(),
             task_store,
-            task_events: Default::default(),
+            task_events: Arc::default(),
             push_store: push_store.clone(),
             webhook_deliverer: Arc::new(orka_a2a::WebhookDeliverer::new(push_store)),
         })

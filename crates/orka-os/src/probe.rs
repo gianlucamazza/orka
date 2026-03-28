@@ -6,8 +6,9 @@
 
 use std::{path::Path, time::Duration};
 
-use orka_core::config::OsConfig;
 use tracing::{debug, warn};
+
+use crate::config::OsConfig;
 
 /// Result of probing a single external capability.
 #[derive(Debug, Clone)]

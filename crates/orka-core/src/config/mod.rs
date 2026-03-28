@@ -6,30 +6,16 @@
 //!
 //! Shared config in this module is divided into submodules by domain:
 //!
-//! - [`server`]: HTTP server bind configuration.
-//! - [`infrastructure`]: Redis, message bus, queue, session, and memory stores.
 //! - [`agent`]: Per-agent runtime and graph configuration.
-//! - [`security`]: Authentication, secrets, and sandboxing.
-//! - [`observability`]: Metrics, tracing, and audit logging.
-//! - [`system`]: Worker, logging, and scheduler configuration.
+//!
+//! Domain-owned runtime config such as OS integration, scheduler, HTTP,
+//! prompts, research, chart, experience, MCP, A2A, guardrails, tools, bus,
+//! session, memory, observe, and secrets now lives in the owning crates.
+//! Top-level composed config such as server, logging, redis, worker, and queue
+//! policy lives in `orka-config`.
 
 pub mod agent;
-pub mod chart;
 pub mod defaults;
-pub mod experience;
-pub mod http;
-pub mod infrastructure;
-pub mod observability;
 pub mod primitives;
-pub mod prompts;
-pub mod protocols;
-pub mod research;
-pub mod security;
-pub mod server;
-pub mod system;
-pub mod tools;
 
-pub use self::{
-    agent::*, chart::*, experience::*, http::*, infrastructure::*, observability::*, primitives::*,
-    prompts::*, protocols::*, research::*, security::*, server::*, system::*, tools::*,
-};
+pub use self::{agent::*, primitives::*};

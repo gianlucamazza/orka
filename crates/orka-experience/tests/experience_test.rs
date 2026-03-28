@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -207,7 +207,7 @@ fn make_service(llm_response: &str) -> ExperienceService {
     let llm = Arc::new(MockLlm {
         response: llm_response.to_string(),
     });
-    let mut config = orka_core::config::ExperienceConfig::default();
+    let mut config = orka_experience::ExperienceConfig::default();
     config.enabled = true;
     config.reflect_on = "all".into();
     let principle_store = Arc::new(PrincipleStore::new(

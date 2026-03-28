@@ -748,7 +748,8 @@ fn y_range_bar(data: &ChartData) -> (f64, f64) {
     (min, max)
 }
 
-/// Encode a raw RGB24 buffer produced by `plotters::BitMapBackend` into PNG bytes.
+/// Encode a raw RGB24 buffer produced by `plotters::BitMapBackend` into PNG
+/// bytes.
 fn encode_rgb_to_png(rgb: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, Error> {
     let img: image::RgbImage = image::ImageBuffer::from_raw(width, height, rgb)
         .ok_or_else(|| Error::Render("image buffer dimensions mismatch".into()))?;

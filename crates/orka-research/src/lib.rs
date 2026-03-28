@@ -7,6 +7,8 @@
 
 #![warn(missing_docs)]
 
+/// Research subsystem configuration.
+pub mod config;
 /// Campaign execution service.
 pub mod service;
 /// Runtime-facing research skills.
@@ -20,8 +22,9 @@ pub(crate) mod util;
 
 use std::sync::Arc;
 
+pub use config::ResearchConfig;
 use orka_checkpoint::CheckpointStore;
-use orka_core::{Result, config::ResearchConfig};
+use orka_core::Result;
 use orka_scheduler::ScheduleStore;
 pub use service::ResearchService;
 pub use skills::{

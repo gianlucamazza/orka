@@ -294,6 +294,15 @@ fn close_tag(open_tag: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive,
+    clippy::too_many_lines
+)]
 mod tests {
     use super::*;
 
@@ -453,8 +462,7 @@ mod tests {
         if chunks.len() > 1 {
             assert!(
                 chunks[1].contains("<b>"),
-                "second chunk should reopen <b>: {:?}",
-                chunks
+                "second chunk should reopen <b>: {chunks:?}"
             );
         }
     }

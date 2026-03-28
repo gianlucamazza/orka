@@ -18,7 +18,12 @@ pub mod skills;
 
 use std::sync::Arc;
 
-use orka_core::{Result, config::OsConfig, traits::Skill};
+pub use config::{
+    ApprovalPolicy, ClaudeCodeConfig, CodexConfig, CodingConfig, CodingProvider,
+    CodingProvidersConfig, CodingSelectionPolicy, OpenCodeConfig, OsConfig, SandboxMode,
+    SudoConfig,
+};
+use orka_core::{Result, traits::Skill};
 pub use probe::{EnvironmentCapabilities, PackageUpdateMethod};
 use tracing::{info, warn};
 
@@ -208,12 +213,19 @@ pub fn create_os_skills(
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
-    use orka_core::config::{OsConfig, SudoConfig, primitives::OsPermissionLevel};
-
     use super::*;
+    use crate::config::{OsConfig, PermissionLevel, SudoConfig};
 
-    fn config_with_level(level: OsPermissionLevel) -> OsConfig {
+    fn config_with_level(level: PermissionLevel) -> OsConfig {
         let mut config = OsConfig::default();
         config.permission_level = level;
         config
@@ -221,7 +233,7 @@ mod tests {
 
     #[test]
     fn read_only_skill_count() {
-        let config = config_with_level(OsPermissionLevel::ReadOnly);
+        let config = config_with_level(PermissionLevel::ReadOnly);
         let skills = create_os_skills(&config, None).unwrap();
         // 11 base + 4 package read skills + 0–3 systemd read skills (feature-gated)
         let count = skills.len();
@@ -237,24 +249,24 @@ mod tests {
 
     #[test]
     fn interact_level_has_more_skills() {
-        let config = config_with_level(OsPermissionLevel::Interact);
+        let config = config_with_level(PermissionLevel::Interact);
         let skills = create_os_skills(&config, None).unwrap();
         assert!(skills.len() >= 15);
     }
 
     #[test]
     fn write_level_has_more_skills() {
-        let config = config_with_level(OsPermissionLevel::Write);
+        let config = config_with_level(PermissionLevel::Write);
         let skills = create_os_skills(&config, None).unwrap();
         assert!(skills.len() > 15);
     }
 
     #[test]
     fn execute_level_has_more_skills() {
-        let config = config_with_level(OsPermissionLevel::Execute);
+        let config = config_with_level(PermissionLevel::Execute);
         let skills = create_os_skills(&config, None).unwrap();
         // Should include read-only + write + execute skills
-        let write_config = config_with_level(OsPermissionLevel::Write);
+        let write_config = config_with_level(PermissionLevel::Write);
         let write_skills = create_os_skills(&write_config, None).unwrap();
         assert!(skills.len() > write_skills.len());
     }
@@ -271,10 +283,10 @@ mod tests {
             "systemctl start".into(),
             "systemctl stop".into(),
         ];
-        let mut config = config_with_level(OsPermissionLevel::Admin);
+        let mut config = config_with_level(PermissionLevel::Admin);
         config.sudo = sudo.clone();
         let skills = create_os_skills(&config, None).unwrap();
-        let mut exec_config = config_with_level(OsPermissionLevel::Execute);
+        let mut exec_config = config_with_level(PermissionLevel::Execute);
         exec_config.sudo = sudo;
         let exec_skills = create_os_skills(&exec_config, None).unwrap();
         assert!(
@@ -287,7 +299,7 @@ mod tests {
 
     #[test]
     fn all_skills_have_valid_schemas() {
-        let config = config_with_level(OsPermissionLevel::Admin);
+        let config = config_with_level(PermissionLevel::Admin);
         let skills = create_os_skills(&config, None).unwrap();
         for skill in &skills {
             let schema = skill.schema();
@@ -301,7 +313,7 @@ mod tests {
 
     #[test]
     fn all_skills_have_unique_names() {
-        let config = config_with_level(OsPermissionLevel::Admin);
+        let config = config_with_level(PermissionLevel::Admin);
         let skills = create_os_skills(&config, None).unwrap();
         let mut names: Vec<&str> = skills.iter().map(|s| s.name()).collect();
         let total = names.len();

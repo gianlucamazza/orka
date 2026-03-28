@@ -10,7 +10,7 @@ use crate::client::Result;
 
 fn create_manager() -> Result<Arc<dyn SecretManager>> {
     let config = OrkaConfig::load(None)?;
-    let mgr = orka_secrets::create_secret_manager(&config)?;
+    let mgr = orka_secrets::create_secret_manager(&config.secrets, &config.redis.url)?;
     Ok(mgr)
 }
 

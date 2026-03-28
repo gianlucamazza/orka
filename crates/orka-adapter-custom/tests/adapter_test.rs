@@ -1,4 +1,9 @@
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::items_after_statements
+)]
 
 use orka_adapter_custom::{
     CustomAdapter, CustomAdapterConfig, routes::app_router, types::InboundResponse, ws::WsRegistry,

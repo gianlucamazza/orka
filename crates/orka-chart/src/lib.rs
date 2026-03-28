@@ -14,12 +14,14 @@
 //! // register each skill into your SkillRegistry
 //! ```
 
+pub mod config;
 pub mod render;
 pub mod skill;
 pub mod types;
 
 use std::sync::Arc;
 
+pub use config::ChartConfig;
 use orka_core::traits::Skill;
 use thiserror::Error;
 

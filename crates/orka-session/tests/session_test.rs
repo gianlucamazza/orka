@@ -1,10 +1,10 @@
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use orka_core::{Session, traits::SessionStore};
 use orka_session::RedisSessionStore;
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn put_get_roundtrip() {
     use testcontainers::runners::AsyncRunner;
     use testcontainers_modules::redis::Redis;
@@ -28,7 +28,7 @@ async fn put_get_roundtrip() {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn delete_then_get_returns_none() {
     use testcontainers::runners::AsyncRunner;
     use testcontainers_modules::redis::Redis;
@@ -50,7 +50,7 @@ async fn delete_then_get_returns_none() {
 }
 
 #[tokio::test]
-#[ignore] // requires Redis
+#[ignore = "requires Redis"]
 async fn full_crud_cycle() {
     use testcontainers::runners::AsyncRunner;
     use testcontainers_modules::redis::Redis;

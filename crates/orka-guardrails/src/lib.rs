@@ -16,6 +16,8 @@
 pub mod chain;
 /// Code execution safety guardrail.
 pub mod code_filter;
+/// Guardrails configuration types owned by `orka-guardrails`.
+pub mod config;
 /// Simple keyword blocklist guardrail.
 pub mod keyword;
 /// LLM-based content moderation guardrail.
@@ -29,9 +31,12 @@ use std::sync::Arc;
 
 pub use chain::GuardrailChain;
 pub use code_filter::CodeGuardrail;
+pub use config::{
+    GuardrailRules, GuardrailsConfig, LlmModerationConfig, ModerationCategory, RedactPattern,
+};
 pub use keyword::KeywordGuardrail;
 pub use llm_moderation::LlmModerationGuardrail;
-use orka_core::{config::GuardrailsConfig, traits::Guardrail};
+use orka_core::traits::Guardrail;
 use orka_llm::client::LlmClient;
 pub use prompt_injection::PromptInjectionGuardrail;
 pub use regex_filter::RegexGuardrail;

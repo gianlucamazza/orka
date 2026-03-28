@@ -1,4 +1,4 @@
-//! WhatsApp adapter configuration.
+//! `WhatsApp` adapter configuration.
 
 use serde::Deserialize;
 

@@ -1,5 +1,4 @@
-use std::fmt::Write as _;
-use std::sync::Arc;
+use std::{fmt::Write as _, sync::Arc};
 
 use orka_llm::client::{ChatContent, ChatMessage, CompletionOptions, ContentBlockInput, LlmClient};
 use tracing::warn;

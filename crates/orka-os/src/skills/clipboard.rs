@@ -185,14 +185,21 @@ impl Skill for ClipboardWriteSkill {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
-    use orka_core::config::{OsConfig, primitives::OsPermissionLevel};
-
     use super::*;
+    use crate::config::{OsConfig, PermissionLevel};
 
     fn make_guard() -> Arc<PermissionGuard> {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::Interact;
+        config.permission_level = PermissionLevel::Interact;
         Arc::new(PermissionGuard::new(&config))
     }
 
@@ -212,7 +219,7 @@ mod tests {
     #[tokio::test]
     async fn clipboard_read_requires_interact_permission() {
         let mut config = OsConfig::default();
-        config.permission_level = OsPermissionLevel::ReadOnly;
+        config.permission_level = PermissionLevel::ReadOnly;
         let guard = Arc::new(PermissionGuard::new(&config));
         let skill = ClipboardReadSkill::new(guard);
         let input = SkillInput::new(std::collections::HashMap::new());

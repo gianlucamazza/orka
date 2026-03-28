@@ -4,16 +4,16 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use orka_core::{
-    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema,
-    config::{
-        ClaudeCodeConfig, CodexConfig, CodingConfig, CodingProvider, CodingSelectionPolicy,
-        OpenCodeConfig, OsConfig, SandboxMode,
-    },
-    traits::Skill,
+    Error, ErrorCategory, Result, SkillInput, SkillOutput, SkillSchema, traits::Skill,
 };
 use stream::DelegateEvent;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::debug;
+
+use crate::config::{
+    ClaudeCodeConfig, CodexConfig, CodingConfig, CodingProvider, CodingSelectionPolicy,
+    OpenCodeConfig, OsConfig, SandboxMode,
+};
 
 const CODING_CATEGORY: &str = "coding";
 
@@ -851,8 +851,8 @@ fn value_to_text(value: &serde_json::Value) -> Option<String> {
 /// Extract the final assistant text from accumulated `opencode run --format
 /// json` output.
 ///
-/// `OpenCode` emits `{"type":"text","part":{"text":"...",...}}` lines during the
-/// run. There is no dedicated result line, so the fallback parser scans
+/// `OpenCode` emits `{"type":"text","part":{"text":"...",...}}` lines during
+/// the run. There is no dedicated result line, so the fallback parser scans
 /// backwards for the last non-empty `text` event.
 fn parse_opencode_output(raw: &str) -> String {
     for line in raw.lines().rev() {
@@ -885,6 +885,14 @@ fn effective_codex_sandbox(config: &CodexConfig) -> SandboxMode {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::field_reassign_with_default,
+    clippy::default_trait_access,
+    clippy::needless_pass_by_value,
+    clippy::stable_sort_primitive
+)]
 mod tests {
     use super::*;
 

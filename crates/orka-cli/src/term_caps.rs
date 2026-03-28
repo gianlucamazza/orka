@@ -37,7 +37,8 @@ impl TermCaps {
     /// Detection order:
     /// 1. `NO_COLOR` env var present → [`ColorLevel::None`]
     /// 2. `TERM=dumb` → [`ColorLevel::None`]
-    /// 3. `COLORTERM=truecolor` or `COLORTERM=24bit` → [`ColorLevel::TrueColor`]
+    /// 3. `COLORTERM=truecolor` or `COLORTERM=24bit` →
+    ///    [`ColorLevel::TrueColor`]
     /// 4. `TERM` contains `256color` → [`ColorLevel::Color256`]
     /// 5. Otherwise → [`ColorLevel::Basic`]
     pub fn detect() -> Self {

@@ -150,6 +150,7 @@ impl Scheduler {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::similar_names)]
 mod tests {
     use super::*;
 

@@ -3,9 +3,6 @@
 //! This module centralizes all default value functions used across the
 //! configuration system, ensuring consistency and discoverability.
 
-/// System-wide configuration file path (native package installs).
-pub const SYSTEM_CONFIG_PATH: &str = "/etc/orka/orka.toml";
-
 /// Default host for the HTTP server.
 pub fn default_host() -> String {
     "127.0.0.1".to_string()
@@ -101,11 +98,6 @@ pub const fn default_max_output_bytes() -> usize {
     1024 * 1024
 }
 
-/// Default soft skill selection mode.
-pub fn default_soft_skill_selection_mode() -> String {
-    "auto".to_string()
-}
-
 /// Default session TTL in seconds.
 pub const fn default_session_ttl_secs() -> u64 {
     86400
@@ -186,64 +178,9 @@ pub const fn default_tool_result_max_chars() -> usize {
     8000
 }
 
-/// Default OS enabled state.
-pub const fn default_os_enabled() -> bool {
-    false
-}
-
-/// Default Claude Code enabled state.
-pub const fn default_claude_code_enabled() -> bool {
-    false
-}
-
-/// Default Codex enabled state.
-pub const fn default_codex_enabled() -> bool {
-    false
-}
-
-/// Default `OpenCode` enabled state.
-pub const fn default_opencode_enabled() -> bool {
-    false
-}
-
-/// Default coding delegate context injection.
-pub const fn default_coding_inject_workspace_context() -> bool {
-    true
-}
-
-/// Default coding delegate verification requirement.
-pub const fn default_coding_require_verification() -> bool {
-    false
-}
-
-/// Default coding delegate working directory override policy.
-pub const fn default_coding_allow_working_dir_override() -> bool {
-    true
-}
-
-/// Default coding delegate timeout in seconds.
-pub const fn default_coding_timeout_secs() -> u64 {
-    300
-}
-
-/// Default: forward coding progress updates to the originating chat channel.
-pub const fn default_coding_progress_to_chat() -> bool {
-    true
-}
-
-/// Default throttle window (seconds) between progress chat messages.
-pub const fn default_coding_progress_throttle_secs() -> u64 {
-    15
-}
-
 /// Default per-skill execution timeout in seconds.
 pub const fn default_skill_timeout_secs() -> u64 {
     120
-}
-
-/// Default sudo allowed state.
-pub const fn default_sudo_allowed() -> bool {
-    false
 }
 
 /// Default web search provider.
@@ -279,21 +216,6 @@ pub const fn default_web_read_timeout_secs() -> u64 {
 /// Default webhook port for custom adapter.
 pub const fn default_webhook_port() -> u16 {
     8081
-}
-
-/// Default scheduler enabled state.
-pub const fn default_scheduler_enabled() -> bool {
-    false
-}
-
-/// Default scheduler poll interval in seconds.
-pub const fn default_scheduler_poll_interval_secs() -> u64 {
-    30
-}
-
-/// Default maximum number of concurrent scheduler tasks.
-pub const fn default_scheduler_max_concurrent() -> usize {
-    4
 }
 
 /// Default LLM request timeout in seconds.
@@ -341,31 +263,6 @@ pub const fn default_score_threshold() -> f32 {
     0.7
 }
 
-/// Default experience enabled state.
-pub const fn default_experience_enabled() -> bool {
-    false
-}
-
-/// Default experience reflection trigger.
-pub const fn default_reflection_trigger() -> usize {
-    100
-}
-
-/// Default experience storage backend.
-pub fn default_experience_backend() -> String {
-    "memory".to_string()
-}
-
-/// Default experience distillation interval in seconds.
-pub const fn default_experience_distillation_interval_secs() -> u64 {
-    3600
-}
-
-/// Default MCP server transport.
-pub fn default_mcp_transport() -> String {
-    "stdio".to_string()
-}
-
 /// Default Slack port.
 pub const fn default_slack_port() -> u16 {
     3000
@@ -411,26 +308,6 @@ pub const fn default_max_hops() -> usize {
     10
 }
 
-/// Default config version.
-pub const fn default_config_version() -> u32 {
-    6
-}
-
-/// Default guardrails enabled state.
-pub const fn default_guardrails_enabled() -> bool {
-    false
-}
-
-/// Default A2A discovery enabled state.
-pub const fn default_a2a_discovery_enabled() -> bool {
-    false
-}
-
-/// Default A2A store backend: in-memory (no persistence).
-pub fn default_a2a_store_backend() -> String {
-    "memory".to_string()
-}
-
 /// Default web user agent.
 pub fn default_web_user_agent() -> String {
     format!("Orka/{} (Web Agent)", env!("CARGO_PKG_VERSION"))
@@ -444,19 +321,4 @@ pub fn empty_string() -> String {
 /// Default empty vec (for serde defaults).
 pub fn empty_vec<T>() -> Vec<T> {
     Vec::new()
-}
-
-/// Default for research.enabled — disabled by default.
-pub const fn default_research_enabled() -> bool {
-    false
-}
-
-/// Default for `research.require_promotion_approval`.
-pub const fn default_research_require_promotion_approval() -> bool {
-    true
-}
-
-/// Default for `research.protected_target_branches`.
-pub fn default_research_protected_target_branches() -> Vec<String> {
-    vec!["main".to_string(), "master".to_string()]
 }

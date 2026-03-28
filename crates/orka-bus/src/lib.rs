@@ -6,21 +6,25 @@
 
 #![warn(missing_docs)]
 
+/// Message bus configuration owned by `orka-bus`.
+pub mod config;
 /// Redis Streams implementation of the message bus.
 pub mod redis_bus;
 
 use std::sync::Arc;
 
-use orka_config::OrkaConfig;
-use orka_core::{config::primitives::BusBackend, traits::MessageBus};
+use orka_core::traits::MessageBus;
 
-pub use crate::redis_bus::RedisBus;
+pub use crate::{
+    config::{BusBackend, BusConfig},
+    redis_bus::RedisBus,
+};
 
-/// Create a [`MessageBus`] from the given configuration.
-pub fn create_bus(config: &OrkaConfig) -> orka_core::Result<Arc<dyn MessageBus>> {
-    match config.bus.backend {
+/// Create a [`MessageBus`] from the given bus and Redis configuration.
+pub fn create_bus(config: &BusConfig, redis_url: &str) -> orka_core::Result<Arc<dyn MessageBus>> {
+    match config.backend {
         BusBackend::Redis => {
-            let bus = RedisBus::new(&config.redis.url, &config.bus)?;
+            let bus = RedisBus::new(redis_url, config)?;
             Ok(Arc::new(bus))
         }
         BusBackend::Memory => Ok(Arc::new(orka_core::testing::InMemoryBus::new())),
@@ -31,27 +35,25 @@ pub fn create_bus(config: &OrkaConfig) -> orka_core::Result<Arc<dyn MessageBus>>
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
-    fn config_with_backend(backend: &str) -> OrkaConfig {
-        serde_json::from_value(serde_json::json!({
-            "bus": { "backend": backend }
-        }))
-        .unwrap()
+    fn config_with_backend(backend: &str) -> BusConfig {
+        serde_json::from_value(serde_json::json!({ "backend": backend })).unwrap()
     }
 
     #[test]
     fn memory_backend_succeeds() {
         let config = config_with_backend("memory");
-        let bus = create_bus(&config);
+        let bus = create_bus(&config, "redis://127.0.0.1:6379");
         assert!(bus.is_ok());
     }
 
     #[test]
     fn unsupported_backend_errors() {
         let config = config_with_backend("nats");
-        let bus = create_bus(&config);
+        let bus = create_bus(&config, "redis://127.0.0.1:6379");
         assert!(bus.is_err());
     }
 }
