@@ -51,16 +51,9 @@ Use of `async-trait` is consistent and necessary for dynamic dispatch. The `Skil
 
 ### 1.2 Service Container (DI)
 
-**Status:** 🟡 **Needs improvement**
+**Status:** ✅ **Removed** *(as of 2026-03-28)*
 
-The container in `orka-core/src/container.rs` implements three variants:
-- `ServiceContainer`: synchronous, base
-- `LazyContainer`: lazy initialization
-- `AsyncServiceContainer`: async version with `RwLock`/`Mutex`
-
-**Identified issues:**
-- The `factory.remove()` pattern can cause race conditions when multiple tasks request the same service concurrently.
-- Lacks documentation on when to use which variant.
+`orka-core/src/container.rs` (ServiceContainer, LazyContainer, AsyncServiceContainer) has been removed. Bootstrap wiring now happens directly in `orka-server/src/bootstrap.rs` without a DI container. See `docs/internal/architecture-analysis-2026-03-25.md` §4 for the historical analysis.
 
 ### 1.3 Data/Logic Separation
 
@@ -91,7 +84,7 @@ orka-server → all (orchestrator)
 | `orka-core/src/types.rs` | ~1,340 | 🟡 Acceptable (data-only) |
 | `orka-os/src/skills/fs.rs` | ~1,097 | 🟢 Aggregated skills |
 
-Note: `orka-core/src/config.rs` was previously a 2,712-line god module — it has since been split into `crates/orka-core/src/config/` with 18 domain-specific modules.
+Note: `orka-core/src/config.rs` was previously a 2,712-line god module — it has since been split into `crates/orka-core/src/config/` with 18 domain-specific modules, and as of 2026-03-28 further reduced to 3 modules (`agent`, `defaults`, `primitives`): all domain config now lives in owning crates (e.g. `orka-os/src/config.rs`, `orka-auth/src/config.rs`), top-level runtime types in `orka-config/src/runtime.rs`.
 
 ---
 
@@ -344,7 +337,7 @@ Multi-stage build with `cargo-chef`, optimized layer caching, `mold` linker, sec
 | Crate | Status | Lines | Notes |
 |-------|--------|-------|-------|
 | **CORE** | | | |
-| orka-core | 🟢 Done | ~4,500 | Types, traits, config (modularized), container |
+| orka-core | 🟢 Done | ~4,500 | Types, traits, config primitives (agent/defaults); container removed 2026-03-28 |
 | orka-circuit-breaker | 🟢 Done | ~200 | Pattern implemented |
 | **INFRASTRUCTURE** | | | |
 | orka-bus | 🟢 Done | ~400 | Redis Streams |

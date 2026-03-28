@@ -1,10 +1,14 @@
 # Orka — Analisi Architettura & Design
 
-**Data:** 2026-03-25  
-**Versione:** 1.0.0  
-**Branch:** main (18 commit avanti a origin/main)  
-**Crate totali nel workspace:** 40 (38 in `crates/` + 3 in `sdk/`)  
+**Data:** 2026-03-25
+**Versione:** 1.0.0
+**Branch:** main (18 commit avanti a origin/main)
+**Crate totali nel workspace:** 40 (38 in `crates/` + 3 in `sdk/`)
 **Baseline precedente:** `docs/internal/analysis-report.md` del 2026-03-23
+
+> **⚠️ Nota storica (2026-03-28):** Questo documento è uno snapshot del 2026-03-25. Da allora:
+> - `orka-core/src/container.rs` è stato **rimosso** (§3 e §4 sono riferimenti storici).
+> - I moduli di config in `orka-core/src/config/` sono stati ridotti a 3 (`agent`, `defaults`, `primitives`); la config di dominio è migrata nei crate proprietari, quella runtime top-level in `orka-config/src/runtime.rs`.
 
 ---
 

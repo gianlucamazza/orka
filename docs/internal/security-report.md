@@ -281,7 +281,7 @@ Nessuno identificato. La combinazione di P1 issues può però produrre impatto P
 
 | ID | Titolo | Crate | Dettaglio |
 |---|---|---|---|
-| P1-01 | POST /a2a unauthenticated by default | `orka-a2a`, `orka-core/config` | `a2a.auth_enabled` defaults to `false`. Tutta la surface A2A è pubblica senza configurazione esplicita. |
+| P1-01 | POST /a2a unauthenticated by default | `orka-a2a`, `orka-a2a/src/config.rs` | `a2a.auth_enabled` defaults to `false`. Tutta la surface A2A è pubblica senza configurazione esplicita. |
 | P1-02 | SSRF via push notification webhook URL | `orka-a2a` | `PushNotificationConfig.url` non è validato. Qualsiasi URL interno/IMDS può essere raggiunto dal server tramite `POST /a2a` (non autenticato per default). |
 | P1-03 | Command injection via `verification_command` | `orka-research` | Il campo è passato direttamente allo skill `experiment_run`/`shell_exec`. Con `allowed_commands` vuoto (default), si esegue qualsiasi comando. |
 | P1-04 | No kernel-level sandboxing per processi OS | `orka-os` | `PR_SET_NO_NEW_PRIVS` non è mai impostato. Nessun seccomp/landlock/namespace. Il sandboxing è puramente software. |

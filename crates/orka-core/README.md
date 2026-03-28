@@ -10,7 +10,7 @@ Every other crate in the workspace depends on this one.
 | `traits`  | Core abstractions: `ChannelAdapter`, `MessageBus`, `SessionStore`, `MemoryStore`, `PriorityQueue`, `EventSink`, `Skill`, `SecretManager`, `Guardrail` |
 | `types`   | `Envelope`, `OutboundMessage`, `Session`, `Payload`, `DomainEvent`, `SkillInput/Output`, IDs                                                          |
 | `error`   | `Error` enum covering all subsystems; `Result<T>` alias                                                                                               |
-| `config`  | Shared config primitives and reusable runtime sub-configs; the composed `OrkaConfig` lives in `orka-config`                                          |
+| `config`  | Shared config primitives (`defaults`, `primitives`) and agent/graph config (`agent`); domain config lives in owning crates, composed `OrkaConfig` in `orka-config` |
 | `testing` | In-memory test doubles for all core traits                                                                                                            |
 | `retry`   | Generic `retry_with_backoff` executor                                                                                                                 |
 | `stream`  | `StreamRegistry` for real-time LLM response streaming                                                                                                 |
