@@ -71,6 +71,47 @@ impl OpenAiClient {
         }
     }
 
+    /// Insert max completion tokens into the request body.
+    /// Always uses `max_completion_tokens` (modern OpenAI API standard).
+    fn insert_max_tokens(body: &mut serde_json::Value, max_tokens: u32) {
+        body["max_completion_tokens"] = json!(max_tokens);
+    }
+
+    /// Returns true if the model supports `reasoning_effort` (o-series only).
+    fn supports_reasoning(model: &str) -> bool {
+        let m = model.to_lowercase();
+        m.starts_with("o1")
+            || m.starts_with("o3")
+            || m.starts_with("o4")
+    }
+
+    /// Conditionally insert reasoning_effort if the model supports it.
+    fn maybe_insert_reasoning(
+        body: &mut serde_json::Value,
+        model: &str,
+        thinking: &Option<crate::client::ThinkingConfig>,
+    ) {
+        if !Self::supports_reasoning(model) {
+            return;
+        }
+        match thinking {
+            Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) => {
+                body["reasoning_effort"] = json!(effort.as_str());
+            }
+            Some(crate::client::ThinkingConfig::Adaptive { effort }) => {
+                let openai_effort = match effort {
+                    crate::client::ThinkingEffort::Low => "low",
+                    crate::client::ThinkingEffort::Medium => "medium",
+                    crate::client::ThinkingEffort::High | crate::client::ThinkingEffort::Max => {
+                        "high"
+                    }
+                };
+                body["reasoning_effort"] = json!(openai_effort);
+            }
+            _ => {}
+        }
+    }
+
     /// Send a request with retry logic for 429/5xx and transient errors.
     /// Returns the raw successful HTTP response.
     async fn send_request_with_retry(&self, body: &serde_json::Value) -> Result<reqwest::Response> {
@@ -151,6 +192,10 @@ impl OpenAiClient {
             for tc in tool_calls {
                 let id = tc["id"].as_str().unwrap_or("").to_string();
                 let name = tc["function"]["name"].as_str().unwrap_or("").to_string();
+                if name.is_empty() {
+                    tracing::warn!(id, "ignoring tool call with empty function name");
+                    continue;
+                }
                 let input: serde_json::Value = tc["function"]["arguments"]
                     .as_str()
                     .and_then(|s| serde_json::from_str(s).ok())
@@ -227,6 +272,11 @@ impl OpenAiClient {
                                 text_parts.push(text.clone());
                             }
                             crate::client::ContentBlockInput::ToolUse { id, name, input } => {
+                                // Skip tool calls with empty names — OpenAI rejects them
+                                if name.is_empty() {
+                                    tracing::warn!(id, "skipping tool call with empty name");
+                                    continue;
+                                }
                                 tool_calls.push(json!({
                                     "id": id,
                                     "type": "function",
@@ -314,36 +364,14 @@ impl LlmClient for OpenAiClient {
 
         let mut body = json!({
             "model": model,
-            "max_tokens": max_tokens,
             "messages": api_messages,
         });
+        Self::insert_max_tokens(&mut body, max_tokens);
 
         if let Some(temp) = options.temperature {
             body["temperature"] = json!(temp);
         }
-        match options.thinking {
-            Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) => {
-                body["reasoning_effort"] = json!(effort.as_str());
-            }
-            Some(crate::client::ThinkingConfig::Adaptive { effort }) => {
-                let openai_effort = match effort {
-                    crate::client::ThinkingEffort::Low => "low",
-                    crate::client::ThinkingEffort::Medium => "medium",
-                    crate::client::ThinkingEffort::High | crate::client::ThinkingEffort::Max => {
-                        "high"
-                    }
-                };
-                body["reasoning_effort"] = json!(openai_effort);
-            }
-            Some(crate::client::ThinkingConfig::Enabled { .. }) => {
-                tracing::warn!(
-                    "ThinkingConfig::Enabled (Anthropic extended thinking) is not supported \
-                     by the OpenAI provider; use ThinkingConfig::Adaptive or \
-                     ThinkingConfig::ReasoningEffort instead"
-                );
-            }
-            None => {}
-        }
+        Self::maybe_insert_reasoning(&mut body, model, &options.thinking);
 
         debug!(model, messages = messages.len(), "calling OpenAI API");
         let resp = self.send_with_retry(&body).await?;
@@ -368,12 +396,12 @@ impl LlmClient for OpenAiClient {
             api_messages.push(json!({"role": m.role, "content": text}));
         }
 
-        let body = json!({
+        let mut body = json!({
             "model": &self.model,
-            "max_tokens": self.max_tokens,
             "messages": api_messages,
             "stream": true,
         });
+        Self::insert_max_tokens(&mut body, self.max_tokens);
 
         debug!(model = %self.model, messages = messages.len(), "calling OpenAI API (streaming)");
 
@@ -434,9 +462,9 @@ impl LlmClient for OpenAiClient {
 
         let mut body = json!({
             "model": model,
-            "max_tokens": max_tokens,
             "messages": api_messages,
         });
+        Self::insert_max_tokens(&mut body, max_tokens);
 
         if !tools.is_empty() {
             body["tools"] = json!(Self::build_tools(tools));
@@ -462,29 +490,7 @@ impl LlmClient for OpenAiClient {
         if let Some(temp) = options.temperature {
             body["temperature"] = json!(temp);
         }
-        match options.thinking {
-            Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) => {
-                body["reasoning_effort"] = json!(effort.as_str());
-            }
-            Some(crate::client::ThinkingConfig::Adaptive { effort }) => {
-                let openai_effort = match effort {
-                    crate::client::ThinkingEffort::Low => "low",
-                    crate::client::ThinkingEffort::Medium => "medium",
-                    crate::client::ThinkingEffort::High | crate::client::ThinkingEffort::Max => {
-                        "high"
-                    }
-                };
-                body["reasoning_effort"] = json!(openai_effort);
-            }
-            Some(crate::client::ThinkingConfig::Enabled { .. }) => {
-                tracing::warn!(
-                    "ThinkingConfig::Enabled (Anthropic extended thinking) is not supported \
-                     by the OpenAI provider; use ThinkingConfig::Adaptive or \
-                     ThinkingConfig::ReasoningEffort instead"
-                );
-            }
-            None => {}
-        }
+        Self::maybe_insert_reasoning(&mut body, model, &options.thinking);
 
         debug!(
             model,
@@ -518,10 +524,10 @@ impl LlmClient for OpenAiClient {
 
         let mut body = json!({
             "model": model,
-            "max_tokens": max_tokens,
             "messages": api_messages,
             "stream": true,
         });
+        Self::insert_max_tokens(&mut body, max_tokens);
 
         if !tools.is_empty() {
             body["tools"] = json!(Self::build_tools(tools));
@@ -530,29 +536,7 @@ impl LlmClient for OpenAiClient {
         if let Some(temp) = options.temperature {
             body["temperature"] = json!(temp);
         }
-        match options.thinking {
-            Some(crate::client::ThinkingConfig::ReasoningEffort(effort)) => {
-                body["reasoning_effort"] = json!(effort.as_str());
-            }
-            Some(crate::client::ThinkingConfig::Adaptive { effort }) => {
-                let openai_effort = match effort {
-                    crate::client::ThinkingEffort::Low => "low",
-                    crate::client::ThinkingEffort::Medium => "medium",
-                    crate::client::ThinkingEffort::High | crate::client::ThinkingEffort::Max => {
-                        "high"
-                    }
-                };
-                body["reasoning_effort"] = json!(openai_effort);
-            }
-            Some(crate::client::ThinkingConfig::Enabled { .. }) => {
-                tracing::warn!(
-                    "ThinkingConfig::Enabled (Anthropic extended thinking) is not supported \
-                     by the OpenAI provider; use ThinkingConfig::Adaptive or \
-                     ThinkingConfig::ReasoningEffort instead"
-                );
-            }
-            None => {}
-        }
+        Self::maybe_insert_reasoning(&mut body, model, &options.thinking);
 
         debug!(
             model,
@@ -853,5 +837,43 @@ mod tests {
             parts[0]["image_url"]["url"],
             "data:image/jpeg;base64,abc123"
         );
+    }
+
+    #[test]
+    fn supports_reasoning_only_for_o_series() {
+        assert!(OpenAiClient::supports_reasoning("o1-mini"));
+        assert!(OpenAiClient::supports_reasoning("o3-mini"));
+        assert!(OpenAiClient::supports_reasoning("o4-mini"));
+        assert!(!OpenAiClient::supports_reasoning("gpt-4.1-mini"));
+        assert!(!OpenAiClient::supports_reasoning("gpt-5-mini"));
+    }
+
+    #[test]
+    fn insert_max_tokens_always_uses_max_completion_tokens() {
+        let mut body = json!({"model": "gpt-5-mini"});
+        OpenAiClient::insert_max_tokens(&mut body, 4096);
+        assert_eq!(body["max_completion_tokens"], 4096);
+        assert!(body.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn parse_response_skips_empty_tool_names() {
+        let resp = json!({
+            "choices": [{
+                "message": {
+                    "content": null,
+                    "tool_calls": [
+                        {"id": "call_1", "type": "function", "function": {"name": "shell_exec", "arguments": "{\"cmd\":\"whoami\"}"}},
+                        {"id": "call_2", "type": "function", "function": {"name": "", "arguments": "{}"}},
+                    ]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20}
+        });
+        let (blocks, _usage, _stop) = OpenAiClient::parse_response(&resp);
+        // Only the valid tool call should be included
+        let tool_count = blocks.iter().filter(|b| matches!(b, ContentBlock::ToolUse(_))).count();
+        assert_eq!(tool_count, 1);
     }
 }
