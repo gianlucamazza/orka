@@ -1,9 +1,7 @@
 use std::path::Path;
 
-use orka_core::{
-    config::OrkaConfig,
-    migrate::{self, CURRENT_CONFIG_VERSION},
-};
+use orka_config::OrkaConfig;
+use orka_core::migrate::{self, CURRENT_CONFIG_VERSION};
 
 fn print_check_status(result: Option<&migrate::MigrationResult>) {
     match result {

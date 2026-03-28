@@ -3,7 +3,8 @@ use std::{
     sync::Arc,
 };
 
-use orka_core::{SecretValue, config::OrkaConfig, traits::SecretManager};
+use orka_config::OrkaConfig;
+use orka_core::{SecretValue, traits::SecretManager};
 
 use crate::client::Result;
 

@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use orka_config::OrkaConfig;
 use orka_core::{
     Envelope, StreamRegistry,
     traits::{ChannelAdapter, MessageBus, SecretManager},
@@ -58,7 +59,7 @@ pub(crate) struct AdapterStartArgs {
     pub memory: Arc<dyn orka_core::traits::MemoryStore>,
     pub auth_layer: Option<orka_auth::AuthLayer>,
     pub stream_registry: StreamRegistry,
-    pub config: orka_core::config::OrkaConfig,
+    pub config: OrkaConfig,
 }
 
 /// Start the custom adapter and all optional platform adapters.

@@ -12,7 +12,9 @@ use orka_experience::{
     types::{OutcomeSignal, PrincipleKind},
 };
 use orka_knowledge::{
-    embeddings::EmbeddingProvider, types::{SearchResult, StoredRecord}, vector_store::VectorStore,
+    embeddings::EmbeddingProvider,
+    types::{SearchResult, StoredRecord},
+    vector_store::VectorStore,
 };
 use orka_llm::client::{ChatMessage, CompletionOptions, LlmClient};
 
@@ -121,9 +123,9 @@ impl VectorStore for MockVectorStore {
         let results = data
             .iter()
             .filter(|p| {
-                filter.as_ref().is_none_or(|f| {
-                    f.iter().all(|(k, v)| p.get(k).is_some_and(|pv| pv == v))
-                })
+                filter
+                    .as_ref()
+                    .is_none_or(|f| f.iter().all(|(k, v)| p.get(k).is_some_and(|pv| pv == v)))
             })
             .take(limit)
             .map(|p| StoredRecord {
@@ -142,7 +144,9 @@ impl VectorStore for MockVectorStore {
         let mut data = self.data.lock().await;
         let before = data.len();
         data.retain(|p| {
-            !filter.iter().all(|(k, v)| p.get(k).is_some_and(|pv| pv == v))
+            !filter
+                .iter()
+                .all(|(k, v)| p.get(k).is_some_and(|pv| pv == v))
         });
         Ok(before - data.len())
     }

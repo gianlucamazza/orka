@@ -2,6 +2,8 @@
 
 #![warn(missing_docs)]
 
+pub mod config;
+
 use std::{collections::HashMap, future::IntoFuture, sync::Arc};
 
 use async_trait::async_trait;
@@ -10,6 +12,7 @@ use axum::{
     extract::{Query, State},
     routing::get,
 };
+pub use config::WhatsAppAdapterConfig;
 use orka_core::{
     Error, Result,
     traits::ChannelAdapter,

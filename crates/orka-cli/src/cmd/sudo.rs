@@ -1,6 +1,6 @@
 use std::{path::Path, process::Stdio};
 
-use orka_core::config::OrkaConfig;
+use orka_config::OrkaConfig;
 
 const DROPIN_PATH: &str = "/etc/systemd/system/orka-server.service.d/sudo.conf";
 const SUDOERS_PATH: &str = "/etc/sudoers.d/orka";

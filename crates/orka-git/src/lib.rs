@@ -8,7 +8,7 @@
 //! # Quick start
 //!
 //! ```no_run
-//! use orka_core::config::GitConfig;
+//! use orka_git::GitConfig;
 //! use orka_git::create_git_skills;
 //!
 //! let config = GitConfig::default();
@@ -17,6 +17,7 @@
 //! ```
 
 pub mod cli;
+pub mod config;
 pub mod error;
 pub mod guard;
 pub mod repo;
@@ -25,7 +26,8 @@ pub mod worktree;
 
 use std::{path::PathBuf, sync::Arc};
 
-use orka_core::{config::GitConfig, traits::Skill};
+pub use config::{GitAuthorshipConfig, GitAuthorshipMode, GitConfig, GitWorktreeConfig};
+use orka_core::traits::Skill;
 
 use crate::{
     error::GitError,

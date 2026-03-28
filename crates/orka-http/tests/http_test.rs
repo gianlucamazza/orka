@@ -22,7 +22,11 @@ fn blocks_localhost() {
 #[test]
 fn blocks_cloud_metadata_endpoint() {
     let guard = SsrfGuard::new(vec![]);
-    assert!(guard.check("http://169.254.169.254/latest/meta-data/").is_err());
+    assert!(
+        guard
+            .check("http://169.254.169.254/latest/meta-data/")
+            .is_err()
+    );
     assert!(guard.check("http://metadata.google.internal/").is_err());
 }
 
@@ -63,5 +67,8 @@ fn blocks_ipv6_loopback() {
 fn error_message_contains_blocked_domain() {
     let guard = SsrfGuard::new(vec!["evil.com".into()]);
     let err = guard.check("http://evil.com/exfiltrate").unwrap_err();
-    assert!(err.contains("evil.com"), "error should mention the blocked domain: {err}");
+    assert!(
+        err.contains("evil.com"),
+        "error should mention the blocked domain: {err}"
+    );
 }

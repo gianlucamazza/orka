@@ -1,0 +1,27 @@
+[package]
+name = "orka-config"
+description = "Top-level Orka configuration composition, loading, and validation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orka-core.workspace = true
+orka-adapter-custom.workspace = true
+orka-adapter-discord.workspace = true
+orka-adapter-slack.workspace = true
+orka-adapter-telegram.workspace = true
+orka-adapter-whatsapp.workspace = true
+orka-git.workspace = true
+orka-knowledge.workspace = true
+orka-llm.workspace = true
+orka-web.workspace = true
+config.workspace = true
+serde.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

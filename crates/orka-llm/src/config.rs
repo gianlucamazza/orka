@@ -1,8 +1,6 @@
-//! LLM (Large Language Model) configuration.
+//! LLM configuration types.
 
 use serde::Deserialize;
-
-use crate::config::defaults;
 
 /// Authentication mode for an LLM provider.
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -29,13 +27,13 @@ pub enum LlmAuthKind {
 #[non_exhaustive]
 pub struct LlmConfig {
     /// Default agent model identifier.
-    #[serde(default = "defaults::default_model")]
+    #[serde(default = "default_model")]
     pub default_model: String,
     /// Default temperature for generation.
-    #[serde(default = "defaults::default_temperature")]
+    #[serde(default = "default_temperature")]
     pub default_temperature: f32,
     /// Default max tokens for generation.
-    #[serde(default = "defaults::default_max_tokens")]
+    #[serde(default = "default_max_tokens")]
     pub default_max_tokens: u32,
     /// Available LLM providers.
     #[serde(default)]
@@ -68,7 +66,7 @@ impl LlmConfig {
     }
 
     /// Validate the LLM configuration.
-    pub fn validate(&self) -> crate::Result<()> {
+    pub fn validate(&self) -> orka_core::Result<()> {
         for provider in &self.providers {
             provider.validate()?;
         }
@@ -79,9 +77,9 @@ impl LlmConfig {
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
-            default_model: defaults::default_model(),
-            default_temperature: defaults::default_temperature(),
-            default_max_tokens: defaults::default_max_tokens(),
+            default_model: default_model(),
+            default_temperature: default_temperature(),
+            default_max_tokens: default_max_tokens(),
             providers: Vec::new(),
         }
     }
@@ -171,12 +169,24 @@ impl LlmProviderConfig {
     }
 
     /// Validate the provider configuration.
-    pub fn validate(&self) -> crate::Result<()> {
+    pub fn validate(&self) -> orka_core::Result<()> {
         if self.name.is_empty() {
-            return Err(crate::Error::Config(
+            return Err(orka_core::Error::Config(
                 "llm.providers[].name must not be empty".into(),
             ));
         }
         Ok(())
     }
+}
+
+fn default_model() -> String {
+    "claude-3-7-sonnet-20250219".to_string()
+}
+
+const fn default_temperature() -> f32 {
+    0.7
+}
+
+const fn default_max_tokens() -> u32 {
+    4096
 }

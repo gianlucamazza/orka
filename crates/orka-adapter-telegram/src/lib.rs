@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 
 mod api;
+pub mod config;
 mod markdown;
 mod media;
 pub mod polling;
@@ -19,10 +20,10 @@ use std::{
 
 use api::TelegramApi;
 use async_trait::async_trait;
+pub use config::TelegramAdapterConfig;
 use media::{SendMethod, select_send_method};
 use orka_core::{
     Error, Result,
-    config::TelegramAdapterConfig,
     traits::{ChannelAdapter, MemoryStore},
     types::{MessageSink, OutboundMessage, Payload, SessionId},
 };
@@ -351,7 +352,7 @@ impl ChannelAdapter for TelegramAdapter {
 
 #[cfg(test)]
 mod tests {
-    use orka_core::{config::TelegramAdapterConfig, types::SessionId};
+    use orka_core::types::SessionId;
 
     use super::*;
 

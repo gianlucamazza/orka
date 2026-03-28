@@ -11,14 +11,13 @@ pub mod redis_bus;
 
 use std::sync::Arc;
 
+use orka_config::OrkaConfig;
 use orka_core::{config::primitives::BusBackend, traits::MessageBus};
 
 pub use crate::redis_bus::RedisBus;
 
 /// Create a [`MessageBus`] from the given configuration.
-pub fn create_bus(
-    config: &orka_core::config::OrkaConfig,
-) -> orka_core::Result<Arc<dyn MessageBus>> {
+pub fn create_bus(config: &OrkaConfig) -> orka_core::Result<Arc<dyn MessageBus>> {
     match config.bus.backend {
         BusBackend::Redis => {
             let bus = RedisBus::new(&config.redis.url, &config.bus)?;
@@ -35,7 +34,7 @@ pub fn create_bus(
 mod tests {
     use super::*;
 
-    fn config_with_backend(backend: &str) -> orka_core::config::OrkaConfig {
+    fn config_with_backend(backend: &str) -> OrkaConfig {
         serde_json::from_value(serde_json::json!({
             "bus": { "backend": backend }
         }))

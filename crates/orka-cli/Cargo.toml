@@ -23,6 +23,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 reqwest.workspace = true
 orka-core.workspace = true
+orka-config.workspace = true
 orka-llm.workspace = true
 orka-mcp.workspace = true
 orka-onboard.workspace = true

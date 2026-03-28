@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
-use orka_core::config::{LlmAuthKind, OrkaConfig};
+use orka_config::OrkaConfig;
 use orka_experience::ExperienceService;
+use orka_llm::LlmAuthKind;
 
 /// Create the experience / self-learning service from config.
 ///
@@ -112,7 +113,7 @@ pub(crate) fn create_experience_service(
     // Create embedding provider (reusing knowledge config)
     let embedding_provider: Arc<dyn EmbeddingProvider> = match config.knowledge.embeddings.provider
     {
-        orka_core::config::primitives::EmbeddingProvider::Openai => {
+        orka_knowledge::EmbeddingProviderKind::Openai => {
             let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
                 anyhow::anyhow!("OPENAI_API_KEY required for openai embedding provider")
             })?;
@@ -160,7 +161,7 @@ pub(crate) fn create_experience_service(
                 .vector_store
                 .url
                 .as_deref()
-                .unwrap_or(&orka_core::config::defaults::default_qdrant_url()),
+                .unwrap_or(&orka_knowledge::default_qdrant_url()),
         )
         .map_err(|e| anyhow::anyhow!("failed to create Qdrant store: {e}"))?,
     );

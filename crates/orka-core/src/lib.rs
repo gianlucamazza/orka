@@ -10,8 +10,8 @@
 //! - **Types** ([`types`]): `Envelope`, `OutboundMessage`, `Session`,
 //!   `Payload`, `DomainEvent`, etc.
 //! - **Error** ([`Error`]): unified error type for the entire platform
-//! - **Config** ([`config`]): configuration structs loaded from TOML /
-//!   environment
+//! - **Config** ([`config`]): shared config submodules and primitives used by
+//!   the composed workspace config
 //! - **Container** ([`container`]): lightweight dependency injection container
 //! - **Testing** ([`testing`]): in-memory test doubles for all core traits
 //!
@@ -65,8 +65,6 @@ pub mod migrate;
 #[cfg(feature = "testing")]
 pub mod testing;
 
-#[cfg(feature = "config")]
-pub use config::OrkaConfig;
 pub use error::{Error, Result};
 #[cfg(feature = "migrate")]
 pub use migrate::{

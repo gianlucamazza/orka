@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+orka-config.workspace = true
 redis.workspace = true
 deadpool-redis.workspace = true
 async-trait.workspace = true

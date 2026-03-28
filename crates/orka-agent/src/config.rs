@@ -1,6 +1,7 @@
 //! Translates `OrkaConfig` into `Agent` and `AgentGraph` objects.
 
-use orka_core::config::{AgentDef, NodeKindDef, OrkaConfig, primitives::GraphExecutionMode};
+use orka_config::OrkaConfig;
+use orka_core::config::{AgentDef, NodeKindDef, primitives::GraphExecutionMode};
 use orka_llm::ThinkingConfig;
 use orka_workspace::WorkspaceRegistry;
 use tracing::warn;
@@ -61,7 +62,7 @@ pub async fn build_graph_from_config(
         let target = AgentId::from(edge_def.to.as_str());
 
         // Condition is now a simple String - parse it
-        let condition = edge_def.condition.as_ref().map(|c| {
+        let condition = edge_def.condition.as_ref().map(|c: &String| {
             if c == "always" {
                 EdgeCondition::Always
             } else if c.starts_with("output_contains:") {
@@ -162,7 +163,7 @@ pub async fn build_graph_from_config(
         let reducer_map: std::collections::HashMap<String, ReducerStrategy> = graph_def
             .reducers
             .iter()
-            .map(|(key, val)| {
+            .map(|(key, val): (&String, &String)| {
                 let strategy = match val.to_lowercase().as_str() {
                     "append" => ReducerStrategy::Append,
                     "merge_object" => ReducerStrategy::MergeObject,
@@ -296,7 +297,8 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
 mod tests {
     use std::sync::Arc;
 
-    use orka_core::config::{AgentDef, EdgeDef, GraphDef, OrkaConfig, ServerConfig};
+    use orka_config::OrkaConfig;
+    use orka_core::config::{AgentDef, EdgeDef, GraphDef, ServerConfig};
     use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 
     fn base_config() -> OrkaConfig {

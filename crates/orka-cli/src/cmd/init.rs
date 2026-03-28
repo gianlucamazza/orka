@@ -116,7 +116,7 @@ pub async fn run(args: InitArgs) -> Result<()> {
 
     // Post-wizard validation via `orka config check`.
     println!("\n{}", "Validating generated config...".cyan());
-    match orka_core::config::OrkaConfig::load(Some(&output_path)) {
+    match orka_config::OrkaConfig::load(Some(&output_path)) {
         Ok(mut cfg) => match cfg.validate() {
             Ok(()) => println!("{}", "Config validation: OK".green()),
             Err(e) => println!("{} {}", "Validation warning:".yellow(), e),

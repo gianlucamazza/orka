@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use orka_prompts::pipeline::StaticSection;
 use orka_prompts::{
-    BuildContext, PipelineConfig, PromptSection, SystemPromptPipeline,
-    TemplateEngine, TemplateRegistry,
+    BuildContext, PipelineConfig, PromptSection, SystemPromptPipeline, TemplateEngine,
+    TemplateRegistry,
     context::{
         ContextCoordinator, SectionsContextProvider, SessionContext, ShellContextProvider,
         WorkspaceProvider,
@@ -20,7 +20,9 @@ use orka_prompts::{
 #[test]
 fn engine_renders_variable() {
     let mut engine = TemplateEngine::new();
-    engine.register_template("hello", "Hello, {{name}}!").unwrap();
+    engine
+        .register_template("hello", "Hello, {{name}}!")
+        .unwrap();
     let ctx = serde_json::json!({ "name": "Orka" });
     let out = engine.render("hello", &ctx).unwrap();
     assert_eq!(out, "Hello, Orka!");
@@ -318,17 +320,13 @@ async fn coordinator_provider_failure_does_not_abort() {
         fn provider_id(&self) -> &str {
             "failing"
         }
-        async fn provide(
-            &self,
-            _ctx: &SessionContext,
-        ) -> orka_core::Result<serde_json::Value> {
+        async fn provide(&self, _ctx: &SessionContext) -> orka_core::Result<serde_json::Value> {
             Err(orka_core::Error::Other("intentional failure".into()))
         }
     }
 
     let base = BuildContext::new("Bot");
-    let coordinator =
-        ContextCoordinator::new(base).with_provider(Box::new(FailingProvider));
+    let coordinator = ContextCoordinator::new(base).with_provider(Box::new(FailingProvider));
 
     let session = SessionContext::default();
     let ctx = coordinator.build(&session).await.unwrap();

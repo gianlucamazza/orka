@@ -5819,6 +5819,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "orka-checkpoint",
+ "orka-config",
  "orka-core",
  "orka-experience",
  "orka-guardrails",
@@ -5863,6 +5864,7 @@ version = "1.0.0"
 dependencies = [
  "async-trait",
  "deadpool-redis",
+ "orka-config",
  "orka-core",
  "redis",
  "serde",
@@ -5938,6 +5940,7 @@ dependencies = [
  "notify-rust",
  "nu-ansi-term",
  "open",
+ "orka-config",
  "orka-core",
  "orka-llm",
  "orka-mcp",
@@ -5970,13 +5973,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "orka-config"
+version = "1.0.0"
+dependencies = [
+ "config",
+ "orka-adapter-custom",
+ "orka-adapter-discord",
+ "orka-adapter-slack",
+ "orka-adapter-telegram",
+ "orka-adapter-whatsapp",
+ "orka-core",
+ "orka-git",
+ "orka-knowledge",
+ "orka-llm",
+ "orka-web",
+ "serde",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "orka-core"
 version = "1.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
- "config",
  "dashmap",
  "futures-util",
  "glob",
@@ -6159,6 +6181,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "deadpool-redis",
+ "orka-config",
  "orka-core",
  "redis",
  "serde",
@@ -6181,6 +6204,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "orka-config",
  "orka-core",
  "redis",
  "serde",
@@ -6197,6 +6221,7 @@ version = "1.0.0"
 dependencies = [
  "async-trait",
  "futures-util",
+ "orka-config",
  "orka-core",
  "orka-llm",
  "orka-secrets",
@@ -6270,6 +6295,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "deadpool-redis",
+ "orka-config",
  "orka-core",
  "redis",
  "serde",
@@ -6347,6 +6373,7 @@ dependencies = [
  "base64 0.22.1",
  "deadpool-redis",
  "hex",
+ "orka-config",
  "orka-core",
  "redis",
  "serde",
@@ -6385,6 +6412,7 @@ dependencies = [
  "orka-chart",
  "orka-checkpoint",
  "orka-circuit-breaker",
+ "orka-config",
  "orka-core",
  "orka-eval",
  "orka-experience",
@@ -6436,6 +6464,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "deadpool-redis",
+ "orka-config",
  "orka-core",
  "redis",
  "serde",

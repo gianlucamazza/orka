@@ -37,6 +37,7 @@ wasm = ["dep:orka-wasm", "orka-skills/wasm", "orka-sandbox/wasm"]
 
 [dependencies]
 orka-core.workspace = true
+orka-config.workspace = true
 orka-bus.workspace = true
 orka-session.workspace = true
 orka-queue.workspace = true

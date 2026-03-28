@@ -116,8 +116,8 @@ impl DoctorCheck for PrvApiKeysResolvable {
 
 /// Resolve where a provider credential comes from. Returns None if no source is
 /// configured.
-fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<String> {
-    use orka_core::config::LlmAuthKind;
+fn resolve_api_key(provider: &orka_llm::LlmProviderConfig) -> Option<String> {
+    use orka_llm::LlmAuthKind;
 
     let auth_kind = provider.auth_kind;
 
@@ -330,7 +330,7 @@ impl DoctorCheck for PrvEmbeddingProvider {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        use orka_core::config::EmbeddingProvider;
+        use orka_config::EmbeddingProviderKind;
         let Some(config) = &ctx.config else {
             return CheckOutcome::skip("config not loaded");
         };
@@ -340,7 +340,7 @@ impl DoctorCheck for PrvEmbeddingProvider {
         }
 
         let provider = &config.knowledge.embeddings.provider;
-        if *provider == EmbeddingProvider::Local {
+        if *provider == EmbeddingProviderKind::Local {
             // Local (fastembed) doesn't need an API key
             CheckOutcome::pass("provider: local (fastembed, no API key needed)")
         } else {
@@ -362,17 +362,19 @@ impl DoctorCheck for PrvWebSearchKey {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
+        use orka_config::SearchProviderKind;
+
         let Some(config) = &ctx.config else {
             return CheckOutcome::skip("config not loaded");
         };
 
         let provider = &config.web.search_provider;
-        if provider == "none" || provider.is_empty() {
+        if *provider == SearchProviderKind::None {
             return CheckOutcome::skip("web search provider = none");
         }
 
-        match provider.as_str() {
-            "searxng" => {
+        match provider {
+            SearchProviderKind::Searxng => {
                 let url = config.web.searxng_base_url.as_deref().unwrap_or("");
                 if url.is_empty() {
                     CheckOutcome::fail("searxng_base_url not configured")
@@ -381,15 +383,15 @@ impl DoctorCheck for PrvWebSearchKey {
                     CheckOutcome::pass(format!("searxng at {url}"))
                 }
             }
-            "tavily" => check_web_api_key(config, "TAVILY_API_KEY", provider),
-            "brave" => check_web_api_key(config, "BRAVE_API_KEY", provider),
-            other => CheckOutcome::skip(format!("unknown provider: {other}")),
+            SearchProviderKind::Tavily => check_web_api_key(config, "TAVILY_API_KEY", "tavily"),
+            SearchProviderKind::Brave => check_web_api_key(config, "BRAVE_API_KEY", "brave"),
+            SearchProviderKind::None => CheckOutcome::skip("web search provider = none"),
         }
     }
 }
 
 fn check_web_api_key(
-    config: &orka_core::config::OrkaConfig,
+    config: &orka_config::OrkaConfig,
     default_env: &str,
     provider: &str,
 ) -> CheckOutcome {

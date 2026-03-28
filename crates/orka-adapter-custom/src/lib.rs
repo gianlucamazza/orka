@@ -2,6 +2,8 @@
 
 #![warn(missing_docs)]
 
+/// Custom adapter configuration.
+pub mod config;
 /// Axum route handlers for the custom HTTP/WebSocket adapter.
 pub mod routes;
 /// Request/response types for the custom adapter API.
@@ -12,10 +14,8 @@ pub mod ws;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::{
-    MessageSink, OutboundMessage, Result, StreamRegistry, config::CustomAdapterConfig,
-    traits::ChannelAdapter,
-};
+pub use config::CustomAdapterConfig;
+use orka_core::{MessageSink, OutboundMessage, Result, StreamRegistry, traits::ChannelAdapter};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 

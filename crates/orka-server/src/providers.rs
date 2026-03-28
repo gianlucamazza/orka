@@ -2,10 +2,8 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use orka_core::{
-    config::{LlmAuthKind, LlmProviderConfig, OrkaConfig},
-    traits::SecretManager,
-};
+use orka_config::{LlmAuthKind, LlmProviderConfig, OrkaConfig, defaults};
+use orka_core::traits::SecretManager;
 use orka_llm::{AnthropicAuthKind, SwappableLlmClient};
 use tracing::{info, warn};
 
@@ -264,13 +262,13 @@ fn build_anthropic_client(
         model,
         provider
             .timeout_secs
-            .unwrap_or(orka_core::config::defaults::default_llm_timeout_secs()),
+            .unwrap_or(defaults::default_llm_timeout_secs()),
         provider
             .max_tokens
-            .unwrap_or(orka_core::config::defaults::default_llm_max_tokens()),
+            .unwrap_or(defaults::default_llm_max_tokens()),
         provider
             .max_retries
-            .unwrap_or(orka_core::config::defaults::default_llm_max_retries()),
+            .unwrap_or(defaults::default_llm_max_retries()),
         orka_llm::ANTHROPIC_API_VERSION.into(),
         provider.base_url.clone(),
     )) as Arc<dyn orka_llm::LlmClient>
@@ -354,11 +352,9 @@ pub(crate) async fn build_llm_clients(
                         resolved.value,
                         model,
                         pc.timeout_secs
-                            .unwrap_or(orka_core::config::defaults::default_llm_timeout_secs()),
-                        pc.max_tokens
-                            .unwrap_or(orka_core::config::defaults::default_llm_max_tokens()),
-                        pc.max_retries
-                            .unwrap_or(orka_core::config::defaults::default_llm_max_retries()),
+                            .unwrap_or(defaults::default_llm_timeout_secs()),
+                        pc.max_tokens.unwrap_or(defaults::default_llm_max_tokens()),
+                        pc.max_retries.unwrap_or(defaults::default_llm_max_retries()),
                         url,
                     )) as Arc<dyn orka_llm::LlmClient>
                 })
@@ -384,11 +380,9 @@ pub(crate) async fn build_llm_clients(
                         resolved.value,
                         model,
                         pc.timeout_secs
-                            .unwrap_or(orka_core::config::defaults::default_llm_timeout_secs()),
-                        pc.max_tokens
-                            .unwrap_or(orka_core::config::defaults::default_llm_max_tokens()),
-                        pc.max_retries
-                            .unwrap_or(orka_core::config::defaults::default_llm_max_retries()),
+                            .unwrap_or(defaults::default_llm_timeout_secs()),
+                        pc.max_tokens.unwrap_or(defaults::default_llm_max_tokens()),
+                        pc.max_retries.unwrap_or(defaults::default_llm_max_retries()),
                         url,
                     )) as Arc<dyn orka_llm::LlmClient>
                 })
@@ -449,11 +443,8 @@ pub(crate) async fn build_llm_clients(
 
 #[cfg(test)]
 mod tests {
-    use orka_core::{
-        SecretValue,
-        config::{LlmAuthKind, LlmProviderConfig},
-        traits::SecretManager,
-    };
+    use orka_config::{LlmAuthKind, LlmProviderConfig};
+    use orka_core::{SecretValue, traits::SecretManager};
 
     use super::*;
 

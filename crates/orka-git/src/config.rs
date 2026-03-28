@@ -1,4 +1,4 @@
-//! Git skills configuration.
+//! Git configuration types.
 
 use serde::{Deserialize, Serialize};
 

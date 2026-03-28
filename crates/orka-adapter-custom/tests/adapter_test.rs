@@ -1,12 +1,9 @@
 #![allow(missing_docs)]
 
 use orka_adapter_custom::{
-    CustomAdapter, routes::app_router, types::InboundResponse, ws::WsRegistry,
+    CustomAdapter, CustomAdapterConfig, routes::app_router, types::InboundResponse, ws::WsRegistry,
 };
-use orka_core::{
-    OutboundMessage, Payload, SessionId, StreamRegistry, config::CustomAdapterConfig,
-    traits::ChannelAdapter,
-};
+use orka_core::{OutboundMessage, Payload, SessionId, StreamRegistry, traits::ChannelAdapter};
 use tokio::sync::mpsc;
 
 #[tokio::test]

@@ -5,7 +5,8 @@
 //! mutation is immediately validated by round-tripping through
 //! [`OrkaConfig`].
 
-use orka_core::{Error, Result, config::OrkaConfig};
+use orka_config::OrkaConfig;
+use orka_core::{Error, Result};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value};
 
 /// Known array-of-tables paths in the Orka config schema.

@@ -7,7 +7,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use dialoguer::Confirm;
-use orka_core::config::OrkaConfig;
+use orka_config::OrkaConfig;
 pub use types::*;
 
 /// Context passed to every check.

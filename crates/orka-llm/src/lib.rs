@@ -15,6 +15,8 @@
 pub mod anthropic;
 /// Core LLM types: [`LlmClient`] trait, message structs, streaming types.
 pub mod client;
+/// LLM configuration types.
+pub mod config;
 /// Token estimation and history truncation utilities.
 pub mod context;
 /// Structured error types for LLM provider failures.
@@ -63,6 +65,7 @@ pub use client::{
     ContentBlockInput, LlmClient, LlmStream, LlmToolStream, ReasoningEffort, Role, StopReason,
     StreamEvent, ThinkingConfig, ThinkingEffort, ToolCall, ToolDefinition, ToolResult, Usage,
 };
+pub use config::{LlmAuthKind, LlmConfig, LlmProviderConfig};
 pub use context::TokenizerHint;
 pub use error::LlmError;
 #[cfg(feature = "ollama")]

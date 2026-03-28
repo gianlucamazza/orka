@@ -17,7 +17,7 @@ pub use crate::redis_store::RedisSessionStore;
 /// Create a [`SessionStore`] from the given configuration.
 /// Uses Redis backend (session store is always Redis-backed in production).
 pub fn create_session_store(
-    config: &orka_core::config::OrkaConfig,
+    config: &orka_config::OrkaConfig,
 ) -> orka_core::Result<Arc<dyn SessionStore>> {
     let store = RedisSessionStore::new(&config.redis.url, config.session.ttl_secs)?;
     Ok(Arc::new(store))

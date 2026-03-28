@@ -2,9 +2,7 @@
 
 use std::sync::LazyLock;
 
-use orka_core::config::{GitAuthorshipMode, GitConfig};
-
-use crate::error::GitError;
+use crate::{GitAuthorshipMode, GitConfig, error::GitError};
 
 /// Compiled conventional-commits regex, initialised once at first use.
 #[allow(clippy::expect_used)]
@@ -211,8 +209,6 @@ pub enum AuthorshipArgs {
 
 #[cfg(test)]
 mod tests {
-    use orka_core::config::GitConfig;
-
     use super::*;
 
     fn guard() -> GitGuard {

@@ -10,9 +10,9 @@ pub mod redis_queue;
 
 use std::sync::Arc;
 
+use orka_config::OrkaConfig;
 use orka_core::{
     Result,
-    config::OrkaConfig,
     traits::{DeadLetterQueue, PriorityQueue},
 };
 pub use redis_queue::RedisPriorityQueue;

@@ -1,10 +1,8 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use orka_core::{
-    config::{LlmAuthKind, LlmProviderConfig},
-    traits::SecretManager,
-};
+use orka_config::{LlmAuthKind, LlmProviderConfig, defaults};
+use orka_core::traits::SecretManager;
 use orka_llm::SwappableLlmClient;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{debug, info, warn};
@@ -106,11 +104,10 @@ impl EnvWatcher {
                             },
                             resolved_model(pc, &default_model),
                             pc.timeout_secs
-                                .unwrap_or(orka_core::config::defaults::default_llm_timeout_secs()),
-                            pc.max_tokens
-                                .unwrap_or(orka_core::config::defaults::default_llm_max_tokens()),
+                                .unwrap_or(defaults::default_llm_timeout_secs()),
+                            pc.max_tokens.unwrap_or(defaults::default_llm_max_tokens()),
                             pc.max_retries
-                                .unwrap_or(orka_core::config::defaults::default_llm_max_retries()),
+                                .unwrap_or(defaults::default_llm_max_retries()),
                             orka_llm::ANTHROPIC_API_VERSION.into(),
                             pc.base_url.clone(),
                         )),
@@ -123,9 +120,11 @@ impl EnvWatcher {
                             Arc::new(orka_llm::OpenAiClient::with_options(
                                 key,
                                 resolved_model(pc, &default_model),
-                                pc.timeout_secs.unwrap_or(30),
-                                pc.max_tokens.unwrap_or(8192),
-                                pc.max_retries.unwrap_or(2),
+                                pc.timeout_secs
+                                    .unwrap_or(defaults::default_llm_timeout_secs()),
+                                pc.max_tokens.unwrap_or(defaults::default_llm_max_tokens()),
+                                pc.max_retries
+                                    .unwrap_or(defaults::default_llm_max_retries()),
                                 url,
                             ))
                         }
@@ -328,11 +327,8 @@ fn resolve_env_path() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use orka_core::{
-        SecretValue,
-        config::{LlmAuthKind, LlmProviderConfig},
-        traits::SecretManager,
-    };
+    use orka_config::{LlmAuthKind, LlmProviderConfig};
+    use orka_core::{SecretValue, traits::SecretManager};
 
     use super::*;
 

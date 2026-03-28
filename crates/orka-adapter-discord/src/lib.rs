@@ -2,9 +2,12 @@
 
 #![warn(missing_docs)]
 
+pub mod config;
+
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
+pub use config::DiscordAdapterConfig;
 use futures_util::{SinkExt, StreamExt};
 use orka_core::{
     Error, Result,

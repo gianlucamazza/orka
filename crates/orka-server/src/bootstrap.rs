@@ -5,7 +5,8 @@ use std::{future::IntoFuture, sync::Arc};
 
 use anyhow::Context;
 use orka_bus::create_bus;
-use orka_core::{OutboundMessage, config::OrkaConfig};
+use orka_config::{CodingConfig, CodingProvider, CodingSelectionPolicy, OrkaConfig};
+use orka_core::OutboundMessage;
 use orka_gateway::Gateway;
 use orka_queue::{QueueBundle, create_queue};
 use orka_server::router::{
@@ -27,12 +28,11 @@ use crate::{
 };
 
 fn select_coding_backend(
-    config: &orka_core::config::CodingConfig,
+    config: &CodingConfig,
     claude_available: bool,
     codex_available: bool,
     opencode_available: bool,
-) -> Option<orka_core::config::CodingProvider> {
-    use orka_core::config::{CodingProvider, CodingSelectionPolicy};
+) -> Option<CodingProvider> {
     match config.default_provider {
         CodingProvider::ClaudeCode => claude_available.then_some(CodingProvider::ClaudeCode),
         CodingProvider::Codex => codex_available.then_some(CodingProvider::Codex),
@@ -234,25 +234,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     };
 
     // 4e. Web skills
-    if config.web.search_provider != "none" {
-        let web_config = orka_web::WebConfig {
-            search_provider: match config.web.search_provider.as_str() {
-                "tavily" => orka_web::SearchProviderKind::Tavily,
-                "brave" => orka_web::SearchProviderKind::Brave,
-                "searxng" => orka_web::SearchProviderKind::Searxng,
-                _ => orka_web::SearchProviderKind::None,
-            },
-            api_key: config.web.api_key.clone(),
-            api_key_env: config.web.api_key_env.clone(),
-            searxng_base_url: config.web.searxng_base_url.clone(),
-            max_results: config.web.max_results,
-            max_read_chars: config.web.max_read_chars,
-            max_content_chars: config.web.max_content_chars,
-            cache_ttl_secs: config.web.cache_ttl_secs,
-            read_timeout_secs: config.web.read_timeout_secs,
-            user_agent: config.web.user_agent.clone(),
-        };
-        match orka_web::create_web_skills(&web_config) {
+    if config.web.search_provider != orka_web::SearchProviderKind::None {
+        match orka_web::create_web_skills(&config.web) {
             Ok(web_skills) => {
                 for skill in web_skills {
                     skills.register(skill);
@@ -329,7 +312,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             codex_available,
             opencode_available,
         );
-        use orka_core::config::CodingProvider;
         let (file_modifications_allowed, command_execution_allowed) = match selected_backend {
             Some(CodingProvider::ClaudeCode) => (
                 config
@@ -716,10 +698,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .as_ref()
         .and_then(|r| r.selected_backend.clone());
 
-    let web_search = if config.web.search_provider == "none" {
-        None
-    } else {
-        Some(config.web.search_provider.clone())
+    let web_search = match config.web.search_provider {
+        orka_web::SearchProviderKind::None => None,
+        orka_web::SearchProviderKind::Tavily => Some("tavily".to_string()),
+        orka_web::SearchProviderKind::Brave => Some("brave".to_string()),
+        orka_web::SearchProviderKind::Searxng => Some("searxng".to_string()),
     };
 
     let features = ServerFeatures {

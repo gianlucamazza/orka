@@ -2,10 +2,13 @@
 
 #![warn(missing_docs)]
 
+pub mod config;
+
 use std::{collections::HashMap, future::IntoFuture, sync::Arc};
 
 use async_trait::async_trait;
 use axum::{Json, Router, extract::State, routing::post};
+pub use config::SlackAdapterConfig;
 use orka_core::{
     Error, Result,
     traits::ChannelAdapter,

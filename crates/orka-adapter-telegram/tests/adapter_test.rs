@@ -2,8 +2,8 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use orka_adapter_telegram::TelegramAdapter;
-use orka_core::{config::TelegramAdapterConfig, traits::ChannelAdapter, types::SessionId};
+use orka_adapter_telegram::{TelegramAdapter, TelegramAdapterConfig};
+use orka_core::{traits::ChannelAdapter, types::SessionId};
 use tokio::sync::Mutex;
 
 #[test]

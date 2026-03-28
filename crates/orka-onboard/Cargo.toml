@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+orka-config.workspace = true
 orka-llm.workspace = true
 orka-secrets.workspace = true
 async-trait.workspace = true

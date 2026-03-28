@@ -46,7 +46,7 @@ pub fn default_secrets_file_path() -> PathBuf {
     base.join("orka").join("secrets.json")
 }
 
-fn resolve_encryption_key(config: &orka_core::config::OrkaConfig) -> Option<Vec<u8>> {
+fn resolve_encryption_key(config: &orka_config::OrkaConfig) -> Option<Vec<u8>> {
     config
         .secrets
         .encryption_key_env
@@ -79,7 +79,7 @@ fn resolve_encryption_key(config: &orka_core::config::OrkaConfig) -> Option<Vec<
 ///
 /// Dispatches to the appropriate backend based on `config.secrets.backend`.
 pub fn create_secret_manager(
-    config: &orka_core::config::OrkaConfig,
+    config: &orka_config::OrkaConfig,
 ) -> orka_core::Result<Arc<dyn SecretManager>> {
     let encryption_key = resolve_encryption_key(config);
     let key_ref = encryption_key.as_deref();

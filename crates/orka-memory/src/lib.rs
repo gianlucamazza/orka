@@ -30,9 +30,7 @@ pub struct MemoryBundle {
 }
 
 /// Create a [`MemoryBundle`] from the given configuration.
-pub fn create_memory_store(
-    config: &orka_core::config::OrkaConfig,
-) -> orka_core::Result<MemoryBundle> {
+pub fn create_memory_store(config: &orka_config::OrkaConfig) -> orka_core::Result<MemoryBundle> {
     if config.memory.backend == MemoryBackend::Memory {
         tracing::debug!(
             max_entries = config.memory.max_entries,

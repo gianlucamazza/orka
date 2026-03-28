@@ -23,6 +23,7 @@ use tokio_tungstenite::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
+    chat_renderer::ChatRenderer,
     client::{OrkaClient, Result},
     completion::{OrkaCompleter, OrkaHighlighter, OrkaHinter, OrkaPrompt, OrkaValidator},
     prompt::build_prompt,
@@ -734,7 +735,7 @@ pub async fn run(
                                 tracing::debug!(?unknown, "unhandled stream chunk kind");
                             }
                             WsMessage::Unknown(raw) => {
-                                renderer.on_unknown(&raw);
+                                ChatRenderer::on_unknown(&raw);
                             }
                         }
                     }

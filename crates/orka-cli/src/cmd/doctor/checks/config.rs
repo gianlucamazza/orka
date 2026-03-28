@@ -1,8 +1,6 @@
 use async_trait::async_trait;
-use orka_core::{
-    config::OrkaConfig,
-    migrate::{self, CURRENT_CONFIG_VERSION},
-};
+use orka_config::OrkaConfig;
+use orka_core::migrate::{self, CURRENT_CONFIG_VERSION};
 
 use crate::cmd::doctor::{
     CheckContext, DoctorCheck,

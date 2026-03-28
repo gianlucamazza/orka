@@ -4,6 +4,7 @@ members = [
   # ── Core ──────────────────────────────────────────────────────────────────
   # Shared types, traits, error definitions, and standalone utilities
   "crates/orka-core",
+  "crates/orka-config",
   "crates/orka-circuit-breaker",
 
   # ── Infrastructure ────────────────────────────────────────────────────────
@@ -256,6 +257,7 @@ tracing-opentelemetry = "0.29"
 
 # Internal crates
 orka-core = { path = "crates/orka-core" }
+orka-config = { path = "crates/orka-config" }
 orka-bus = { path = "crates/orka-bus" }
 orka-auth = { path = "crates/orka-auth" }
 orka-session = { path = "crates/orka-session" }

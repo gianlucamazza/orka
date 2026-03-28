@@ -9,6 +9,8 @@
 
 /// Text chunking utilities for splitting documents into overlapping segments.
 pub mod chunking;
+/// Knowledge/RAG configuration types.
+pub mod config;
 /// Embedding providers: local ONNX (`local`) and OpenAI-compatible REST
 /// (`openai`).
 pub mod embeddings;
@@ -26,9 +28,13 @@ pub mod vector_store;
 
 use std::sync::Arc;
 
+pub use config::{
+    ChunkingConfig, EmbeddingProvider as EmbeddingProviderKind, EmbeddingsConfig, KnowledgeConfig,
+    RetrievalConfig, VectorStoreBackend, VectorStoreConfig, default_qdrant_url,
+};
 pub use embeddings::EmbeddingProvider;
 pub use fact_store::{FactRecord, FactStore};
-use orka_core::{Result, config::KnowledgeConfig, traits::Skill};
+use orka_core::{Result, traits::Skill};
 use tracing::info;
 pub use vector_store::VectorStore;
 
@@ -51,45 +57,47 @@ pub fn create_fact_store(config: &KnowledgeConfig) -> Result<Arc<FactStore>> {
 fn create_embedding_and_store(
     config: &KnowledgeConfig,
 ) -> Result<(Arc<dyn EmbeddingProvider>, Arc<dyn VectorStore>)> {
-    use orka_core::config::primitives::EmbeddingProvider;
-
-    let embedding_provider: Arc<dyn embeddings::EmbeddingProvider> =
-        match config.embeddings.provider {
-            #[cfg(feature = "openai-embeddings")]
-            EmbeddingProvider::Openai => {
-                let api_key = std::env::var("OPENAI_API_KEY").or_else(|_| {
-                    config.embeddings.api_key.clone().ok_or_else(|| {
-                        orka_core::Error::Config(
-                            "OPENAI_API_KEY required for openai embedding provider".into(),
-                        )
-                    })
-                })?;
-                Arc::new(embeddings::openai::OpenAiEmbeddingProvider::new(
-                    api_key,
-                    config.embeddings.model.clone(),
-                    embeddings::OPENAI_EMBEDDING_DIMS,
-                ))
-            }
-            #[cfg(not(feature = "openai-embeddings"))]
-            EmbeddingProvider::Openai => {
-                return Err(orka_core::Error::Config(
-                    "openai embedding provider requires the `openai-embeddings` feature".into(),
-                ));
-            }
-            #[cfg(feature = "local-embeddings")]
-            EmbeddingProvider::Anthropic | EmbeddingProvider::Custom | EmbeddingProvider::Local => {
-                Arc::new(embeddings::local::LocalEmbeddingProvider::new(
-                    &config.embeddings.model,
-                    embeddings::LOCAL_EMBEDDING_DIMS,
-                )?)
-            }
-            #[cfg(not(feature = "local-embeddings"))]
-            EmbeddingProvider::Anthropic | EmbeddingProvider::Custom | EmbeddingProvider::Local => {
-                return Err(orka_core::Error::Config(
-                    "local embedding provider requires the `local-embeddings` feature".into(),
-                ));
-            }
-        };
+    let embedding_provider: Arc<dyn embeddings::EmbeddingProvider> = match config
+        .embeddings
+        .provider
+    {
+        #[cfg(feature = "openai-embeddings")]
+        EmbeddingProviderKind::Openai => {
+            let api_key = std::env::var("OPENAI_API_KEY").or_else(|_| {
+                config.embeddings.api_key.clone().ok_or_else(|| {
+                    orka_core::Error::Config(
+                        "OPENAI_API_KEY required for openai embedding provider".into(),
+                    )
+                })
+            })?;
+            Arc::new(embeddings::openai::OpenAiEmbeddingProvider::new(
+                api_key,
+                config.embeddings.model.clone(),
+                embeddings::OPENAI_EMBEDDING_DIMS,
+            ))
+        }
+        #[cfg(not(feature = "openai-embeddings"))]
+        EmbeddingProviderKind::Openai => {
+            return Err(orka_core::Error::Config(
+                "openai embedding provider requires the `openai-embeddings` feature".into(),
+            ));
+        }
+        #[cfg(feature = "local-embeddings")]
+        EmbeddingProviderKind::Anthropic
+        | EmbeddingProviderKind::Custom
+        | EmbeddingProviderKind::Local => Arc::new(embeddings::local::LocalEmbeddingProvider::new(
+            &config.embeddings.model,
+            embeddings::LOCAL_EMBEDDING_DIMS,
+        )?),
+        #[cfg(not(feature = "local-embeddings"))]
+        EmbeddingProviderKind::Anthropic
+        | EmbeddingProviderKind::Custom
+        | EmbeddingProviderKind::Local => {
+            return Err(orka_core::Error::Config(
+                "local embedding provider requires the `local-embeddings` feature".into(),
+            ));
+        }
+    };
 
     #[cfg(feature = "qdrant")]
     let vector_store: Arc<dyn VectorStore> = Arc::new(vector_store::qdrant::QdrantStore::new(
@@ -97,7 +105,7 @@ fn create_embedding_and_store(
             .vector_store
             .url
             .as_deref()
-            .unwrap_or(&orka_core::config::defaults::default_qdrant_url()),
+            .unwrap_or(&default_qdrant_url()),
     )?);
 
     #[cfg(not(feature = "qdrant"))]

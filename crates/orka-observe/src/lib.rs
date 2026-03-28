@@ -12,7 +12,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::{DomainEvent, DomainEventKind, config::OrkaConfig, traits::EventSink};
+use orka_config::OrkaConfig;
+use orka_core::{DomainEvent, DomainEventKind, traits::EventSink};
 use tracing::{debug, info, warn};
 
 /// Append-only JSONL audit log for skill invocations.

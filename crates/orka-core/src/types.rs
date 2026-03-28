@@ -1339,10 +1339,12 @@ pub fn backoff_delay(attempt: u32, base_secs: u64, max_secs: u64) -> std::time::
     let secs = base_secs.saturating_mul(1u64.checked_shl(attempt).unwrap_or(u64::MAX));
     let ceiling = secs.min(max_secs);
     let jittered = if ceiling > 0 {
-        let nanos = u64::from(std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .subsec_nanos());
+        let nanos = u64::from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos(),
+        );
         nanos % (ceiling + 1)
     } else {
         0

@@ -16,7 +16,7 @@ testing = ["tokio/rt", "tokio/macros"]
 migrate = ["toml_edit"]
 
 # Enable full config support (requires migrate)
-config = ["migrate", "dep:config"]
+config = ["migrate"]
 
 [dependencies]
 async-trait.workspace = true
@@ -24,7 +24,6 @@ base64.workspace = true
 chrono.workspace = true
 glob.workspace = true
 dashmap.workspace = true
-config = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
