@@ -2,8 +2,8 @@ use std::{
     collections::HashMap,
     io::Write,
     sync::{
-        atomic::{AtomicBool, AtomicU16, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicU16, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -32,7 +32,7 @@ impl Write for VecSink {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.0
             .lock()
-            .expect("mutex poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .extend_from_slice(buf);
         Ok(buf.len())
     }
@@ -292,7 +292,7 @@ impl ChatRenderer {
     }
 
     /// Handle an unrecognised WebSocket message (silent).
-    pub(crate) fn on_unknown(&self, _raw: &str) {}
+    pub(crate) fn on_unknown(_raw: &str) {}
 
     /// Render an inline media attachment.
     pub(crate) fn on_media(&mut self, mime_type: &str, data_base64: &str, caption: Option<&str>) {
@@ -332,7 +332,9 @@ impl ChatRenderer {
         );
         renderer.render_full(&content);
         drop(renderer);
-        let bytes = raw.lock().expect("mutex poisoned");
+        let bytes = raw
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let text = String::from_utf8_lossy(&bytes);
         for line in text.lines() {
             self.multi

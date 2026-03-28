@@ -1252,7 +1252,7 @@ impl AgentHandler for WorkspaceHandler {
         let reply = format!(
             "[{soul_name}] No LLM provider is configured. To enable AI responses:\n\
              \n\
-             1. Set the ANTHROPIC_API_KEY (or OPENAI_API_KEY) environment variable, or\n\
+             1. Set the ANTHROPIC_API_KEY, MOONSHOT_API_KEY, or OPENAI_API_KEY environment variable, or\n\
              2. Store the key in the secret manager under the name in orka.toml\n\
              \n\
              Session: {}\nYour message was: {text}",

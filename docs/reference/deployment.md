@@ -17,7 +17,7 @@ Valkey (Redis-compatible) is also supported as a drop-in Redis replacement.
 
 ```bash
 cp .env.example .env
-# Fill in required values: ANTHROPIC_API_KEY, ORKA_SECRET_ENCRYPTION_KEY, etc.
+# Fill in required values: ANTHROPIC_API_KEY, MOONSHOT_API_KEY, ORKA_SECRET_ENCRYPTION_KEY, etc.
 
 docker compose up -d
 ```
@@ -122,6 +122,7 @@ Best practice for distro-native packages:
 | `ORKA_SECRET_ENCRYPTION_KEY` | yes              | 32-byte hex key for AES-256-GCM secret encryption |
 | `ORKA_CONFIG`                | no               | Path to config file (default: `./orka.toml`)      |
 | `ANTHROPIC_API_KEY`          | if using Claude  | Anthropic provider fallback                       |
+| `MOONSHOT_API_KEY`           | if using Moonshot | Moonshot provider fallback                       |
 | `OPENAI_API_KEY`             | if using OpenAI  | OpenAI provider fallback                          |
 | `ORKA_API_KEY`               | recommended      | API key for authenticated requests                |
 

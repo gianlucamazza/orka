@@ -40,10 +40,13 @@ pub const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 
 /// Infer LLM provider name from a model string, for observability.
 ///
-/// Returns one of `"anthropic"`, `"openai"`, `"google"`, or `"unknown"`.
+/// Returns one of `"anthropic"`, `"openai"`, `"moonshot"`, `"google"`, or
+/// `"unknown"`.
 pub fn infer_provider(model: &str) -> String {
     if model.contains("claude") {
         "anthropic".into()
+    } else if model.contains("kimi") || model.contains("moonshot/") {
+        "moonshot".into()
     } else if model.contains("gpt") || model.contains("o1") || model.contains("o3") {
         "openai".into()
     } else if model.contains("gemini") {
@@ -69,3 +72,17 @@ pub use openai::OpenAiClient;
 pub use router::LlmRouter;
 pub use stream_consumer::consume_stream;
 pub use swappable::SwappableLlmClient;
+
+#[cfg(test)]
+mod tests {
+    use super::infer_provider;
+
+    #[test]
+    fn infer_provider_detects_moonshot_models() {
+        assert_eq!(infer_provider("kimi-k2-thinking"), "moonshot");
+        assert_eq!(
+            infer_provider("moonshot/kimi-k2-thinking-turbo"),
+            "moonshot"
+        );
+    }
+}

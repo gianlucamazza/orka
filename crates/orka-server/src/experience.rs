@@ -75,7 +75,20 @@ pub(crate) fn create_experience_service(
         .unwrap_or_else(|| config.llm.default_model.clone());
 
     let reflection_llm: Arc<dyn orka_llm::LlmClient> = match first_provider.provider.as_str() {
-        "openai" => Arc::new(orka_llm::OpenAiClient::new(credential, model)),
+        "openai" | "moonshot" => Arc::new(orka_llm::OpenAiClient::with_options(
+            credential,
+            model,
+            first_provider.timeout_secs.unwrap_or(30),
+            first_provider
+                .max_tokens
+                .unwrap_or(config.llm.default_max_tokens),
+            first_provider.max_retries.unwrap_or(2),
+            first_provider.base_url.clone().unwrap_or_else(|| {
+                crate::providers::default_base_url(&first_provider.provider)
+                    .unwrap_or(crate::providers::OPENAI_BASE_URL)
+                    .to_string()
+            }),
+        )),
         "ollama" => Arc::new(orka_llm::OllamaClient::new(model)),
         _ => Arc::new(orka_llm::AnthropicClient::with_auth_options(
             credential,
@@ -111,18 +124,32 @@ pub(crate) fn create_experience_service(
                 ),
             )
         }
-        _ => Arc::new(
-            orka_knowledge::embeddings::local::LocalEmbeddingProvider::new(
-                &config.knowledge.embeddings.model,
-                config
-                    .knowledge
-                    .vector_store
-                    .dimension
-                    .try_into()
-                    .unwrap_or(orka_knowledge::embeddings::LOCAL_EMBEDDING_DIMS),
-            )
-            .map_err(|e| anyhow::anyhow!("failed to create local embedding provider: {e}"))?,
-        ),
+        _ => {
+            #[cfg(feature = "local-embeddings")]
+            {
+                Arc::new(
+                    orka_knowledge::embeddings::local::LocalEmbeddingProvider::new(
+                        &config.knowledge.embeddings.model,
+                        config
+                            .knowledge
+                            .vector_store
+                            .dimension
+                            .try_into()
+                            .unwrap_or(orka_knowledge::embeddings::LOCAL_EMBEDDING_DIMS),
+                    )
+                    .map_err(|e| {
+                        anyhow::anyhow!("failed to create local embedding provider: {e}")
+                    })?,
+                )
+            }
+            #[cfg(not(feature = "local-embeddings"))]
+            {
+                return Err(anyhow::anyhow!(
+                    "local embedding provider not available in this build; \
+                     set embeddings.provider = \"openai\" in orka.toml"
+                ));
+            }
+        }
     };
 
     // Create vector store

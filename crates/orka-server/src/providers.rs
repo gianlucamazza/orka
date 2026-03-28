@@ -9,11 +9,15 @@ use orka_core::{
 use orka_llm::{AnthropicAuthKind, SwappableLlmClient};
 use tracing::{info, warn};
 
+pub(crate) const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+pub(crate) const MOONSHOT_BASE_URL: &str = "https://api.moonshot.ai/v1";
+
 /// Default environment variable name for a provider's API key.
 pub(crate) fn default_env_var(provider: &str) -> &str {
     match provider {
         "anthropic" => "ANTHROPIC_API_KEY",
         "openai" => "OPENAI_API_KEY",
+        "moonshot" => "MOONSHOT_API_KEY",
         _ => "",
     }
 }
@@ -23,6 +27,14 @@ pub(crate) fn default_auth_token_env_var(provider: &str) -> &str {
     match provider {
         "anthropic" => "ANTHROPIC_AUTH_TOKEN",
         _ => "",
+    }
+}
+
+pub(crate) fn default_base_url(provider: &str) -> Option<&'static str> {
+    match provider {
+        "openai" => Some(OPENAI_BASE_URL),
+        "moonshot" => Some(MOONSHOT_BASE_URL),
+        _ => None,
     }
 }
 
@@ -264,6 +276,15 @@ fn build_anthropic_client(
     )) as Arc<dyn orka_llm::LlmClient>
 }
 
+fn routing_prefixes(provider: &LlmProviderConfig) -> Vec<String> {
+    let mut prefixes: Vec<String> = provider.model.clone().into_iter().collect();
+    if provider.provider == "moonshot" {
+        prefixes.push("kimi-".into());
+        prefixes.push("moonshot/".into());
+    }
+    prefixes
+}
+
 /// Result of building all LLM clients from config.
 pub(crate) struct LlmClients {
     /// The composed LLM client (router or single), ready to use.
@@ -328,7 +349,37 @@ pub(crate) async fn build_llm_clients(
                     let url = pc
                         .base_url
                         .clone()
-                        .unwrap_or_else(|| "https://api.openai.com/v1".into());
+                        .unwrap_or_else(|| OPENAI_BASE_URL.into());
+                    Arc::new(orka_llm::OpenAiClient::with_options(
+                        resolved.value,
+                        model,
+                        pc.timeout_secs
+                            .unwrap_or(orka_core::config::defaults::default_llm_timeout_secs()),
+                        pc.max_tokens
+                            .unwrap_or(orka_core::config::defaults::default_llm_max_tokens()),
+                        pc.max_retries
+                            .unwrap_or(orka_core::config::defaults::default_llm_max_retries()),
+                        url,
+                    )) as Arc<dyn orka_llm::LlmClient>
+                })
+            }
+            "moonshot" => {
+                let credential = resolve_llm_credential("moonshot", pc, secrets).await;
+                credential.map(|resolved| {
+                    if resolved.slot == CredentialSlot::AuthToken {
+                        warn!(
+                            provider = %pc.name,
+                            "resolved bearer-style auth for Moonshot provider; falling back to API-key semantics"
+                        );
+                    }
+                    let model = pc
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| config.llm.default_model.clone());
+                    let url = pc
+                        .base_url
+                        .clone()
+                        .unwrap_or_else(|| MOONSHOT_BASE_URL.into());
                     Arc::new(orka_llm::OpenAiClient::with_options(
                         resolved.value,
                         model,
@@ -372,7 +423,7 @@ pub(crate) async fn build_llm_clients(
             clients.push((
                 pc.name.clone(),
                 swappable as Arc<dyn orka_llm::LlmClient>,
-                pc.model.clone().into_iter().collect(),
+                routing_prefixes(pc),
             ));
         }
     }
@@ -471,5 +522,27 @@ mod tests {
             "ANTHROPIC_AUTH_TOKEN"
         );
         assert_eq!(default_auth_token_env_var("openai"), "");
+    }
+
+    #[test]
+    fn default_env_var_supports_moonshot() {
+        assert_eq!(default_env_var("moonshot"), "MOONSHOT_API_KEY");
+    }
+
+    #[test]
+    fn default_base_url_supports_moonshot() {
+        assert_eq!(default_base_url("moonshot"), Some(MOONSHOT_BASE_URL));
+        assert_eq!(default_base_url("openai"), Some(OPENAI_BASE_URL));
+    }
+
+    #[test]
+    fn routing_prefixes_include_moonshot_model_family() {
+        let mut provider = LlmProviderConfig::for_provider("moonshot", "moonshot");
+        provider.model = Some("kimi-k2-thinking-turbo".into());
+        let prefixes = routing_prefixes(&provider);
+
+        assert!(prefixes.iter().any(|p| p == "kimi-"));
+        assert!(prefixes.iter().any(|p| p == "moonshot/"));
+        assert!(prefixes.iter().any(|p| p == "kimi-k2-thinking-turbo"));
     }
 }

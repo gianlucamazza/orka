@@ -96,7 +96,7 @@ impl DoctorCheck for PrvApiKeysResolvable {
             ))
             .with_hint(
                 "Set api_key_env = \"YOUR_ENV_VAR\" in the provider config, or set the \
-                 default environment variable (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.).",
+                 default environment variable (ANTHROPIC_API_KEY, MOONSHOT_API_KEY, OPENAI_API_KEY, etc.).",
             )
             .with_detail(sources.join(", "))
         }
@@ -107,7 +107,7 @@ impl DoctorCheck for PrvApiKeysResolvable {
          1) explicit auth_token/auth_token_env/default auth-token env when auth_kind requires bearer auth, \
          2) inline api_key in config (not recommended), \
          3) api_key_env — an environment variable name specified in config, \
-         4) the provider's default environment variable (ANTHROPIC_API_KEY, OPENAI_API_KEY), \
+         4) the provider's default environment variable (ANTHROPIC_API_KEY, MOONSHOT_API_KEY, OPENAI_API_KEY), \
          5) api_key_secret or auth_token_secret — a path in the secret store. \
          This check verifies that at least one source resolves for each provider \
          without revealing the actual key value."
@@ -178,6 +178,7 @@ fn resolve_api_key(provider: &orka_core::config::LlmProviderConfig) -> Option<St
         let default_env = match provider.provider.as_str() {
             "anthropic" => Some("ANTHROPIC_API_KEY"),
             "openai" => Some("OPENAI_API_KEY"),
+            "moonshot" => Some("MOONSHOT_API_KEY"),
             "groq" => Some("GROQ_API_KEY"),
             "mistral" => Some("MISTRAL_API_KEY"),
             "together" => Some("TOGETHER_API_KEY"),
@@ -290,6 +291,7 @@ async fn probe_provider_url(
     let resolved_url = match provider_type {
         "anthropic" => base_url.unwrap_or("https://api.anthropic.com"),
         "openai" => base_url.unwrap_or("https://api.openai.com"),
+        "moonshot" => base_url.unwrap_or("https://api.moonshot.ai"),
         "ollama" => base_url.unwrap_or("http://localhost:11434"),
         _ => match base_url {
             Some(url) => url,

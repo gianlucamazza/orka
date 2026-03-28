@@ -438,13 +438,14 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         info!("LLM client ready");
     } else {
         error!(
-            "no LLM providers initialized — set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable AI responses"
+            "no LLM providers initialized — set ANTHROPIC_API_KEY, MOONSHOT_API_KEY, or OPENAI_API_KEY to enable AI responses"
         );
     }
 
     // Start env file watcher for API key hot-reload
     let _env_watcher = crate::env_watcher::EnvWatcher::start(
         config.llm.providers.clone(),
+        config.llm.default_model.clone(),
         llm.swappable,
         secrets.clone(),
     );

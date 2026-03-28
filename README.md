@@ -194,6 +194,7 @@ For a complete reference of all configuration options, see the [Configuration Gu
 | `ORKA_ADAPTER_URL`           | CLI: adapter endpoint (default `http://127.0.0.1:8081`) |
 | `ORKA_API_KEY`               | CLI: API key for authenticated requests                 |
 | `ANTHROPIC_API_KEY`          | Anthropic provider fallback                             |
+| `MOONSHOT_API_KEY`           | Moonshot provider fallback                              |
 | `OPENAI_API_KEY`             | OpenAI provider fallback                                |
 | `TAVILY_API_KEY`             | Tavily web search key                                   |
 | `BRAVE_API_KEY`              | Brave web search key                                    |
@@ -338,7 +339,7 @@ orka/
 │   ├── orka-memory/          # Key-value memory store
 │   ├── orka-secrets/         # Secret management (AES-256-GCM)
 │   ├── orka-workspace/       # Workspace loader & watcher
-│   ├── orka-llm/             # LLM providers (Anthropic, OpenAI, Ollama)
+│   ├── orka-llm/             # LLM providers (Anthropic, Moonshot, OpenAI, Ollama)
 │   ├── orka-mcp/             # Model Context Protocol server
 │   ├── orka-a2a/             # Agent-to-Agent protocol
 │   ├── orka-guardrails/      # Input/output guardrails
@@ -392,7 +393,7 @@ Some root files exist for local tool integration rather than core runtime archit
 
 Orka does not collect telemetry, usage data, or analytics of any kind. No data leaves your infrastructure unless you explicitly configure it to do so.
 
-- **LLM API calls** are made directly from your deployment to the provider you configure (Anthropic, OpenAI, Ollama, etc.). Orka does not proxy or inspect these requests.
+- **LLM API calls** are made directly from your deployment to the provider you configure (Anthropic, Moonshot, OpenAI, Ollama, etc.). Orka does not proxy or inspect these requests.
 - **Messages and sessions** are stored in your own Redis instance. Nothing is sent to third-party services without your configuration.
 - **WASM plugins** run in a sandboxed environment with explicit memory and CPU limits. They cannot make outbound network calls unless the host grants access.
 - **Knowledge base** (RAG) data is stored in your own Qdrant instance.

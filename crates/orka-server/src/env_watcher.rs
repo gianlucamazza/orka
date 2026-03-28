@@ -9,7 +9,7 @@ use orka_llm::SwappableLlmClient;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{debug, info, warn};
 
-use crate::providers::{default_auth_token_env_var, default_env_var};
+use crate::providers::{default_auth_token_env_var, default_base_url, default_env_var};
 
 /// Watches an `.env` file for changes and hot-swaps LLM clients when API keys
 /// rotate.
@@ -22,6 +22,7 @@ impl EnvWatcher {
     /// Start watching the env file. Returns `None` if no env file is found.
     pub(crate) fn start(
         providers: Vec<LlmProviderConfig>,
+        default_model: String,
         clients: HashMap<String, Arc<SwappableLlmClient>>,
         secrets: Arc<dyn SecretManager>,
     ) -> Option<Self> {
@@ -103,9 +104,7 @@ impl EnvWatcher {
                                 }
                                 _ => orka_llm::AnthropicAuthKind::Auto,
                             },
-                            pc.model
-                                .clone()
-                                .unwrap_or_else(|| "claude-3-5-sonnet-latest".into()),
+                            resolved_model(pc, &default_model),
                             pc.timeout_secs
                                 .unwrap_or(orka_core::config::defaults::default_llm_timeout_secs()),
                             pc.max_tokens
@@ -115,14 +114,15 @@ impl EnvWatcher {
                             orka_llm::ANTHROPIC_API_VERSION.into(),
                             pc.base_url.clone(),
                         )),
-                        "openai" => {
-                            let url = pc
-                                .base_url
-                                .clone()
-                                .unwrap_or_else(|| "https://api.openai.com/v1".into());
+                        "openai" | "moonshot" => {
+                            let url = pc.base_url.clone().unwrap_or_else(|| {
+                                default_base_url(&pc.provider)
+                                    .unwrap_or(crate::providers::OPENAI_BASE_URL)
+                                    .to_string()
+                            });
                             Arc::new(orka_llm::OpenAiClient::with_options(
                                 key,
-                                pc.model.clone().unwrap_or_else(|| "gpt-4.1-mini".into()),
+                                resolved_model(pc, &default_model),
                                 pc.timeout_secs.unwrap_or(30),
                                 pc.max_tokens.unwrap_or(8192),
                                 pc.max_retries.unwrap_or(2),
@@ -161,6 +161,13 @@ impl EnvWatcher {
 struct ResolvedEnvCredential {
     value: String,
     auth_kind: LlmAuthKind,
+}
+
+fn resolved_model(provider: &LlmProviderConfig, default_model: &str) -> String {
+    provider
+        .model
+        .clone()
+        .unwrap_or_else(|| default_model.to_string())
 }
 
 fn looks_like_anthropic_bearer_token(value: &str) -> bool {
@@ -352,6 +359,15 @@ mod tests {
     }
 
     #[test]
+    fn resolved_model_uses_global_default_when_provider_model_is_missing() {
+        let provider = LlmProviderConfig::for_provider("moonshot", "moonshot");
+        assert_eq!(
+            super::resolved_model(&provider, "global-default"),
+            "global-default"
+        );
+    }
+
+    #[test]
     fn resolve_env_slot_prefers_inline_value() {
         let mut provider = provider();
         provider.api_key = Some("inline-key".into());
@@ -378,6 +394,17 @@ mod tests {
         )]);
         let resolved = resolve_env_slot(&env_vars, "anthropic", false, &provider());
         assert_eq!(resolved.as_deref(), Some("default-key"));
+    }
+
+    #[test]
+    fn resolve_env_slot_reads_moonshot_default_env_var_from_env_file_map() {
+        let env_vars = HashMap::from([(
+            String::from("MOONSHOT_API_KEY"),
+            String::from("moonshot-key"),
+        )]);
+        let provider = LlmProviderConfig::for_provider("moonshot", "moonshot");
+        let resolved = resolve_env_slot(&env_vars, "moonshot", false, &provider);
+        assert_eq!(resolved.as_deref(), Some("moonshot-key"));
     }
 
     #[tokio::test]

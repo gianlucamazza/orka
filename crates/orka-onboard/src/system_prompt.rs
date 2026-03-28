@@ -58,7 +58,7 @@ Key sections you can set via `set_config`:
 Key array-of-tables to append via `append_config`:
 - `agents` — id (required), kind ("agent"), name, system_prompt, model, temperature,
   max_tokens, thinking, allowed_tools, denied_tools
-- `llm.providers` — name (required), provider ("anthropic"/"openai"/"google"/"ollama"),
+- `llm.providers` — name (required), provider ("anthropic"/"moonshot"/"openai"/"google"/"ollama"),
   model, api_key_secret (or api_key_env), base_url, temperature, max_tokens
 - `graph.edges` — from, to, condition (optional)
 - `mcp.servers` — name, command, args, env

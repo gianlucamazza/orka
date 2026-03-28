@@ -49,6 +49,7 @@ impl OrkaCompleter {
 }
 
 impl Completer for OrkaCompleter {
+    #[allow(clippy::too_many_lines)]
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         let text = &line[..pos];
 
@@ -151,7 +152,7 @@ impl Completer for OrkaCompleter {
                 let cwd = self
                     .shell_cwd
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .clone();
                 let (start_in_fragment, completions) = complete_path(fragment, false, &cwd);
                 let offset = at_pos + 1 + start_in_fragment;
@@ -438,8 +439,8 @@ fn collect_path_commands() -> Vec<String> {
     cmds
 }
 
-/// Complete a file path fragment. Returns (replacement_start_offset, (display,
-/// replacement) pairs). When `dirs_only` is true, only directory entries are
+/// Complete a file path fragment. Returns (`replacement_start_offset`, (display,
+/// replacement) pairs). When `dirs_only` is `true`, only directory entries are
 /// included.
 fn complete_path(
     fragment: &str,
@@ -454,11 +455,7 @@ fn complete_path(
         (base_dir.to_path_buf(), fragment.to_string())
     };
 
-    let start_offset = if fragment.contains('/') {
-        fragment.rfind('/').unwrap() + 1
-    } else {
-        0
-    };
+    let start_offset = fragment.rfind('/').map_or(0, |p| p + 1);
 
     let mut pairs = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -576,18 +573,18 @@ mod tests {
     #[test]
     fn builtin_hint_ghost_text() {
         let mut hinter = OrkaHinter::new();
-        let hist = FileBackedHistory::default();
+        let history = FileBackedHistory::default();
         // "!c" should hint "d" (completing "cd")
-        let hint = hinter.handle("!c", 2, &hist, false, "");
+        let hint_cd = hinter.handle("!c", 2, &history, false, "");
         assert!(
-            hint.contains('d'),
-            "expected 'd' in hint for '!c', got: {hint:?}"
+            hint_cd.contains('d'),
+            "expected 'd' in hint for '!c', got: {hint_cd:?}"
         );
         // "!exp" → "ort"
-        let hint2 = hinter.handle("!exp", 4, &hist, false, "");
+        let hint_export = hinter.handle("!exp", 4, &history, false, "");
         assert!(
-            hint2.contains("ort"),
-            "expected 'ort' in hint for '!exp', got: {hint2:?}"
+            hint_export.contains("ort"),
+            "expected 'ort' in hint for '!exp', got: {hint_export:?}"
         );
     }
 
@@ -626,7 +623,9 @@ mod tests {
     #[test]
     #[allow(unsafe_code)]
     fn hint_respects_no_color() {
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_MUTEX
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut hinter = OrkaHinter::new();
         let hist = FileBackedHistory::default();
         unsafe { std::env::set_var("NO_COLOR", "1") };

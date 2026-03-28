@@ -17,6 +17,7 @@ current parser.
 | `ANTHROPIC_API_KEY` | Fallback API key for Anthropic providers |
 | `ANTHROPIC_AUTH_TOKEN` | Fallback bearer/setup-token for Anthropic providers |
 | `OPENAI_API_KEY` | Fallback API key for OpenAI providers |
+| `MOONSHOT_API_KEY` | Fallback API key for Moonshot providers |
 | `TAVILY_API_KEY` | Tavily search key |
 | `BRAVE_API_KEY` | Brave search key |
 
@@ -298,7 +299,7 @@ Each `[[llm.providers]]` supports:
 | Key | Type | Notes |
 | --- | --- | --- |
 | `name` | `string` | Unique provider name |
-| `provider` | `string` | `anthropic`, `openai`, `ollama`, etc. |
+| `provider` | `string` | `anthropic`, `moonshot`, `openai`, `ollama`, etc. |
 | `auth_kind` | `enum` | `auto`, `api_key`, `auth_token`, `subscription`, `cli` |
 | `base_url` | `string?` | Optional override |
 | `model` | `string?` | Default model for that provider |
@@ -319,6 +320,11 @@ Anthropic auth behavior:
 - `auth_kind = "auth_token"` or `auth_kind = "subscription"` uses `ANTHROPIC_AUTH_TOKEN` / `auth_token_*` first, then legacy `api_key_*` for backward compatibility.
 - `auth_kind = "auto"` keeps backward-compatible inference and may promote legacy Anthropic token shapes to bearer auth.
 - `auth_kind = "cli"` is reserved for CLI-backed integration paths; delegated coding still belongs under `os.coding.providers.claude_code`.
+
+Moonshot behavior:
+- `provider = "moonshot"` reuses the OpenAI-compatible transport with a Moonshot-specific default base URL.
+- `auth_kind = "api_key"` or `auth_kind = "auto"` resolves credentials from `MOONSHOT_API_KEY` / `api_key_*`.
+- Prefer `provider = "moonshot"` over `provider = "openai"` + custom `base_url` when the target API is Moonshot, so observability and provider diagnostics remain accurate.
 
 The current schema does not define `llm.timeout_secs`, `llm.max_tokens`, `llm.api_version`, or provider `prefixes`.
 

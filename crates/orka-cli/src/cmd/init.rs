@@ -139,6 +139,7 @@ pub async fn run(args: InitArgs) -> Result<()> {
 /// Supported LLM providers for the wizard bootstrap.
 const PROVIDERS: &[&str] = &[
     "Anthropic (Claude)",
+    "Moonshot (Kimi)",
     "OpenAI (GPT)",
     "Google (Gemini)",
     "Ollama (local)",
@@ -149,6 +150,7 @@ const PROVIDERS: &[&str] = &[
 fn default_model(provider_key: &str) -> &'static str {
     match provider_key {
         "anthropic" => "claude-sonnet-4-6",
+        "moonshot" => "kimi-k2-thinking-turbo",
         "google" => "gemini-2.0-flash",
         "ollama" => "llama3",
         _ => "gpt-4o",
@@ -158,6 +160,7 @@ fn default_model(provider_key: &str) -> &'static str {
 /// Default base URLs for providers that need one.
 fn default_base_url(provider_key: &str) -> Option<String> {
     match provider_key {
+        "moonshot" => Some("https://api.moonshot.ai/v1".to_string()),
         "ollama" => Some("http://localhost:11434/v1".to_string()),
         _ => None,
     }
@@ -167,6 +170,7 @@ fn default_base_url(provider_key: &str) -> Option<String> {
 fn default_env_var(provider_key: &str) -> Option<&'static str> {
     match provider_key {
         "anthropic" => Some("ANTHROPIC_API_KEY"),
+        "moonshot" => Some("MOONSHOT_API_KEY"),
         "openai" => Some("OPENAI_API_KEY"),
         "google" => Some("GEMINI_API_KEY"),
         _ => None,
@@ -177,9 +181,10 @@ fn default_env_var(provider_key: &str) -> Option<&'static str> {
 fn provider_key(idx: usize) -> &'static str {
     match idx {
         0 => "anthropic",
-        1 => "openai",
-        2 => "google",
-        3 => "ollama",
+        1 => "moonshot",
+        2 => "openai",
+        3 => "google",
+        4 => "ollama",
         _ => "custom",
     }
 }
@@ -268,7 +273,7 @@ fn interactive_phase1(
 
     let p_key = provider_key(p_idx).to_string();
     let needs_api_key = p_key != "ollama";
-    let needs_base_url = matches!(p_key.as_str(), "ollama" | "custom");
+    let needs_base_url = matches!(p_key.as_str(), "moonshot" | "ollama" | "custom");
 
     let api_key_input = if needs_api_key {
         // Check if env var is already set.
@@ -342,10 +347,10 @@ fn resolve_key_source(
         return (Some(key.to_string()), Some(secret_path), None);
     }
     // Key is from env var → reference it in config as api_key_env.
-    if let Some(env) = default_env_var(provider) {
-        if let Ok(val) = std::env::var(env) {
-            return (Some(val), None, Some(env.to_string()));
-        }
+    if let Some(env) = default_env_var(provider)
+        && let Ok(val) = std::env::var(env)
+    {
+        return (Some(val), None, Some(env.to_string()));
     }
     // Ollama: no key needed.
     (None, None, None)
@@ -371,11 +376,15 @@ fn build_client(
                 base_url.map(str::to_string),
             ))
         }
-        "openai" | "google" | "custom" => {
+        "openai" | "moonshot" | "google" | "custom" => {
             let key = api_key.unwrap_or("").to_string();
-            let url = base_url
-                .map(str::to_string)
-                .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+            let url = base_url.map_or_else(
+                || {
+                    default_base_url(provider)
+                        .unwrap_or_else(|| "https://api.openai.com/v1".to_string())
+                },
+                str::to_string,
+            );
             Arc::new(OpenAiClient::with_options(
                 key,
                 model.to_string(),
@@ -386,9 +395,8 @@ fn build_client(
             ))
         }
         "ollama" => {
-            let url = base_url
-                .map(str::to_string)
-                .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+            let url =
+                base_url.map_or_else(|| "http://localhost:11434/v1".to_string(), str::to_string);
             Arc::new(OllamaClient::with_options(
                 model.to_string(),
                 120,
@@ -433,10 +441,10 @@ fn write_minimal_config(output: &PathBuf, provider: &BootstrapProvider) -> Resul
     )?;
 
     let toml = builder.to_toml();
-    if let Some(parent) = output.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = output.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
     }
     std::fs::write(output, &toml)?;
 
