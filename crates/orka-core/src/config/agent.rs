@@ -23,8 +23,11 @@ pub struct AgentConfig {
     #[serde(default = "defaults::default_model")]
     pub model: String,
     /// Temperature for generation.
-    #[serde(default = "defaults::default_temperature")]
-    pub temperature: f32,
+    /// When `None`, inherits from `[llm].default_temperature`.
+    /// Some models (e.g. gpt-5-mini, o-series) only accept the default
+    /// temperature (1.0) and reject custom values.
+    #[serde(default)]
+    pub temperature: Option<f32>,
     /// Maximum tokens per response.
     #[serde(default = "defaults::default_max_tokens")]
     pub max_tokens: u32,
@@ -92,7 +95,7 @@ impl Default for AgentConfig {
             name: defaults::default_agent_name(),
             system_prompt: String::new(),
             model: defaults::default_model(),
-            temperature: defaults::default_temperature(),
+            temperature: None,
             max_tokens: defaults::default_max_tokens(),
             max_turns: defaults::default_max_turns(),
             tool_result_max_chars: defaults::default_tool_result_max_chars(),

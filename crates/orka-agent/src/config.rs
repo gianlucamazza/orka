@@ -244,7 +244,7 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
     agent.llm_config = AgentLlmConfig {
         model: Some(cfg.model.clone()),
         max_tokens: Some(cfg.max_tokens),
-        temperature: Some(cfg.temperature),
+        temperature: cfg.temperature,
         thinking,
         ..Default::default()
     };
