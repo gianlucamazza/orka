@@ -53,6 +53,10 @@ COPY . .
 CMD ["cargo-watch", "-x", "run -p orka-server"]
 
 # --- Prod runtime ---
+# Pull a static wget from busybox so the healthcheck works inside a distroless
+# image (which has no shell, curl, or wget of its own).
+FROM busybox:musl AS busybox-wget
+
 FROM gcr.io/distroless/cc-debian12
 
 ARG BUILD_DATE
@@ -66,6 +70,10 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.source="https://github.com/gianlucamazza/orka"
 
 COPY --from=builder /app/target/release/orka-server /usr/local/bin/orka-server
+COPY --from=busybox-wget /bin/wget /usr/local/bin/wget
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD ["/usr/local/bin/wget", "-q", "--tries=1", "-O", "/dev/null", "http://localhost:8080/health/live"]
 
 USER nonroot:nonroot
 
