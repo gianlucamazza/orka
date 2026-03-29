@@ -34,7 +34,7 @@ pub use config::{
 };
 pub use embeddings::EmbeddingProvider;
 pub use fact_store::{FactRecord, FactStore};
-use orka_core::{Result, traits::Skill};
+use orka_core::{Result, SecretStr, traits::Skill};
 use tracing::info;
 pub use vector_store::VectorStore;
 
@@ -71,7 +71,7 @@ fn create_embedding_and_store(
                 })
             })?;
             Arc::new(embeddings::openai::OpenAiEmbeddingProvider::new(
-                api_key,
+                SecretStr::new(api_key),
                 config.embeddings.model.clone(),
                 embeddings::OPENAI_EMBEDDING_DIMS,
             ))
@@ -106,7 +106,7 @@ fn create_embedding_and_store(
             .url
             .as_deref()
             .unwrap_or(&default_qdrant_url()),
-    )?);
+    ));
 
     #[cfg(not(feature = "qdrant"))]
     let vector_store: Arc<dyn VectorStore> = {

@@ -13,7 +13,7 @@ async fn setup_qdrant() -> (QdrantStore, ContainerAsync<GenericImage>) {
         .await
         .unwrap();
     let port = container.get_host_port_ipv4(6334).await.unwrap();
-    let store = QdrantStore::new(&format!("http://127.0.0.1:{port}")).unwrap();
+    let store = QdrantStore::new(&format!("http://127.0.0.1:{port}"));
     (store, container)
 }
 

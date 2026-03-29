@@ -10,25 +10,48 @@ use qdrant_client::{
         point_id::PointIdOptions,
     },
 };
+use tokio::sync::OnceCell;
 
 use super::VectorStore;
 use crate::types::{SearchResult, StoredRecord};
 
 /// Qdrant vector store implementation.
+///
+/// The gRPC client is lazily initialized on the first operation.  This means
+/// boot proceeds even when Qdrant is temporarily unavailable — the error
+/// surfaces at the first actual call instead of crashing the whole process.
 pub struct QdrantStore {
-    client: Arc<Qdrant>,
+    /// Target URL stored so the client can be built lazily.
+    url: String,
+    /// Lazily initialized gRPC client.  If initialization failed on a previous
+    /// attempt the cell remains empty and the next call will retry.
+    client: OnceCell<Arc<Qdrant>>,
 }
 
 impl QdrantStore {
-    /// Connect to a Qdrant instance at the given gRPC URL (e.g. `http://localhost:6334`).
-    pub fn new(url: &str) -> Result<Self> {
-        let client = Qdrant::from_url(url).build().map_err(|e| {
-            orka_core::Error::Knowledge(format!("failed to connect to Qdrant: {e}"))
-        })?;
+    /// Create a store targeting the given Qdrant gRPC URL
+    /// (e.g. `http://localhost:6334`).  The connection is established lazily
+    /// on the first operation.
+    #[must_use]
+    pub fn new(url: &str) -> Self {
+        Self {
+            url: url.to_string(),
+            client: OnceCell::new(),
+        }
+    }
 
-        Ok(Self {
-            client: Arc::new(client),
-        })
+    /// Return (or lazily build) the gRPC client.
+    async fn get_client(&self) -> Result<&Arc<Qdrant>> {
+        self.client
+            .get_or_try_init(|| async {
+                Qdrant::from_url(&self.url)
+                    .build()
+                    .map(Arc::new)
+                    .map_err(|e| {
+                        orka_core::Error::Knowledge(format!("failed to connect to Qdrant: {e}"))
+                    })
+            })
+            .await
     }
 
     fn point_id_to_string(
@@ -54,12 +77,13 @@ impl QdrantStore {
 #[async_trait]
 impl VectorStore for QdrantStore {
     async fn ensure_collection(&self, name: &str, dimensions: usize) -> Result<()> {
-        let exists = self.client.collection_exists(name).await.map_err(|e| {
+        let client = self.get_client().await?;
+        let exists = client.collection_exists(name).await.map_err(|e| {
             orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}"))
         })?;
 
         if !exists {
-            self.client
+            client
                 .create_collection(CreateCollectionBuilder::new(name).vectors_config(
                     VectorParamsBuilder::new(dimensions as u64, Distance::Cosine),
                 ))
@@ -104,7 +128,8 @@ impl VectorStore for QdrantStore {
             })
             .collect();
 
-        self.client
+        self.get_client()
+            .await?
             .upsert_points(UpsertPointsBuilder::new(collection, points))
             .await
             .map_err(|e| orka_core::Error::Knowledge(format!("qdrant upsert failed: {e}")))?;
@@ -136,7 +161,8 @@ impl VectorStore for QdrantStore {
         }
 
         let results = self
-            .client
+            .get_client()
+            .await?
             .search_points(search)
             .await
             .map_err(|e| orka_core::Error::Knowledge(format!("qdrant search failed: {e}")))?;
@@ -180,13 +206,10 @@ impl VectorStore for QdrantStore {
         limit: usize,
         filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<HashMap<String, String>>> {
-        let exists = self
-            .client
-            .collection_exists(collection)
-            .await
-            .map_err(|e| {
-                orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}"))
-            })?;
+        let client = self.get_client().await?;
+        let exists = client.collection_exists(collection).await.map_err(|e| {
+            orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}"))
+        })?;
 
         if !exists {
             return Ok(Vec::new());
@@ -204,8 +227,7 @@ impl VectorStore for QdrantStore {
             scroll = scroll.filter(Filter::must(must));
         }
 
-        let result = self
-            .client
+        let result = client
             .scroll(scroll)
             .await
             .map_err(|e| orka_core::Error::Knowledge(format!("qdrant scroll failed: {e}")))?;
@@ -214,7 +236,7 @@ impl VectorStore for QdrantStore {
         let mut seen_docs: HashMap<String, HashMap<String, String>> = HashMap::new();
 
         for point in &result.result {
-            let mut doc_meta = HashMap::new();
+            let mut doc_meta: HashMap<String, String> = HashMap::new();
             let mut doc_id = None;
 
             for (key, value) in &point.payload {
@@ -249,13 +271,10 @@ impl VectorStore for QdrantStore {
         limit: usize,
         filter: Option<HashMap<String, String>>,
     ) -> Result<Vec<StoredRecord>> {
-        let exists = self
-            .client
-            .collection_exists(collection)
-            .await
-            .map_err(|e| {
-                orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}"))
-            })?;
+        let client = self.get_client().await?;
+        let exists = client.collection_exists(collection).await.map_err(|e| {
+            orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}"))
+        })?;
         if !exists {
             return Ok(Vec::new());
         }
@@ -272,8 +291,7 @@ impl VectorStore for QdrantStore {
             scroll = scroll.filter(Filter::must(must));
         }
 
-        let result = self
-            .client
+        let result = client
             .scroll(scroll)
             .await
             .map_err(|e| orka_core::Error::Knowledge(format!("qdrant scroll failed: {e}")))?;
@@ -282,7 +300,7 @@ impl VectorStore for QdrantStore {
             .result
             .into_iter()
             .map(|point| {
-                let mut metadata = HashMap::new();
+                let mut metadata: HashMap<String, String> = HashMap::new();
                 for (key, value) in &point.payload {
                     if let Some(qdrant_client::qdrant::value::Kind::StringValue(s)) = &value.kind {
                         metadata.insert(key.clone(), s.clone());
@@ -310,7 +328,8 @@ impl VectorStore for QdrantStore {
             .map(|(key, value)| Condition::matches(key.as_str(), value.clone()))
             .collect();
 
-        self.client
+        self.get_client()
+            .await?
             .delete_points(
                 DeletePointsBuilder::new(collection)
                     .points(Filter::must(must))
