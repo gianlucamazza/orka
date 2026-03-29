@@ -388,7 +388,7 @@ fn parse_workspace_layers(raw: &str) -> Result<HashMap<PathBuf, LayerInfo>, Stri
 }
 
 fn parse_layer_heading(line: &str) -> Option<String> {
-    if !line.starts_with("#") || !line.contains('─') {
+    if !line.starts_with('#') || !line.contains('─') {
         return None;
     }
 
@@ -433,7 +433,7 @@ fn collect_dependencies_from_table(
 
     for key in table.keys() {
         if key.starts_with("orka-") {
-            dependencies.insert(key.to_string());
+            dependencies.insert(key.clone());
         }
     }
 }
@@ -518,6 +518,7 @@ fn visit_rust_files(
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
