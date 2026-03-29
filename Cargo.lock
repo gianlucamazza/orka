@@ -5901,14 +5901,12 @@ name = "orka-chart"
 version = "1.0.0"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
  "image 0.24.9",
  "orka-core",
  "plotters",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tokio",
  "tracing",
 ]
 
@@ -5975,7 +5973,6 @@ dependencies = [
  "ratatui",
  "redis",
  "reedline",
- "regex",
  "reqwest",
  "serde",
  "serde_json",

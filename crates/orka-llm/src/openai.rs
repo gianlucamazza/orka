@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use orka_core::{Error, Result, retry::retry_with_backoff};
+use orka_core::{Error, Result, SecretStr, retry::retry_with_backoff};
 use reqwest::Client;
 use serde_json::json;
 use tracing::debug;
@@ -27,7 +27,7 @@ struct OpenAiSseState {
 /// `OpenAI` Chat Completions API client with retry and streaming support.
 pub struct OpenAiClient {
     client: Client,
-    api_key: String,
+    api_key: SecretStr,
     model: String,
     max_tokens: u32,
     max_retries: u32,
@@ -37,7 +37,7 @@ pub struct OpenAiClient {
 impl OpenAiClient {
     /// Create a client with default settings (30s timeout, 4096 max tokens, 2
     /// retries).
-    pub fn new(api_key: String, model: String) -> Self {
+    pub fn new(api_key: SecretStr, model: String) -> Self {
         Self::with_options(
             api_key,
             model,
@@ -50,7 +50,7 @@ impl OpenAiClient {
 
     /// Create a client with full configuration.
     pub fn with_options(
-        api_key: String,
+        api_key: SecretStr,
         model: String,
         timeout_secs: u64,
         max_tokens: u32,
@@ -88,9 +88,7 @@ impl OpenAiClient {
     /// Returns true if the model supports `reasoning_effort` (o-series only).
     fn supports_reasoning(model: &str) -> bool {
         let m = model.to_lowercase();
-        m.starts_with("o1")
-            || m.starts_with("o3")
-            || m.starts_with("o4")
+        m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4")
     }
 
     /// Conditionally insert reasoning_effort if the model supports it.
@@ -132,7 +130,7 @@ impl OpenAiClient {
                 let result = self
                     .client
                     .post(&url)
-                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .header("Authorization", format!("Bearer {}", self.api_key.expose()))
                     .header("Content-Type", "application/json")
                     .json(body)
                     .send()
@@ -141,33 +139,85 @@ impl OpenAiClient {
                 match result {
                     Ok(response) => {
                         let status = response.status();
+                        let status_u16 = status.as_u16();
                         if status == 429 || status.is_server_error() {
                             let text = response.text().await.unwrap_or_default();
-                            Err(RetryableError::Transient(format!(
-                                "OpenAI API error {status}: {text}"
-                            )))
+                            Err(RetryableError::Transient {
+                                status: Some(status_u16),
+                                message: format!("OpenAI API error {status}: {text}"),
+                            })
                         } else if !status.is_success() {
                             let text = response.text().await.unwrap_or_default();
-                            Err(RetryableError::Fatal(format!(
-                                "OpenAI API error {status}: {text}"
-                            )))
+                            Err(RetryableError::Fatal {
+                                status: Some(status_u16),
+                                message: format!("OpenAI API error {status}: {text}"),
+                            })
                         } else {
                             Ok(response)
                         }
                     }
-                    Err(e) if e.is_timeout() || e.is_connect() => Err(RetryableError::Transient(
-                        format!("OpenAI API request failed: {e}"),
-                    )),
-                    Err(e) => Err(RetryableError::Fatal(format!(
-                        "OpenAI API request failed: {e}"
-                    ))),
+                    Err(e) if e.is_timeout() || e.is_connect() => Err(RetryableError::Transient {
+                        status: None,
+                        message: format!("OpenAI API request failed: {e}"),
+                    }),
+                    Err(e) => Err(RetryableError::Fatal {
+                        status: None,
+                        message: format!("OpenAI API request failed: {e}"),
+                    }),
                 }
             },
-            |e| matches!(e, RetryableError::Transient(_)),
+            |e| matches!(e, RetryableError::Transient { .. }),
         )
         .await
-        .map_err(|e| match e {
-            RetryableError::Transient(msg) | RetryableError::Fatal(msg) => Error::Other(msg),
+        .map_err(|e| {
+            use crate::error::LlmError;
+            let llm_err = match e {
+                RetryableError::Transient {
+                    status: Some(429),
+                    message,
+                }
+                | RetryableError::Fatal {
+                    status: Some(429),
+                    message,
+                } => LlmError::RateLimit(message),
+                RetryableError::Transient {
+                    status: Some(401 | 403),
+                    message,
+                }
+                | RetryableError::Fatal {
+                    status: Some(401 | 403),
+                    message,
+                } => LlmError::Auth(message),
+                RetryableError::Transient {
+                    status: Some(400),
+                    message,
+                }
+                | RetryableError::Fatal {
+                    status: Some(400),
+                    message,
+                } if message.contains("context_length_exceeded")
+                    || message.contains("maximum context length") =>
+                {
+                    LlmError::ContextWindow(message)
+                }
+                RetryableError::Transient {
+                    status: Some(s),
+                    message,
+                }
+                | RetryableError::Fatal {
+                    status: Some(s),
+                    message,
+                } => LlmError::Provider { status: s, message },
+                RetryableError::Transient {
+                    status: None,
+                    message,
+                }
+                | RetryableError::Fatal {
+                    status: None,
+                    message,
+                } => LlmError::Other(message),
+            };
+            Error::from(llm_err)
         })
     }
 
@@ -889,7 +939,10 @@ mod tests {
         });
         let (blocks, _usage, _stop) = OpenAiClient::parse_response(&resp);
         // Only the valid tool call should be included
-        let tool_count = blocks.iter().filter(|b| matches!(b, ContentBlock::ToolUse(_))).count();
+        let tool_count = blocks
+            .iter()
+            .filter(|b| matches!(b, ContentBlock::ToolUse(_)))
+            .count();
         assert_eq!(tool_count, 1);
     }
 

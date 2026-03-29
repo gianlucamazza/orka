@@ -76,24 +76,32 @@ impl LlmRouter {
 
     fn resolve(&self, model: Option<&str>) -> (&dyn LlmClient, &Arc<CircuitBreaker>) {
         if let Some(model_name) = model {
-            // Check prefix map
-            for (prefix, provider_name) in &self.prefix_map {
-                if model_name.starts_with(prefix)
-                    && let Some(client) = self.providers.get(provider_name)
-                {
-                    debug!(
-                        model = model_name,
-                        provider = provider_name,
-                        "routing to provider"
-                    );
-                    let breaker = self
-                        .breakers
-                        .get(provider_name)
-                        .unwrap_or(&self.default_breaker);
-                    return (client.as_ref(), breaker);
-                }
+            // Longest-prefix-match: among all registered prefixes that are a
+            // prefix of `model_name`, pick the most specific one (longest).
+            // This guarantees deterministic routing even when multiple prefixes
+            // overlap (e.g. "gpt" and "gpt-4o").
+            let best_match = self
+                .prefix_map
+                .iter()
+                .filter(|(prefix, _)| model_name.starts_with(prefix.as_str()))
+                .max_by_key(|(prefix, _)| prefix.len());
+
+            if let Some((_, provider_name)) = best_match
+                && let Some(client) = self.providers.get(provider_name)
+            {
+                debug!(
+                    model = model_name,
+                    provider = provider_name,
+                    "routing to provider"
+                );
+                let breaker = self
+                    .breakers
+                    .get(provider_name)
+                    .unwrap_or(&self.default_breaker);
+                return (client.as_ref(), breaker);
             }
-            // Check if model name matches a provider name directly
+
+            // Exact match on provider name (model name == provider name).
             if let Some(client) = self.providers.get(model_name) {
                 let breaker = self
                     .breakers

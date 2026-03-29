@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use orka_core::{Error, Result, retry::retry_with_backoff};
+use orka_core::{Error, Result, SecretStr, retry::retry_with_backoff};
 use reqwest::Client;
 use serde_json::json;
 use tracing::debug;
@@ -36,7 +36,7 @@ pub enum AnthropicAuthKind {
 /// Anthropic Messages API client with retry and streaming support.
 pub struct AnthropicClient {
     client: Client,
-    api_key: String,
+    api_key: SecretStr,
     auth_kind: AnthropicAuthKind,
     model: String,
     max_tokens: u32,
@@ -48,7 +48,7 @@ pub struct AnthropicClient {
 impl AnthropicClient {
     /// Create a client with default `max_tokens` (8192) and no custom base URL.
     pub fn new(
-        api_key: String,
+        api_key: SecretStr,
         model: String,
         timeout_secs: u64,
         max_retries: u32,
@@ -68,7 +68,7 @@ impl AnthropicClient {
     /// Create a client with full configuration including `max_tokens` and
     /// custom base URL.
     pub fn with_options(
-        api_key: String,
+        api_key: SecretStr,
         model: String,
         timeout_secs: u64,
         max_tokens: u32,
@@ -91,7 +91,7 @@ impl AnthropicClient {
     /// Create a client with explicit auth mode.
     #[allow(clippy::too_many_arguments)]
     pub fn with_auth_options(
-        api_key: String,
+        api_key: SecretStr,
         auth_kind: AnthropicAuthKind,
         model: String,
         timeout_secs: u64,
@@ -118,7 +118,7 @@ impl AnthropicClient {
 
     /// Returns true if the key looks like an OAuth/setup-token credential.
     fn looks_like_bearer_token(&self) -> bool {
-        self.api_key.starts_with("sk-ant-oat")
+        self.api_key.expose().starts_with("sk-ant-oat")
     }
 
     fn resolved_auth_kind(&self) -> AnthropicAuthKind {
@@ -139,9 +139,9 @@ impl AnthropicClient {
             || async {
                 let req = self.client.post(&self.base_url);
                 let req = if self.resolved_auth_kind() == AnthropicAuthKind::Bearer {
-                    req.header("Authorization", format!("Bearer {}", self.api_key))
+                    req.header("Authorization", format!("Bearer {}", self.api_key.expose()))
                 } else {
-                    req.header("x-api-key", &self.api_key)
+                    req.header("x-api-key", self.api_key.expose())
                 };
                 let result = req
                     .header("anthropic-version", &self.api_version)
@@ -153,33 +153,86 @@ impl AnthropicClient {
                 match result {
                     Ok(response) => {
                         let status = response.status();
+                        let status_u16 = status.as_u16();
                         if status == 429 || status.is_server_error() {
                             let text = response.text().await.unwrap_or_default();
-                            Err(RetryableError::Transient(format!(
-                                "Anthropic API error {status}: {text}"
-                            )))
+                            Err(RetryableError::Transient {
+                                status: Some(status_u16),
+                                message: format!("Anthropic API error {status}: {text}"),
+                            })
                         } else if !status.is_success() {
                             let text = response.text().await.unwrap_or_default();
-                            Err(RetryableError::Fatal(format!(
-                                "Anthropic API error {status}: {text}"
-                            )))
+                            Err(RetryableError::Fatal {
+                                status: Some(status_u16),
+                                message: format!("Anthropic API error {status}: {text}"),
+                            })
                         } else {
                             Ok(response)
                         }
                     }
-                    Err(e) if e.is_timeout() || e.is_connect() => Err(RetryableError::Transient(
-                        format!("Anthropic API request failed: {e}"),
-                    )),
-                    Err(e) => Err(RetryableError::Fatal(format!(
-                        "Anthropic API request failed: {e}"
-                    ))),
+                    Err(e) if e.is_timeout() || e.is_connect() => Err(RetryableError::Transient {
+                        status: None,
+                        message: format!("Anthropic API request failed: {e}"),
+                    }),
+                    Err(e) => Err(RetryableError::Fatal {
+                        status: None,
+                        message: format!("Anthropic API request failed: {e}"),
+                    }),
                 }
             },
-            |e| matches!(e, RetryableError::Transient(_)),
+            |e| matches!(e, RetryableError::Transient { .. }),
         )
         .await
-        .map_err(|e| match e {
-            RetryableError::Transient(msg) | RetryableError::Fatal(msg) => Error::Other(msg),
+        .map_err(|e| {
+            use crate::error::LlmError;
+            let llm_err = match e {
+                RetryableError::Transient {
+                    status: Some(429),
+                    message,
+                }
+                | RetryableError::Fatal {
+                    status: Some(429),
+                    message,
+                } => LlmError::RateLimit(message),
+                RetryableError::Transient {
+                    status: Some(401 | 403),
+                    message,
+                }
+                | RetryableError::Fatal {
+                    status: Some(401 | 403),
+                    message,
+                } => LlmError::Auth(message),
+                RetryableError::Transient {
+                    status: Some(400),
+                    message,
+                }
+                | RetryableError::Fatal {
+                    status: Some(400),
+                    message,
+                } if message.contains("context_length_exceeded")
+                    || message.contains("too long")
+                    || message.contains("maximum context length") =>
+                {
+                    LlmError::ContextWindow(message)
+                }
+                RetryableError::Transient {
+                    status: Some(s),
+                    message,
+                }
+                | RetryableError::Fatal {
+                    status: Some(s),
+                    message,
+                } => LlmError::Provider { status: s, message },
+                RetryableError::Transient {
+                    status: None,
+                    message,
+                }
+                | RetryableError::Fatal {
+                    status: None,
+                    message,
+                } => LlmError::Other(message),
+            };
+            Error::from(llm_err)
         })
     }
 
@@ -989,7 +1042,15 @@ mod tests {
     #[test]
     fn auto_auth_kind_detects_bearer_tokens_by_prefix() {
         let make = |key: &str| {
-            AnthropicClient::with_options(key.into(), "m".into(), 30, 100, 2, "v".into(), None)
+            AnthropicClient::with_options(
+                SecretStr::new(key),
+                "m".into(),
+                30,
+                100,
+                2,
+                "v".into(),
+                None,
+            )
         };
         assert_eq!(
             make("sk-ant-oat01-abc").resolved_auth_kind(),
@@ -1012,7 +1073,7 @@ mod tests {
     #[test]
     fn explicit_auth_kind_overrides_token_shape() {
         let client = AnthropicClient::with_auth_options(
-            "sk-ant-oat01-abc".into(),
+            SecretStr::new("sk-ant-oat01-abc"),
             AnthropicAuthKind::ApiKey,
             "m".into(),
             30,

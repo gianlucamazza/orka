@@ -45,14 +45,25 @@ pub const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 /// Returns one of `"anthropic"`, `"openai"`, `"moonshot"`, `"google"`, or
 /// `"unknown"`.
 pub fn infer_provider(model: &str) -> String {
+    // Check vendor-specific prefixes/substrings first, then fall back to
+    // OpenAI o-series detection using word-boundary anchors so names like
+    // "custom-o3-variant" don't false-positive.
     if model.contains("claude") {
         "anthropic".into()
     } else if model.contains("kimi") || model.contains("moonshot/") {
         "moonshot".into()
-    } else if model.contains("gpt") || model.contains("o1") || model.contains("o3") {
-        "openai".into()
     } else if model.contains("gemini") {
         "google".into()
+    } else if model.starts_with("gpt")
+        || model.starts_with("o1")
+        || model.starts_with("o3")
+        || model.starts_with("o4")
+        || model.contains("/gpt")
+        || model.contains("/o1-")
+        || model.contains("/o3-")
+        || model.contains("/o4-")
+    {
+        "openai".into()
     } else {
         "unknown".into()
     }

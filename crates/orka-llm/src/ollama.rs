@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use orka_core::Result;
+use orka_core::{Result, SecretStr};
 use tracing::debug;
 
 use crate::{
@@ -31,7 +31,7 @@ impl OllamaClient {
     ) -> Self {
         // Ollama doesn't require an API key
         let inner = OpenAiClient::with_options(
-            String::new(),
+            SecretStr::new(""),
             model,
             timeout_secs,
             max_tokens,

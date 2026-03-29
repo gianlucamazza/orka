@@ -7,8 +7,18 @@ use serde::{Deserialize, Serialize};
 /// Internal error type used by LLM provider retry logic to distinguish
 /// transient (retryable) from fatal (non-retryable) errors.
 pub(crate) enum RetryableError {
-    Transient(String),
-    Fatal(String),
+    /// Retryable error — includes the HTTP status code when the error came
+    /// from a provider HTTP response (e.g. 429, 5xx).
+    Transient {
+        status: Option<u16>,
+        message: String,
+    },
+    /// Non-retryable error — includes the HTTP status code when the error
+    /// came from a provider HTTP response (e.g. 401, 403, 400).
+    Fatal {
+        status: Option<u16>,
+        message: String,
+    },
 }
 
 /// Message role in a chat conversation.
