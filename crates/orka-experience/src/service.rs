@@ -1,4 +1,5 @@
 use std::{fmt::Write as _, sync::Arc};
+use tokio::sync::Mutex;
 
 use orka_core::{ErrorCategory, Result};
 use orka_llm::client::LlmClient;
@@ -34,6 +35,9 @@ pub struct ExperienceService {
     distiller: Distiller,
     config: ExperienceConfig,
     templates: Option<Arc<TemplateRegistry>>,
+    /// Prevents concurrent distillation runs that would process the same
+    /// trajectories and produce duplicate principles.
+    distillation_lock: Arc<Mutex<()>>,
 }
 
 impl ExperienceService {
@@ -61,6 +65,7 @@ impl ExperienceService {
             distiller,
             config,
             templates: None,
+            distillation_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -224,10 +229,26 @@ impl ExperienceService {
             });
         }
 
-        let principles = self
+        // Reflection is a background concern; isolate its failures so a
+        // transient LLM error does not surface to the conversation handler.
+        let principles = match self
             .reflector
             .reflect(trajectory, &trajectory.workspace)
-            .await?;
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(
+                    trajectory_id = %trajectory.id,
+                    %e,
+                    "reflection failed, skipping principle extraction"
+                );
+                return Ok(ReflectionResult {
+                    principles_created: 0,
+                    actions,
+                });
+            }
+        };
 
         if principles.is_empty() {
             return Ok(ReflectionResult {
@@ -278,6 +299,18 @@ impl ExperienceService {
         if !self.config.enabled {
             return Ok(0);
         }
+
+        // Guard against concurrent distillation runs on the same service
+        // instance.  If another call is already running, skip rather than
+        // double-processing the same trajectories and creating duplicate
+        // principles.
+        let _guard = match self.distillation_lock.try_lock() {
+            Ok(g) => g,
+            Err(_) => {
+                debug!(workspace, "distillation already in progress, skipping");
+                return Ok(0);
+            }
+        };
 
         let trajectories = self
             .trajectory_store

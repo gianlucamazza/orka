@@ -149,7 +149,8 @@ impl PrincipleReflector {
 
         prompt.push_str("### Agent Response\n");
         let resp = if trajectory.agent_response.len() > 500 {
-            format!("{}...", &trajectory.agent_response[..500])
+            let boundary = trajectory.agent_response.floor_char_boundary(500);
+            format!("{}...", &trajectory.agent_response[..boundary])
         } else {
             trajectory.agent_response.clone()
         };
