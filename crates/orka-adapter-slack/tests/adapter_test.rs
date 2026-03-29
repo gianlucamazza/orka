@@ -3,12 +3,12 @@
 use std::{collections::HashMap, sync::Arc};
 
 use orka_adapter_slack::SlackAdapter;
-use orka_core::{traits::ChannelAdapter, types::SessionId};
+use orka_core::{SecretStr, traits::ChannelAdapter, types::SessionId};
 use tokio::sync::Mutex;
 
 #[test]
 fn channel_id_returns_slack() {
-    let adapter = SlackAdapter::new("xoxb-test".into(), 3000);
+    let adapter = SlackAdapter::new(SecretStr::new("xoxb-test"), None, 3000);
     assert_eq!(adapter.channel_id(), "slack");
 }
 
@@ -130,6 +130,6 @@ fn bot_message_filtering() {
 
 #[tokio::test]
 async fn shutdown_without_start_is_ok() {
-    let adapter = SlackAdapter::new("xoxb-test".into(), 3000);
+    let adapter = SlackAdapter::new(SecretStr::new("xoxb-test"), None, 3000);
     adapter.shutdown().await.unwrap();
 }

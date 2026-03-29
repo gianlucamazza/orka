@@ -40,6 +40,13 @@ impl std::fmt::Debug for SlackAdapterConfig {
     }
 }
 
+impl SlackAdapterConfig {
+    /// Validate Slack adapter configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        Ok(())
+    }
+}
+
 const fn default_slack_port() -> u16 {
     3001
 }
