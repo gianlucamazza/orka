@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-25  
 **Baseline reference:** `docs/internal/analysis-report.md` (2026-03-23)  
-**Scope:** 40 crates in `/home/gianluca/Workspace/orka/crates/`  
+**Scope:** 40 crates in `./crates/`  
 **Total test functions found:** 1,229
 
 ---

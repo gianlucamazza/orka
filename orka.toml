@@ -86,7 +86,7 @@ backend = "stdout" # "stdout" | "prometheus" | "otlp"
 # Leave this disabled by default when using `coding_delegate` as the public coding surface.
 # [[mcp.servers]]
 # name = "claude-code"
-# command = "/home/gianluca/.local/bin/claude"
+# command = "/usr/local/bin/claude"
 # args = ["mcp", "serve"]
 
 [worker]

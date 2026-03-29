@@ -267,7 +267,7 @@ async fn system_prompt_includes_coding_runtime_status() {
         file_modifications_allowed: true,
         command_execution_allowed: true,
         allowed_paths: vec!["/home".into(), "/tmp".into()],
-        denied_paths: vec!["/home/gianluca/.ssh".into()],
+        denied_paths: vec!["/home/testuser/.ssh".into()],
     });
 
     let executor = GraphExecutor::new(deps);
@@ -280,7 +280,7 @@ async fn system_prompt_includes_coding_runtime_status() {
     graph = graph.with_termination(TerminationPolicy::default());
     let session_id = SessionId::new();
     let mut envelope = Envelope::text("custom", session_id, "hai tools di coding?");
-    envelope.insert_meta("workspace:cwd", "/home/gianluca");
+    envelope.insert_meta("workspace:cwd", "/home/testuser");
     let ctx = ExecutionContext::new(envelope);
 
     let _ = executor.execute(&graph, &ctx).await.unwrap();
@@ -290,7 +290,7 @@ async fn system_prompt_includes_coding_runtime_status() {
     assert!(prompt.contains("claude_code, codex"));
     assert!(prompt.contains("Selected backend for a delegated run right now: `claude_code`."));
     assert!(prompt.contains("Selected backend file modifications: allowed."));
-    assert!(prompt.contains("Current user working directory from the client: `/home/gianluca`."));
+    assert!(prompt.contains("Current user working directory from the client: `/home/testuser`."));
     assert!(
         prompt.contains(
             "OS policy for the current working directory: allowed by `os.allowed_paths`."

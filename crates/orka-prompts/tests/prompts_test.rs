@@ -238,13 +238,13 @@ async fn workspace_provider_returns_correct_fields() {
     let provider = WorkspaceProvider::new(vec!["default".to_string(), "other".to_string()]);
     let session = SessionContext {
         workspace: "default".to_string(),
-        cwd: Some("/home/gianluca".to_string()),
+        cwd: Some("/home/testuser".to_string()),
         ..Default::default()
     };
     let value = provider.provide(&session).await.unwrap();
     let ws = value["workspace"].as_object().unwrap();
     assert_eq!(ws["name"].as_str(), Some("default"));
-    assert_eq!(ws["cwd"].as_str(), Some("/home/gianluca"));
+    assert_eq!(ws["cwd"].as_str(), Some("/home/testuser"));
     let available: Vec<&str> = ws["available"]
         .as_array()
         .unwrap()
