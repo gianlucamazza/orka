@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use orka_config::OrkaConfig;
 use orka_core::{
-    Envelope, StreamRegistry,
+    Envelope, SecretStr, StreamRegistry,
     traits::{ChannelAdapter, MessageBus, SecretManager},
 };
 use tokio::sync::mpsc;
@@ -125,8 +125,11 @@ pub(crate) async fn start_all_adapters(
                         return None;
                     }
                     let tg: Arc<dyn ChannelAdapter> = Arc::new(
-                        orka_adapter_telegram::TelegramAdapter::new(tg_config.clone(), token)
-                            .with_memory(tg_memory),
+                        orka_adapter_telegram::TelegramAdapter::new(
+                            tg_config.clone(),
+                            SecretStr::new(token),
+                        )
+                        .with_memory(tg_memory),
                     );
                     if let Err(e) =
                         start_adapter(tg.clone(), bus, shutdown, tg_config.workspace.clone()).await
@@ -166,8 +169,9 @@ pub(crate) async fn start_all_adapters(
                         warn!("discord bot token is empty, adapter disabled");
                         return None;
                     }
-                    let dc: Arc<dyn ChannelAdapter> =
-                        Arc::new(orka_adapter_discord::DiscordAdapter::new(token, None));
+                    let dc: Arc<dyn ChannelAdapter> = Arc::new(
+                        orka_adapter_discord::DiscordAdapter::new(SecretStr::new(token), None),
+                    );
                     if let Err(e) =
                         start_adapter(dc.clone(), bus, shutdown, dc_config.workspace.clone()).await
                     {
@@ -206,9 +210,27 @@ pub(crate) async fn start_all_adapters(
                         warn!("slack bot token is empty, adapter disabled");
                         return None;
                     }
-                    let slack: Arc<dyn ChannelAdapter> = Arc::new(
-                        orka_adapter_slack::SlackAdapter::new(token, slack_config.port),
-                    );
+                    // Optionally load the signing secret for webhook authentication.
+                    let signing_secret = if let Some(ref path) = slack_config.signing_secret_path {
+                        match secrets.get_secret(path).await {
+                            Ok(s) => {
+                                let val = s.expose_str().unwrap_or("").to_string();
+                                if val.is_empty() { None } else { Some(val) }
+                            }
+                            Err(e) => {
+                                warn!(%e, "failed to load slack signing secret, webhook auth disabled");
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    let slack: Arc<dyn ChannelAdapter> =
+                        Arc::new(orka_adapter_slack::SlackAdapter::new(
+                            SecretStr::new(token),
+                            signing_secret.map(|s| SecretStr::new(s)),
+                            slack_config.port,
+                        ));
                     if let Err(e) =
                         start_adapter(slack.clone(), bus, shutdown, slack_config.workspace.clone())
                             .await
@@ -253,11 +275,27 @@ pub(crate) async fn start_all_adapters(
                         );
                         return None;
                     }
+                    // Optionally load the app secret for webhook HMAC verification.
+                    let app_secret = if let Some(ref path) = wa_config.app_secret_path {
+                        match secrets.get_secret(path).await {
+                            Ok(s) => {
+                                let val = s.expose_str().unwrap_or("").to_string();
+                                if val.is_empty() { None } else { Some(val) }
+                            }
+                            Err(e) => {
+                                warn!(%e, "failed to load whatsapp app secret, webhook auth disabled");
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
                     let wa: Arc<dyn ChannelAdapter> =
                         Arc::new(orka_adapter_whatsapp::WhatsAppAdapter::new(
-                            access_token,
+                            SecretStr::new(access_token),
                             phone_id,
-                            verify_token,
+                            SecretStr::new(verify_token),
+                            app_secret.map(|s| SecretStr::new(s)),
                             wa_config.port,
                         ));
                     if let Err(e) =

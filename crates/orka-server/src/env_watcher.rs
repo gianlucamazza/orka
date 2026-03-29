@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use orka_config::{LlmAuthKind, LlmProviderConfig, defaults};
-use orka_core::traits::SecretManager;
+use orka_core::{SecretStr, traits::SecretManager};
 use orka_llm::SwappableLlmClient;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{debug, info, warn};
@@ -88,10 +88,13 @@ impl EnvWatcher {
                     };
                     let key = credential.value;
 
-                    if current_keys.get(&pc.name).is_some_and(|p| p == &key) {
+                    if current_keys
+                        .get(&pc.name)
+                        .is_some_and(|p| p == key.expose())
+                    {
                         continue;
                     }
-                    current_keys.insert(pc.name.clone(), key.clone());
+                    current_keys.insert(pc.name.clone(), key.expose().to_string());
 
                     let new_client: Arc<dyn orka_llm::LlmClient> = match pc.provider.as_str() {
                         "anthropic" => Arc::new(orka_llm::AnthropicClient::with_auth_options(
@@ -159,7 +162,7 @@ impl EnvWatcher {
 ///      then process env
 ///   4. Secret store
 struct ResolvedEnvCredential {
-    value: String,
+    value: SecretStr,
     auth_kind: LlmAuthKind,
 }
 
@@ -249,7 +252,7 @@ async fn resolve_credential_from_env(
             }
             let value = value?;
             Some(ResolvedEnvCredential {
-                value,
+                value: SecretStr::new(value),
                 auth_kind: LlmAuthKind::ApiKey,
             })
         }
@@ -264,7 +267,7 @@ async fn resolve_credential_from_env(
             }
             let value = value?;
             Some(ResolvedEnvCredential {
-                value,
+                value: SecretStr::new(value),
                 auth_kind: config.auth_kind,
             })
         }
@@ -272,7 +275,7 @@ async fn resolve_credential_from_env(
         LlmAuthKind::Auto => {
             if let Some(value) = resolve_env_slot(env_vars, &config.provider, true, config) {
                 return Some(ResolvedEnvCredential {
-                    value,
+                    value: SecretStr::new(value),
                     auth_kind: LlmAuthKind::AuthToken,
                 });
             }
@@ -282,7 +285,10 @@ async fn resolve_credential_from_env(
             }
             let value = value?;
             let auth_kind = inferred_auth_kind(&config.provider, &value);
-            Some(ResolvedEnvCredential { value, auth_kind })
+            Some(ResolvedEnvCredential {
+                value: SecretStr::new(value),
+                auth_kind,
+            })
         }
         _ => {
             let mut value = resolve_env_slot(env_vars, &config.provider, true, config)
@@ -295,7 +301,10 @@ async fn resolve_credential_from_env(
             }
             let value = value?;
             let auth_kind = inferred_auth_kind(&config.provider, &value);
-            Some(ResolvedEnvCredential { value, auth_kind })
+            Some(ResolvedEnvCredential {
+                value: SecretStr::new(value),
+                auth_kind,
+            })
         }
     }
 }
@@ -424,6 +433,6 @@ mod tests {
         let resolved = resolve_credential_from_env(&HashMap::new(), &provider, &NoopSecrets).await;
         let resolved = resolved.expect("credential");
         assert_eq!(resolved.auth_kind, LlmAuthKind::AuthToken);
-        assert_eq!(resolved.value, "sk-ant-oat01-test");
+        assert_eq!(resolved.value.expose(), "sk-ant-oat01-test");
     }
 }

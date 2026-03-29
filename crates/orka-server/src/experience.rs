@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use orka_config::OrkaConfig;
+use orka_core::SecretStr;
 use orka_experience::ExperienceService;
 use orka_llm::LlmAuthKind;
 
@@ -68,6 +69,7 @@ pub(crate) fn create_experience_service(
             first_provider.name
         )
     })?;
+    let credential = SecretStr::new(credential);
 
     let model = config
         .experience
@@ -120,7 +122,7 @@ pub(crate) fn create_experience_service(
             })?;
             Arc::new(
                 orka_knowledge::embeddings::openai::OpenAiEmbeddingProvider::new(
-                    api_key,
+                    SecretStr::new(api_key),
                     config.knowledge.embeddings.model.clone(),
                     orka_knowledge::embeddings::OPENAI_EMBEDDING_DIMS,
                 ),
@@ -155,17 +157,15 @@ pub(crate) fn create_experience_service(
     };
 
     // Create vector store
-    let vector_store: Arc<dyn VectorStore> = Arc::new(
-        orka_knowledge::vector_store::qdrant::QdrantStore::new(
+    let vector_store: Arc<dyn VectorStore> =
+        Arc::new(orka_knowledge::vector_store::qdrant::QdrantStore::new(
             config
                 .knowledge
                 .vector_store
                 .url
                 .as_deref()
                 .unwrap_or(&orka_knowledge::default_qdrant_url()),
-        )
-        .map_err(|e| anyhow::anyhow!("failed to create Qdrant store: {e}"))?,
-    );
+        ));
 
     let service = orka_experience::create_experience_service(
         &config.experience,

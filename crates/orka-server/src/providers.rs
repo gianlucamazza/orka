@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use orka_config::{LlmAuthKind, LlmProviderConfig, OrkaConfig, defaults};
-use orka_core::traits::SecretManager;
+use orka_core::{SecretStr, traits::SecretManager};
 use orka_llm::{AnthropicAuthKind, SwappableLlmClient};
 use tracing::{info, warn};
 
@@ -42,9 +42,9 @@ enum CredentialSlot {
     AuthToken,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct ResolvedCredential {
-    value: String,
+    value: SecretStr,
     source: String,
     slot: CredentialSlot,
     auth_kind: LlmAuthKind,
@@ -152,7 +152,7 @@ pub(crate) async fn resolve_llm_credential(
                 );
             }
             Some(ResolvedCredential {
-                value,
+                value: SecretStr::new(value),
                 source,
                 slot: CredentialSlot::ApiKey,
                 auth_kind: LlmAuthKind::ApiKey,
@@ -178,7 +178,7 @@ pub(crate) async fn resolve_llm_credential(
                 );
             }
             Some(ResolvedCredential {
-                value,
+                value: SecretStr::new(value),
                 source,
                 slot: CredentialSlot::AuthToken,
                 auth_kind: config.auth_kind,
@@ -190,7 +190,7 @@ pub(crate) async fn resolve_llm_credential(
                 resolve_slot(provider, CredentialSlot::AuthToken, config, secrets).await
             {
                 return Some(ResolvedCredential {
-                    value,
+                    value: SecretStr::new(value),
                     source,
                     slot: CredentialSlot::AuthToken,
                     auth_kind: LlmAuthKind::AuthToken,
@@ -205,7 +205,7 @@ pub(crate) async fn resolve_llm_credential(
                 _ => CredentialSlot::ApiKey,
             };
             Some(ResolvedCredential {
-                value,
+                value: SecretStr::new(value),
                 source,
                 slot,
                 auth_kind,
@@ -227,7 +227,7 @@ pub(crate) async fn resolve_llm_credential(
                 _ => CredentialSlot::ApiKey,
             };
             Some(ResolvedCredential {
-                value,
+                value: SecretStr::new(value),
                 source,
                 slot,
                 auth_kind,
@@ -491,7 +491,7 @@ mod tests {
             .await
             .expect("credential");
         assert_eq!(resolved.auth_kind, LlmAuthKind::AuthToken);
-        assert_eq!(resolved.value, "sk-ant-oat01-token");
+        assert_eq!(resolved.value.expose(), "sk-ant-oat01-token");
     }
 
     #[tokio::test]
