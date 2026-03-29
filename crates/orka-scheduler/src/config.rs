@@ -1,5 +1,7 @@
 //! Scheduler configuration owned by `orka-scheduler`.
 
+use std::str::FromStr as _;
+
 use serde::Deserialize;
 
 /// Cron scheduler configuration.
@@ -46,6 +48,44 @@ pub struct ScheduledJob {
     /// Enable this job.
     #[serde(default = "default_job_enabled")]
     pub enabled: bool,
+}
+
+impl SchedulerConfig {
+    /// Validate the scheduler configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.poll_interval_secs == 0 {
+            return Err(orka_core::Error::Config(
+                "scheduler.poll_interval_secs must be greater than 0".into(),
+            ));
+        }
+        if self.max_concurrent == 0 {
+            return Err(orka_core::Error::Config(
+                "scheduler.max_concurrent must be greater than 0".into(),
+            ));
+        }
+        for job in &self.jobs {
+            if job.name.is_empty() {
+                return Err(orka_core::Error::Config(
+                    "scheduler job name must not be empty".into(),
+                ));
+            }
+            if job.command.is_empty() {
+                return Err(orka_core::Error::Config(format!(
+                    "scheduler job '{}': command must not be empty",
+                    job.name
+                )));
+            }
+            if !job.schedule.is_empty() {
+                cron::Schedule::from_str(&job.schedule).map_err(|e| {
+                    orka_core::Error::Config(format!(
+                        "scheduler job '{}': invalid cron expression '{}': {e}",
+                        job.name, job.schedule
+                    ))
+                })?;
+            }
+        }
+        Ok(())
+    }
 }
 
 // --- Private defaults ---

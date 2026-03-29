@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 use orka_core::Result;
 use tokio::sync::Mutex;
@@ -9,6 +11,9 @@ use crate::{store::ScheduleStore, types::Schedule};
 /// In-memory [`ScheduleStore`] for use in tests (no Redis required).
 pub struct InMemoryScheduleStore {
     schedules: Mutex<Vec<Schedule>>,
+    /// Tracks acquired execution locks: `"{id}:{run_at}"`.
+    #[allow(dead_code)]
+    locks: Mutex<HashSet<String>>,
 }
 
 impl InMemoryScheduleStore {
@@ -16,6 +21,7 @@ impl InMemoryScheduleStore {
     pub fn new() -> Self {
         Self {
             schedules: Mutex::new(Vec::new()),
+            locks: Mutex::new(HashSet::new()),
         }
     }
 }
@@ -67,6 +73,18 @@ impl ScheduleStore for InMemoryScheduleStore {
 
     async fn update_next_run(&self, _id: &str, schedule: &Schedule) -> Result<()> {
         self.add(schedule).await
+    }
+
+    async fn try_lock_execution(&self, id: &str, run_at: i64, _ttl_secs: u64) -> Result<bool> {
+        let mut locks = self.locks.lock().await;
+        let key = format!("{id}:{run_at}");
+        Ok(locks.insert(key))
+    }
+
+    async fn release_execution_lock(&self, id: &str, run_at: i64) -> Result<()> {
+        let mut locks = self.locks.lock().await;
+        locks.remove(&format!("{id}:{run_at}"));
+        Ok(())
     }
 }
 

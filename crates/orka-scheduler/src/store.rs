@@ -27,6 +27,28 @@ pub trait ScheduleStore: Send + Sync + 'static {
 
     /// Update the `next_run` timestamp for a recurring schedule.
     async fn update_next_run(&self, id: &str, schedule: &Schedule) -> Result<()>;
+
+    /// Attempt to acquire an execution lock for a specific schedule run.
+    ///
+    /// Returns `true` if the lock was acquired (this instance should execute),
+    /// `false` if another instance already holds it.  The lock expires
+    /// automatically after `ttl_secs` seconds to prevent stale locks from
+    /// blocking future runs.
+    ///
+    /// Default implementation always returns `true` (no distributed locking).
+    async fn try_lock_execution(&self, id: &str, run_at: i64, ttl_secs: u64) -> Result<bool> {
+        let _ = (id, run_at, ttl_secs);
+        Ok(true)
+    }
+
+    /// Release the execution lock acquired by [`Self::try_lock_execution`].
+    ///
+    /// Should be called after execution completes so the lock is freed before
+    /// its TTL expires.  Default implementation is a no-op.
+    async fn release_execution_lock(&self, id: &str, run_at: i64) -> Result<()> {
+        let _ = (id, run_at);
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -167,5 +189,38 @@ impl ScheduleStore for RedisScheduleStore {
 
     async fn update_next_run(&self, _id: &str, schedule: &Schedule) -> Result<()> {
         self.add(schedule).await
+    }
+
+    async fn try_lock_execution(&self, id: &str, run_at: i64, ttl_secs: u64) -> Result<bool> {
+        let mut conn =
+            self.pool.get().await.map_err(|e| {
+                orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
+            })?;
+        let lock_key = format!("orka:schedule:exec:{id}:{run_at}");
+        let result: Option<String> = redis::cmd("SET")
+            .arg(&lock_key)
+            .arg("1")
+            .arg("NX")
+            .arg("PX")
+            .arg(ttl_secs * 1000)
+            .query_async(&mut *conn)
+            .await
+            .map_err(|e| {
+                orka_core::Error::Scheduler(format!("failed to acquire execution lock: {e}"))
+            })?;
+        // SET NX returns "OK" if the key was set (lock acquired), nil if it already existed
+        Ok(result.is_some())
+    }
+
+    async fn release_execution_lock(&self, id: &str, run_at: i64) -> Result<()> {
+        let mut conn =
+            self.pool.get().await.map_err(|e| {
+                orka_core::Error::Scheduler(format!("Redis connection failed: {e}"))
+            })?;
+        let lock_key = format!("orka:schedule:exec:{id}:{run_at}");
+        let _: () = conn.del(&lock_key).await.map_err(|e| {
+            orka_core::Error::Scheduler(format!("failed to release execution lock: {e}"))
+        })?;
+        Ok(())
     }
 }

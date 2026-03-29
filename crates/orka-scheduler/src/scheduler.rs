@@ -79,6 +79,32 @@ impl Scheduler {
         let semaphore = Arc::new(tokio::sync::Semaphore::new(self.max_concurrent));
 
         for schedule in due {
+            // Acquire distributed execution lock before spawning.  If another
+            // instance already holds the lock for this exact run, skip it to
+            // prevent duplicate execution in multi-instance deployments.
+            // TTL of 300 s covers most tasks; the lock is explicitly released
+            // after execution so it is freed as soon as possible.
+            match self
+                .store
+                .try_lock_execution(&schedule.id, schedule.next_run, 300)
+                .await
+            {
+                Ok(true) => {} // lock acquired — proceed
+                Ok(false) => {
+                    debug!(
+                        id = %schedule.id,
+                        name = %schedule.name,
+                        "skipping due task — execution lock held by another instance"
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    // Locking failed (e.g. Redis unavailable) — log and proceed
+                    // rather than dropping the task entirely.
+                    warn!(%e, id = %schedule.id, "failed to acquire execution lock, proceeding");
+                }
+            }
+
             let Ok(permit) = semaphore.clone().acquire_owned().await else {
                 break;
             };
@@ -119,7 +145,11 @@ impl Scheduler {
                     }
                 }
 
-                // Handle next run: if cron, compute next; if one-shot, remove
+                // Handle next run: if cron, compute next; if one-shot, remove.
+                // Release the execution lock after updating/removing so the
+                // full critical section (fetch → execute → reschedule) is
+                // covered, preventing a second instance from re-picking the
+                // same run.
                 if let Some(ref cron_expr) = schedule.cron {
                     match cron::Schedule::from_str(cron_expr) {
                         Ok(cron_schedule) => {
@@ -141,6 +171,16 @@ impl Scheduler {
                     if let Err(e) = store.remove(&schedule.id).await {
                         error!(%e, "failed to remove completed one-shot schedule");
                     }
+                }
+
+                // Explicitly release the lock so it is freed before the TTL
+                // expires.  Errors here are non-fatal — the TTL acts as a
+                // safety net.
+                if let Err(e) = store
+                    .release_execution_lock(&schedule.id, schedule.next_run)
+                    .await
+                {
+                    warn!(%e, id = %schedule.id, "failed to release execution lock");
                 }
             });
         }
