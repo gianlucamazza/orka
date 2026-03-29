@@ -66,12 +66,13 @@ build-arm:
         -F telegram,discord,slack,whatsapp,wasm
 
 # Build ARM image and push to homelab registry (run `just build-arm` first)
+# Requires HOMELAB_REGISTRY env var (e.g. registry.example.com/user/orka)
 # Usage: just push-homelab          → tag latest
 #        just push-homelab v1.2.3   → tag v1.2.3 + latest
 push-homelab tag="latest":
     #!/usr/bin/env bash
     set -euo pipefail
-    REGISTRY="registry.home.gianlucamazza.it/gmazza/orka"
+    REGISTRY="${HOMELAB_REGISTRY:?HOMELAB_REGISTRY is not set. Export it before running this command.}"
     BIN="target/aarch64-unknown-linux-gnu/release/orka-server"
     if [ ! -f "$BIN" ]; then
         echo "ERROR: $BIN not found. Run 'just build-arm' first." >&2
