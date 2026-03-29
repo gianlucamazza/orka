@@ -185,7 +185,7 @@ async fn run_checks(
     for check in checks.iter().filter(|c| {
         matches!(
             c.meta().category,
-            Category::Security | Category::Environment
+            Category::Architecture | Category::Security | Category::Environment
         )
     }) {
         let outcome = run_with_timeout(check.as_ref(), &ctx, timeout).await;

@@ -1,7 +1,9 @@
 #[allow(clippy::wildcard_imports)]
 use crate::cmd::doctor::{
     DoctorCheck,
-    checks::{config::*, connectivity::*, environment::*, providers::*, security::*},
+    checks::{
+        architecture::*, config::*, connectivity::*, environment::*, providers::*, security::*,
+    },
 };
 
 /// Build the ordered list of all registered doctor checks.
@@ -15,6 +17,10 @@ pub fn build_registry() -> Vec<Box<dyn DoctorCheck>> {
         Box::new(CfgNoDeprecated),
         Box::new(CfgAgentDefs),
         Box::new(CfgGraphPresent),
+        // Architecture
+        Box::new(ArchLayeringViolations),
+        Box::new(ArchCrateTestMinimum),
+        Box::new(ArchOversizedModules),
         // Connectivity
         Box::new(ConRedisReachable),
         Box::new(ConRedisVersion),

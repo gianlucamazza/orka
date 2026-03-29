@@ -33,6 +33,7 @@ impl AsRef<str> for CheckId {
 #[serde(rename_all = "lowercase")]
 pub enum Category {
     Config,
+    Architecture,
     Connectivity,
     Providers,
     Security,
@@ -43,6 +44,7 @@ impl std::fmt::Display for Category {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Category::Config => write!(f, "Config"),
+            Category::Architecture => write!(f, "Architecture"),
             Category::Connectivity => write!(f, "Connectivity"),
             Category::Providers => write!(f, "Providers"),
             Category::Security => write!(f, "Security"),

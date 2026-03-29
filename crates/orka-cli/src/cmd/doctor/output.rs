@@ -37,6 +37,7 @@ fn render_text(report: &DoctorReport, verbose: bool) {
 
     let categories = [
         Category::Config,
+        Category::Architecture,
         Category::Connectivity,
         Category::Providers,
         Category::Security,
