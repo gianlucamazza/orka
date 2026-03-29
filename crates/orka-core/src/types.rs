@@ -1323,6 +1323,38 @@ impl std::fmt::Debug for SecretValue {
     }
 }
 
+/// A zeroize-on-drop wrapper for secret strings (API keys, tokens, passwords).
+///
+/// Intentionally not `Clone` to prevent accidental copies of secrets
+/// scattered across the heap. Use [`SecretStr::to_owned_secret`] for
+/// explicit, deliberate copies.
+pub struct SecretStr(zeroize::Zeroizing<String>);
+
+impl SecretStr {
+    /// Wrap a string as a secret.
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(zeroize::Zeroizing::new(value.into()))
+    }
+
+    /// Access the secret string.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+
+    /// Create an explicit copy of the secret. Prefer passing references
+    /// instead of cloning to minimize secret copies in memory.
+    #[must_use]
+    pub fn to_owned_secret(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl std::fmt::Debug for SecretStr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[REDACTED]")
+    }
+}
+
 /// Type alias for the message sink passed to channel adapters.
 pub type MessageSink = tokio::sync::mpsc::Sender<Envelope>;
 
@@ -1686,5 +1718,33 @@ mod tests {
             input.resolve_path("~/foo.txt"),
             std::path::PathBuf::from("~/foo.txt")
         );
+    }
+
+    // --- SecretStr ---
+
+    #[test]
+    fn secret_str_debug_redacted() {
+        let s = SecretStr::new("my-api-key");
+        assert_eq!(format!("{s:?}"), "[REDACTED]");
+    }
+
+    #[test]
+    fn secret_str_expose_returns_value() {
+        let s = SecretStr::new("my-api-key");
+        assert_eq!(s.expose(), "my-api-key");
+    }
+
+    #[test]
+    fn secret_str_to_owned_secret_copies_value() {
+        let s = SecretStr::new("my-api-key");
+        let copy = s.to_owned_secret();
+        assert_eq!(copy.expose(), "my-api-key");
+        assert_eq!(s.expose(), "my-api-key");
+    }
+
+    #[test]
+    fn secret_str_empty_string() {
+        let s = SecretStr::new("");
+        assert_eq!(s.expose(), "");
     }
 }

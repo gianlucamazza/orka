@@ -59,7 +59,7 @@ pub mod config;
 pub mod migrate;
 
 /// In-memory test doubles for core traits.
-#[cfg(feature = "testing")]
+#[cfg(any(test, feature = "testing"))]
 pub mod testing;
 
 pub use error::{Error, Result};
@@ -73,7 +73,8 @@ pub use traits::NoopEventSink;
 pub use types::{
     CommandArgs, CommandPayload, DomainEvent, DomainEventKind, Envelope, ErrorCategory, EventId,
     EventPayload, MediaPayload, MemoryEntry, MemoryKind, MemoryScope, MessageId, MessageSink,
-    MessageStream, OutboundMessage, Payload, Priority, RunId, SecretValue, Session, SessionId,
-    SkillBudget, SkillContext, SkillInput, SkillOutput, SkillSchema, TraceContext, backoff_delay,
+    MessageStream, OutboundMessage, Payload, Priority, RunId, SecretStr, SecretValue, Session,
+    SessionId, SkillBudget, SkillContext, SkillInput, SkillOutput, SkillSchema, TraceContext,
+    backoff_delay,
 };
 pub use util::truncate_tool_result;
