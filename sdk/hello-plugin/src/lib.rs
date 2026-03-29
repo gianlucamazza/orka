@@ -2,7 +2,7 @@
 // The export_plugin! macro generates undocumented types; allow missing_docs for this example.
 #![allow(missing_docs, clippy::same_length_and_capacity)]
 
-use orka_plugin_sdk_component::{Plugin, export_plugin};
+use orka_plugin_sdk_component::{export_plugin, Plugin};
 
 /// Example plugin: greets the caller by name.
 struct HelloPlugin;
@@ -25,10 +25,7 @@ impl Plugin for HelloPlugin {
     fn execute(
         input: orka_plugin_sdk_component::PluginInput,
     ) -> Result<orka_plugin_sdk_component::PluginOutput, String> {
-        let name = input.args.iter().find(|(k, _)| k == "name").map_or_else(
-            || "world".to_string(),
-            |(_, v)| v.trim_matches('"').to_string(),
-        );
+        let name = input.get_str("name").unwrap_or("world").to_string();
 
         Ok(orka_plugin_sdk_component::PluginOutput {
             data: format!("Hello, {name}!"),

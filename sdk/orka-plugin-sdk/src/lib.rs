@@ -37,9 +37,7 @@
 //!     }
 //!
 //!     fn execute(&self, input: PluginInput) -> Result<PluginOutput, String> {
-//!         let name = input.args.get("name")
-//!             .and_then(|v| v.as_str())
-//!             .unwrap_or("world");
+//!         let name = input.get_str("name").unwrap_or("world");
 //!         Ok(PluginOutput { data: format!("Hello, {name}!") })
 //!     }
 //! }
@@ -93,6 +91,17 @@ pub struct PluginInput {
     /// Named arguments extracted from the LLM tool call.
     /// Values are arbitrary JSON.
     pub args: HashMap<String, serde_json::Value>,
+}
+
+impl PluginInput {
+    /// Return the string value for `key`, or `None` if not present or not a
+    /// JSON string.
+    ///
+    /// This is the idiomatic way to read string arguments and mirrors the
+    /// same method on the Component Model SDK's `PluginInput`.
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        self.args.get(key)?.as_str()
+    }
 }
 
 /// Output returned from a successful [`Plugin::execute`] call.
@@ -248,6 +257,19 @@ macro_rules! export_plugin {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plugin_input_get_str_returns_string_value() {
+        let mut args = HashMap::new();
+        args.insert("name".to_string(), serde_json::json!("Alice"));
+        args.insert("count".to_string(), serde_json::json!(42));
+        let input = PluginInput { args };
+        assert_eq!(input.get_str("name"), Some("Alice"));
+        // non-string values return None
+        assert_eq!(input.get_str("count"), None);
+        // missing key returns None
+        assert_eq!(input.get_str("missing"), None);
+    }
 
     #[test]
     fn plugin_info_serde_roundtrip() {

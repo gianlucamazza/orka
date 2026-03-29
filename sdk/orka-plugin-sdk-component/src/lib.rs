@@ -30,10 +30,7 @@
 //!     }
 //!
 //!     fn execute(input: PluginInput) -> Result<PluginOutput, String> {
-//!         let name = input.args.iter()
-//!             .find(|(k, _)| k == "name")
-//!             .map(|(_, v)| v.trim_matches('"'))
-//!             .unwrap_or("world");
+//!         let name = input.get_str("name").unwrap_or("world");
 //!         Ok(PluginOutput { data: format!("Hello, {name}!") })
 //!     }
 //! }
@@ -52,9 +49,41 @@ pub struct PluginInfo {
 }
 
 /// Arguments passed to [`Plugin::execute`].
+///
+/// Each value is a JSON-encoded string (e.g. `"\"hello\""` for the string
+/// `hello`, or `"42"` for the number 42).  Use [`Self::get_str`] for the
+/// common case of string arguments and [`Self::get_raw`] when you need the
+/// full JSON-encoded value for further parsing.
 pub struct PluginInput {
     /// Key-value argument pairs from the skill invocation.
+    /// Values are JSON-encoded (e.g. `"\"hello\""`, `"42"`, `"true"`).
     pub args: Vec<(String, String)>,
+}
+
+impl PluginInput {
+    /// Return the JSON-encoded value for `key`, or `None` if not present.
+    pub fn get_raw(&self, key: &str) -> Option<&str> {
+        self.args
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// Return the string value for `key`, stripping outer JSON quotes if
+    /// present.
+    ///
+    /// For example, if the wire value is `"\"hello\""` this returns
+    /// `Some("hello")`.  For non-string JSON values (numbers, booleans) it
+    /// returns the raw JSON text so callers can parse it themselves.
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        let raw = self.get_raw(key)?;
+        // Strip surrounding JSON quotes for plain string values.
+        if raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2 {
+            Some(&raw[1..raw.len() - 1])
+        } else {
+            Some(raw)
+        }
+    }
 }
 
 /// Successful output from [`Plugin::execute`].
