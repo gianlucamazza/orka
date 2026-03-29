@@ -208,7 +208,8 @@ impl ScheduleStore for RedisScheduleStore {
             .map_err(|e| {
                 orka_core::Error::Scheduler(format!("failed to acquire execution lock: {e}"))
             })?;
-        // SET NX returns "OK" if the key was set (lock acquired), nil if it already existed
+        // SET NX returns "OK" if the key was set (lock acquired), nil if it already
+        // existed
         Ok(result.is_some())
     }
 

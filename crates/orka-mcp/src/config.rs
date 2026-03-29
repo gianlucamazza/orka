@@ -84,7 +84,7 @@ impl McpConfig {
             }
             match server.transport.as_str() {
                 "stdio" => {
-                    if server.command.as_deref().map_or(true, str::is_empty) {
+                    if server.command.as_deref().is_none_or(str::is_empty) {
                         return Err(orka_core::Error::Config(format!(
                             "mcp server '{}': stdio transport requires a non-empty command",
                             server.name
@@ -92,7 +92,7 @@ impl McpConfig {
                     }
                 }
                 "streamable_http" | "http" => {
-                    if server.url.as_deref().map_or(true, str::is_empty) {
+                    if server.url.as_deref().is_none_or(str::is_empty) {
                         return Err(orka_core::Error::Config(format!(
                             "mcp server '{}': http transport requires a non-empty url",
                             server.name

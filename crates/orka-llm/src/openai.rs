@@ -427,9 +427,10 @@ impl LlmClient for OpenAiClient {
         Self::insert_max_tokens(&mut body, max_tokens);
 
         if let Some(temp) = options.temperature
-            && Self::supports_temperature(model) {
-                body["temperature"] = json!(temp);
-            }
+            && Self::supports_temperature(model)
+        {
+            body["temperature"] = json!(temp);
+        }
         Self::maybe_insert_reasoning(&mut body, model, options.thinking.as_ref());
 
         debug!(model, messages = messages.len(), "calling OpenAI API");
@@ -548,9 +549,10 @@ impl LlmClient for OpenAiClient {
         }
 
         if let Some(temp) = options.temperature
-            && Self::supports_temperature(model) {
-                body["temperature"] = json!(temp);
-            }
+            && Self::supports_temperature(model)
+        {
+            body["temperature"] = json!(temp);
+        }
         Self::maybe_insert_reasoning(&mut body, model, options.thinking.as_ref());
 
         debug!(
@@ -596,9 +598,10 @@ impl LlmClient for OpenAiClient {
         }
 
         if let Some(temp) = options.temperature
-            && Self::supports_temperature(model) {
-                body["temperature"] = json!(temp);
-            }
+            && Self::supports_temperature(model)
+        {
+            body["temperature"] = json!(temp);
+        }
         Self::maybe_insert_reasoning(&mut body, model, options.thinking.as_ref());
 
         debug!(
@@ -965,9 +968,10 @@ mod tests {
             ..Default::default()
         };
         if let Some(temp) = options.temperature
-            && OpenAiClient::supports_temperature("o3-mini") {
-                body["temperature"] = json!(temp);
-            }
+            && OpenAiClient::supports_temperature("o3-mini")
+        {
+            body["temperature"] = json!(temp);
+        }
         assert!(body.get("temperature").is_none());
     }
 
@@ -979,9 +983,10 @@ mod tests {
             ..Default::default()
         };
         if let Some(temp) = options.temperature
-            && OpenAiClient::supports_temperature("gpt-5-mini") {
-                body["temperature"] = json!(temp);
-            }
+            && OpenAiClient::supports_temperature("gpt-5-mini")
+        {
+            body["temperature"] = json!(temp);
+        }
         assert_eq!(body["temperature"], 0.5);
     }
 
@@ -1004,9 +1009,10 @@ mod tests {
             ..Default::default()
         };
         if let Some(temp) = options.temperature
-            && OpenAiClient::supports_temperature("gpt-4.1") {
-                body["temperature"] = json!(temp);
-            }
+            && OpenAiClient::supports_temperature("gpt-4.1")
+        {
+            body["temperature"] = json!(temp);
+        }
         assert!(body.get("temperature").is_none());
     }
 }

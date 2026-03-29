@@ -182,7 +182,9 @@ mod tests {
         let attachment = &result.attachments[0];
         assert_eq!(attachment.mime_type, "image/png");
         let b64 = attachment.data_base64.as_ref().expect("inline data");
-        let bytes = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .unwrap();
         assert!(bytes.starts_with(b"\x89PNG"), "expected PNG header");
     }
 

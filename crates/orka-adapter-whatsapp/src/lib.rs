@@ -37,7 +37,10 @@ type HmacSha256 = Hmac<Sha256>;
 fn verify_whatsapp_signature(headers: &HeaderMap, body: &[u8], app_secret: &str) -> bool {
     let sig_header = if let Some(s) = headers
         .get("X-Hub-Signature-256")
-        .and_then(|v| v.to_str().ok()) { s.to_owned() } else {
+        .and_then(|v| v.to_str().ok())
+    {
+        s.to_owned()
+    } else {
         warn!("WhatsApp webhook: missing X-Hub-Signature-256 header");
         return false;
     };
@@ -203,10 +206,11 @@ async fn webhook_receive(
     body: Bytes,
 ) -> axum::http::StatusCode {
     if let Some(ref secret) = state.app_secret
-        && !verify_whatsapp_signature(&headers, &body, (*secret).expose()) {
-            warn!("WhatsApp webhook: X-Hub-Signature-256 verification failed, rejecting request");
-            return axum::http::StatusCode::UNAUTHORIZED;
-        }
+        && !verify_whatsapp_signature(&headers, &body, (*secret).expose())
+    {
+        warn!("WhatsApp webhook: X-Hub-Signature-256 verification failed, rejecting request");
+        return axum::http::StatusCode::UNAUTHORIZED;
+    }
 
     let payload: WebhookPayload = match serde_json::from_slice(&body) {
         Ok(p) => p,

@@ -62,11 +62,11 @@ async fn handle_update(
     body: Bytes,
 ) -> StatusCode {
     // Verify webhook secret token when configured.
-    if let Some(ref secret) = state.webhook_secret {
-        if !verify_telegram_secret(&headers, secret) {
-            warn!("Telegram webhook: missing or invalid X-Telegram-Bot-Api-Secret-Token");
-            return StatusCode::UNAUTHORIZED;
-        }
+    if let Some(ref secret) = state.webhook_secret
+        && !verify_telegram_secret(&headers, secret)
+    {
+        warn!("Telegram webhook: missing or invalid X-Telegram-Bot-Api-Secret-Token");
+        return StatusCode::UNAUTHORIZED;
     }
 
     let update: Update = match serde_json::from_slice(&body) {

@@ -199,7 +199,7 @@ impl ChannelAdapter for DiscordAdapter {
                         let seq = *sequence_hb.lock().await;
                         let hb = serde_json::json!({
                             "op": 1,
-                            "d": seq.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null)
+                            "d": seq.map_or(serde_json::Value::Null, serde_json::Value::from)
                         });
                         let mut w = write_hb.lock().await;
                         if w.send(tokio_tungstenite::tungstenite::Message::Text(

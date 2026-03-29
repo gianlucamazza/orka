@@ -45,12 +45,13 @@ pub struct ApiKeyEntry {
 impl AuthConfig {
     /// Validate the authentication configuration.
     pub fn validate(&self) -> orka_core::Result<()> {
-        if let Some(jwt) = &self.jwt {
-            if jwt.secret.is_none() && jwt.public_key_path.is_none() {
-                return Err(orka_core::Error::Config(
-                    "auth.jwt: at least one of 'secret' or 'public_key_path' must be set".into(),
-                ));
-            }
+        if let Some(jwt) = &self.jwt
+            && jwt.secret.is_none()
+            && jwt.public_key_path.is_none()
+        {
+            return Err(orka_core::Error::Config(
+                "auth.jwt: at least one of 'secret' or 'public_key_path' must be set".into(),
+            ));
         }
         let mut seen_names = std::collections::HashSet::new();
         for entry in &self.api_keys {

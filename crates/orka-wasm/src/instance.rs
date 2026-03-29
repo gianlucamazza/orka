@@ -1,6 +1,6 @@
 use orka_core::{Error, Result};
 use wasmtime::{Linker, Store, StoreLimits, StoreLimitsBuilder, TypedFunc};
-use wasmtime_wasi::{p1::WasiP1Ctx, WasiCtxBuilder};
+use wasmtime_wasi::{WasiCtxBuilder, p1::WasiP1Ctx};
 
 use crate::{config::WasmLimits, engine::WasmModule};
 

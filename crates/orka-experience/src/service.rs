@@ -1,10 +1,10 @@
 use std::{fmt::Write as _, sync::Arc};
-use tokio::sync::Mutex;
 
 use orka_core::{ErrorCategory, Result};
 use orka_llm::client::LlmClient;
 use orka_prompts::template::TemplateRegistry;
 use rand::Rng as _;
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::{

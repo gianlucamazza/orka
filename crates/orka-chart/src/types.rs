@@ -163,15 +163,10 @@ mod tests {
             "combo",
         ] {
             let json = format!(
-                r#"{{"chart_type":"{}","data":{{"series":[{{"name":"s","values":[1.0]}}]}}}}"#,
-                variant
+                r#"{{"chart_type":"{variant}","data":{{"series":[{{"name":"s","values":[1.0]}}]}}}}"#
             );
             let result: Result<ChartSpec, _> = serde_json::from_str(&json);
-            assert!(
-                result.is_ok(),
-                "failed to deserialize chart_type={}",
-                variant
-            );
+            assert!(result.is_ok(), "failed to deserialize chart_type={variant}");
         }
     }
 }

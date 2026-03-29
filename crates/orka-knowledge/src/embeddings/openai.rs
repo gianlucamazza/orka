@@ -6,7 +6,7 @@ use tracing::warn;
 use super::EmbeddingProvider;
 
 /// Maximum number of texts per embedding API request.
-/// OpenAI accepts up to 2048 inputs per request; smaller batches also reduce
+/// `OpenAI` accepts up to 2048 inputs per request; smaller batches also reduce
 /// the risk of hitting per-request token limits.
 const MAX_BATCH_SIZE: usize = 2048;
 

@@ -98,7 +98,7 @@ impl ObserveConfig {
                 "observe.flush_interval_ms must be greater than 0".into(),
             ));
         }
-        if self.backend == "otlp" && self.otlp_endpoint.as_deref().map_or(true, str::is_empty) {
+        if self.backend == "otlp" && self.otlp_endpoint.as_deref().is_none_or(str::is_empty) {
             return Err(orka_core::Error::Config(
                 "observe.otlp_endpoint must be set when backend is 'otlp'".into(),
             ));
@@ -120,7 +120,7 @@ impl AuditConfig {
                     }
                 }
                 "redis" => {
-                    if self.redis_key.as_deref().map_or(true, str::is_empty) {
+                    if self.redis_key.as_deref().is_none_or(str::is_empty) {
                         return Err(orka_core::Error::Config(
                             "audit.redis_key must be set when output is 'redis'".into(),
                         ));
