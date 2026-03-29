@@ -3,12 +3,15 @@
 use std::{collections::HashMap, sync::Arc};
 
 use orka_adapter_telegram::{TelegramAdapter, TelegramAdapterConfig};
-use orka_core::{traits::ChannelAdapter, types::SessionId};
+use orka_core::{SecretStr, traits::ChannelAdapter, types::SessionId};
 use tokio::sync::Mutex;
 
 #[test]
 fn channel_id_returns_telegram() {
-    let adapter = TelegramAdapter::new(TelegramAdapterConfig::default(), "test-token".into());
+    let adapter = TelegramAdapter::new(
+        TelegramAdapterConfig::default(),
+        SecretStr::new("test-token"),
+    );
     assert_eq!(adapter.channel_id(), "telegram");
 }
 
@@ -85,7 +88,10 @@ fn deserialize_telegram_response() {
 
 #[tokio::test]
 async fn shutdown_without_start_is_ok() {
-    let adapter = TelegramAdapter::new(TelegramAdapterConfig::default(), "test-token".into());
+    let adapter = TelegramAdapter::new(
+        TelegramAdapterConfig::default(),
+        SecretStr::new("test-token"),
+    );
     // Shutdown before start should not panic
     adapter.shutdown().await.unwrap();
 }

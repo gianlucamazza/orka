@@ -20,12 +20,24 @@ pub struct TelegramAdapterConfig {
     /// Local port to listen on in webhook mode (default 8443).
     #[serde(default)]
     pub webhook_port: Option<u16>,
+    /// Secret token registered with Telegram for webhook authentication
+    /// (`X-Telegram-Bot-Api-Secret-Token` header).  When set, Telegram will
+    /// include this token in every POST to the webhook endpoint and the
+    /// adapter will reject requests that do not carry it.  Allowed characters:
+    /// `A-Z`, `a-z`, `0-9`, `_` and `-`.  1–256 chars.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
     /// Outbound text parse mode: "HTML" (default), "`MarkdownV2`", or "none".
     #[serde(default)]
     pub parse_mode: Option<String>,
     /// Enable streaming via editMessageText (default false).
     #[serde(default)]
     pub streaming: Option<bool>,
+    /// Restrict bot access to these Telegram user IDs. When set, messages
+    /// from any other user are silently dropped. When empty or unset, all
+    /// users are allowed.
+    #[serde(default)]
+    pub allowed_users: Vec<i64>,
 }
 
 impl std::fmt::Debug for TelegramAdapterConfig {
@@ -40,6 +52,32 @@ impl std::fmt::Debug for TelegramAdapterConfig {
 }
 
 impl TelegramAdapterConfig {
+    /// Validate Telegram adapter configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.is_webhook() && self.webhook_url.is_none() {
+            return Err(orka_core::Error::Config(
+                "adapters.telegram.webhook_url is required when mode = \"webhook\"".into(),
+            ));
+        }
+        if let Some(secret) = &self.webhook_secret {
+            if secret.is_empty() || secret.len() > 256 {
+                return Err(orka_core::Error::Config(
+                    "adapters.telegram.webhook_secret must be 1–256 characters".into(),
+                ));
+            }
+            if !secret
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            {
+                return Err(orka_core::Error::Config(
+                    "adapters.telegram.webhook_secret must only contain A-Z, a-z, 0-9, _ or -"
+                        .into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Returns true if webhook mode is enabled.
     #[must_use]
     pub fn is_webhook(&self) -> bool {

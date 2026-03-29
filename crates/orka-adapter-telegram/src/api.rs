@@ -1,6 +1,6 @@
 //! HTTP client wrapper for the Telegram Bot API.
 
-use orka_core::{Error, Result};
+use orka_core::{Error, Result, SecretStr};
 use reqwest::Client;
 use serde_json::{Value, json};
 use tracing::warn;
@@ -10,26 +10,35 @@ use crate::types::{TelegramFile, TelegramMessage, TelegramResponse, Update};
 const BASE_URL: &str = "https://api.telegram.org";
 
 /// Thin async HTTP client for the Telegram Bot API.
+///
+/// The bot token is embedded once into pre-built URL prefixes at construction
+/// time so it never appears in per-request method bodies or log traces.
 pub(crate) struct TelegramApi {
     client: Client,
-    bot_token: String,
+    /// `https://api.telegram.org/bot{token}` — no trailing slash.
+    api_prefix: String,
+    /// `https://api.telegram.org/file/bot{token}` — no trailing slash.
+    file_prefix: String,
 }
 
 impl TelegramApi {
-    pub(crate) fn new(bot_token: String) -> Self {
+    pub(crate) fn new(bot_token: SecretStr) -> Self {
+        let api_prefix = format!("{BASE_URL}/bot{}", bot_token.expose());
+        let file_prefix = format!("{BASE_URL}/file/bot{}", bot_token.expose());
         Self {
             client: Client::new(),
-            bot_token,
+            api_prefix,
+            file_prefix,
         }
     }
 
     /// Build a full download URL for a resolved file path.
     pub(crate) fn file_download_url(&self, file_path: &str) -> String {
-        format!("{}/file/bot{}/{}", BASE_URL, self.bot_token, file_path)
+        format!("{}/{}", self.file_prefix, file_path)
     }
 
     fn url(&self, method: &str) -> String {
-        format!("{}/bot{}/{}", BASE_URL, self.bot_token, method)
+        format!("{}/{}", self.api_prefix, method)
     }
 
     /// Call a Telegram API method with automatic 429 retry-once.
@@ -176,58 +185,95 @@ impl TelegramApi {
         reply_to_message_id: Option<i64>,
         message_thread_id: Option<i64>,
     ) -> Result<TelegramMessage> {
-        let url = format!("{}/bot{}/sendPhoto", BASE_URL, self.bot_token);
-        let mut form = reqwest::multipart::Form::new()
-            .text("chat_id", chat_id.to_string())
-            .part(
-                "photo",
-                reqwest::multipart::Part::bytes(data)
-                    .file_name(filename.to_string())
-                    .mime_str("image/png")
-                    .map_err(|e| Error::Adapter {
+        let url = self.url("sendPhoto");
+        let caption_str = caption.map(ToString::to_string);
+        let reply_params =
+            reply_to_message_id.map(|id| serde_json::json!({"message_id": id}).to_string());
+
+        // Retry up to 2 times on 429 (rate limit) or 5xx, mirroring `call()`.
+        let mut last_err: Option<Error> = None;
+        for attempt in 0..2u8 {
+            if attempt > 0 {
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+
+            let mut form = reqwest::multipart::Form::new()
+                .text("chat_id", chat_id.to_string())
+                .part(
+                    "photo",
+                    reqwest::multipart::Part::bytes(data.clone())
+                        .file_name(filename.to_string())
+                        .mime_str("image/png")
+                        .map_err(|e| Error::Adapter {
+                            source: Box::new(e),
+                            context: "Telegram multipart MIME error".into(),
+                        })?,
+                );
+            if let Some(ref c) = caption_str {
+                form = form.text("caption", c.clone());
+            }
+            if let Some(ref rp) = reply_params {
+                form = form.text("reply_parameters", rp.clone());
+            }
+            if let Some(tid) = message_thread_id {
+                form = form.text("message_thread_id", tid.to_string());
+            }
+
+            let resp = match self.client.post(&url).multipart(form).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = Some(Error::Adapter {
                         source: Box::new(e),
-                        context: "Telegram multipart MIME error".into(),
-                    })?,
-            );
-        if let Some(c) = caption {
-            form = form.text("caption", c.to_string());
-        }
-        if let Some(id) = reply_to_message_id {
-            form = form.text(
-                "reply_parameters",
-                serde_json::json!({"message_id": id}).to_string(),
-            );
-        }
-        if let Some(tid) = message_thread_id {
-            form = form.text("message_thread_id", tid.to_string());
-        }
-        let resp = self
-            .client
-            .post(&url)
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| Error::Adapter {
-                source: Box::new(e),
-                context: "Telegram photo bytes send failed".into(),
-            })?;
-        let tg_resp: TelegramResponse<TelegramMessage> =
-            resp.json().await.map_err(|e| Error::Adapter {
-                source: Box::new(e),
-                context: "Telegram photo bytes response parse failed".into(),
-            })?;
-        if !tg_resp.ok {
-            return Err(Error::Adapter {
-                source: Box::new(std::io::Error::other(
-                    tg_resp.description.unwrap_or_default(),
-                )),
-                context: "Telegram sendPhoto (bytes) returned ok=false".into(),
+                        context: "Telegram photo bytes send failed".into(),
+                    });
+                    continue;
+                }
+            };
+
+            if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt == 0 {
+                let text = resp.text().await.unwrap_or_default();
+                let retry_secs: u64 = serde_json::from_str::<Value>(&text)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("parameters")
+                            .and_then(|p| p.get("retry_after"))
+                            .and_then(serde_json::Value::as_u64)
+                    })
+                    .unwrap_or(5);
+                warn!(
+                    retry_after = retry_secs,
+                    "Telegram sendPhoto rate limited, retrying"
+                );
+                tokio::time::sleep(tokio::time::Duration::from_secs(retry_secs)).await;
+                last_err = Some(Error::Adapter {
+                    source: Box::new(std::io::Error::other("rate limited")),
+                    context: "Telegram sendPhoto rate limited".into(),
+                });
+                continue;
+            }
+
+            let tg_resp: TelegramResponse<TelegramMessage> =
+                resp.json().await.map_err(|e| Error::Adapter {
+                    source: Box::new(e),
+                    context: "Telegram photo bytes response parse failed".into(),
+                })?;
+            if !tg_resp.ok {
+                return Err(Error::Adapter {
+                    source: Box::new(std::io::Error::other(
+                        tg_resp.description.clone().unwrap_or_default(),
+                    )),
+                    context: "Telegram sendPhoto (bytes) returned ok=false".into(),
+                });
+            }
+            return tg_resp.result.ok_or_else(|| Error::Adapter {
+                source: Box::new(std::io::Error::other("missing result")),
+                context: "Telegram sendPhoto (bytes) returned no result".into(),
             });
         }
-        tg_resp.result.ok_or_else(|| Error::Adapter {
-            source: Box::new(std::io::Error::other("missing result")),
-            context: "Telegram sendPhoto (bytes) returned no result".into(),
-        })
+        Err(last_err.unwrap_or_else(|| Error::Adapter {
+            source: Box::new(std::io::Error::other("max retries exceeded")),
+            context: "Telegram sendPhoto (bytes) failed after retries".into(),
+        }))
     }
 
     /// Send a document by URL.
@@ -367,15 +413,24 @@ impl TelegramApi {
     }
 
     /// Register the webhook URL with Telegram.
-    pub(crate) async fn set_webhook(&self, url: &str, allowed_updates: &[&str]) -> Result<bool> {
-        self.call(
-            "setWebhook",
-            &json!({
-                "url": url,
-                "allowed_updates": allowed_updates,
-            }),
-        )
-        .await
+    ///
+    /// If `secret_token` is provided it will be sent back by Telegram in the
+    /// `X-Telegram-Bot-Api-Secret-Token` header on every webhook POST, allowing
+    /// the server to authenticate incoming requests.
+    pub(crate) async fn set_webhook(
+        &self,
+        url: &str,
+        allowed_updates: &[&str],
+        secret_token: Option<&str>,
+    ) -> Result<bool> {
+        let mut body = json!({
+            "url": url,
+            "allowed_updates": allowed_updates,
+        });
+        if let Some(secret) = secret_token {
+            body["secret_token"] = json!(secret);
+        }
+        self.call("setWebhook", &body).await
     }
 
     /// Remove the registered webhook.
@@ -400,7 +455,7 @@ mod tests {
 
     #[test]
     fn api_url_format() {
-        let api = TelegramApi::new("TEST_TOKEN".into());
+        let api = TelegramApi::new(SecretStr::new("TEST_TOKEN"));
         assert_eq!(
             api.url("sendMessage"),
             "https://api.telegram.org/botTEST_TOKEN/sendMessage"
@@ -409,7 +464,7 @@ mod tests {
 
     #[test]
     fn file_download_url_format() {
-        let api = TelegramApi::new("TEST_TOKEN".into());
+        let api = TelegramApi::new(SecretStr::new("TEST_TOKEN"));
         assert_eq!(
             api.file_download_url("documents/file_0.pdf"),
             "https://api.telegram.org/file/botTEST_TOKEN/documents/file_0.pdf"

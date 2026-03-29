@@ -2,7 +2,13 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use axum::{Json, Router, extract::State, routing::post};
+use axum::{
+    Router,
+    body::Bytes,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    routing::post,
+};
 use orka_core::{
     traits::MemoryStore,
     types::{MessageSink, SessionId},
@@ -25,12 +31,51 @@ struct WebhookState {
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
     memory: Option<Arc<dyn MemoryStore>>,
     auth_guard: Arc<TelegramAuthGuard>,
+    /// Expected value of `X-Telegram-Bot-Api-Secret-Token`, if configured.
+    webhook_secret: Option<String>,
+}
+
+/// Verify `X-Telegram-Bot-Api-Secret-Token` using constant-time comparison to
+/// prevent timing-based secret recovery.
+fn verify_telegram_secret(headers: &HeaderMap, expected: &str) -> bool {
+    match headers.get("X-Telegram-Bot-Api-Secret-Token") {
+        Some(value) => {
+            // Constant-time comparison: same length check first, then byte-by-byte.
+            let provided = value.as_bytes();
+            let expected_bytes = expected.as_bytes();
+            if provided.len() != expected_bytes.len() {
+                return false;
+            }
+            provided
+                .iter()
+                .zip(expected_bytes.iter())
+                .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+                == 0
+        }
+        None => false,
+    }
 }
 
 async fn handle_update(
     State(state): State<WebhookState>,
-    Json(update): Json<Update>,
-) -> axum::http::StatusCode {
+    headers: HeaderMap,
+    body: Bytes,
+) -> StatusCode {
+    // Verify webhook secret token when configured.
+    if let Some(ref secret) = state.webhook_secret {
+        if !verify_telegram_secret(&headers, secret) {
+            warn!("Telegram webhook: missing or invalid X-Telegram-Bot-Api-Secret-Token");
+            return StatusCode::UNAUTHORIZED;
+        }
+    }
+
+    let update: Update = match serde_json::from_slice(&body) {
+        Ok(u) => u,
+        Err(e) => {
+            warn!(%e, "Telegram webhook: failed to parse update payload");
+            return StatusCode::BAD_REQUEST;
+        }
+    };
     if let Some((user_id, username)) = extract_user_info(&update) {
         if !state.auth_guard.is_allowed(user_id) {
             warn!(
@@ -144,12 +189,14 @@ pub(crate) async fn run_webhook_server(
     port: u16,
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     auth_guard: Arc<TelegramAuthGuard>,
+    webhook_secret: Option<String>,
 ) {
     // Register webhook with Telegram
     match api
         .set_webhook(
             &webhook_url,
             &["message", "edited_message", "callback_query"],
+            webhook_secret.as_deref(),
         )
         .await
     {
@@ -166,6 +213,7 @@ pub(crate) async fn run_webhook_server(
         sessions,
         memory,
         auth_guard,
+        webhook_secret,
     };
 
     let app = Router::new()

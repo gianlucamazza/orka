@@ -23,7 +23,7 @@ use async_trait::async_trait;
 pub use config::TelegramAdapterConfig;
 use media::{SendMethod, select_send_method};
 use orka_core::{
-    Error, Result,
+    Error, Result, SecretStr,
     traits::{ChannelAdapter, MemoryStore},
     types::{MessageSink, OutboundMessage, Payload, SessionId},
 };
@@ -40,9 +40,13 @@ pub(crate) struct TelegramAuthGuard {
 
 impl TelegramAuthGuard {
     pub(crate) fn from_config(config: &TelegramAdapterConfig) -> Self {
-        // Allow all users by default (no owner_id or allowed_users in config anymore)
-        let _ = config; // Suppress unused warning
-        Self { allowed: None }
+        if config.allowed_users.is_empty() {
+            Self { allowed: None }
+        } else {
+            Self {
+                allowed: Some(config.allowed_users.iter().copied().collect()),
+            }
+        }
     }
 
     pub(crate) fn is_allowed(&self, user_id: i64) -> bool {
@@ -69,7 +73,7 @@ pub struct TelegramAdapter {
 
 impl TelegramAdapter {
     /// Create an adapter with the given config and bot token.
-    pub fn new(config: TelegramAdapterConfig, bot_token: String) -> Self {
+    pub fn new(config: TelegramAdapterConfig, bot_token: SecretStr) -> Self {
         let api = Arc::new(TelegramApi::new(bot_token));
         Self {
             api,
@@ -124,6 +128,12 @@ impl ChannelAdapter for TelegramAdapter {
                 .clone()
                 .ok_or_else(|| Error::Other("webhook_url required for webhook mode".into()))?;
             let port = self.config.webhook_port.unwrap_or(8443);
+            let webhook_secret = self.config.webhook_secret.clone();
+            if webhook_secret.is_none() {
+                warn!(
+                    "Telegram webhook_secret not configured — webhook requests will not be authenticated"
+                );
+            }
             let sink_arc = self.sink.clone();
             tokio::spawn(async move {
                 webhook::run_webhook_server(
@@ -135,6 +145,7 @@ impl ChannelAdapter for TelegramAdapter {
                     port,
                     shutdown_rx,
                     auth_guard,
+                    webhook_secret,
                 )
                 .await;
             });
@@ -366,7 +377,10 @@ mod tests {
     use super::*;
 
     fn make_adapter() -> TelegramAdapter {
-        TelegramAdapter::new(TelegramAdapterConfig::default(), "TEST_TOKEN".into())
+        TelegramAdapter::new(
+            TelegramAdapterConfig::default(),
+            SecretStr::new("TEST_TOKEN"),
+        )
     }
 
     #[test]
@@ -414,5 +428,17 @@ mod tests {
         assert!(guard.is_open());
         assert!(guard.is_allowed(42));
         assert!(guard.is_allowed(99));
+    }
+
+    #[test]
+    fn auth_guard_restricts_when_allowed_users_set() {
+        let mut config = TelegramAdapterConfig::default();
+        config.allowed_users = vec![100, 200];
+        let guard = TelegramAuthGuard::from_config(&config);
+        assert!(!guard.is_open());
+        assert!(guard.is_allowed(100));
+        assert!(guard.is_allowed(200));
+        assert!(!guard.is_allowed(300));
+        assert!(!guard.is_allowed(0));
     }
 }
