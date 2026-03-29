@@ -11,7 +11,7 @@ jobs:
     name: Packaging lint (Debian)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build and lint Debian package
         run: ./scripts/lint-debian-package.sh
 
@@ -19,6 +19,6 @@ jobs:
     name: Packaging lint (Fedora)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build and lint Fedora package
         run: ./scripts/lint-fedora-package.sh

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-29
+
 ### Added
 
 - 14 new REST management endpoints: skills listing, scheduler CRUD, workspace inspection, graph topology, experience system (status/principles/distill), session management
@@ -40,11 +42,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Multi-modal vision** — `ImageSource` (URL / Base64) and `ContentBlockInput::Image` added to
   `orka-llm`; dispatchers forward `image/*` media payloads as vision messages to Anthropic Claude
   and OpenAI providers; captions are appended as text blocks
-
-## [1.0.0] - 2026-03-18
-
-### Added
-
 - `orka-agent` crate: multi-agent graph executor with `AgentGraph`, `GraphExecutor`,
   fan-out/fan-in nodes, transfer/delegate handoffs, and termination policies
 - `orka-wasm` crate: shared `WasmEngine` with module cache and per-instance limits,
