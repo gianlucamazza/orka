@@ -147,3 +147,95 @@ impl Skill for ChartCreateSkill {
         Ok(SkillOutput::new(data).with_attachments(vec![attachment]))
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::collections::HashMap;
+
+    use base64::Engine as _;
+    use orka_core::SkillInput;
+
+    use super::*;
+
+    fn input(args: serde_json::Value) -> SkillInput {
+        let map: HashMap<String, serde_json::Value> =
+            serde_json::from_value(args).expect("valid test args");
+        SkillInput::new(map)
+    }
+
+    #[tokio::test]
+    async fn execute_bar_chart_returns_png_attachment() {
+        let skill = ChartCreateSkill;
+        let result = skill
+            .execute(input(serde_json::json!({
+                "chart_type": "bar",
+                "data": {
+                    "labels": ["A", "B", "C"],
+                    "series": [{"name": "s1", "values": [1.0, 2.0, 3.0]}]
+                }
+            })))
+            .await
+            .unwrap();
+
+        assert_eq!(result.attachments.len(), 1);
+        let attachment = &result.attachments[0];
+        assert_eq!(attachment.mime_type, "image/png");
+        let b64 = attachment.data_base64.as_ref().expect("inline data");
+        let bytes = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        assert!(bytes.starts_with(b"\x89PNG"), "expected PNG header");
+    }
+
+    #[tokio::test]
+    async fn execute_returns_chart_type_and_title_in_data() {
+        let skill = ChartCreateSkill;
+        let result = skill
+            .execute(input(serde_json::json!({
+                "chart_type": "line",
+                "title": "My Chart",
+                "data": {
+                    "labels": ["x", "y"],
+                    "series": [{"name": "s", "values": [5.0, 10.0]}]
+                }
+            })))
+            .await
+            .unwrap();
+
+        assert_eq!(result.data["success"], serde_json::json!(true));
+        assert_eq!(result.data["chart_type"], serde_json::json!("line"));
+        assert_eq!(result.data["title"], serde_json::json!("My Chart"));
+    }
+
+    #[tokio::test]
+    async fn execute_rejects_width_out_of_range() {
+        let skill = ChartCreateSkill;
+        let err = skill
+            .execute(input(serde_json::json!({
+                "chart_type": "bar",
+                "width": 50,
+                "data": {"series": [{"name": "s", "values": [1.0]}]}
+            })))
+            .await;
+        assert!(err.is_err());
+    }
+
+    #[tokio::test]
+    async fn execute_rejects_invalid_chart_type() {
+        let skill = ChartCreateSkill;
+        let err = skill
+            .execute(input(serde_json::json!({
+                "chart_type": "not_a_real_type",
+                "data": {"series": [{"name": "s", "values": [1.0]}]}
+            })))
+            .await;
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn skill_metadata() {
+        let skill = ChartCreateSkill;
+        assert_eq!(skill.name(), "create_chart");
+        assert_eq!(skill.category(), "visualization");
+        assert!(!skill.description().is_empty());
+    }
+}

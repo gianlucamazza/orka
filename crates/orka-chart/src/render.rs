@@ -761,3 +761,114 @@ fn encode_rgb_to_png(rgb: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, E
     .map_err(|e| Error::Render(format!("PNG encode failed: {e}")))?;
     Ok(png_bytes)
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::types::{ChartData, ChartSpec, ChartType, Series};
+
+    fn spec(chart_type: ChartType, labels: Vec<&str>, values: Vec<f64>) -> ChartSpec {
+        ChartSpec {
+            chart_type,
+            title: None,
+            x_label: None,
+            y_label: None,
+            width: 200,
+            height: 150,
+            caption: None,
+            data: ChartData {
+                labels: labels.into_iter().map(String::from).collect(),
+                series: vec![Series {
+                    name: "s".into(),
+                    values,
+                    chart_type: None,
+                    color: None,
+                }],
+            },
+        }
+    }
+
+    #[test]
+    fn render_bar_produces_png() {
+        let png = render_chart(&spec(
+            ChartType::Bar,
+            vec!["A", "B", "C"],
+            vec![1.0, 2.0, 3.0],
+        ))
+        .unwrap();
+        assert!(png.starts_with(b"\x89PNG"), "expected PNG signature");
+        assert!(png.len() > 100);
+    }
+
+    #[test]
+    fn render_line_produces_png() {
+        let png = render_chart(&spec(ChartType::Line, vec!["A", "B"], vec![1.0, 2.0])).unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn render_pie_produces_png() {
+        let png = render_chart(&spec(ChartType::Pie, vec![], vec![10.0, 20.0, 30.0])).unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn render_scatter_produces_png() {
+        let png = render_chart(&spec(ChartType::Scatter, vec![], vec![1.0, 2.0, 3.0])).unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn render_histogram_produces_png() {
+        let png = render_chart(&spec(
+            ChartType::Histogram,
+            vec![],
+            vec![1.0, 2.0, 3.0, 4.0, 5.0],
+        ))
+        .unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn render_area_produces_png() {
+        let png = render_chart(&spec(
+            ChartType::Area,
+            vec!["A", "B", "C"],
+            vec![1.0, 3.0, 2.0],
+        ))
+        .unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn render_stacked_bar_two_series() {
+        let mut s = spec(ChartType::StackedBar, vec!["A", "B"], vec![1.0, 2.0]);
+        s.data.series.push(Series {
+            name: "s2".into(),
+            values: vec![3.0, 4.0],
+            chart_type: None,
+            color: None,
+        });
+        let png = render_chart(&s).unwrap();
+        assert!(png.starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn parse_hex_color_valid() {
+        let c = parse_hex_color("#4CAF50").unwrap();
+        assert_eq!(c, RGBColor(0x4C, 0xAF, 0x50));
+    }
+
+    #[test]
+    fn parse_hex_color_without_hash() {
+        let c = parse_hex_color("FF0000").unwrap();
+        assert_eq!(c, RGBColor(255, 0, 0));
+    }
+
+    #[test]
+    fn parse_hex_color_invalid_returns_none() {
+        assert!(parse_hex_color("ZZZZZZ").is_none());
+        assert!(parse_hex_color("short").is_none());
+    }
+}
