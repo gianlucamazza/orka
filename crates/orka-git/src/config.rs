@@ -64,6 +64,33 @@ impl Default for GitConfig {
     }
 }
 
+impl GitConfig {
+    /// Validate git configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.max_diff_lines == 0 {
+            return Err(orka_core::Error::Config(
+                "git.max_diff_lines must be greater than 0".into(),
+            ));
+        }
+        if self.max_log_entries == 0 {
+            return Err(orka_core::Error::Config(
+                "git.max_log_entries must be greater than 0".into(),
+            ));
+        }
+        if self.command_timeout_secs == 0 {
+            return Err(orka_core::Error::Config(
+                "git.command_timeout_secs must be greater than 0".into(),
+            ));
+        }
+        if self.worktree.max_concurrent == 0 {
+            return Err(orka_core::Error::Config(
+                "git.worktree.max_concurrent must be greater than 0".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// How the agent's authorship is attributed in commits.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]

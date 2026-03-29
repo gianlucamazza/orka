@@ -20,3 +20,15 @@ impl Default for SessionConfig {
         }
     }
 }
+
+impl SessionConfig {
+    /// Validate the session configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.ttl_secs == 0 {
+            return Err(orka_core::Error::Config(
+                "session.ttl_secs must be greater than 0".into(),
+            ));
+        }
+        Ok(())
+    }
+}

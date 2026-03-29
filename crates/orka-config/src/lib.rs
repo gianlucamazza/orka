@@ -93,6 +93,7 @@ pub struct AdapterConfig {
 
 /// Top-level Orka configuration.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct OrkaConfig {
     /// Config schema version.
     #[serde(default = "runtime::default_config_version")]
@@ -339,16 +340,49 @@ impl OrkaConfig {
 
     fn validate_sub_configs(&self) -> orka_core::Result<()> {
         self.server.validate()?;
+        self.bus.validate()?;
         self.redis.validate()?;
+        self.logging.validate()?;
         self.worker.validate()?;
+        self.queue.validate()?;
+        self.memory.validate()?;
+        self.secrets.validate()?;
         self.gateway.validate()?;
         self.llm.validate()?;
         self.knowledge.validate()?;
         self.http.validate()?;
         self.os.validate()?;
         self.experience.validate()?;
+        self.research.validate()?;
+        self.scheduler.validate()?;
+        self.mcp.validate()?;
+        self.auth.validate()?;
+        self.sandbox.validate()?;
+        self.plugins.validate()?;
+        self.soft_skills.validate()?;
+        self.session.validate()?;
+        self.observe.validate()?;
+        self.audit.validate()?;
+        self.guardrails.validate()?;
+        self.web.validate()?;
+        self.a2a.validate()?;
+        self.prompts.validate()?;
+        self.git.validate()?;
+        self.chart.validate()?;
         if let Some(custom) = &self.adapters.custom {
             custom.validate()?;
+        }
+        if let Some(tg) = &self.adapters.telegram {
+            tg.validate()?;
+        }
+        if let Some(dc) = &self.adapters.discord {
+            dc.validate()?;
+        }
+        if let Some(slack) = &self.adapters.slack {
+            slack.validate()?;
+        }
+        if let Some(wa) = &self.adapters.whatsapp {
+            wa.validate()?;
         }
         if !Path::new(&self.workspace_dir).is_dir() {
             return Err(orka_core::Error::Config(format!(

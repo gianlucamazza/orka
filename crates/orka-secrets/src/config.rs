@@ -53,3 +53,10 @@ pub struct SecretConfig {
     #[serde(flatten)]
     pub redis: SecretRedisConfig,
 }
+
+impl SecretConfig {
+    /// Validate secret storage configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        Ok(())
+    }
+}

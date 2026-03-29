@@ -66,6 +66,51 @@ pub struct McpClientConfig {
     pub version: String,
 }
 
+impl McpConfig {
+    /// Validate the MCP configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        let mut seen_names = std::collections::HashSet::new();
+        for server in &self.servers {
+            if server.name.is_empty() {
+                return Err(orka_core::Error::Config(
+                    "mcp server name must not be empty".into(),
+                ));
+            }
+            if !seen_names.insert(&server.name) {
+                return Err(orka_core::Error::Config(format!(
+                    "mcp server name '{}' is not unique",
+                    server.name
+                )));
+            }
+            match server.transport.as_str() {
+                "stdio" => {
+                    if server.command.as_deref().map_or(true, str::is_empty) {
+                        return Err(orka_core::Error::Config(format!(
+                            "mcp server '{}': stdio transport requires a non-empty command",
+                            server.name
+                        )));
+                    }
+                }
+                "streamable_http" | "http" => {
+                    if server.url.as_deref().map_or(true, str::is_empty) {
+                        return Err(orka_core::Error::Config(format!(
+                            "mcp server '{}': http transport requires a non-empty url",
+                            server.name
+                        )));
+                    }
+                }
+                other => {
+                    return Err(orka_core::Error::Config(format!(
+                        "mcp server '{}': unknown transport '{other}' (expected 'stdio' or 'streamable_http')",
+                        server.name
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 fn default_mcp_transport() -> String {
     "stdio".to_string()
 }

@@ -88,6 +88,23 @@ impl Default for WebConfig {
     }
 }
 
+impl WebConfig {
+    /// Validate web configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.search_provider == SearchProviderKind::Searxng && self.searxng_base_url.is_none() {
+            return Err(orka_core::Error::Config(
+                "web.searxng_base_url is required when web.search_provider = \"searxng\"".into(),
+            ));
+        }
+        if self.max_results == 0 {
+            return Err(orka_core::Error::Config(
+                "web.max_results must be greater than 0".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Supported web search backends.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]

@@ -42,6 +42,40 @@ pub struct ApiKeyEntry {
     pub scopes: Vec<String>,
 }
 
+impl AuthConfig {
+    /// Validate the authentication configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if let Some(jwt) = &self.jwt {
+            if jwt.secret.is_none() && jwt.public_key_path.is_none() {
+                return Err(orka_core::Error::Config(
+                    "auth.jwt: at least one of 'secret' or 'public_key_path' must be set".into(),
+                ));
+            }
+        }
+        let mut seen_names = std::collections::HashSet::new();
+        for entry in &self.api_keys {
+            if entry.name.is_empty() {
+                return Err(orka_core::Error::Config(
+                    "auth.api_keys: key name must not be empty".into(),
+                ));
+            }
+            if !seen_names.insert(&entry.name) {
+                return Err(orka_core::Error::Config(format!(
+                    "auth.api_keys: key name '{}' is not unique",
+                    entry.name
+                )));
+            }
+            if entry.key_hash.is_empty() {
+                return Err(orka_core::Error::Config(format!(
+                    "auth.api_keys: key '{}' has an empty key_hash",
+                    entry.name
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 impl ApiKeyEntry {
     /// Create a new API key entry.
     pub fn new(name: impl Into<String>, key_hash: impl Into<String>, scopes: Vec<String>) -> Self {

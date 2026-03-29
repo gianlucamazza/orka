@@ -312,51 +312,14 @@ async fn build_agent_from_def(
 mod tests {
     use std::sync::Arc;
 
-    use orka_config::{OrkaConfig, ServerConfig};
+    use orka_config::OrkaConfig;
     use orka_core::config::{AgentDef, EdgeDef, GraphDef};
     use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 
     fn base_config() -> OrkaConfig {
-        OrkaConfig {
-            config_version: 1,
-            server: ServerConfig::default(),
-            bus: Default::default(),
-            redis: Default::default(),
-            logging: Default::default(),
-            workspace_dir: ".".into(),
-            workspaces: vec![],
-            default_workspace: None,
-            adapters: Default::default(),
-            worker: Default::default(),
-            memory: Default::default(),
-            secrets: Default::default(),
-            auth: Default::default(),
-            sandbox: Default::default(),
-            plugins: Default::default(),
-            soft_skills: Default::default(),
-            session: Default::default(),
-            queue: Default::default(),
-            llm: Default::default(),
-            tools: Default::default(),
-            observe: Default::default(),
-            audit: Default::default(),
-            gateway: Default::default(),
-            mcp: Default::default(),
-            guardrails: Default::default(),
-            web: Default::default(),
-            os: Default::default(),
-            a2a: Default::default(),
-            knowledge: Default::default(),
-            scheduler: Default::default(),
-            http: Default::default(),
-            experience: Default::default(),
-            git: Default::default(),
-            prompts: Default::default(),
-            agents: vec![],
-            graph: None,
-            research: Default::default(),
-            chart: Default::default(),
-        }
+        let mut cfg = OrkaConfig::default();
+        cfg.workspace_dir = ".".into();
+        cfg
     }
 
     fn make_registry() -> WorkspaceRegistry {

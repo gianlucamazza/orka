@@ -84,3 +84,56 @@ impl Default for AuditConfig {
         }
     }
 }
+
+impl ObserveConfig {
+    /// Validate the observability configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.batch_size == 0 {
+            return Err(orka_core::Error::Config(
+                "observe.batch_size must be greater than 0".into(),
+            ));
+        }
+        if self.flush_interval_ms == 0 {
+            return Err(orka_core::Error::Config(
+                "observe.flush_interval_ms must be greater than 0".into(),
+            ));
+        }
+        if self.backend == "otlp" && self.otlp_endpoint.as_deref().map_or(true, str::is_empty) {
+            return Err(orka_core::Error::Config(
+                "observe.otlp_endpoint must be set when backend is 'otlp'".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl AuditConfig {
+    /// Validate the audit configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.enabled {
+            match self.output.as_str() {
+                "file" => {
+                    if self.path.is_none() {
+                        return Err(orka_core::Error::Config(
+                            "audit.path must be set when output is 'file'".into(),
+                        ));
+                    }
+                }
+                "redis" => {
+                    if self.redis_key.as_deref().map_or(true, str::is_empty) {
+                        return Err(orka_core::Error::Config(
+                            "audit.redis_key must be set when output is 'redis'".into(),
+                        ));
+                    }
+                }
+                "stdout" => {}
+                other => {
+                    return Err(orka_core::Error::Config(format!(
+                        "audit.output: unknown value '{other}' (expected 'stdout', 'file', or 'redis')"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+}

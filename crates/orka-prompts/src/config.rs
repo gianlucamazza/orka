@@ -43,6 +43,18 @@ impl Default for PromptsConfig {
     }
 }
 
+impl PromptsConfig {
+    /// Validate prompts configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.max_principles == 0 {
+            return Err(orka_core::Error::Config(
+                "prompts.max_principles must be greater than 0".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 fn default_prompts_dir() -> String {
     "PROMPTS".to_string()
 }

@@ -28,6 +28,13 @@ impl Default for GuardrailsConfig {
 }
 
 impl GuardrailsConfig {
+    /// Validate guardrails configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        validate_rules(&self.input, "guardrails.input")?;
+        validate_rules(&self.output, "guardrails.output")?;
+        Ok(())
+    }
+
     /// Set enabled flag (builder pattern).
     #[must_use]
     pub fn with_enabled(mut self, enabled: bool) -> Self {
@@ -48,6 +55,31 @@ impl GuardrailsConfig {
         self.output = rules;
         self
     }
+}
+
+fn validate_rules(rules: &GuardrailRules, prefix: &str) -> orka_core::Result<()> {
+    for pattern in &rules.blocked_patterns {
+        regex::Regex::new(pattern).map_err(|e| {
+            orka_core::Error::Config(format!(
+                "{prefix}.blocked_patterns: invalid regex \"{pattern}\": {e}"
+            ))
+        })?;
+    }
+    for rp in &rules.redact_patterns {
+        regex::Regex::new(&rp.pattern).map_err(|e| {
+            orka_core::Error::Config(format!(
+                "{prefix}.redact_patterns[\"{name}\"]: invalid regex: {e}",
+                name = rp.name
+            ))
+        })?;
+    }
+    if rules.llm_moderation.threshold < 0.0 || rules.llm_moderation.threshold > 1.0 {
+        return Err(orka_core::Error::Config(format!(
+            "{prefix}.llm_moderation.threshold must be between 0.0 and 1.0, got {}",
+            rules.llm_moderation.threshold
+        )));
+    }
+    Ok(())
 }
 
 const fn default_guardrails_enabled() -> bool {

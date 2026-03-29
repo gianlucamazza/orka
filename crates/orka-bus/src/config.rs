@@ -62,6 +62,23 @@ impl Default for BusConfig {
     }
 }
 
+impl BusConfig {
+    /// Validate bus configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.batch_size == 0 {
+            return Err(orka_core::Error::Config(
+                "bus.batch_size must be greater than 0".into(),
+            ));
+        }
+        if self.backoff_initial_secs > self.backoff_max_secs {
+            return Err(orka_core::Error::Config(
+                "bus.backoff_initial_secs must be <= bus.backoff_max_secs".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

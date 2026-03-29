@@ -10,3 +10,10 @@ pub struct ChartConfig {
     /// Enable chart generation skills. Defaults to `false`.
     pub enabled: bool,
 }
+
+impl ChartConfig {
+    /// Validate chart configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        Ok(())
+    }
+}

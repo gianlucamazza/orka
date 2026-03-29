@@ -16,6 +16,13 @@ pub struct PluginConfig {
     pub plugins: HashMap<String, PluginInstanceConfig>,
 }
 
+impl PluginConfig {
+    /// Validate plugin configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        Ok(())
+    }
+}
+
 /// Plugin capabilities (deny-by-default).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[non_exhaustive]
@@ -86,6 +93,19 @@ impl Default for SoftSkillConfig {
             dir: None,
             selection_mode: default_soft_skill_selection_mode(),
         }
+    }
+}
+
+impl SoftSkillConfig {
+    /// Validate soft skill configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if !matches!(self.selection_mode.as_str(), "all" | "keyword") {
+            return Err(orka_core::Error::Config(format!(
+                "soft_skills.selection_mode must be \"all\" or \"keyword\", got \"{}\"",
+                self.selection_mode
+            )));
+        }
+        Ok(())
     }
 }
 

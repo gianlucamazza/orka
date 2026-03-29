@@ -202,6 +202,13 @@ pub struct LoggingConfig {
     pub json: bool,
 }
 
+impl LoggingConfig {
+    /// Validate logging configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        Ok(())
+    }
+}
+
 /// Worker pool configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
@@ -249,6 +256,13 @@ impl Default for QueueConfig {
         Self {
             max_retries: default_max_retries(),
         }
+    }
+}
+
+impl QueueConfig {
+    /// Validate queue configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        Ok(())
     }
 }
 

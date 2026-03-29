@@ -82,6 +82,28 @@ impl Default for SandboxLimitsConfig {
     }
 }
 
+impl SandboxConfig {
+    /// Validate the sandbox configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.limits.timeout_secs == 0 {
+            return Err(orka_core::Error::Config(
+                "sandbox.limits.timeout_secs must be greater than 0".into(),
+            ));
+        }
+        if self.limits.max_memory_bytes == 0 {
+            return Err(orka_core::Error::Config(
+                "sandbox.limits.max_memory_bytes must be greater than 0".into(),
+            ));
+        }
+        if self.limits.max_pids == 0 {
+            return Err(orka_core::Error::Config(
+                "sandbox.limits.max_pids must be greater than 0".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

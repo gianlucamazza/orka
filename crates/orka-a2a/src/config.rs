@@ -35,6 +35,27 @@ impl Default for A2aConfig {
     }
 }
 
+impl A2aConfig {
+    /// Validate the A2A configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.discovery_enabled && self.discovery_interval_secs == 0 {
+            return Err(orka_core::Error::Config(
+                "a2a.discovery_interval_secs must be greater than 0 when discovery is enabled"
+                    .into(),
+            ));
+        }
+        match self.store_backend.as_str() {
+            "memory" | "redis" => {}
+            other => {
+                return Err(orka_core::Error::Config(format!(
+                    "a2a.store_backend: unknown value '{other}' (expected 'memory' or 'redis')"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 const fn default_a2a_discovery_enabled() -> bool {
     false
 }

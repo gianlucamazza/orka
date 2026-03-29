@@ -37,3 +37,15 @@ impl Default for MemoryConfig {
         }
     }
 }
+
+impl MemoryConfig {
+    /// Validate memory configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.max_entries == 0 {
+            return Err(orka_core::Error::Config(
+                "memory.max_entries must be greater than 0".into(),
+            ));
+        }
+        Ok(())
+    }
+}
