@@ -3,12 +3,12 @@
 use std::{collections::HashMap, sync::Arc};
 
 use orka_adapter_discord::DiscordAdapter;
-use orka_core::{traits::ChannelAdapter, types::SessionId};
+use orka_core::{SecretStr, traits::ChannelAdapter, types::SessionId};
 use tokio::sync::Mutex;
 
 #[test]
 fn channel_id_returns_discord() {
-    let adapter = DiscordAdapter::new("test-token".into(), None);
+    let adapter = DiscordAdapter::new(SecretStr::new("test-token"), None);
     assert_eq!(adapter.channel_id(), "discord");
 }
 
@@ -116,6 +116,6 @@ fn bot_message_filtering() {
 
 #[tokio::test]
 async fn shutdown_without_start_is_ok() {
-    let adapter = DiscordAdapter::new("test-token".into(), None);
+    let adapter = DiscordAdapter::new(SecretStr::new("test-token"), None);
     adapter.shutdown().await.unwrap();
 }

@@ -21,3 +21,10 @@ impl std::fmt::Debug for DiscordAdapterConfig {
             .finish_non_exhaustive()
     }
 }
+
+impl DiscordAdapterConfig {
+    /// Validate Discord adapter configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        Ok(())
+    }
+}

@@ -10,7 +10,7 @@ use async_trait::async_trait;
 pub use config::DiscordAdapterConfig;
 use futures_util::{SinkExt, StreamExt};
 use orka_core::{
-    Error, Result,
+    Error, Result, SecretStr,
     traits::ChannelAdapter,
     types::{
         CommandPayload, Envelope, MediaPayload, MessageSink, OutboundMessage, Payload, SessionId,
@@ -24,7 +24,7 @@ use tracing::{debug, error, info, warn};
 
 /// Discord Gateway [`ChannelAdapter`] using WebSocket and REST API.
 pub struct DiscordAdapter {
-    bot_token: String,
+    bot_token: Arc<SecretStr>,
     application_id: Option<String>,
     client: Client,
     sink: Arc<Mutex<Option<MessageSink>>>,
@@ -34,9 +34,9 @@ pub struct DiscordAdapter {
 
 impl DiscordAdapter {
     /// Create an adapter with the given bot token and optional application ID.
-    pub fn new(bot_token: String, application_id: Option<String>) -> Self {
+    pub fn new(bot_token: SecretStr, application_id: Option<String>) -> Self {
         Self {
-            bot_token,
+            bot_token: Arc::new(bot_token),
             application_id,
             client: Client::new(),
             sink: Arc::new(Mutex::new(None)),
@@ -86,7 +86,7 @@ impl ChannelAdapter for DiscordAdapter {
         let gateway_resp: GatewayResponse = self
             .client
             .get(Self::api_url("/gateway/bot"))
-            .header("Authorization", format!("Bot {}", self.bot_token))
+            .header("Authorization", format!("Bot {}", self.bot_token.expose()))
             .send()
             .await
             .map_err(|e| Error::Adapter {
@@ -101,8 +101,9 @@ impl ChannelAdapter for DiscordAdapter {
             })?;
 
         let initial_ws_url = format!("{}/?v=10&encoding=json", gateway_resp.url);
-        let bot_token = self.bot_token.clone();
+        let bot_token = Arc::clone(&self.bot_token);
         let sessions = self.sessions.clone();
+        let http_client = self.client.clone();
 
         tokio::spawn(async move {
             let mut reconnect_count: u32 = 0;
@@ -157,13 +158,13 @@ impl ChannelAdapter for DiscordAdapter {
                 {
                     serde_json::json!({
                         "op": 6,
-                        "d": { "token": bot_token, "session_id": sid, "seq": seq }
+                        "d": { "token": bot_token.expose(), "session_id": sid, "seq": seq }
                     })
                 } else {
                     serde_json::json!({
                         "op": 2,
                         "d": {
-                            "token": bot_token,
+                            "token": bot_token.expose(),
                             "intents": 33280, // GUILDS | GUILD_MESSAGES | MESSAGE_CONTENT
                             "properties": { "os": "linux", "browser": "orka", "device": "orka" }
                         }
@@ -183,15 +184,23 @@ impl ChannelAdapter for DiscordAdapter {
 
                 reconnect_count = 0;
 
-                // Heartbeat task — includes last sequence number
+                // Heartbeat task — Discord requires the last seen sequence number
+                // in the "d" field (null only before the first dispatch).
                 let write = Arc::new(Mutex::new(write));
                 let write_hb = write.clone();
+                // Share the sequence number with the heartbeat task via an Arc<Mutex>.
+                let sequence_shared = Arc::new(Mutex::new(resume.sequence));
+                let sequence_hb = sequence_shared.clone();
                 let heartbeat_handle = tokio::spawn(async move {
                     let mut interval =
                         tokio::time::interval(std::time::Duration::from_millis(heartbeat_interval));
                     loop {
                         interval.tick().await;
-                        let hb = serde_json::json!({"op": 1, "d": serde_json::Value::Null});
+                        let seq = *sequence_hb.lock().await;
+                        let hb = serde_json::json!({
+                            "op": 1,
+                            "d": seq.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null)
+                        });
                         let mut w = write_hb.lock().await;
                         if w.send(tokio_tungstenite::tungstenite::Message::Text(
                             hb.to_string().into(),
@@ -219,6 +228,7 @@ impl ChannelAdapter for DiscordAdapter {
 
                                     if let Some(s) = event.s {
                                         resume.sequence = Some(s);
+                                        *sequence_shared.lock().await = Some(s);
                                     }
 
                                     match event.op {
@@ -280,6 +290,34 @@ impl ChannelAdapter for DiscordAdapter {
                                                 Some("INTERACTION_CREATE") => {
                                                     // APPLICATION_COMMAND (type 2)
                                                     if d["type"].as_u64() != Some(2) { continue; }
+
+                                                    let interaction_id = d["id"].as_str().unwrap_or("").to_string();
+                                                    let interaction_token = d["token"].as_str().unwrap_or("").to_string();
+
+                                                    // Immediately ACK the interaction with a deferred channel message
+                                                    // response (type 5) to prevent Discord from showing
+                                                    // "interaction failed" after 3 seconds.
+                                                    {
+                                                        let client = http_client.clone();
+                                                        let token = Arc::clone(&bot_token);
+                                                        let iid = interaction_id.clone();
+                                                        let itok = interaction_token.clone();
+                                                        tokio::spawn(async move {
+                                                            let ack_url = Self::api_url(&format!(
+                                                                "/interactions/{iid}/{itok}/callback"
+                                                            ));
+                                                            let ack_body = serde_json::json!({"type": 5});
+                                                            if let Err(e) = client
+                                                                .post(&ack_url)
+                                                                .header("Authorization", format!("Bot {}", token.expose()))
+                                                                .json(&ack_body)
+                                                                .send()
+                                                                .await
+                                                            {
+                                                                warn!(%e, "Discord: failed to ACK interaction");
+                                                            }
+                                                        });
+                                                    }
 
                                                     let channel_id = d["channel_id"].as_str().unwrap_or("");
                                                     let cmd_name = d["data"]["name"].as_str().unwrap_or("").to_string();
@@ -368,28 +406,63 @@ impl ChannelAdapter for DiscordAdapter {
                 context: "missing discord_channel_id in outbound metadata".into(),
             })?;
 
+        let auth = format!("Bot {}", self.bot_token.expose());
+        let msg_url = Self::api_url(&format!("/channels/{channel_id}/messages"));
+
         match &msg.payload {
             Payload::Text(text) => {
                 let body = serde_json::json!({ "content": text });
-                let resp = self
-                    .client
-                    .post(Self::api_url(&format!("/channels/{channel_id}/messages")))
-                    .header("Authorization", format!("Bot {}", self.bot_token))
-                    .json(&body)
-                    .send()
-                    .await
-                    .map_err(|e| Error::Adapter {
-                        source: Box::new(e),
-                        context: "Discord send message failed".into(),
-                    })?;
-                if !resp.status().is_success() {
-                    let body = resp.text().await.unwrap_or_default();
-                    return Err(Error::Adapter {
-                        source: Box::new(std::io::Error::other(body.clone())),
-                        context: format!("Discord API error: {body}"),
-                    });
+                let mut last_err: Option<Error> = None;
+                for attempt in 0..3u32 {
+                    if attempt > 0 {
+                        let ms = 500u64.saturating_mul(1u64 << (attempt - 1));
+                        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+                    }
+                    match self
+                        .client
+                        .post(&msg_url)
+                        .header("Authorization", &auth)
+                        .json(&body)
+                        .send()
+                        .await
+                    {
+                        Err(e) if e.is_timeout() || e.is_connect() => {
+                            last_err = Some(Error::Adapter {
+                                source: Box::new(e),
+                                context: "Discord send message failed (transient)".into(),
+                            });
+                        }
+                        Err(e) => {
+                            return Err(Error::Adapter {
+                                source: Box::new(e),
+                                context: "Discord send message failed".into(),
+                            });
+                        }
+                        Ok(r) if r.status() == 429 || r.status().is_server_error() => {
+                            let status = r.status();
+                            let text = r.text().await.unwrap_or_default();
+                            last_err = Some(Error::Adapter {
+                                source: Box::new(std::io::Error::other(text.clone())),
+                                context: format!("Discord API error {status}: {text}"),
+                            });
+                        }
+                        Ok(r) if !r.status().is_success() => {
+                            let text = r.text().await.unwrap_or_default();
+                            return Err(Error::Adapter {
+                                source: Box::new(std::io::Error::other(text.clone())),
+                                context: format!("Discord API error: {text}"),
+                            });
+                        }
+                        Ok(_) => {
+                            debug!(channel_id, "sent text message to Discord");
+                            last_err = None;
+                            break;
+                        }
+                    }
                 }
-                debug!(channel_id, "sent text message to Discord");
+                if let Some(e) = last_err {
+                    return Err(e);
+                }
             }
             Payload::Media(media) => {
                 let raw_bytes: Vec<u8> = if let Some(data) = media.decode_data() {
@@ -413,34 +486,72 @@ impl ChannelAdapter for DiscordAdapter {
                 };
 
                 let filename = media.caption.clone().unwrap_or_else(|| "attachment".into());
-                let part = reqwest::multipart::Part::bytes(raw_bytes)
-                    .file_name(filename)
-                    .mime_str(&media.mime_type)
-                    .map_err(|e| Error::Adapter {
-                        source: Box::new(e),
-                        context: "Discord multipart MIME error".into(),
-                    })?;
+                let mime = media.mime_type.clone();
 
-                let form = reqwest::multipart::Form::new().part("files[0]", part);
-                let resp = self
-                    .client
-                    .post(Self::api_url(&format!("/channels/{channel_id}/messages")))
-                    .header("Authorization", format!("Bot {}", self.bot_token))
-                    .multipart(form)
-                    .send()
-                    .await
-                    .map_err(|e| Error::Adapter {
-                        source: Box::new(e),
-                        context: "Discord media send failed".into(),
-                    })?;
-                if !resp.status().is_success() {
-                    let body = resp.text().await.unwrap_or_default();
-                    return Err(Error::Adapter {
-                        source: Box::new(std::io::Error::other(body.clone())),
-                        context: format!("Discord API error (media): {body}"),
-                    });
+                let mut last_err: Option<Error> = None;
+                for attempt in 0..3u32 {
+                    if attempt > 0 {
+                        let ms = 500u64.saturating_mul(1u64 << (attempt - 1));
+                        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+                    }
+                    let part = match reqwest::multipart::Part::bytes(raw_bytes.clone())
+                        .file_name(filename.clone())
+                        .mime_str(&mime)
+                    {
+                        Ok(p) => p,
+                        Err(e) => {
+                            return Err(Error::Adapter {
+                                source: Box::new(e),
+                                context: "Discord multipart MIME error".into(),
+                            });
+                        }
+                    };
+                    let form = reqwest::multipart::Form::new().part("files[0]", part);
+                    match self
+                        .client
+                        .post(&msg_url)
+                        .header("Authorization", &auth)
+                        .multipart(form)
+                        .send()
+                        .await
+                    {
+                        Err(e) if e.is_timeout() || e.is_connect() => {
+                            last_err = Some(Error::Adapter {
+                                source: Box::new(e),
+                                context: "Discord media send failed (transient)".into(),
+                            });
+                        }
+                        Err(e) => {
+                            return Err(Error::Adapter {
+                                source: Box::new(e),
+                                context: "Discord media send failed".into(),
+                            });
+                        }
+                        Ok(r) if r.status() == 429 || r.status().is_server_error() => {
+                            let status = r.status();
+                            let text = r.text().await.unwrap_or_default();
+                            last_err = Some(Error::Adapter {
+                                source: Box::new(std::io::Error::other(text.clone())),
+                                context: format!("Discord API error {status} (media): {text}"),
+                            });
+                        }
+                        Ok(r) if !r.status().is_success() => {
+                            let text = r.text().await.unwrap_or_default();
+                            return Err(Error::Adapter {
+                                source: Box::new(std::io::Error::other(text.clone())),
+                                context: format!("Discord API error (media): {text}"),
+                            });
+                        }
+                        Ok(_) => {
+                            debug!(channel_id, "sent media to Discord");
+                            last_err = None;
+                            break;
+                        }
+                    }
                 }
-                debug!(channel_id, "sent media to Discord");
+                if let Some(e) = last_err {
+                    return Err(e);
+                }
             }
             _ => {
                 warn!("Discord adapter: unsupported payload type, skipping");
@@ -468,7 +579,7 @@ impl ChannelAdapter for DiscordAdapter {
         let resp = self
             .client
             .put(Self::api_url(&format!("/applications/{app_id}/commands")))
-            .header("Authorization", format!("Bot {}", self.bot_token))
+            .header("Authorization", format!("Bot {}", self.bot_token.expose()))
             .json(&cmds)
             .send()
             .await
@@ -517,7 +628,7 @@ mod tests {
 
     #[test]
     fn channel_id_returns_discord() {
-        let adapter = DiscordAdapter::new("test-token".into(), None);
+        let adapter = DiscordAdapter::new(SecretStr::new("test-token"), None);
         assert_eq!(adapter.channel_id(), "discord");
     }
 
@@ -531,7 +642,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_errors_when_discord_channel_id_missing() {
-        let adapter = DiscordAdapter::new("test-token".into(), None);
+        let adapter = DiscordAdapter::new(SecretStr::new("test-token"), None);
         let msg = OutboundMessage::text("discord", SessionId::new(), "hello", None);
         let err = adapter.send(msg).await.unwrap_err();
         let msg = format!("{err}");
