@@ -1,6 +1,6 @@
 use orka_core::{Error, Result};
 use wasmtime::{Linker, Store, StoreLimits, StoreLimitsBuilder, TypedFunc};
-use wasmtime_wasi::{WasiCtxBuilder, p1::WasiP1Ctx};
+use wasmtime_wasi::{p1::WasiP1Ctx, WasiCtxBuilder};
 
 use crate::{config::WasmLimits, engine::WasmModule};
 
@@ -68,6 +68,11 @@ impl WasmInstance {
             .instantiate(&mut store, &module.module)
             .map_err(|e| Error::sandbox_msg(format!("failed to instantiate module: {e}")))?;
 
+        tracing::debug!(
+            max_memory_bytes = limits.max_memory_bytes,
+            fuel = ?limits.fuel,
+            "WASM instance built"
+        );
         Ok(Self {
             store,
             instance,
@@ -102,9 +107,13 @@ impl WasmInstance {
     pub fn call_start(&mut self) -> Result<i32> {
         let f: TypedFunc<(), ()> = self.get_func("_start")?;
         match f.call(&mut self.store, ()) {
-            Ok(()) => Ok(0),
+            Ok(()) => {
+                tracing::debug!(exit_code = 0, "WASM _start returned");
+                Ok(0)
+            }
             Err(e) => {
                 if let Some(exit) = e.downcast_ref::<wasmtime_wasi::I32Exit>() {
+                    tracing::debug!(exit_code = exit.0, "WASM _start exited");
                     Ok(exit.0)
                 } else {
                     tracing::warn!(%e, "WASM execution error");

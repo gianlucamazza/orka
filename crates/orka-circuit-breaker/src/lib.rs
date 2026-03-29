@@ -283,6 +283,7 @@ impl CircuitBreaker {
             tracing::info!("circuit breaker transitioning to HalfOpen");
             self.call_half_open(f).await
         } else {
+            tracing::debug!("circuit breaker is open, rejecting call");
             Err(CircuitBreakerError::Open)
         }
     }
@@ -296,6 +297,7 @@ impl CircuitBreaker {
         let prev = self.half_open_probes.fetch_add(1, Ordering::SeqCst);
         if prev >= 1 {
             self.half_open_probes.fetch_sub(1, Ordering::SeqCst);
+            tracing::debug!("circuit breaker half-open probe already in flight, rejecting call");
             return Err(CircuitBreakerError::Open);
         }
 

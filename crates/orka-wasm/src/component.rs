@@ -1,4 +1,5 @@
 use orka_core::{Error, Result};
+use tracing::{debug, warn};
 use wasmtime::{
     Store, StoreLimits, StoreLimitsBuilder,
     component::{Component, Linker, ResourceTable},
@@ -55,8 +56,10 @@ pub struct WasmComponent {
 impl WasmComponent {
     /// Load and compile a WASM component from bytes.
     pub fn compile(engine: &WasmEngine, bytes: &[u8]) -> Result<Self> {
+        debug!(bytes_len = bytes.len(), "compiling WASM component");
         let component = Component::new(&engine.0, bytes)
             .map_err(|e| Error::sandbox_msg(format!("failed to compile WASM component: {e}")))?;
+        debug!("WASM component compiled successfully");
         Ok(Self {
             component,
             engine: engine.clone(),
@@ -78,6 +81,8 @@ impl WasmComponent {
             .call_info(&mut store)
             .map_err(|e| Error::sandbox_msg(format!("plugin info() trap: {e}")))?;
 
+        debug!(plugin_name = %info.name, args_count = args.len(), "executing WASM plugin");
+
         plugin
             .call_init(&mut store)
             .map_err(|e| Error::sandbox_msg(format!("plugin init() trap: {e}")))?
@@ -86,11 +91,18 @@ impl WasmComponent {
         let input = PluginInput { args };
         let output = plugin
             .call_execute(&mut store, &input)
-            .map_err(|e| Error::sandbox_msg(format!("plugin execute() trap: {e}")))?
-            .map_err(|e| Error::Skill(format!("plugin execute() error: {e}")))?;
+            .map_err(|e| {
+                warn!(plugin_name = %info.name, %e, "WASM plugin execute() trap");
+                Error::sandbox_msg(format!("plugin execute() trap: {e}"))
+            })?
+            .map_err(|e| {
+                warn!(plugin_name = %info.name, error = %e, "WASM plugin execute() returned error");
+                Error::Skill(format!("plugin execute() error: {e}"))
+            })?;
 
         let _ = plugin.call_cleanup(&mut store);
 
+        debug!(plugin_name = %info.name, "WASM plugin execution complete");
         Ok((info, output.data))
     }
 

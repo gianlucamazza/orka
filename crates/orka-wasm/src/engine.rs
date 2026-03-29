@@ -1,4 +1,5 @@
 use orka_core::{Error, Result};
+use tracing::debug;
 use wasmtime::{Engine, Module};
 
 /// Shared wasmtime engine with fuel and Component Model enabled.
@@ -20,8 +21,10 @@ impl WasmEngine {
 
     /// Pre-compile a core WASM module (bytes or WAT text).
     pub fn compile(&self, bytes: &[u8]) -> Result<WasmModule> {
+        debug!(bytes_len = bytes.len(), "compiling WASM core module");
         let module = Module::new(&self.0, bytes)
             .map_err(|e| Error::sandbox_msg(format!("failed to compile WASM module: {e}")))?;
+        debug!("WASM core module compiled successfully");
         Ok(WasmModule { module })
     }
 
