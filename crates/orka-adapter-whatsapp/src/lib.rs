@@ -8,13 +8,16 @@ use std::{collections::HashMap, future::IntoFuture, sync::Arc};
 
 use async_trait::async_trait;
 use axum::{
-    Json, Router,
+    Router,
+    body::Bytes,
     extract::{Query, State},
+    http::HeaderMap,
     routing::get,
 };
 pub use config::WhatsAppAdapterConfig;
+use hmac::{Hmac, Mac};
 use orka_core::{
-    Error, Result,
+    Error, Result, SecretStr,
     traits::ChannelAdapter,
     types::{
         Envelope, MediaPayload, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay,
@@ -22,17 +25,60 @@ use orka_core::{
 };
 use reqwest::Client;
 use serde::Deserialize;
+use sha2::Sha256;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// Verify `X-Hub-Signature-256` using HMAC-SHA256 with the app secret.
+///
+/// Meta sends `sha256={hex(HMAC-SHA256(app_secret, raw_body))}` in the header.
+fn verify_whatsapp_signature(headers: &HeaderMap, body: &[u8], app_secret: &str) -> bool {
+    let sig_header = match headers
+        .get("X-Hub-Signature-256")
+        .and_then(|v| v.to_str().ok())
+    {
+        Some(s) => s.to_owned(),
+        None => {
+            warn!("WhatsApp webhook: missing X-Hub-Signature-256 header");
+            return false;
+        }
+    };
+
+    let provided_hex = sig_header.strip_prefix("sha256=").unwrap_or(&sig_header);
+
+    let mut mac = match HmacSha256::new_from_slice(app_secret.as_bytes()) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    mac.update(body);
+    let expected_hex = hex::encode(mac.finalize().into_bytes());
+
+    // Constant-time comparison.
+    let expected_b = expected_hex.as_bytes();
+    let provided_b = provided_hex.as_bytes();
+    if expected_b.len() != provided_b.len() {
+        return false;
+    }
+    expected_b
+        .iter()
+        .zip(provided_b.iter())
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
+}
 
 /// Default Graph API version used when not overridden by the caller.
 const DEFAULT_API_VERSION: &str = "v21.0";
 
 /// `WhatsApp` Cloud API [`ChannelAdapter`] using webhook verification.
 pub struct WhatsAppAdapter {
-    access_token: String,
+    access_token: Arc<SecretStr>,
     phone_number_id: String,
-    verify_token: String,
+    verify_token: Arc<SecretStr>,
+    /// App secret used to verify `X-Hub-Signature-256` on incoming webhooks.
+    /// When `None`, signature verification is skipped and a warning is logged.
+    app_secret: Option<Arc<SecretStr>>,
     api_version: String,
     client: Client,
     sink: Arc<Mutex<Option<MessageSink>>>,
@@ -44,15 +90,22 @@ pub struct WhatsAppAdapter {
 impl WhatsAppAdapter {
     /// Create an adapter with the given Cloud API credentials and webhook port.
     pub fn new(
-        access_token: String,
+        access_token: SecretStr,
         phone_number_id: String,
-        verify_token: String,
+        verify_token: SecretStr,
+        app_secret: Option<SecretStr>,
         listen_port: u16,
     ) -> Self {
+        if app_secret.is_none() {
+            warn!(
+                "WhatsApp app_secret not configured — incoming webhooks will not be authenticated"
+            );
+        }
         Self {
-            access_token,
+            access_token: Arc::new(access_token),
             phone_number_id,
-            verify_token,
+            verify_token: Arc::new(verify_token),
+            app_secret: app_secret.map(Arc::new),
             api_version: DEFAULT_API_VERSION.to_string(),
             client: Client::new(),
             sink: Arc::new(Mutex::new(None)),
@@ -126,12 +179,13 @@ struct WhatsAppMedia {
 
 #[derive(Clone)]
 struct AppState {
-    verify_token: String,
-    access_token: String,
+    verify_token: Arc<SecretStr>,
+    access_token: Arc<SecretStr>,
     api_version: String,
     client: Client,
     sink: Arc<Mutex<Option<MessageSink>>>,
     sessions: Arc<Mutex<HashMap<String, SessionId>>>,
+    app_secret: Option<Arc<SecretStr>>,
 }
 
 async fn webhook_verify(
@@ -139,7 +193,7 @@ async fn webhook_verify(
     Query(params): Query<WebhookVerifyParams>,
 ) -> axum::response::Response {
     if params.mode.as_deref() == Some("subscribe")
-        && params.token.as_deref() == Some(&state.verify_token)
+        && params.token.as_deref() == Some((*state.verify_token).expose())
         && let Some(challenge) = params.challenge
     {
         return axum::response::IntoResponse::into_response(challenge);
@@ -149,8 +203,23 @@ async fn webhook_verify(
 
 async fn webhook_receive(
     State(state): State<AppState>,
-    Json(payload): Json<WebhookPayload>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> axum::http::StatusCode {
+    if let Some(ref secret) = state.app_secret {
+        if !verify_whatsapp_signature(&headers, &body, (*secret).expose()) {
+            warn!("WhatsApp webhook: X-Hub-Signature-256 verification failed, rejecting request");
+            return axum::http::StatusCode::UNAUTHORIZED;
+        }
+    }
+
+    let payload: WebhookPayload = match serde_json::from_slice(&body) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(%e, "WhatsApp webhook: failed to parse payload");
+            return axum::http::StatusCode::BAD_REQUEST;
+        }
+    };
     if let Some(entries) = payload.entry {
         for entry in entries {
             if let Some(changes) = entry.changes {
@@ -189,7 +258,7 @@ async fn webhook_receive(
                                 // Resolve media ID → URL via Cloud API
                                 let url = match resolve_media_url_inner(
                                     &state.client,
-                                    &state.access_token,
+                                    state.access_token.expose(),
                                     &media_id,
                                     &state.api_version,
                                 )
@@ -307,6 +376,7 @@ impl ChannelAdapter for WhatsAppAdapter {
             client: self.client.clone(),
             sink: self.sink.clone(),
             sessions: self.sessions.clone(),
+            app_secret: self.app_secret.clone(),
         };
 
         let state_for_restart = state.clone();
@@ -418,28 +488,58 @@ impl ChannelAdapter for WhatsAppAdapter {
             }
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.access_token))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| Error::Adapter {
-                source: Box::new(e),
-                context: "WhatsApp send message failed".into(),
-            })?;
-
-        if !response.status().is_success() {
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::Adapter {
-                source: Box::new(std::io::Error::other(body.clone())),
-                context: format!("WhatsApp API error: {body}"),
-            });
+        let auth = format!("Bearer {}", self.access_token.expose());
+        let mut last_err: Option<Error> = None;
+        for attempt in 0..3u32 {
+            if attempt > 0 {
+                let ms = 500u64.saturating_mul(1u64 << (attempt - 1));
+                tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+            }
+            let result = self
+                .client
+                .post(&url)
+                .header("Authorization", &auth)
+                .json(&body)
+                .send()
+                .await;
+            match result {
+                Err(e) if e.is_timeout() || e.is_connect() => {
+                    last_err = Some(Error::Adapter {
+                        source: Box::new(e),
+                        context: "WhatsApp send message failed (transient)".into(),
+                    });
+                }
+                Err(e) => {
+                    return Err(Error::Adapter {
+                        source: Box::new(e),
+                        context: "WhatsApp send message failed".into(),
+                    });
+                }
+                Ok(resp) if resp.status() == 429 || resp.status().is_server_error() => {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    last_err = Some(Error::Adapter {
+                        source: Box::new(std::io::Error::other(text.clone())),
+                        context: format!("WhatsApp API error {status}: {text}"),
+                    });
+                }
+                Ok(resp) if !resp.status().is_success() => {
+                    let text = resp.text().await.unwrap_or_default();
+                    return Err(Error::Adapter {
+                        source: Box::new(std::io::Error::other(text.clone())),
+                        context: format!("WhatsApp API error: {text}"),
+                    });
+                }
+                Ok(_) => {
+                    debug!(to, "sent message via WhatsApp");
+                    return Ok(());
+                }
+            }
         }
-
-        debug!(to, "sent message via WhatsApp");
-        Ok(())
+        Err(last_err.unwrap_or_else(|| Error::Adapter {
+            source: Box::new(std::io::Error::other("max retries exceeded")),
+            context: "WhatsApp send message failed after retries".into(),
+        }))
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -470,9 +570,10 @@ mod tests {
 
     fn make_adapter() -> WhatsAppAdapter {
         WhatsAppAdapter::new(
-            "test-token".into(),
+            SecretStr::new("test-token"),
             "123456".into(),
-            "verify-secret".into(),
+            SecretStr::new("verify-secret"),
+            None,
             8080,
         )
     }

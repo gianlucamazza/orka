@@ -49,6 +49,19 @@ impl std::fmt::Debug for WhatsAppAdapterConfig {
     }
 }
 
+impl WhatsAppAdapterConfig {
+    /// Validate WhatsApp adapter configuration.
+    pub fn validate(&self) -> orka_core::Result<()> {
+        if self.access_token_secret.is_some() && self.phone_number_id.is_none() {
+            return Err(orka_core::Error::Config(
+                "adapters.whatsapp.phone_number_id is required when access_token_secret is set"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 const fn default_whatsapp_port() -> u16 {
     3002
 }

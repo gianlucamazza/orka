@@ -3,15 +3,16 @@
 use std::{collections::HashMap, sync::Arc};
 
 use orka_adapter_whatsapp::WhatsAppAdapter;
-use orka_core::{traits::ChannelAdapter, types::SessionId};
+use orka_core::{SecretStr, traits::ChannelAdapter, types::SessionId};
 use tokio::sync::Mutex;
 
 #[test]
 fn channel_id_returns_whatsapp() {
     let adapter = WhatsAppAdapter::new(
-        "access-token".into(),
+        SecretStr::new("access-token"),
         "phone-id".into(),
-        "verify-token".into(),
+        SecretStr::new("verify-token"),
+        None,
         3001,
     );
     assert_eq!(adapter.channel_id(), "whatsapp");
@@ -135,9 +136,10 @@ fn webhook_verification_logic() {
 #[tokio::test]
 async fn shutdown_without_start_is_ok() {
     let adapter = WhatsAppAdapter::new(
-        "access-token".into(),
+        SecretStr::new("access-token"),
         "phone-id".into(),
-        "verify-token".into(),
+        SecretStr::new("verify-token"),
+        None,
         3001,
     );
     adapter.shutdown().await.unwrap();
