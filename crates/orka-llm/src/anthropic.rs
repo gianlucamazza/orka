@@ -131,6 +131,7 @@ impl AnthropicClient {
 
     /// Send a request with retry logic for 429/5xx and transient errors.
     /// Returns the raw successful HTTP response.
+    #[allow(clippy::too_many_lines)]
     async fn send_request_with_retry(&self, body: &serde_json::Value) -> Result<reqwest::Response> {
         retry_with_backoff(
             self.max_retries,

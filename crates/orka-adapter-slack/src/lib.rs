@@ -119,15 +119,11 @@ async fn post_json_retried(
 }
 
 fn verify_slack_signature(headers: &HeaderMap, body: &[u8], signing_secret: &str) -> bool {
-    let timestamp = match headers
+    let timestamp = if let Some(ts) = headers
         .get("X-Slack-Request-Timestamp")
-        .and_then(|v| v.to_str().ok())
-    {
-        Some(ts) => ts.to_owned(),
-        None => {
-            warn!("Slack webhook: missing X-Slack-Request-Timestamp");
-            return false;
-        }
+        .and_then(|v| v.to_str().ok()) { ts.to_owned() } else {
+        warn!("Slack webhook: missing X-Slack-Request-Timestamp");
+        return false;
     };
 
     // Reject requests older than 5 minutes to prevent replay attacks.
@@ -142,21 +138,16 @@ fn verify_slack_signature(headers: &HeaderMap, body: &[u8], signing_secret: &str
         }
     }
 
-    let provided_sig = match headers
+    let provided_sig = if let Some(s) = headers
         .get("X-Slack-Signature")
-        .and_then(|v| v.to_str().ok())
-    {
-        Some(s) => s.to_owned(),
-        None => {
-            warn!("Slack webhook: missing X-Slack-Signature");
-            return false;
-        }
+        .and_then(|v| v.to_str().ok()) { s.to_owned() } else {
+        warn!("Slack webhook: missing X-Slack-Signature");
+        return false;
     };
 
     let base_string = format!("v0:{}:{}", timestamp, String::from_utf8_lossy(body));
-    let mut mac = match HmacSha256::new_from_slice(signing_secret.as_bytes()) {
-        Ok(m) => m,
-        Err(_) => return false,
+    let Ok(mut mac) = HmacSha256::new_from_slice(signing_secret.as_bytes()) else {
+        return false;
     };
     mac.update(base_string.as_bytes());
     let expected = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
@@ -224,14 +215,13 @@ async fn handle_event(
     body: Bytes,
 ) -> axum::response::Response {
     // Verify Slack request signature when a signing secret is configured.
-    if let Some(ref secret) = state.signing_secret {
-        if !verify_slack_signature(&headers, &body, (**secret).expose()) {
+    if let Some(ref secret) = state.signing_secret
+        && !verify_slack_signature(&headers, &body, (**secret).expose()) {
             warn!("Slack webhook: signature verification failed, rejecting request");
             return axum::response::IntoResponse::into_response(
                 axum::http::StatusCode::UNAUTHORIZED,
             );
         }
-    }
 
     let payload: SlackEventPayload = match serde_json::from_slice(&body) {
         Ok(p) => p,

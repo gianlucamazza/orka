@@ -22,7 +22,7 @@ pub(crate) struct TelegramApi {
 }
 
 impl TelegramApi {
-    pub(crate) fn new(bot_token: SecretStr) -> Self {
+    pub(crate) fn new(bot_token: &SecretStr) -> Self {
         let api_prefix = format!("{BASE_URL}/bot{}", bot_token.expose());
         let file_prefix = format!("{BASE_URL}/file/bot{}", bot_token.expose());
         Self {
@@ -260,7 +260,7 @@ impl TelegramApi {
             if !tg_resp.ok {
                 return Err(Error::Adapter {
                     source: Box::new(std::io::Error::other(
-                        tg_resp.description.clone().unwrap_or_default(),
+                        tg_resp.description.unwrap_or_default(),
                     )),
                     context: "Telegram sendPhoto (bytes) returned ok=false".into(),
                 });
@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn api_url_format() {
-        let api = TelegramApi::new(SecretStr::new("TEST_TOKEN"));
+        let api = TelegramApi::new(&SecretStr::new("TEST_TOKEN"));
         assert_eq!(
             api.url("sendMessage"),
             "https://api.telegram.org/botTEST_TOKEN/sendMessage"
@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn file_download_url_format() {
-        let api = TelegramApi::new(SecretStr::new("TEST_TOKEN"));
+        let api = TelegramApi::new(&SecretStr::new("TEST_TOKEN"));
         assert_eq!(
             api.file_download_url("documents/file_0.pdf"),
             "https://api.telegram.org/file/botTEST_TOKEN/documents/file_0.pdf"

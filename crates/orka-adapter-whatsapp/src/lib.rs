@@ -35,22 +35,17 @@ type HmacSha256 = Hmac<Sha256>;
 ///
 /// Meta sends `sha256={hex(HMAC-SHA256(app_secret, raw_body))}` in the header.
 fn verify_whatsapp_signature(headers: &HeaderMap, body: &[u8], app_secret: &str) -> bool {
-    let sig_header = match headers
+    let sig_header = if let Some(s) = headers
         .get("X-Hub-Signature-256")
-        .and_then(|v| v.to_str().ok())
-    {
-        Some(s) => s.to_owned(),
-        None => {
-            warn!("WhatsApp webhook: missing X-Hub-Signature-256 header");
-            return false;
-        }
+        .and_then(|v| v.to_str().ok()) { s.to_owned() } else {
+        warn!("WhatsApp webhook: missing X-Hub-Signature-256 header");
+        return false;
     };
 
     let provided_hex = sig_header.strip_prefix("sha256=").unwrap_or(&sig_header);
 
-    let mut mac = match HmacSha256::new_from_slice(app_secret.as_bytes()) {
-        Ok(m) => m,
-        Err(_) => return false,
+    let Ok(mut mac) = HmacSha256::new_from_slice(app_secret.as_bytes()) else {
+        return false;
     };
     mac.update(body);
     let expected_hex = hex::encode(mac.finalize().into_bytes());
@@ -201,17 +196,17 @@ async fn webhook_verify(
     axum::response::IntoResponse::into_response(axum::http::StatusCode::FORBIDDEN)
 }
 
+#[allow(clippy::too_many_lines)]
 async fn webhook_receive(
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> axum::http::StatusCode {
-    if let Some(ref secret) = state.app_secret {
-        if !verify_whatsapp_signature(&headers, &body, (*secret).expose()) {
+    if let Some(ref secret) = state.app_secret
+        && !verify_whatsapp_signature(&headers, &body, (*secret).expose()) {
             warn!("WhatsApp webhook: X-Hub-Signature-256 verification failed, rejecting request");
             return axum::http::StatusCode::UNAUTHORIZED;
         }
-    }
 
     let payload: WebhookPayload = match serde_json::from_slice(&body) {
         Ok(p) => p,

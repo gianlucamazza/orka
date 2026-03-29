@@ -74,7 +74,7 @@ pub struct TelegramAdapter {
 impl TelegramAdapter {
     /// Create an adapter with the given config and bot token.
     pub fn new(config: TelegramAdapterConfig, bot_token: SecretStr) -> Self {
-        let api = Arc::new(TelegramApi::new(bot_token));
+        let api = Arc::new(TelegramApi::new(&bot_token));
         Self {
             api,
             config,
