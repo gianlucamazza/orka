@@ -304,12 +304,9 @@ impl ExperienceService {
         // instance.  If another call is already running, skip rather than
         // double-processing the same trajectories and creating duplicate
         // principles.
-        let _guard = match self.distillation_lock.try_lock() {
-            Ok(g) => g,
-            Err(_) => {
-                debug!(workspace, "distillation already in progress, skipping");
-                return Ok(0);
-            }
+        let Ok(_guard) = self.distillation_lock.try_lock() else {
+            debug!(workspace, "distillation already in progress, skipping");
+            return Ok(0);
         };
 
         let trajectories = self
