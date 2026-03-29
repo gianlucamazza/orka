@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 fn channel_id_returns_telegram() {
     let adapter = TelegramAdapter::new(
         TelegramAdapterConfig::default(),
-        SecretStr::new("test-token"),
+        &SecretStr::new("test-token"),
     );
     assert_eq!(adapter.channel_id(), "telegram");
 }
@@ -90,7 +90,7 @@ fn deserialize_telegram_response() {
 async fn shutdown_without_start_is_ok() {
     let adapter = TelegramAdapter::new(
         TelegramAdapterConfig::default(),
-        SecretStr::new("test-token"),
+        &SecretStr::new("test-token"),
     );
     // Shutdown before start should not panic
     adapter.shutdown().await.unwrap();

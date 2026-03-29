@@ -127,7 +127,7 @@ pub(crate) async fn start_all_adapters(
                     let tg: Arc<dyn ChannelAdapter> = Arc::new(
                         orka_adapter_telegram::TelegramAdapter::new(
                             tg_config.clone(),
-                            SecretStr::new(token),
+                            &SecretStr::new(token),
                         )
                         .with_memory(tg_memory),
                     );
@@ -228,7 +228,7 @@ pub(crate) async fn start_all_adapters(
                     let slack: Arc<dyn ChannelAdapter> =
                         Arc::new(orka_adapter_slack::SlackAdapter::new(
                             SecretStr::new(token),
-                            signing_secret.map(|s| SecretStr::new(s)),
+                            signing_secret.map(SecretStr::new),
                             slack_config.port,
                         ));
                     if let Err(e) =
@@ -295,7 +295,7 @@ pub(crate) async fn start_all_adapters(
                             SecretStr::new(access_token),
                             phone_id,
                             SecretStr::new(verify_token),
-                            app_secret.map(|s| SecretStr::new(s)),
+                            app_secret.map(SecretStr::new),
                             wa_config.port,
                         ));
                     if let Err(e) =
