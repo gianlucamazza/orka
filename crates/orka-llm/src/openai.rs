@@ -77,6 +77,14 @@ impl OpenAiClient {
         body["max_completion_tokens"] = json!(max_tokens);
     }
 
+    /// Returns true if the model supports temperature.
+    ///
+    /// O-series reasoning models (o1, o3, o4) do not accept temperature;
+    /// all other models do.
+    fn supports_temperature(model: &str) -> bool {
+        !Self::supports_reasoning(model)
+    }
+
     /// Returns true if the model supports `reasoning_effort` (o-series only).
     fn supports_reasoning(model: &str) -> bool {
         let m = model.to_lowercase();
@@ -369,7 +377,9 @@ impl LlmClient for OpenAiClient {
         Self::insert_max_tokens(&mut body, max_tokens);
 
         if let Some(temp) = options.temperature {
-            body["temperature"] = json!(temp);
+            if Self::supports_temperature(model) {
+                body["temperature"] = json!(temp);
+            }
         }
         Self::maybe_insert_reasoning(&mut body, model, &options.thinking);
 
@@ -400,6 +410,7 @@ impl LlmClient for OpenAiClient {
             "model": &self.model,
             "messages": api_messages,
             "stream": true,
+            "stream_options": {"include_usage": true},
         });
         Self::insert_max_tokens(&mut body, self.max_tokens);
 
@@ -488,7 +499,9 @@ impl LlmClient for OpenAiClient {
         }
 
         if let Some(temp) = options.temperature {
-            body["temperature"] = json!(temp);
+            if Self::supports_temperature(model) {
+                body["temperature"] = json!(temp);
+            }
         }
         Self::maybe_insert_reasoning(&mut body, model, &options.thinking);
 
@@ -526,6 +539,7 @@ impl LlmClient for OpenAiClient {
             "model": model,
             "messages": api_messages,
             "stream": true,
+            "stream_options": {"include_usage": true},
         });
         Self::insert_max_tokens(&mut body, max_tokens);
 
@@ -534,7 +548,9 @@ impl LlmClient for OpenAiClient {
         }
 
         if let Some(temp) = options.temperature {
-            body["temperature"] = json!(temp);
+            if Self::supports_temperature(model) {
+                body["temperature"] = json!(temp);
+            }
         }
         Self::maybe_insert_reasoning(&mut body, model, &options.thinking);
 
@@ -875,5 +891,75 @@ mod tests {
         // Only the valid tool call should be included
         let tool_count = blocks.iter().filter(|b| matches!(b, ContentBlock::ToolUse(_))).count();
         assert_eq!(tool_count, 1);
+    }
+
+    #[test]
+    fn supports_temperature_false_for_o_series() {
+        assert!(!OpenAiClient::supports_temperature("o1-mini"));
+        assert!(!OpenAiClient::supports_temperature("o3-mini"));
+        assert!(!OpenAiClient::supports_temperature("o4-mini"));
+    }
+
+    #[test]
+    fn supports_temperature_true_for_gpt_models() {
+        assert!(OpenAiClient::supports_temperature("gpt-4.1-mini"));
+        assert!(OpenAiClient::supports_temperature("gpt-5-mini"));
+        assert!(OpenAiClient::supports_temperature("claude-sonnet-4-6"));
+    }
+
+    #[test]
+    fn temperature_skipped_for_o_series_in_request_body() {
+        let mut body = json!({"model": "o3-mini", "messages": []});
+        let options = CompletionOptions {
+            temperature: Some(0.5),
+            ..Default::default()
+        };
+        if let Some(temp) = options.temperature {
+            if OpenAiClient::supports_temperature("o3-mini") {
+                body["temperature"] = json!(temp);
+            }
+        }
+        assert!(body.get("temperature").is_none());
+    }
+
+    #[test]
+    fn temperature_included_for_gpt_models_in_request_body() {
+        let mut body = json!({"model": "gpt-5-mini", "messages": []});
+        let options = CompletionOptions {
+            temperature: Some(0.5),
+            ..Default::default()
+        };
+        if let Some(temp) = options.temperature {
+            if OpenAiClient::supports_temperature("gpt-5-mini") {
+                body["temperature"] = json!(temp);
+            }
+        }
+        assert_eq!(body["temperature"], 0.5);
+    }
+
+    #[test]
+    fn stream_options_included_in_streaming_body() {
+        let body = json!({
+            "model": "gpt-4.1",
+            "messages": [],
+            "stream": true,
+            "stream_options": {"include_usage": true},
+        });
+        assert_eq!(body["stream_options"]["include_usage"], true);
+    }
+
+    #[test]
+    fn temperature_none_omitted_from_request_body() {
+        let mut body = json!({"model": "gpt-4.1", "messages": []});
+        let options = CompletionOptions {
+            temperature: None,
+            ..Default::default()
+        };
+        if let Some(temp) = options.temperature {
+            if OpenAiClient::supports_temperature("gpt-4.1") {
+                body["temperature"] = json!(temp);
+            }
+        }
+        assert!(body.get("temperature").is_none());
     }
 }

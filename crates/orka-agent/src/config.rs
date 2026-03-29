@@ -46,7 +46,7 @@ pub async fn build_graph_from_config(
 
     // Build nodes from agent definitions
     for agent_def in &config.agents {
-        let agent = build_agent_from_def(agent_def, workspace_registry).await;
+        let agent = build_agent_from_def(agent_def, &config.llm, workspace_registry).await;
         let kind = match agent_def.kind {
             NodeKindDef::Agent => NodeKind::Agent,
             NodeKindDef::Router => NodeKind::Router,
@@ -204,7 +204,11 @@ pub async fn build_graph_from_config(
     Ok(graph)
 }
 
-async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegistry) -> Agent {
+async fn build_agent_from_def(
+    def: &AgentDef,
+    llm_config: &orka_llm::LlmConfig,
+    workspace_registry: &WorkspaceRegistry,
+) -> Agent {
     let agent_id = AgentId::from(def.id.as_str());
     let cfg = &def.config;
 
@@ -240,11 +244,16 @@ async fn build_agent_from_def(def: &AgentDef, workspace_registry: &WorkspaceRegi
         .thinking
         .map(|effort| ThinkingConfig::Adaptive { effort });
 
+    // Resolve temperature: agent override → global default_temperature → 0.7
+    let resolved_temperature = cfg
+        .temperature
+        .unwrap_or(llm_config.default_temperature);
+
     // Use simplified LLM config
     agent.llm_config = AgentLlmConfig {
         model: Some(cfg.model.clone()),
         max_tokens: Some(cfg.max_tokens),
-        temperature: Some(cfg.temperature),
+        temperature: Some(resolved_temperature),
         thinking,
         ..Default::default()
     };
@@ -511,7 +520,7 @@ mod tests {
         let mut def = agent_def("thinker");
         def.config.thinking = Some(orka_core::config::primitives::ThinkingEffort::High);
         let registry = make_registry();
-        let agent = super::build_agent_from_def(&def, &registry).await;
+        let agent = super::build_agent_from_def(&def, &orka_llm::LlmConfig::default(), &registry).await;
         assert!(matches!(
             agent.llm_config.thinking,
             Some(orka_llm::ThinkingConfig::Adaptive {
@@ -525,7 +534,7 @@ mod tests {
         let mut def = agent_def("thinker");
         def.config.thinking = Some(orka_core::config::primitives::ThinkingEffort::Max);
         let registry = make_registry();
-        let agent = super::build_agent_from_def(&def, &registry).await;
+        let agent = super::build_agent_from_def(&def, &orka_llm::LlmConfig::default(), &registry).await;
         assert!(matches!(
             agent.llm_config.thinking,
             Some(orka_llm::ThinkingConfig::Adaptive {
@@ -538,7 +547,7 @@ mod tests {
     async fn thinking_absent_leaves_thinking_none() {
         let def = agent_def("plain");
         let registry = make_registry();
-        let agent = super::build_agent_from_def(&def, &registry).await;
+        let agent = super::build_agent_from_def(&def, &orka_llm::LlmConfig::default(), &registry).await;
         assert!(agent.llm_config.thinking.is_none());
     }
 
@@ -563,7 +572,7 @@ mod tests {
         let mut def = agent_def("worker");
         def.config.tool_result_max_chars = 1234;
         let registry = make_registry();
-        let agent = super::build_agent_from_def(&def, &registry).await;
+        let agent = super::build_agent_from_def(&def, &orka_llm::LlmConfig::default(), &registry).await;
         assert_eq!(agent.tool_result_max_chars, 1234);
     }
 
@@ -573,7 +582,7 @@ mod tests {
         def.config.system_prompt = "You are a test agent.".to_string();
         // Use a registry that has no SOUL.md for this agent.
         let registry = make_registry();
-        let agent = super::build_agent_from_def(&def, &registry).await;
+        let agent = super::build_agent_from_def(&def, &orka_llm::LlmConfig::default(), &registry).await;
         assert_eq!(agent.system_prompt.persona, "You are a test agent.");
     }
 
@@ -635,5 +644,32 @@ mod tests {
 
         let edges = graph.outgoing_edges(&entry_id);
         assert_eq!(edges.len(), 2, "entry should fan out to both workers");
+    }
+
+    #[tokio::test]
+    async fn temperature_none_falls_back_to_global_default() {
+        let mut def = agent_def("worker");
+        // Agent temperature is None (not set in config)
+        assert!(def.config.temperature.is_none());
+
+        let mut llm_config = orka_llm::LlmConfig::default();
+        llm_config.default_temperature = 0.3;
+
+        let registry = make_registry();
+        let agent = super::build_agent_from_def(&def, &llm_config, &registry).await;
+        assert_eq!(agent.llm_config.temperature, Some(0.3));
+    }
+
+    #[tokio::test]
+    async fn temperature_explicit_overrides_global_default() {
+        let mut def = agent_def("worker");
+        def.config.temperature = Some(0.9);
+
+        let mut llm_config = orka_llm::LlmConfig::default();
+        llm_config.default_temperature = 0.3;
+
+        let registry = make_registry();
+        let agent = super::build_agent_from_def(&def, &llm_config, &registry).await;
+        assert_eq!(agent.llm_config.temperature, Some(0.9));
     }
 }
