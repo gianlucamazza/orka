@@ -70,6 +70,10 @@ orka doctor list                 # List available diagnostic checks
 orka doctor explain <id>         # Explain a specific diagnostic check
 ```
 
+`orka doctor` supports category filtering with `--category`. Current categories
+include config, architecture, connectivity, providers, security, and
+environment.
+
 ### Scheduling and Learning
 
 ```bash

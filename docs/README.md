@@ -20,6 +20,7 @@ internal snapshots, and repo companion docs are listed separately on purpose.
 
 ### Reference
 *   **[Architecture Diagram & Overview](reference/architecture.md)**: End-to-end message flow and subsystem overview.
+*   **[Architecture Principles](reference/architecture-principles.md)**: Normative layering, modularity, and dependency rules for the workspace.
 *   **[Deployment Guide](reference/deployment.md)**: Instructions for running Orka under Docker, bare-metal with systemd, and observability setups.
 *   **[Configuration Reference](reference/configuration.md)**: Top-level `orka.toml` schema, key fields, and pointers to the canonical sample config.
 *   **[CLI Reference](reference/cli-reference.md)**: Command-line tool reference for the currently exposed `orka` parser.
