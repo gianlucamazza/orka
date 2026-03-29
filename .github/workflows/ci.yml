@@ -80,6 +80,22 @@ jobs:
           REDIS_URL: redis://127.0.0.1:6379
           QDRANT_URL: http://localhost:6334
 
+  wasm:
+    name: WASM build (wasm32-wasip1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - name: Build WASM SDK (raw ABI)
+        run: cargo build -p orka-plugin-sdk --target wasm32-wasip1
+      - name: Build WASM SDK (Component Model)
+        run: cargo build -p orka-plugin-sdk-component --target wasm32-wasip1
+      - name: Build example WASM plugin
+        run: cargo build -p hello-plugin --target wasm32-wasip1
+
   msrv:
     name: MSRV (1.91)
     runs-on: ubuntu-latest
