@@ -13,6 +13,7 @@ use std::{io::Write as _, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use colored::Colorize as _;
+use orka_core::SecretStr;
 use orka_llm::{
     ANTHROPIC_API_VERSION, AnthropicClient, CompletionOptions, LlmClient, OllamaClient,
     OpenAiClient,
@@ -367,7 +368,7 @@ fn build_client(
 ) -> Result<Arc<dyn LlmClient>> {
     let client: Arc<dyn LlmClient> = match provider {
         "anthropic" => {
-            let key = api_key.ok_or("Anthropic API key is required")?.to_string();
+            let key = SecretStr::new(api_key.ok_or("Anthropic API key is required")?);
             Arc::new(AnthropicClient::with_options(
                 key,
                 model.to_string(),
@@ -379,7 +380,7 @@ fn build_client(
             ))
         }
         "openai" | "moonshot" | "google" | "custom" => {
-            let key = api_key.unwrap_or("").to_string();
+            let key = SecretStr::new(api_key.unwrap_or(""));
             let url = base_url.map_or_else(
                 || {
                     default_base_url(provider)
