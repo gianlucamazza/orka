@@ -1,0 +1,170 @@
+---
+kind: pipeline
+type: docker
+name: pr-amd64-verify
+
+platform:
+  os: linux
+  arch: amd64
+
+clone:
+  depth: 1
+
+steps:
+  - name: checks
+    image: rust:1.93-slim-bookworm
+    environment:
+      REDIS_URL: redis://redis:6379
+      QDRANT_URL: http://qdrant:6334
+    commands:
+      - apt-get update -qq
+      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev
+      - rm -rf /var/lib/apt/lists/*
+      - rustup toolchain install nightly --profile minimal --component rustfmt
+      - cargo install cargo-deny --locked
+      - "until bash -lc ': >/dev/tcp/redis/6379' 2>/dev/null; do sleep 1; done"
+      - "until bash -lc ': >/dev/tcp/qdrant/6334' 2>/dev/null; do sleep 1; done"
+      - cargo +nightly fmt --all -- --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo deny check
+      - cargo build --workspace
+      - cargo test --workspace
+      - cargo test --workspace -- --ignored
+      - cargo build --release --bin orka-server --bin orka
+      - ./scripts/create-install-bundle.sh --profile release --output-dir dist/orka-install-bundle-amd64
+      - test -x dist/orka-install-bundle-amd64/target/release/orka-server
+      - test -x dist/orka-install-bundle-amd64/target/release/orka
+      - test -f dist/orka-install-bundle-amd64/scripts/install.sh
+      - bash -n scripts/install.sh
+      - bash -n scripts/create-install-bundle.sh
+      - bash -n scripts/deploy-remote-native.sh
+
+services:
+  - name: redis
+    image: redis:7-alpine
+  - name: qdrant
+    image: qdrant/qdrant:v1.14.0
+
+trigger:
+  event:
+    - pull_request
+
+---
+kind: pipeline
+type: docker
+name: main-amd64-publish
+
+platform:
+  os: linux
+  arch: amd64
+
+clone:
+  depth: 1
+
+steps:
+  - name: validate
+    image: rust:1.93-slim-bookworm
+    environment:
+      REDIS_URL: redis://redis:6379
+      QDRANT_URL: http://qdrant:6334
+    commands:
+      - apt-get update -qq
+      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev
+      - rm -rf /var/lib/apt/lists/*
+      - rustup toolchain install nightly --profile minimal --component rustfmt
+      - "until bash -lc ': >/dev/tcp/redis/6379' 2>/dev/null; do sleep 1; done"
+      - "until bash -lc ': >/dev/tcp/qdrant/6334' 2>/dev/null; do sleep 1; done"
+      - cargo +nightly fmt --all -- --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo test --workspace
+      - cargo test --workspace -- --ignored
+      - cargo build --release --bin orka-server --bin orka
+      - ./scripts/create-install-bundle.sh --profile release --output-dir dist/orka-install-bundle-amd64 --tarball dist/orka-install-bundle-amd64.tar.gz
+
+  - name: publish-oci
+    image: docker:28-cli
+    environment:
+      REGISTRY_HOST:
+        from_secret: REGISTRY_HOST
+      REGISTRY_REPO:
+        from_secret: REGISTRY_REPO
+      REGISTRY_USERNAME:
+        from_secret: REGISTRY_USERNAME
+      REGISTRY_PASSWORD:
+        from_secret: REGISTRY_PASSWORD
+    volumes:
+      - name: docker_sock
+        path: /var/run/docker.sock
+    commands:
+      - docker login "${REGISTRY_HOST}" -u "${REGISTRY_USERNAME}" -p "${REGISTRY_PASSWORD}"
+      - docker buildx inspect orka-builder --bootstrap
+      - docker buildx build --builder orka-builder --platform linux/amd64,linux/arm64 --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --build-arg VCS_REF="${DRONE_COMMIT_SHA}" --build-arg VERSION="${DRONE_COMMIT_SHA}" -t "${REGISTRY_REPO}:${DRONE_COMMIT_SHA}" -t "${REGISTRY_REPO}:latest" --push .
+
+services:
+  - name: redis
+    image: redis:7-alpine
+  - name: qdrant
+    image: qdrant/qdrant:v1.14.0
+
+volumes:
+  - name: docker_sock
+    host:
+      path: /var/run/docker.sock
+
+trigger:
+  branch:
+    - main
+  event:
+    - push
+
+---
+kind: pipeline
+type: docker
+name: main-arm64-native-deploy
+
+platform:
+  os: linux
+  arch: arm64
+
+depends_on:
+  - main-amd64-publish
+
+clone:
+  depth: 1
+
+steps:
+  - name: build-native-bundle
+    image: rust:1.93-slim-bookworm
+    commands:
+      - apt-get update -qq
+      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev
+      - rm -rf /var/lib/apt/lists/*
+      - cargo build --release --bin orka-server --bin orka
+      - ./scripts/create-install-bundle.sh --profile release --output-dir dist/orka-install-bundle-arm64 --tarball dist/orka-install-bundle-arm64.tar.gz
+      - test -f dist/orka-install-bundle-arm64.tar.gz
+
+  - name: remote-native-install
+    image: debian:bookworm-slim
+    environment:
+      ORKA_DEPLOY_HOST:
+        from_secret: ORKA_DEPLOY_HOST
+      ORKA_DEPLOY_USER:
+        from_secret: ORKA_DEPLOY_USER
+      ORKA_DEPLOY_PORT:
+        from_secret: ORKA_DEPLOY_PORT
+      SSH_DEPLOY_KEY:
+        from_secret: SSH_DEPLOY_KEY
+    commands:
+      - apt-get update -qq
+      - apt-get install -y --no-install-recommends openssh-client ca-certificates
+      - rm -rf /var/lib/apt/lists/*
+      - install -d -m 0700 ~/.ssh
+      - printf "%s\n" "${SSH_DEPLOY_KEY}" > ~/.ssh/id_ed25519
+      - chmod 0600 ~/.ssh/id_ed25519
+      - ./scripts/deploy-remote-native.sh --bundle-tarball dist/orka-install-bundle-arm64.tar.gz --host "${ORKA_DEPLOY_HOST}" --user "${ORKA_DEPLOY_USER}" --port "${ORKA_DEPLOY_PORT}" --release-name "${DRONE_COMMIT_SHA}"
+
+trigger:
+  branch:
+    - main
+  event:
+    - push

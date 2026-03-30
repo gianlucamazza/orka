@@ -27,5 +27,8 @@ proptest-regressions/
 node_modules/
 bun.lockb
 
+# Local install bundles
+dist/
+
 # Research worktrees (created at runtime)
 .orka-worktrees/

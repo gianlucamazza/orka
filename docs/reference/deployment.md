@@ -78,6 +78,58 @@ The repository follows a portable-first distribution model:
 - **Generic systemd install**: `scripts/install.sh` installs the service using FHS paths and discovers the host's systemd directories.
 - **Native packaging**: Arch packaging is currently provided via `PKGBUILD`; additional distro-native packages can build on the same `deploy/` assets.
 
+### Native Install Bundle
+
+For script-driven installs that do not build on the target host, create a
+portable install bundle that preserves the repository layout expected by
+`scripts/install.sh`:
+
+```bash
+cargo build --release --bin orka-server --bin orka
+./scripts/create-install-bundle.sh \
+  --profile release \
+  --output-dir dist/orka-install-bundle-amd64 \
+  --tarball dist/orka-install-bundle-amd64.tar.gz
+```
+
+The resulting bundle contains:
+
+- the prebuilt `orka-server` and `orka` binaries under `target/release/`
+- `scripts/install.sh`
+- shared `deploy/` assets
+- `workspaces/`
+- desktop/icon assets
+- the canonical `orka.toml`
+
+This keeps local/manual installs and remote installs on the same script path.
+
+### Remote Native Reinstall
+
+To reinstall a remote native service from a prebuilt bundle:
+
+```bash
+./scripts/deploy-remote-native.sh \
+  --bundle-tarball dist/orka-install-bundle-amd64.tar.gz \
+  --host example-host \
+  --user deploy \
+  --port 22 \
+  --release-name "$(git rev-parse --short HEAD)"
+```
+
+The remote script upload extracts the bundle under `~/orka-deploy/releases/`
+and runs `sudo ./scripts/install.sh --force --yes` from there. The target host
+does not need Rust or Cargo installed.
+
+### Drone Homelab Flow
+
+The homelab Drone flow is designed to complement, not replace, GitHub Actions:
+
+- GitHub Actions remain the public CI and GitHub release path.
+- Drone handles homelab publication and native remote reinstall.
+- The OCI image published to the registry and the native install bundle should
+  always come from the same commit SHA, but the native reinstall should use the
+  bundle rather than extracting binaries from the container image.
+
 `just setup` currently supports common `pacman`, `apt`, and `dnf` based development environments.
 It expects a `rustup`-managed Rust toolchain that satisfies the workspace
 minimum (`rust-version = 1.91`). On distributions with older distro-provided
