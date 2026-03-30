@@ -18,7 +18,7 @@ steps:
       QDRANT_URL: http://qdrant:6334
     commands:
       - apt-get update -qq
-      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev
+      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev clang mold
       - rm -rf /var/lib/apt/lists/*
       - rustup component add clippy
       - rustup toolchain install nightly --profile minimal --component rustfmt
@@ -70,7 +70,7 @@ steps:
       QDRANT_URL: http://qdrant:6334
     commands:
       - apt-get update -qq
-      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev
+      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev clang mold
       - rm -rf /var/lib/apt/lists/*
       - rustup component add clippy
       - rustup toolchain install nightly --profile minimal --component rustfmt
