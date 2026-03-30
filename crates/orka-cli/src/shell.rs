@@ -479,7 +479,7 @@ mod tests {
         let cwd = std::env::current_dir().unwrap();
         // Generate more than MAX_CAPTURE_BYTES output
         let result = execute_shell(
-            "python3 -c \"print('x' * 10000)\"",
+            "yes x | head -c 10000",
             &cwd,
             &HashMap::new(),
             &HashSet::new(),
