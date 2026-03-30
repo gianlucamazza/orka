@@ -2,18 +2,13 @@
 
 use orka_core::{Session, traits::SessionStore};
 use orka_session::RedisSessionStore;
+use orka_test_support::RedisService;
 
 #[tokio::test]
 #[ignore = "requires Redis"]
 async fn put_get_roundtrip() {
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers_modules::redis::Redis;
-
-    let container = Redis::default().start().await.unwrap();
-    let port = container.get_host_port_ipv4(6379).await.unwrap();
-    let url = format!("redis://127.0.0.1:{port}");
-
-    let store = RedisSessionStore::new(&url, 86400).expect("create store");
+    let redis = RedisService::discover().await.unwrap();
+    let store = RedisSessionStore::new(redis.url(), 86400).expect("create store");
 
     let session = Session::new("telegram", "user-42");
     let id = session.id;
@@ -30,14 +25,8 @@ async fn put_get_roundtrip() {
 #[tokio::test]
 #[ignore = "requires Redis"]
 async fn delete_then_get_returns_none() {
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers_modules::redis::Redis;
-
-    let container = Redis::default().start().await.unwrap();
-    let port = container.get_host_port_ipv4(6379).await.unwrap();
-    let url = format!("redis://127.0.0.1:{port}");
-
-    let store = RedisSessionStore::new(&url, 86400).expect("create store");
+    let redis = RedisService::discover().await.unwrap();
+    let store = RedisSessionStore::new(redis.url(), 86400).expect("create store");
 
     let session = Session::new("discord", "user-99");
     let id = session.id;
@@ -52,14 +41,8 @@ async fn delete_then_get_returns_none() {
 #[tokio::test]
 #[ignore = "requires Redis"]
 async fn full_crud_cycle() {
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers_modules::redis::Redis;
-
-    let container = Redis::default().start().await.unwrap();
-    let port = container.get_host_port_ipv4(6379).await.unwrap();
-    let url = format!("redis://127.0.0.1:{port}");
-
-    let store = RedisSessionStore::new(&url, 86400).expect("create store");
+    let redis = RedisService::discover().await.unwrap();
+    let store = RedisSessionStore::new(redis.url(), 86400).expect("create store");
 
     // Create
     let mut session = Session::new("slack", "user-7");

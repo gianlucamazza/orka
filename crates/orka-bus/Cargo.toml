@@ -17,8 +17,7 @@ uuid.workspace = true
 async-trait.workspace = true
 
 [dev-dependencies]
-testcontainers.workspace = true
-testcontainers-modules.workspace = true
+orka-test-support.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

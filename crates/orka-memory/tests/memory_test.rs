@@ -2,19 +2,12 @@
 
 use orka_core::{MemoryEntry, traits::MemoryStore};
 use orka_memory::RedisMemoryStore;
+use orka_test_support::RedisService;
 
-async fn setup() -> (
-    RedisMemoryStore,
-    testcontainers::ContainerAsync<testcontainers_modules::redis::Redis>,
-) {
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers_modules::redis::Redis;
-
-    let container = Redis::default().start().await.unwrap();
-    let port = container.get_host_port_ipv4(6379).await.unwrap();
-    let url = format!("redis://127.0.0.1:{port}");
-    let store = RedisMemoryStore::new(&url, 10_000).expect("create store");
-    (store, container)
+async fn setup() -> (RedisMemoryStore, RedisService) {
+    let redis = RedisService::discover().await.unwrap();
+    let store = RedisMemoryStore::new(redis.url(), 10_000).expect("create store");
+    (store, redis)
 }
 
 fn make_entry(key: &str, tags: Vec<&str>) -> MemoryEntry {

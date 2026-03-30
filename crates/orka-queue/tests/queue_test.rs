@@ -7,17 +7,14 @@ use orka_core::{
     types::{Envelope, Priority, SessionId},
 };
 use orka_queue::RedisPriorityQueue;
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::redis::Redis;
+use orka_test_support::RedisService;
 
+#[serial_test::serial]
 #[tokio::test]
 #[ignore = "requires Redis"]
 async fn push_pop_priority_order() {
-    let container = Redis::default().start().await.unwrap();
-    let port = container.get_host_port_ipv4(6379).await.unwrap();
-    let url = format!("redis://127.0.0.1:{port}");
-
-    let queue = RedisPriorityQueue::new(&url).unwrap();
+    let redis = RedisService::discover().await.unwrap();
+    let queue = RedisPriorityQueue::new(redis.url()).unwrap();
 
     let session = SessionId::new();
 
@@ -51,14 +48,12 @@ async fn push_pop_priority_order() {
     assert_eq!(queue.len().await.unwrap(), 0);
 }
 
+#[serial_test::serial]
 #[tokio::test]
 #[ignore = "requires Redis"]
 async fn pop_empty_returns_none() {
-    let container = Redis::default().start().await.unwrap();
-    let port = container.get_host_port_ipv4(6379).await.unwrap();
-    let url = format!("redis://127.0.0.1:{port}");
-
-    let queue = RedisPriorityQueue::new(&url).unwrap();
+    let redis = RedisService::discover().await.unwrap();
+    let queue = RedisPriorityQueue::new(redis.url()).unwrap();
 
     let result = queue.pop(Duration::from_millis(500)).await.unwrap();
     assert!(result.is_none());

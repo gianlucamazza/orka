@@ -2,6 +2,7 @@
 
 use orka_bus::{BusConfig, RedisBus};
 use orka_core::{Envelope, MessageId, SessionId, traits::MessageBus};
+use orka_test_support::{RedisService, unique_name};
 
 #[test]
 fn stream_key_format() {
@@ -22,23 +23,17 @@ fn envelope_json_roundtrip() {
 #[tokio::test]
 #[ignore = "requires Redis"]
 async fn publish_subscribe_ack_roundtrip() {
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers_modules::redis::Redis;
-
-    let container = Redis::default().start().await.unwrap();
-    let port = container.get_host_port_ipv4(6379).await.unwrap();
-    let url = format!("redis://127.0.0.1:{port}");
-
-    let bus = RedisBus::new(&url, &BusConfig::default()).expect("create bus");
-    let topic = "test-topic";
+    let redis = RedisService::discover().await.unwrap();
+    let bus = RedisBus::new(redis.url(), &BusConfig::default()).expect("create bus");
+    let topic = unique_name("test-topic");
 
     // Subscribe first
-    let mut stream = bus.subscribe(topic).await.expect("subscribe");
+    let mut stream = bus.subscribe(&topic).await.expect("subscribe");
 
     // Publish an envelope
     let envelope = Envelope::text("test-channel", SessionId::new(), "integration test");
     let expected_id = envelope.id;
-    bus.publish(topic, &envelope).await.expect("publish");
+    bus.publish(&topic, &envelope).await.expect("publish");
 
     // Receive it
     let received = tokio::time::timeout(std::time::Duration::from_secs(10), stream.recv())
@@ -61,14 +56,8 @@ async fn publish_subscribe_ack_roundtrip() {
 #[tokio::test]
 #[ignore = "requires Redis"]
 async fn ack_unknown_message_errors() {
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers_modules::redis::Redis;
-
-    let container = Redis::default().start().await.unwrap();
-    let port = container.get_host_port_ipv4(6379).await.unwrap();
-    let url = format!("redis://127.0.0.1:{port}");
-
-    let bus = RedisBus::new(&url, &BusConfig::default()).expect("create bus");
+    let redis = RedisService::discover().await.unwrap();
+    let bus = RedisBus::new(redis.url(), &BusConfig::default()).expect("create bus");
     let random_id = MessageId::new();
     let result = bus.ack(&random_id).await;
     assert!(result.is_err(), "acking unknown message should error");

@@ -44,7 +44,7 @@ services:
   - name: redis
     image: redis:7-alpine
   - name: qdrant
-    image: qdrant/qdrant:v1.14.0
+    image: qdrant/qdrant:v1.17.0
 
 trigger:
   event:
@@ -106,7 +106,7 @@ services:
   - name: redis
     image: redis:7-alpine
   - name: qdrant
-    image: qdrant/qdrant:v1.14.0
+    image: qdrant/qdrant:v1.17.0
 
 volumes:
   - name: docker_sock

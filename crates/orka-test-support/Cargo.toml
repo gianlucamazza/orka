@@ -1,0 +1,17 @@
+[package]
+name = "orka-test-support"
+description = "Shared integration test support for Orka"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+testcontainers.workspace = true
+testcontainers-modules.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

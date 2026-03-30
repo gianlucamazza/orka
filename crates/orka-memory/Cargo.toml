@@ -18,8 +18,7 @@ chrono.workspace = true
 
 [dev-dependencies]
 orka-bus.workspace = true
-testcontainers.workspace = true
-testcontainers-modules.workspace = true
+orka-test-support.workspace = true
 
 [lints]
 workspace = true

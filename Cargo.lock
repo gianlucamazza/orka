@@ -5899,11 +5899,10 @@ dependencies = [
  "async-trait",
  "deadpool-redis",
  "orka-core",
+ "orka-test-support",
  "redis",
  "serde",
  "serde_json",
- "testcontainers",
- "testcontainers-modules",
  "tokio",
  "tracing",
  "uuid",
@@ -5934,11 +5933,10 @@ dependencies = [
  "deadpool-redis",
  "orka-core",
  "orka-llm",
+ "orka-test-support",
  "redis",
  "serde",
  "serde_json",
- "testcontainers",
- "testcontainers-modules",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -6184,13 +6182,14 @@ dependencies = [
  "chrono",
  "fastembed",
  "orka-core",
+ "orka-test-support",
  "pdf-extract",
  "proptest",
  "qdrant-client",
  "reqwest",
  "serde",
  "serde_json",
- "testcontainers",
+ "serial_test",
  "text-splitter",
  "tokio",
  "tracing",
@@ -6240,11 +6239,10 @@ dependencies = [
  "deadpool-redis",
  "orka-bus",
  "orka-core",
+ "orka-test-support",
  "redis",
  "serde",
  "serde_json",
- "testcontainers",
- "testcontainers-modules",
  "tokio",
  "tracing",
 ]
@@ -6353,11 +6351,11 @@ dependencies = [
  "chrono",
  "deadpool-redis",
  "orka-core",
+ "orka-test-support",
  "redis",
  "serde",
  "serde_json",
- "testcontainers",
- "testcontainers-modules",
+ "serial_test",
  "tokio",
  "tracing",
 ]
@@ -6430,12 +6428,11 @@ dependencies = [
  "deadpool-redis",
  "hex",
  "orka-core",
+ "orka-test-support",
  "redis",
  "serde",
  "serde_json",
  "tempfile",
- "testcontainers",
- "testcontainers-modules",
  "tokio",
  "tracing",
 ]
@@ -6520,11 +6517,10 @@ dependencies = [
  "chrono",
  "deadpool-redis",
  "orka-core",
+ "orka-test-support",
  "redis",
  "serde",
  "serde_json",
- "testcontainers",
- "testcontainers-modules",
  "tokio",
  "tracing",
 ]
@@ -6545,6 +6541,16 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "tracing",
+]
+
+[[package]]
+name = "orka-test-support"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "testcontainers",
+ "testcontainers-modules",
+ "uuid",
 ]
 
 [[package]]
@@ -8166,6 +8172,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "scc"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46e6f046b7fef48e2660c57ed794263155d713de679057f2d0c169bfc6e756cc"
+dependencies = [
+ "sdd",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8227,6 +8242,12 @@ checksum = "b943eadf71d8b69e661330cb0e2656e31040acf21ee7708e2c238a0ec6af2bf4"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "sdd"
+version = "3.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "490dcfcbfef26be6800d11870ff2df8774fa6e86d047e3e8c8a76b25655e41ca"
 
 [[package]]
 name = "security-framework"
@@ -8432,6 +8453,32 @@ dependencies = [
  "ryu",
  "serde",
  "version_check",
+]
+
+[[package]]
+name = "serial_test"
+version = "3.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "911bd979bf1070a3f3aa7b691a3b3e9968f339ceeec89e08c280a8a22207a32f"
+dependencies = [
+ "futures-executor",
+ "futures-util",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "scc",
+ "serial_test_derive",
+]
+
+[[package]]
+name = "serial_test_derive"
+version = "3.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a7d91949b85b0d2fb687445e448b40d322b6b3e4af6b44a29b21d9a5f33e6d9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

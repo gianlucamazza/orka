@@ -3,18 +3,13 @@
 use std::collections::HashMap;
 
 use orka_knowledge::vector_store::{VectorStore, qdrant::QdrantStore};
-use testcontainers::{ContainerAsync, GenericImage, core::WaitFor, runners::AsyncRunner};
+use orka_test_support::{QdrantService, unique_name};
+use uuid::Uuid;
 
-async fn setup_qdrant() -> (QdrantStore, ContainerAsync<GenericImage>) {
-    let container = GenericImage::new("qdrant/qdrant", "v1.12.1")
-        .with_exposed_port(6334.into())
-        .with_wait_for(WaitFor::message_on_stderr("gRPC listening"))
-        .start()
-        .await
-        .unwrap();
-    let port = container.get_host_port_ipv4(6334).await.unwrap();
-    let store = QdrantStore::new(&format!("http://127.0.0.1:{port}"));
-    (store, container)
+async fn setup_qdrant() -> (QdrantStore, QdrantService) {
+    let qdrant = QdrantService::discover().await.unwrap();
+    let store = QdrantStore::new(qdrant.url());
+    (store, qdrant)
 }
 
 fn vec4(x: f32) -> Vec<f32> {
@@ -28,21 +23,33 @@ fn payload(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         .collect()
 }
 
+fn collection_name(prefix: &str) -> String {
+    unique_name(&format!("test-col-{prefix}"))
+}
+
+fn point_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
+#[serial_test::serial]
 #[tokio::test]
 #[ignore = "requires a running Qdrant container"]
 async fn ensure_collection_idempotent() {
     let (store, _c) = setup_qdrant().await;
-    store.ensure_collection("test_col", 4).await.unwrap();
-    store.ensure_collection("test_col", 4).await.unwrap();
+    let collection = collection_name("ensure");
+    store.ensure_collection(&collection, 4).await.unwrap();
+    store.ensure_collection(&collection, 4).await.unwrap();
 }
 
+#[serial_test::serial]
 #[tokio::test]
 #[ignore = "requires a running Qdrant container"]
 async fn upsert_and_search_basic() {
     let (store, _c) = setup_qdrant().await;
-    store.ensure_collection("test_col", 4).await.unwrap();
+    let collection = collection_name("basic");
+    store.ensure_collection(&collection, 4).await.unwrap();
 
-    let ids = vec!["id1".to_string(), "id2".to_string(), "id3".to_string()];
+    let ids = vec![point_id(), point_id(), point_id()];
     let vectors = vec![vec4(0.1), vec4(0.5), vec4(0.9)];
     let payloads = vec![
         payload(&[("content", "doc one"), ("document_id", "doc1")]),
@@ -50,25 +57,27 @@ async fn upsert_and_search_basic() {
         payload(&[("content", "doc three"), ("document_id", "doc3")]),
     ];
     store
-        .upsert("test_col", &ids, &vectors, &payloads)
+        .upsert(&collection, &ids, &vectors, &payloads)
         .await
         .unwrap();
 
     let results = store
-        .search("test_col", &vec4(0.5), 2, None, None)
+        .search(&collection, &vec4(0.5), 2, None, None)
         .await
         .unwrap();
     assert!(!results.is_empty());
     assert!(results[0].score > 0.0);
 }
 
+#[serial_test::serial]
 #[tokio::test]
 #[ignore = "requires a running Qdrant container"]
 async fn search_with_filter() {
     let (store, _c) = setup_qdrant().await;
-    store.ensure_collection("test_col", 4).await.unwrap();
+    let collection = collection_name("filter");
+    store.ensure_collection(&collection, 4).await.unwrap();
 
-    let ids = vec!["s1".to_string(), "s2".to_string(), "s3".to_string()];
+    let ids = vec![point_id(), point_id(), point_id()];
     let vectors = vec![vec4(0.1), vec4(0.1), vec4(0.1)];
     let payloads = vec![
         payload(&[
@@ -88,14 +97,14 @@ async fn search_with_filter() {
         ]),
     ];
     store
-        .upsert("test_col", &ids, &vectors, &payloads)
+        .upsert(&collection, &ids, &vectors, &payloads)
         .await
         .unwrap();
 
     let mut filter = HashMap::new();
     filter.insert("scope".to_string(), "global".to_string());
     let results = store
-        .search("test_col", &vec4(0.1), 10, None, Some(filter))
+        .search(&collection, &vec4(0.1), 10, None, Some(filter))
         .await
         .unwrap();
 
@@ -105,60 +114,66 @@ async fn search_with_filter() {
     }
 }
 
+#[serial_test::serial]
 #[tokio::test]
 #[ignore = "requires a running Qdrant container"]
 async fn search_score_threshold() {
     let (store, _c) = setup_qdrant().await;
-    store.ensure_collection("test_col", 4).await.unwrap();
+    let collection = collection_name("threshold");
+    store.ensure_collection(&collection, 4).await.unwrap();
 
-    let ids = vec!["t1".to_string(), "t2".to_string()];
+    let ids = vec![point_id(), point_id()];
     let vectors = vec![vec![1.0, 0.0, 0.0, 0.0], vec![0.0, 1.0, 0.0, 0.0]];
     let payloads = vec![
         payload(&[("content", "close"), ("document_id", "t1")]),
         payload(&[("content", "far"), ("document_id", "t2")]),
     ];
     store
-        .upsert("test_col", &ids, &vectors, &payloads)
+        .upsert(&collection, &ids, &vectors, &payloads)
         .await
         .unwrap();
 
     // High threshold: only the identical vector should match
     let results = store
-        .search("test_col", &[1.0, 0.0, 0.0, 0.0], 10, Some(0.99), None)
+        .search(&collection, &[1.0, 0.0, 0.0, 0.0], 10, Some(0.99), None)
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].content, "close");
 }
 
+#[serial_test::serial]
 #[tokio::test]
 #[ignore = "requires a running Qdrant container"]
 async fn list_documents_basic() {
     let (store, _c) = setup_qdrant().await;
-    store.ensure_collection("test_col", 4).await.unwrap();
+    let collection = collection_name("list-basic");
+    store.ensure_collection(&collection, 4).await.unwrap();
 
-    let ids = vec!["l1".to_string(), "l2".to_string()];
+    let ids = vec![point_id(), point_id()];
     let vectors = vec![vec4(0.1), vec4(0.2)];
     let payloads = vec![
         payload(&[("document_id", "doc-a"), ("title", "Alpha")]),
         payload(&[("document_id", "doc-b"), ("title", "Beta")]),
     ];
     store
-        .upsert("test_col", &ids, &vectors, &payloads)
+        .upsert(&collection, &ids, &vectors, &payloads)
         .await
         .unwrap();
 
-    let docs = store.list_documents("test_col", 10, None).await.unwrap();
+    let docs = store.list_documents(&collection, 10, None).await.unwrap();
     assert_eq!(docs.len(), 2);
 }
 
+#[serial_test::serial]
 #[tokio::test]
 #[ignore = "requires a running Qdrant container"]
 async fn list_documents_with_filter() {
     let (store, _c) = setup_qdrant().await;
-    store.ensure_collection("test_col", 4).await.unwrap();
+    let collection = collection_name("list-filter");
+    store.ensure_collection(&collection, 4).await.unwrap();
 
-    let ids = vec!["lf1".to_string(), "lf2".to_string(), "lf3".to_string()];
+    let ids = vec![point_id(), point_id(), point_id()];
     let vectors = vec![vec4(0.1), vec4(0.2), vec4(0.3)];
     let payloads = vec![
         payload(&[("document_id", "doc-x"), ("workspace", "ws-a")]),
@@ -166,14 +181,14 @@ async fn list_documents_with_filter() {
         payload(&[("document_id", "doc-z"), ("workspace", "ws-a")]),
     ];
     store
-        .upsert("test_col", &ids, &vectors, &payloads)
+        .upsert(&collection, &ids, &vectors, &payloads)
         .await
         .unwrap();
 
     let mut filter = HashMap::new();
     filter.insert("workspace".to_string(), "ws-a".to_string());
     let docs = store
-        .list_documents("test_col", 10, Some(filter))
+        .list_documents(&collection, 10, Some(filter))
         .await
         .unwrap();
 

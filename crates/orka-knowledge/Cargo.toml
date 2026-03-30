@@ -29,7 +29,8 @@ pdf-extract = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
-testcontainers.workspace = true
+orka-test-support.workspace = true
+serial_test.workspace = true
 proptest.workspace = true
 
 [lints]

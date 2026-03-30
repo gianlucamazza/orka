@@ -17,8 +17,8 @@ tracing.workspace = true
 chrono.workspace = true
 
 [dev-dependencies]
-testcontainers.workspace = true
-testcontainers-modules.workspace = true
+orka-test-support.workspace = true
+serial_test.workspace = true
 
 [lints]
 workspace = true

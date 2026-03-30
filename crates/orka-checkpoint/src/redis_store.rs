@@ -223,8 +223,7 @@ impl CheckpointStore for RedisCheckpointStore {
 mod tests {
     use orka_core::{Envelope, SessionId};
     use orka_llm::client::ChatMessage;
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers_modules::redis::Redis;
+    use orka_test_support::RedisService;
 
     use super::*;
     use crate::types::{RunStatus, SerializableStateChange};
@@ -253,14 +252,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires Docker"]
     async fn save_load_latest_roundtrip() {
-        let container = Redis::default().start().await.expect("redis container");
-        let port = container
-            .get_host_port_ipv4(6379)
-            .await
-            .expect("redis port");
-        let url = format!("redis://127.0.0.1:{port}");
-
-        let store = RedisCheckpointStore::new_default_ttl(&url).unwrap();
+        let redis = RedisService::discover().await.expect("redis service");
+        let store = RedisCheckpointStore::new_default_ttl(redis.url()).unwrap();
 
         let ckpt = make_checkpoint("run-1", "node-a");
         store.save(&ckpt).await.unwrap();
@@ -274,14 +267,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires Docker"]
     async fn list_returns_oldest_first() {
-        let container = Redis::default().start().await.expect("redis container");
-        let port = container
-            .get_host_port_ipv4(6379)
-            .await
-            .expect("redis port");
-        let url = format!("redis://127.0.0.1:{port}");
-
-        let store = RedisCheckpointStore::new_default_ttl(&url).unwrap();
+        let redis = RedisService::discover().await.expect("redis service");
+        let store = RedisCheckpointStore::new_default_ttl(redis.url()).unwrap();
 
         let c1 = make_checkpoint("run-2", "node-a");
         let c2 = make_checkpoint("run-2", "node-b");
@@ -297,14 +284,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires Docker"]
     async fn delete_run_removes_all_checkpoints() {
-        let container = Redis::default().start().await.expect("redis container");
-        let port = container
-            .get_host_port_ipv4(6379)
-            .await
-            .expect("redis port");
-        let url = format!("redis://127.0.0.1:{port}");
-
-        let store = RedisCheckpointStore::new_default_ttl(&url).unwrap();
+        let redis = RedisService::discover().await.expect("redis service");
+        let store = RedisCheckpointStore::new_default_ttl(redis.url()).unwrap();
 
         store
             .save(&make_checkpoint("run-3", "node-a"))
