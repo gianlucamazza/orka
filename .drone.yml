@@ -18,7 +18,7 @@ steps:
       QDRANT_URL: http://qdrant:6334
     commands:
       - apt-get update -qq
-      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev clang mold
+      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev libfontconfig-dev clang mold
       - rm -rf /var/lib/apt/lists/*
       - rustup component add clippy
       - rustup toolchain install nightly --profile minimal --component rustfmt
@@ -70,7 +70,7 @@ steps:
       QDRANT_URL: http://qdrant:6334
     commands:
       - apt-get update -qq
-      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev clang mold
+      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev libfontconfig-dev clang mold
       - rm -rf /var/lib/apt/lists/*
       - rustup component add clippy
       - rustup toolchain install nightly --profile minimal --component rustfmt
@@ -139,7 +139,7 @@ steps:
     image: rust:1.93-slim-bookworm
     commands:
       - apt-get update -qq
-      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev
+      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev libfontconfig-dev
       - rm -rf /var/lib/apt/lists/*
       - cargo build --release --bin orka-server --bin orka
       - ./scripts/create-install-bundle.sh --profile release --output-dir dist/orka-install-bundle-arm64 --tarball dist/orka-install-bundle-arm64.tar.gz
