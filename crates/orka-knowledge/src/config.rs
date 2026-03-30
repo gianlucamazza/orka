@@ -6,11 +6,11 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum EmbeddingProvider {
-    /// Local embeddings with fastembed.
-    #[default]
-    Local,
     /// `OpenAI` embeddings API.
+    #[default]
     Openai,
+    /// Local embeddings with fastembed.
+    Local,
     /// Anthropic embeddings API.
     Anthropic,
     /// Custom embeddings endpoint.

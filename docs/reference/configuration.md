@@ -508,6 +508,11 @@ The current schema does not define `require_confirmation`, `confirmation_timeout
 | `retrieval.score_threshold` | `f32` | Minimum similarity |
 | `retrieval.rerank` | `bool` | Enable reranking |
 
+Default behavior:
+- `embeddings.provider` defaults to `openai`.
+- `local` embeddings are an explicit build variant and require compiling `orka-server` with the `local-embeddings` feature.
+- Standard Bookworm-compatible builds do not include the ONNX/fastembed runtime by default.
+
 ### `scheduler`
 
 | Key | Type | Notes |

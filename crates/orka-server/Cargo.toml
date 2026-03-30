@@ -20,7 +20,6 @@ default = [
   "slack",
   "whatsapp",
   "wasm",
-  "local-embeddings",
 ]
 ## Enable local embedding models (ONNX Runtime, not available on all platforms).
 local-embeddings = ["orka-knowledge/local-embeddings"]
