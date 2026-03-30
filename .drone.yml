@@ -20,6 +20,7 @@ steps:
       - apt-get update -qq
       - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev
       - rm -rf /var/lib/apt/lists/*
+      - rustup component add clippy
       - rustup toolchain install nightly --profile minimal --component rustfmt
       - cargo install cargo-deny --locked
       - "until bash -lc ': >/dev/tcp/redis/6379' 2>/dev/null; do sleep 1; done"
@@ -71,6 +72,7 @@ steps:
       - apt-get update -qq
       - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev
       - rm -rf /var/lib/apt/lists/*
+      - rustup component add clippy
       - rustup toolchain install nightly --profile minimal --component rustfmt
       - "until bash -lc ': >/dev/tcp/redis/6379' 2>/dev/null; do sleep 1; done"
       - "until bash -lc ': >/dev/tcp/qdrant/6334' 2>/dev/null; do sleep 1; done"
