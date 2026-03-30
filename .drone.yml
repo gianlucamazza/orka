@@ -94,11 +94,11 @@ steps:
       - name: docker_sock
         path: /var/run/docker.sock
     commands:
-      - export REGISTRY_HOST="registry.home.gianlucamazza.it"
-      - export IMAGE_REPO="${REGISTRY_HOST}/gmazza/orka"
-      - printf '%s' "${REGISTRY_PASSWORD}" | docker login "${REGISTRY_HOST}" --username "${REGISTRY_USERNAME}" --password-stdin
+      - |
+        printf '%s' "${REGISTRY_PASSWORD}" | docker login registry.home.gianlucamazza.it --username "${REGISTRY_USERNAME}" --password-stdin
       - docker buildx inspect orka-builder --bootstrap
-      - docker buildx build --builder orka-builder --platform linux/amd64,linux/arm64 --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --build-arg VCS_REF="${DRONE_COMMIT_SHA}" --build-arg VERSION="${DRONE_COMMIT_SHA}" -t "${IMAGE_REPO}:${DRONE_COMMIT_SHA}" -t "${IMAGE_REPO}:latest" --push .
+      - |
+        docker buildx build --builder orka-builder --platform linux/amd64,linux/arm64 --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --build-arg VCS_REF="${DRONE_COMMIT_SHA}" --build-arg VERSION="${DRONE_COMMIT_SHA}" -t registry.home.gianlucamazza.it/gmazza/orka:${DRONE_COMMIT_SHA} -t registry.home.gianlucamazza.it/gmazza/orka:latest --push .
 
 services:
   - name: redis
