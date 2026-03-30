@@ -15,7 +15,7 @@ plotters = { version = "0.3", default-features = false, features = [
   "area_series",
   "full_palette",
 ] }
-image = { version = "0.24", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
