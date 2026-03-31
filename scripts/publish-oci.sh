@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 usage() {
 	cat <<'EOF'
@@ -22,10 +22,12 @@ Optional environment:
 EOF
 }
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-	usage
-	exit 0
-fi
+case "${1:-}" in
+	--help|-h)
+		usage
+		exit 0
+		;;
+esac
 
 : "${REGISTRY_USERNAME:?REGISTRY_USERNAME is required}"
 : "${REGISTRY_PASSWORD:?REGISTRY_PASSWORD is required}"

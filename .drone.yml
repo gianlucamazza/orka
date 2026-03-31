@@ -39,7 +39,7 @@ steps:
       - bash -n scripts/install.sh
       - bash -n scripts/create-install-bundle.sh
       - bash -n scripts/deploy-remote-native.sh
-      - bash -n scripts/publish-oci.sh
+      - sh -n scripts/publish-oci.sh
 
 services:
   - name: redis
