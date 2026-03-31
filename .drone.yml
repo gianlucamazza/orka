@@ -87,9 +87,9 @@ steps:
     image: docker:28-cli
     environment:
       REGISTRY_USERNAME:
-        from_secret: docker_username
+        from_secret: REGISTRY_USERNAME
       REGISTRY_PASSWORD:
-        from_secret: docker_password
+        from_secret: REGISTRY_PASSWORD
     volumes:
       - name: docker_sock
         path: /var/run/docker.sock
