@@ -1649,7 +1649,9 @@ mod tests {
                 assert_eq!(event_conversation_id, conversation_id);
                 assert_eq!(error, "tool execution failed");
             }
-            other => panic!("unexpected mobile event: {other:?}"),
+            other @ orka_server::router::MobileStreamEvent::MessageCompleted { .. } => {
+                panic!("unexpected mobile event: {other:?}")
+            }
         }
     }
 
@@ -1698,7 +1700,9 @@ mod tests {
                 assert_eq!(message.id, envelope.id);
                 assert_eq!(message.text, "Paused for approval.");
             }
-            other => panic!("unexpected mobile event: {other:?}"),
+            other @ orka_server::router::MobileStreamEvent::MessageFailed { .. } => {
+                panic!("unexpected mobile event: {other:?}")
+            }
         }
     }
 }

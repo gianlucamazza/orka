@@ -321,6 +321,39 @@ async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestRe
     Ok(())
 }
 
+async fn assert_refresh_token_rotation(
+    app: axum::Router,
+    refresh_token: &str,
+) -> common::TestResult {
+    let refresh_req = common::request(
+        Request::builder()
+            .method("POST")
+            .uri("/mobile/v1/auth/refresh")
+            .header("content-type", "application/json"),
+        Body::from(format!(
+            r#"{{"refresh_token":"{refresh_token}","device_id":"device-123"}}"#
+        )),
+    )?;
+    let refresh_resp = app.clone().oneshot(refresh_req).await?;
+    assert_eq!(refresh_resp.status(), StatusCode::OK);
+    let refresh_json = common::json_body(refresh_resp).await?;
+    assert_eq!(refresh_json["user_id"], "operator-1");
+    assert_ne!(refresh_json["refresh_token"], refresh_token);
+
+    let reused_refresh_req = common::request(
+        Request::builder()
+            .method("POST")
+            .uri("/mobile/v1/auth/refresh")
+            .header("content-type", "application/json"),
+        Body::from(format!(
+            r#"{{"refresh_token":"{refresh_token}","device_id":"device-123"}}"#
+        )),
+    )?;
+    let reused_refresh_resp = app.oneshot(reused_refresh_req).await?;
+    assert_eq!(reused_refresh_resp.status(), StatusCode::UNAUTHORIZED);
+    Ok(())
+}
+
 #[tokio::test]
 async fn mobile_pairing_create_complete_and_refresh_issue_valid_mobile_session()
 -> common::TestResult {
@@ -409,33 +442,7 @@ async fn mobile_pairing_create_complete_and_refresh_issue_valid_mobile_session()
     assert_eq!(completed_status_json["status"], "completed");
     assert_eq!(completed_status_json["device_label"], "Pixel 9 (android)");
 
-    let refresh_req = common::request(
-        Request::builder()
-            .method("POST")
-            .uri("/mobile/v1/auth/refresh")
-            .header("content-type", "application/json"),
-        Body::from(format!(
-            r#"{{"refresh_token":"{refresh_token}","device_id":"device-123"}}"#
-        )),
-    )?;
-    let refresh_resp = ctx.app.clone().oneshot(refresh_req).await?;
-    assert_eq!(refresh_resp.status(), StatusCode::OK);
-    let refresh_json = common::json_body(refresh_resp).await?;
-    assert_eq!(refresh_json["user_id"], "operator-1");
-    assert_ne!(refresh_json["refresh_token"], refresh_token);
-
-    let reused_refresh_req = common::request(
-        Request::builder()
-            .method("POST")
-            .uri("/mobile/v1/auth/refresh")
-            .header("content-type", "application/json"),
-        Body::from(format!(
-            r#"{{"refresh_token":"{refresh_token}","device_id":"device-123"}}"#
-        )),
-    )?;
-    let reused_refresh_resp = ctx.app.oneshot(reused_refresh_req).await?;
-    assert_eq!(reused_refresh_resp.status(), StatusCode::UNAUTHORIZED);
-    Ok(())
+    assert_refresh_token_rotation(ctx.app, refresh_token).await
 }
 
 #[tokio::test]

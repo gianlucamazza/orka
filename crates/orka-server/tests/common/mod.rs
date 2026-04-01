@@ -593,6 +593,7 @@ pub(crate) fn test_router_with_composite_auth(
     })
 }
 
+#[allow(clippy::expect_used)]
 pub(crate) fn make_jwt(secret: &str, issuer: &str, sub: &str, scopes: &[&str]) -> String {
     use jsonwebtoken::{EncodingKey, Header, encode};
     use serde::Serialize;
