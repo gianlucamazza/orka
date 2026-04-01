@@ -175,7 +175,7 @@ impl LlmClient for MockLlm {
         messages: &[orka_llm::client::ChatMessage],
         system: &str,
         _tools: &[ToolDefinition],
-        _options: CompletionOptions,
+        _options: &CompletionOptions,
     ) -> orka_core::Result<CompletionResponse> {
         self.systems.lock().await.push(system.to_string());
         *self.last_messages.lock().await = messages.to_vec();

@@ -142,7 +142,7 @@ impl LlmClient for MockLlmClient {
         _messages: &[ChatMessage],
         _system: &str,
         _tools: &[ToolDefinition],
-        _options: CompletionOptions,
+        _options: &CompletionOptions,
     ) -> Result<CompletionResponse> {
         *MockLlmClient::lock_or_recover(&self.call_count) += 1;
         self.check_error()?;
@@ -282,7 +282,7 @@ mod tests {
 
         let mock = MockLlmClient::new().with_tool_response(response);
         let result = mock
-            .complete_with_tools(&[], "", &[], CompletionOptions::default())
+            .complete_with_tools(&[], "", &[], &CompletionOptions::default())
             .await
             .unwrap();
 
@@ -298,7 +298,7 @@ mod tests {
     async fn tool_response_falls_back_to_text_when_queue_empty() {
         let mock = MockLlmClient::new().with_text_response("fallback");
         let result = mock
-            .complete_with_tools(&[], "", &[], CompletionOptions::default())
+            .complete_with_tools(&[], "", &[], &CompletionOptions::default())
             .await
             .unwrap();
         assert!(matches!(&result.blocks[0], ContentBlock::Text(t) if t == "fallback"));
@@ -321,7 +321,7 @@ mod tests {
 
         let mock = MockLlmClient::new().with_tool_response(response);
         let mut stream = mock
-            .complete_stream_with_tools(&[], "", &[], CompletionOptions::default())
+            .complete_stream_with_tools(&[], "", &[], &CompletionOptions::default())
             .await
             .unwrap();
 
@@ -344,7 +344,7 @@ mod tests {
 
         let mock = MockLlmClient::new().with_tool_response(response);
         let events: Vec<_> = mock
-            .complete_stream_with_tools(&[], "", &[], CompletionOptions::default())
+            .complete_stream_with_tools(&[], "", &[], &CompletionOptions::default())
             .await
             .unwrap()
             .collect()

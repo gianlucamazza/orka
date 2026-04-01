@@ -79,7 +79,7 @@ impl PrincipleReflector {
 
         let response = self
             .llm
-            .complete_with_options(messages, &system_prompt, options)
+            .complete_with_options(messages, &system_prompt, &options)
             .await?;
 
         let principles = Self::parse_principles(&response, workspace);
@@ -305,7 +305,7 @@ mod tests {
             &self,
             _messages: Vec<ChatMessage>,
             _system: &str,
-            _options: CompletionOptions,
+            _options: &CompletionOptions,
         ) -> orka_core::Result<String> {
             Ok("[]".to_string())
         }
@@ -323,7 +323,7 @@ mod tests {
             _messages: &[orka_llm::ChatMessage],
             _system: &str,
             _tools: &[orka_llm::ToolDefinition],
-            _options: CompletionOptions,
+            _options: &CompletionOptions,
         ) -> orka_core::Result<orka_llm::CompletionResponse> {
             Err(orka_core::Error::Other("not implemented".into()))
         }
@@ -333,7 +333,7 @@ mod tests {
             _messages: &[orka_llm::ChatMessage],
             _system: &str,
             _tools: &[orka_llm::ToolDefinition],
-            _options: CompletionOptions,
+            _options: &CompletionOptions,
         ) -> orka_core::Result<orka_llm::LlmToolStream> {
             Err(orka_core::Error::Other("not implemented".into()))
         }

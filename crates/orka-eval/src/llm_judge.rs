@@ -96,7 +96,7 @@ impl LlmJudge {
 
         let raw = match self
             .client
-            .complete_with_options(messages, system, options)
+            .complete_with_options(messages, system, &options)
             .await
         {
             Ok(text) => text,

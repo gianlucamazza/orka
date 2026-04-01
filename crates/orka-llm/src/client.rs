@@ -476,7 +476,7 @@ pub trait LlmClient: Send + Sync + 'static {
         &self,
         messages: Vec<ChatMessage>,
         system: &str,
-        _options: CompletionOptions,
+        _options: &CompletionOptions,
     ) -> Result<String> {
         if _options.model.is_some() || _options.max_tokens.is_some() {
             tracing::warn!(
@@ -500,7 +500,7 @@ pub trait LlmClient: Send + Sync + 'static {
         messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<CompletionResponse> {
         if !tools.is_empty() {
             tracing::warn!(
@@ -518,6 +518,7 @@ pub trait LlmClient: Send + Sync + 'static {
         let text = self
             .complete_with_options(simple_messages, system, options)
             .await?;
+
         Ok(CompletionResponse {
             blocks: vec![ContentBlock::Text(text)],
             usage: Usage::default(),
@@ -533,7 +534,7 @@ pub trait LlmClient: Send + Sync + 'static {
         messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<LlmToolStream> {
         let resp = self
             .complete_with_tools(messages, system, tools, options)

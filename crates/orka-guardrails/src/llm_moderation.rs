@@ -124,7 +124,7 @@ Remember to respond with valid JSON only."
                 &messages,
                 "",
                 &[],
-                orka_llm::client::CompletionOptions::default(),
+                &orka_llm::client::CompletionOptions::default(),
             )
             .await?;
 

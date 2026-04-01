@@ -125,7 +125,7 @@ impl WorkspaceHandler {
             .complete_with_options(
                 summary_prompt,
                 "You are a conversation summarizer. Be concise.",
-                options,
+                &options,
             )
             .await
         {

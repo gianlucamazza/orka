@@ -53,7 +53,7 @@ impl LlmClient for OllamaClient {
         &self,
         messages: Vec<ChatMessage>,
         system: &str,
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<String> {
         self.inner
             .complete_with_options(messages, system, options)
@@ -69,7 +69,7 @@ impl LlmClient for OllamaClient {
         messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<CompletionResponse> {
         self.inner
             .complete_with_tools(messages, system, tools, options)
@@ -81,7 +81,7 @@ impl LlmClient for OllamaClient {
         messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<LlmToolStream> {
         self.inner
             .complete_stream_with_tools(messages, system, tools, options)

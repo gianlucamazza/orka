@@ -398,7 +398,7 @@ impl OpenAiClient {
 #[async_trait]
 impl LlmClient for OpenAiClient {
     async fn complete(&self, messages: Vec<ChatMessage>, system: &str) -> Result<String> {
-        self.complete_with_options(messages, system, CompletionOptions::default())
+        self.complete_with_options(messages, system, &CompletionOptions::default())
             .await
     }
 
@@ -406,7 +406,7 @@ impl LlmClient for OpenAiClient {
         &self,
         messages: Vec<ChatMessage>,
         system: &str,
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<String> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
@@ -513,7 +513,7 @@ impl LlmClient for OpenAiClient {
         messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<CompletionResponse> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);
@@ -577,7 +577,7 @@ impl LlmClient for OpenAiClient {
         messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<LlmToolStream> {
         let model = options.model.as_deref().unwrap_or(&self.model);
         let max_tokens = options.max_tokens.unwrap_or(self.max_tokens);

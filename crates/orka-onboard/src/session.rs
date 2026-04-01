@@ -130,7 +130,7 @@ impl OnboardSession {
 
             let stream = self
                 .client
-                .complete_stream_with_tools(&self.messages, &system, &tools, options.clone())
+                .complete_stream_with_tools(&self.messages, &system, &tools, &options)
                 .await?;
 
             let result = consume_stream(stream, io).await?;

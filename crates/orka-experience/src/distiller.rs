@@ -84,7 +84,7 @@ impl Distiller {
 
         let response = self
             .llm
-            .complete_with_options(messages, &system_prompt, options)
+            .complete_with_options(messages, &system_prompt, &options)
             .await?;
 
         let principles = parse_principles(&response, workspace);

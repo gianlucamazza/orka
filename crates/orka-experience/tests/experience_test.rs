@@ -167,7 +167,7 @@ impl LlmClient for MockLlm {
         &self,
         _messages: Vec<ChatMessage>,
         _system: &str,
-        _options: CompletionOptions,
+        _options: &CompletionOptions,
     ) -> Result<String> {
         Ok(self.response.clone())
     }
@@ -185,7 +185,7 @@ impl LlmClient for MockLlm {
         _messages: &[orka_llm::ChatMessage],
         _system: &str,
         _tools: &[orka_llm::ToolDefinition],
-        _options: CompletionOptions,
+        _options: &CompletionOptions,
     ) -> Result<orka_llm::CompletionResponse> {
         Err(orka_core::Error::Other("not implemented".into()))
     }
@@ -195,7 +195,7 @@ impl LlmClient for MockLlm {
         _messages: &[orka_llm::ChatMessage],
         _system: &str,
         _tools: &[orka_llm::ToolDefinition],
-        _options: CompletionOptions,
+        _options: &CompletionOptions,
     ) -> Result<orka_llm::LlmToolStream> {
         Err(orka_core::Error::Other("not implemented".into()))
     }

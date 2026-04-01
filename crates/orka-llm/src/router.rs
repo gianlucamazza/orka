@@ -148,7 +148,7 @@ impl LlmClient for LlmRouter {
         &self,
         messages: Vec<ChatMessage>,
         system: &str,
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<String> {
         let (provider, breaker) = self.resolve(options.model.as_deref());
         let provider: Arc<dyn LlmClient> = self
@@ -158,6 +158,7 @@ impl LlmClient for LlmRouter {
             .cloned()
             .unwrap_or_else(|| self.default_provider.clone());
         let system = system.to_string();
+        let options = options.clone();
         breaker
             .call(|| {
                 let provider = provider.clone();
@@ -166,7 +167,7 @@ impl LlmClient for LlmRouter {
                 let options = options.clone();
                 async move {
                     provider
-                        .complete_with_options(messages, &system, options)
+                        .complete_with_options(messages, &system, &options)
                         .await
                 }
             })
@@ -193,7 +194,7 @@ impl LlmClient for LlmRouter {
         messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<CompletionResponse> {
         let (_, breaker) = self.resolve(options.model.as_deref());
         let breaker = breaker.clone();
@@ -201,6 +202,7 @@ impl LlmClient for LlmRouter {
         let system = system.to_string();
         let tools = tools.to_vec();
         let messages = messages.to_vec();
+        let options = options.clone();
         breaker
             .call(|| {
                 let provider = provider.clone();
@@ -210,7 +212,7 @@ impl LlmClient for LlmRouter {
                 let options = options.clone();
                 async move {
                     provider
-                        .complete_with_tools(&messages, &system, &tools, options)
+                        .complete_with_tools(&messages, &system, &tools, &options)
                         .await
                 }
             })
@@ -223,7 +225,7 @@ impl LlmClient for LlmRouter {
         messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<LlmToolStream> {
         let (_, breaker) = self.resolve(options.model.as_deref());
         let breaker = breaker.clone();
@@ -231,6 +233,7 @@ impl LlmClient for LlmRouter {
         let system = system.to_string();
         let tools = tools.to_vec();
         let messages = messages.to_vec();
+        let options = options.clone();
         breaker
             .call(|| {
                 let provider = provider.clone();
@@ -240,7 +243,7 @@ impl LlmClient for LlmRouter {
                 let options = options.clone();
                 async move {
                     provider
-                        .complete_stream_with_tools(&messages, &system, &tools, options)
+                        .complete_stream_with_tools(&messages, &system, &tools, &options)
                         .await
                 }
             })

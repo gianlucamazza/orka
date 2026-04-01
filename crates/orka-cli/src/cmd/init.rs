@@ -234,7 +234,7 @@ fn phase1_bootstrap(args: &InitArgs) -> Result<(Arc<dyn LlmClient>, BootstrapPro
             .complete_with_options(
                 vec![orka_llm::ChatMessage::user("Reply with: OK".to_string())],
                 "You are a test. Reply with exactly 'OK' and nothing else.",
-                opts,
+                &opts,
             )
             .await
     });
