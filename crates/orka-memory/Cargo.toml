@@ -19,6 +19,7 @@ chrono.workspace = true
 [dev-dependencies]
 orka-bus.workspace = true
 orka-test-support.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true
