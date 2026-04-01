@@ -63,6 +63,7 @@ regex.workspace = true
 redis.workspace = true
 qdrant-client.workspace = true
 url.workspace = true
+qrcode = "0.14"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }

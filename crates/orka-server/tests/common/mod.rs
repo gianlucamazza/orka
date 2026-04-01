@@ -13,6 +13,7 @@ use orka_agent::{Agent, AgentGraph, AgentId, GraphNode, NodeKind, TerminationPol
 use orka_core::testing::{
     InMemoryBus, InMemoryConversationStore, InMemoryQueue, InMemorySessionStore,
 };
+use orka_server::mobile_auth::{InMemoryMobileAuthService, MobileAuthConfig, MobileAuthService};
 use orka_server::router::{MobileEventHub, RouterParams, ServerFeatures, build_router};
 use orka_skills::{EchoSkill, SkillRegistry};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
@@ -156,6 +157,14 @@ fn test_features() -> ServerFeatures {
     }
 }
 
+fn test_mobile_auth_service() -> Arc<dyn MobileAuthService> {
+    Arc::new(InMemoryMobileAuthService::new(MobileAuthConfig::new(
+        "orka-tests".to_string(),
+        None,
+        "test-secret-key-at-least-32-bytes-long!".to_string(),
+    )))
+}
+
 /// Build the full server router backed by in-memory test doubles.
 ///
 /// - No auth (all routes accessible without API key)
@@ -205,6 +214,7 @@ pub(crate) fn test_router() -> axum::Router {
         research_service: None,
         stream_registry: orka_core::StreamRegistry::new(),
         mobile_events: MobileEventHub::new(),
+        mobile_auth: None,
         mobile_enabled: false,
     })
 }
@@ -286,6 +296,7 @@ pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::R
         research_service: None,
         stream_registry: orka_core::StreamRegistry::new(),
         mobile_events: MobileEventHub::new(),
+        mobile_auth: None,
         mobile_enabled: false,
     })
 }
@@ -346,6 +357,7 @@ pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
         research_service: None,
         stream_registry: orka_core::StreamRegistry::new(),
         mobile_events: MobileEventHub::new(),
+        mobile_auth: None,
         mobile_enabled: false,
     })
 }
@@ -428,6 +440,7 @@ pub(crate) fn test_router_with_research() -> axum::Router {
         research_service: Some(service),
         stream_registry,
         mobile_events: MobileEventHub::new(),
+        mobile_auth: None,
         mobile_enabled: false,
     })
 }
@@ -494,6 +507,7 @@ pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileT
         research_service: None,
         stream_registry: stream_registry.clone(),
         mobile_events: mobile_events.clone(),
+        mobile_auth: Some(test_mobile_auth_service()),
         mobile_enabled: true,
     });
 
@@ -572,6 +586,7 @@ pub(crate) fn test_router_with_composite_auth(
         research_service: None,
         stream_registry: orka_core::StreamRegistry::new(),
         mobile_events: MobileEventHub::new(),
+        mobile_auth: Some(test_mobile_auth_service()),
         mobile_enabled: true,
     })
 }

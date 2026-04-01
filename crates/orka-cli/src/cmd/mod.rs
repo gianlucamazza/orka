@@ -9,6 +9,7 @@ pub mod graph;
 pub mod init;
 pub mod mcp_serve;
 pub mod metrics;
+pub mod mobile;
 pub mod schedule;
 pub mod secret;
 pub mod send;

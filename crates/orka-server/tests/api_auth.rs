@@ -84,8 +84,19 @@ async fn composite_auth_accepts_api_key_and_jwt() -> common::TestResult {
             .header("Authorization", format!("Bearer {jwt}")),
         Body::empty(),
     )?;
-    let mobile_resp = app.oneshot(mobile_req).await?;
+    let mobile_resp = app.clone().oneshot(mobile_req).await?;
     assert_eq!(mobile_resp.status(), StatusCode::OK);
+
+    let pairing_req = common::request(
+        Request::builder()
+            .method("POST")
+            .uri("/mobile/v1/pairings")
+            .header("X-Api-Key", TEST_KEY)
+            .header("content-type", "application/json"),
+        Body::from(r#"{"server_base_url":"https://orka.example.com"}"#),
+    )?;
+    let pairing_resp = app.oneshot(pairing_req).await?;
+    assert_eq!(pairing_resp.status(), StatusCode::CREATED);
     Ok(())
 }
 

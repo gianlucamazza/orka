@@ -163,6 +163,11 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Pair a mobile device with this Orka server
+    Mobile {
+        #[command(subcommand)]
+        action: MobileAction,
+    },
     /// Agent-to-agent (A2A) protocol
     A2a {
         #[command(subcommand)]
@@ -433,6 +438,16 @@ enum A2aAction {
 }
 
 #[derive(clap::Subcommand)]
+enum MobileAction {
+    /// Create a QR pairing session and wait for the phone to complete it
+    Pair {
+        /// Maximum time to wait for pairing completion, in seconds
+        #[arg(long, default_value = "120")]
+        timeout: u64,
+    },
+}
+
+#[derive(clap::Subcommand)]
 enum TasksAction {
     /// Get a task by ID
     Get { task_id: String },
@@ -569,6 +584,9 @@ async fn main() {
         Commands::Metrics { filter, json } => {
             cmd::metrics::show(&server_client, filter.as_deref(), json).await
         }
+        Commands::Mobile { action } => match action {
+            MobileAction::Pair { timeout } => cmd::mobile::run_pair(&server_client, timeout).await,
+        },
         Commands::A2a { action } => match action {
             A2aAction::Card => cmd::a2a::card(&server_client).await,
             A2aAction::Send { task } => cmd::a2a::send(&server_client, &task).await,

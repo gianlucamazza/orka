@@ -7,7 +7,9 @@ use anyhow::Context;
 use orka_config::{CodingConfig, CodingProvider, CodingSelectionPolicy, OrkaConfig};
 use orka_infra::{create_bus, create_conversation_store};
 use orka_core::{
-    OutboundMessage,
+    ConversationMessage, ConversationMessageRole, ConversationMessageStatus, ConversationStatus,
+    Envelope, OutboundMessage,
+    stream::AgentStopReason,
     traits::{
         ConversationStore, DeadLetterQueue, EventSink, Guardrail, MemoryStore, MessageBus,
         PriorityQueue, SecretManager, SessionLock, SessionStore,
@@ -18,6 +20,7 @@ use orka_infra::{QueueBundle, create_queue};
 use orka_server::router::{
     BUILD_DATE, GIT_SHA, MobileEventHub, RouterParams, ServerFeatures, VERSION, build_router,
 };
+use orka_server::mobile_auth::{MobileAuthConfig, MobileAuthService, RedisMobileAuthService};
 use orka_infra::create_session_store;
 use orka_worker::{CommandRegistry, GraphDispatcher, WorkerPool};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
@@ -565,7 +568,7 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
             Ok(git_skills) => {
                 let count = git_skills.len();
                 for skill in git_skills {
-                    skills.register(std::sync::Arc::from(skill));
+                    skills.register(skill);
                 }
                 info!(skill_count = count, "git skills initialized");
             }
@@ -701,6 +704,21 @@ fn build_auth_layer(config: &OrkaConfig) -> (bool, Option<orka_auth::AuthLayer>)
         (true, Some(layer))
     } else {
         (false, None)
+    }
+}
+
+fn build_mobile_auth_service(config: &OrkaConfig) -> Option<Arc<dyn MobileAuthService>> {
+    let jwt = config.auth.jwt.as_ref()?;
+    let secret = jwt.secret.as_ref()?;
+    let issuer = jwt.issuer.clone().unwrap_or_else(|| "orka".to_string());
+    let mobile_auth_config = MobileAuthConfig::new(issuer, jwt.audience.clone(), secret.clone());
+
+    match RedisMobileAuthService::new(&config.redis.url, mobile_auth_config) {
+        Ok(service) => Some(Arc::new(service)),
+        Err(error) => {
+            warn!(%error, "mobile auth service unavailable");
+            None
+        }
     }
 }
 
@@ -931,6 +949,7 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
     };
 
     let auth_layer = build_auth_layer(config).1;
+    let mobile_auth = build_mobile_auth_service(config);
 
     RouterParams {
         bus: deps.infra.bus.clone(),
@@ -975,6 +994,7 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         research_service: None,
         stream_registry: deps.stream_registry,
         mobile_events: deps.mobile_events,
+        mobile_auth,
         mobile_enabled: config.auth.jwt.is_some(),
     }
 }
@@ -1085,51 +1105,18 @@ async fn spawn_outbound_bridge(
                 msg = outbound_rx.recv() => {
                     if let Some(envelope) = msg {
                         if envelope.channel == "mobile" {
-                            if let orka_core::Payload::Text(text) = &envelope.payload {
-                                let conversation_id = orka_core::ConversationId::from(envelope.session_id);
-                                let message = orka_core::ConversationMessage::new(
-                                    envelope.id,
-                                    conversation_id,
-                                    envelope.session_id,
-                                    orka_core::ConversationMessageRole::Assistant,
-                                    text.clone(),
+                            if let Err(error) = persist_mobile_outbound(
+                                conversations.as_ref(),
+                                &mobile_events,
+                                &envelope,
+                            ).await {
+                                let conversation_id =
+                                    orka_core::ConversationId::from(envelope.session_id);
+                                error!(
+                                    %error,
+                                    conversation_id = %conversation_id,
+                                    "failed to persist mobile outbound state"
                                 );
-                                if let Err(error) = conversations.append_message(&message).await {
-                                    error!(%error, conversation_id = %conversation_id, "failed to append mobile assistant message");
-                                    mobile_events
-                                        .publish(
-                                            conversation_id,
-                                            orka_server::router::MobileStreamEvent::MessageFailed {
-                                                conversation_id,
-                                                error: error.to_string(),
-                                            },
-                                        )
-                                        .await;
-                                    continue;
-                                }
-                                match conversations.get_conversation(&conversation_id).await {
-                                    Ok(Some(mut conversation)) => {
-                                        conversation.updated_at = message.created_at;
-                                        conversation.last_message_preview = Some(text.chars().take(60).collect());
-                                        if let Err(error) = conversations.put_conversation(&conversation).await {
-                                            error!(%error, conversation_id = %conversation_id, "failed to update mobile conversation metadata");
-                                        }
-                                    }
-                                    Ok(None) => {
-                                        warn!(conversation_id = %conversation_id, "mobile outbound without conversation metadata");
-                                    }
-                                    Err(error) => {
-                                        error!(%error, conversation_id = %conversation_id, "failed to load mobile conversation metadata");
-                                    }
-                                }
-                                mobile_events
-                                    .publish(
-                                        conversation_id,
-                                        orka_server::router::MobileStreamEvent::MessageCompleted {
-                                            message,
-                                        },
-                                    )
-                                    .await;
                             }
                             continue;
                         }
@@ -1159,6 +1146,116 @@ async fn spawn_outbound_bridge(
             }
         }
     }))
+}
+
+async fn persist_mobile_outbound(
+    conversations: &dyn ConversationStore,
+    mobile_events: &MobileEventHub,
+    envelope: &Envelope,
+) -> anyhow::Result<()> {
+    let conversation_id = orka_core::ConversationId::from(envelope.session_id);
+    let stop_reason = mobile_stop_reason(envelope);
+    let text = match &envelope.payload {
+        orka_core::Payload::Text(text) => Some(text.as_str()),
+        _ => None,
+    };
+
+    let mut conversation = match conversations.get_conversation(&conversation_id).await? {
+        Some(conversation) => conversation,
+        None => {
+            warn!(conversation_id = %conversation_id, "mobile outbound without conversation metadata");
+            return Ok(());
+        }
+    };
+
+    let message = text
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| mobile_assistant_message(envelope, conversation_id, value, stop_reason));
+
+    if let Some(message) = &message {
+        conversations.append_message(message).await?;
+        conversation.updated_at = message.created_at;
+        conversation.last_message_preview = Some(preview_text(&message.text));
+    } else {
+        conversation.updated_at = chrono::Utc::now();
+    }
+
+    conversation.status = match stop_reason {
+        Some(AgentStopReason::Error) => ConversationStatus::Failed,
+        Some(AgentStopReason::Interrupted) => ConversationStatus::Interrupted,
+        _ => ConversationStatus::Active,
+    };
+    conversations.put_conversation(&conversation).await?;
+
+    match stop_reason {
+        Some(AgentStopReason::Error) => {
+            let error_text = message
+                .as_ref()
+                .map(|item| item.text.clone())
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "agent execution terminated with error".to_string());
+            mobile_events
+                .publish(
+                    conversation_id,
+                    orka_server::router::MobileStreamEvent::MessageFailed {
+                        conversation_id,
+                        error: error_text,
+                    },
+                )
+                .await;
+        }
+        _ => {
+            if let Some(message) = message {
+                mobile_events
+                    .publish(
+                        conversation_id,
+                        orka_server::router::MobileStreamEvent::MessageCompleted { message },
+                    )
+                    .await;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn mobile_assistant_message(
+    envelope: &Envelope,
+    conversation_id: orka_core::ConversationId,
+    text: &str,
+    stop_reason: Option<AgentStopReason>,
+) -> ConversationMessage {
+    let mut message = ConversationMessage::new(
+        envelope.id,
+        conversation_id,
+        envelope.session_id,
+        ConversationMessageRole::Assistant,
+        text.to_string(),
+    );
+    if matches!(stop_reason, Some(AgentStopReason::Error)) {
+        message.status = ConversationMessageStatus::Failed;
+        message.finalized_at = None;
+    }
+    message
+}
+
+fn mobile_stop_reason(envelope: &Envelope) -> Option<AgentStopReason> {
+    envelope
+        .metadata
+        .get("stop_reason")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+}
+
+fn preview_text(text: &str) -> String {
+    const MAX_CHARS: usize = 60;
+    let trimmed = text.trim();
+    let truncated = trimmed.chars().take(MAX_CHARS).collect::<String>();
+    if trimmed.chars().count() > MAX_CHARS {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1237,6 +1334,40 @@ async fn wait_for_shutdown(
 // Bootstrap lifecycle
 // ---------------------------------------------------------------------------
 
+async fn init_commands(
+    skill_bundle: &SkillBundle,
+    infra: &InfraBundle,
+    workspace_registry: &Arc<WorkspaceRegistry>,
+    config: &OrkaConfig,
+    experience_service: Option<Arc<orka_experience::ExperienceService>>,
+    adapters: &[Arc<dyn orka_core::traits::ChannelAdapter>],
+) -> anyhow::Result<Arc<CommandRegistry>> {
+    let mut commands = CommandRegistry::new();
+    let cmd_deps = orka_worker::commands::CommandRegistryDeps {
+        skills: skill_bundle.skills.clone(),
+        memory: infra.memory.clone(),
+        facts: skill_bundle.fact_store.clone(),
+        secrets: infra.secrets.clone(),
+        workspace_registry: workspace_registry.clone(),
+        agent_config: config
+            .agents
+            .first()
+            .context("no agents defined after configuration validation")?
+            .config
+            .clone(),
+        experience: experience_service,
+    };
+    orka_worker::commands::register_all(&mut commands, cmd_deps);
+    let commands = Arc::new(commands);
+    let cmd_list = commands.list();
+    for adapter in adapters {
+        if let Err(e) = adapter.register_commands(&cmd_list).await {
+            warn!(%e, channel = adapter.channel_id(), "failed to register commands with adapter");
+        }
+    }
+    Ok(commands)
+}
+
 impl Bootstrap {
     /// Run all initialization phases and return the fully-wired server state.
     async fn new() -> anyhow::Result<Self> {
@@ -1309,31 +1440,15 @@ impl Bootstrap {
         info!(graph_id = %graph.id, "agent graph built");
 
         // 11. Command registry + register with adapters
-        let mut commands = CommandRegistry::new();
-        let cmd_deps = orka_worker::commands::CommandRegistryDeps {
-            skills: skill_bundle.skills.clone(),
-            memory: infra.memory.clone(),
-            facts: skill_bundle.fact_store.clone(),
-            secrets: infra.secrets.clone(),
-            workspace_registry: workspace_registry.clone(),
-            agent_config: config
-                .agents
-                .first()
-                .context("no agents defined after configuration validation")?
-                .config
-                .clone(),
-            experience: experience_service.clone(),
-        };
-        orka_worker::commands::register_all(&mut commands, cmd_deps);
-        let commands = Arc::new(commands);
-        {
-            let cmd_list = commands.list();
-            for adapter in &adapters {
-                if let Err(e) = adapter.register_commands(&cmd_list).await {
-                    warn!(%e, channel = adapter.channel_id(), "failed to register commands with adapter");
-                }
-            }
-        }
+        let commands = init_commands(
+            &skill_bundle,
+            &infra,
+            &workspace_registry,
+            &config,
+            experience_service.clone(),
+            &adapters,
+        )
+        .await?;
 
         Ok(Self {
             config,
@@ -1474,4 +1589,107 @@ impl Bootstrap {
 /// Run the Orka server until SIGINT or SIGTERM.
 pub(crate) async fn run() -> anyhow::Result<()> {
     Bootstrap::new().await?.run().await
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::sync::Arc;
+
+    use orka_core::{
+        Conversation, ConversationId, Envelope, MessageId, SessionId,
+        testing::InMemoryConversationStore,
+        traits::ConversationStore,
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn mobile_outbound_error_sets_failed_state_and_emits_failure() {
+        let store = Arc::new(InMemoryConversationStore::new());
+        let mobile_events = MobileEventHub::new();
+        let conversation_id = ConversationId::new();
+        let session_id = SessionId::from(conversation_id);
+        let conversation = Conversation::new(conversation_id, session_id, "user-1", "Test");
+        store.put_conversation(&conversation).await.unwrap();
+
+        let mut envelope = Envelope::text("mobile", session_id, "tool execution failed");
+        envelope.id = MessageId::new();
+        envelope.metadata.insert(
+            "stop_reason".into(),
+            serde_json::json!(AgentStopReason::Error),
+        );
+
+        let mut events = mobile_events.subscribe(conversation_id).await;
+        persist_mobile_outbound(store.as_ref(), &mobile_events, &envelope)
+            .await
+            .unwrap();
+
+        let updated = store
+            .get_conversation(&conversation_id)
+            .await
+            .unwrap()
+            .expect("conversation should exist");
+        assert_eq!(updated.status, ConversationStatus::Failed);
+
+        let messages = store.list_messages(&conversation_id, None, 0).await.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].status, ConversationMessageStatus::Failed);
+        assert_eq!(messages[0].text, "tool execution failed");
+
+        let event = events.recv().await.expect("failure event should be emitted");
+        match event {
+            orka_server::router::MobileStreamEvent::MessageFailed {
+                conversation_id: event_conversation_id,
+                error,
+            } => {
+                assert_eq!(event_conversation_id, conversation_id);
+                assert_eq!(error, "tool execution failed");
+            }
+            other => panic!("unexpected mobile event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn mobile_outbound_interrupted_sets_interrupted_state_and_emits_completed_message() {
+        let store = Arc::new(InMemoryConversationStore::new());
+        let mobile_events = MobileEventHub::new();
+        let conversation_id = ConversationId::new();
+        let session_id = SessionId::from(conversation_id);
+        let conversation = Conversation::new(conversation_id, session_id, "user-1", "Test");
+        store.put_conversation(&conversation).await.unwrap();
+
+        let mut envelope = Envelope::text("mobile", session_id, "Paused for approval.");
+        envelope.id = MessageId::new();
+        envelope.metadata.insert(
+            "stop_reason".into(),
+            serde_json::json!(AgentStopReason::Interrupted),
+        );
+
+        let mut events = mobile_events.subscribe(conversation_id).await;
+        persist_mobile_outbound(store.as_ref(), &mobile_events, &envelope)
+            .await
+            .unwrap();
+
+        let updated = store
+            .get_conversation(&conversation_id)
+            .await
+            .unwrap()
+            .expect("conversation should exist");
+        assert_eq!(updated.status, ConversationStatus::Interrupted);
+
+        let messages = store.list_messages(&conversation_id, None, 0).await.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].status, ConversationMessageStatus::Completed);
+        assert_eq!(messages[0].text, "Paused for approval.");
+
+        let event = events.recv().await.expect("completion event should be emitted");
+        match event {
+            orka_server::router::MobileStreamEvent::MessageCompleted { message } => {
+                assert_eq!(message.id, envelope.id);
+                assert_eq!(message.text, "Paused for approval.");
+            }
+            other => panic!("unexpected mobile event: {other:?}"),
+        }
+    }
 }

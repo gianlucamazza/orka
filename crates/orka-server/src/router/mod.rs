@@ -34,6 +34,8 @@ use tower_http::limit::RequestBodyLimitLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+use crate::mobile_auth::MobileAuthService;
+
 pub use mobile::{MobileEventHub, MobileStreamEvent};
 
 /// Server version from `Cargo.toml`.
@@ -64,6 +66,10 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         mobile::handle_list_messages,
         mobile::handle_send_message,
         mobile::handle_stream,
+        mobile::handle_create_pairing,
+        mobile::handle_get_pairing_status,
+        mobile::handle_complete_pairing,
+        mobile::handle_refresh_session,
     ),
     components(schemas(
         orka_core::Envelope,
@@ -106,6 +112,13 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         mobile::ApiError,
         mobile::CreateConversationRequest,
         mobile::CurrentUserResponse,
+        mobile::CreatePairingRequest,
+        mobile::CreatePairingResponse,
+        mobile::PairingStatusResponse,
+        mobile::PairingStatusKind,
+        mobile::CompletePairingRequest,
+        mobile::RefreshSessionRequest,
+        mobile::MobileSessionResponse,
         mobile::SendMessageRequest,
         mobile::SendMessageResponse,
         mobile::StreamDonePayload,
@@ -274,6 +287,8 @@ pub struct RouterParams {
     pub stream_registry: orka_core::StreamRegistry,
     /// Product-facing mobile event hub.
     pub mobile_events: MobileEventHub,
+    /// Optional mobile auth service for QR pairing and refresh.
+    pub mobile_auth: Option<Arc<dyn MobileAuthService>>,
     /// Whether the mobile product API should be exposed.
     pub mobile_enabled: bool,
 }
@@ -319,12 +334,17 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         research_service,
         stream_registry,
         mobile_events,
+        mobile_auth,
         mobile_enabled,
     } = p;
 
     // --- Public routes (no auth) ---
 
     let mut public_routes = health::routes(&queue, start_time, concurrency, redis_url, qdrant_url);
+
+    if mobile_enabled {
+        public_routes = public_routes.merge(mobile::public_routes(mobile_auth.clone()));
+    }
 
     if let Some(handle) = metrics_handle {
         let handle = Arc::new(handle);
@@ -403,11 +423,12 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         .merge(research::routes(research_service, stream_registry.clone()));
 
     let api_routes = if mobile_enabled {
-        api_routes.merge(mobile::routes(
+        api_routes.merge(mobile::protected_routes(
             conversations,
             bus,
             stream_registry,
             mobile_events,
+            mobile_auth,
         ))
     } else {
         api_routes

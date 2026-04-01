@@ -31,6 +31,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   `orka-onboard`, `orka-http`, `orka-sandbox` — functionality is fully preserved in
   the consolidated crates listed above; only import paths changed.
 
+## [1.1.0] - 2026-04-01
+
+### Added
+
+- Dedicated mobile auth and pairing endpoints under `/mobile/v1/*` for QR-based
+  first-device association, refresh-token rotation, and authenticated mobile
+  sessions
+- `orka mobile pair` CLI command with terminal QR rendering and pairing-status
+  polling for first association between a signed-in CLI session and the mobile app
+- Mobile auth service for device-scoped access/refresh token issuance with
+  one-time, short-lived pairing sessions
+- Public mobile API documentation covering pairing, refresh, conversation paging,
+  and SSE event semantics
+
+### Changed
+
+- Mobile conversation endpoints now expose stable `limit`/`offset` pagination and
+  explicit user-scoped authorization semantics
+- Mobile SSE handling now distinguishes preview deltas from authoritative completed
+  assistant messages and documents `stream_done` as transport completion only
+- Mobile app onboarding now defaults to QR pairing with a manual pairing-URI
+  fallback for simulators and restricted-permission environments
+
 ## [1.0.0] - 2026-03-29
 
 ### Added
