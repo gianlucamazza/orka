@@ -673,6 +673,7 @@ async fn handle_send_message(
 )]
 /// GET `/mobile/v1/conversations/{id}/stream` — subscribe to mobile SSE
 /// events for a conversation.
+#[allow(clippy::too_many_lines)]
 async fn handle_stream(
     State(state): State<ProtectedMobileState>,
     Extension(identity): Extension<AuthIdentity>,
@@ -717,6 +718,57 @@ async fn handle_stream(
                                 data: serde_json::to_string(&StreamDonePayload {
                                     conversation_id: conversation.id,
                                 }).unwrap_or_else(|_| "{}".to_string()),
+                            }).is_err() {
+                                break;
+                            }
+                        }
+                        StreamChunkKind::ThinkingDelta(delta) => {
+                            if tx.send(SseFrame {
+                                event: "thinking_delta",
+                                data: serde_json::json!({
+                                    "conversation_id": conversation.id,
+                                    "delta": delta,
+                                }).to_string(),
+                            }).is_err() {
+                                break;
+                            }
+                        }
+                        StreamChunkKind::ToolExecStart { name, id, input_summary, category } => {
+                            if tx.send(SseFrame {
+                                event: "tool_exec_start",
+                                data: serde_json::json!({
+                                    "conversation_id": conversation.id,
+                                    "id": id,
+                                    "name": name,
+                                    "input_summary": input_summary,
+                                    "category": category,
+                                }).to_string(),
+                            }).is_err() {
+                                break;
+                            }
+                        }
+                        StreamChunkKind::ToolExecEnd { id, success, duration_ms, error, result_summary } => {
+                            if tx.send(SseFrame {
+                                event: "tool_exec_end",
+                                data: serde_json::json!({
+                                    "conversation_id": conversation.id,
+                                    "id": id,
+                                    "success": success,
+                                    "duration_ms": duration_ms,
+                                    "error": error,
+                                    "result_summary": result_summary,
+                                }).to_string(),
+                            }).is_err() {
+                                break;
+                            }
+                        }
+                        StreamChunkKind::AgentSwitch { agent_id: _, display_name } => {
+                            if tx.send(SseFrame {
+                                event: "agent_switch",
+                                data: serde_json::json!({
+                                    "conversation_id": conversation.id,
+                                    "display_name": display_name,
+                                }).to_string(),
                             }).is_err() {
                                 break;
                             }
