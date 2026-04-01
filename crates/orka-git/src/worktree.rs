@@ -123,7 +123,7 @@ impl WorktreeManager {
         }
 
         // Create the worktree_base directory if needed
-        std::fs::create_dir_all(&self.worktree_base)?;
+        tokio::fs::create_dir_all(&self.worktree_base).await?;
 
         // git worktree add
         let wt_path_str = wt_path.display().to_string();
@@ -147,9 +147,9 @@ impl WorktreeManager {
             let dst = wt_path.join(file);
             if src.exists() {
                 if let Some(parent) = dst.parent() {
-                    std::fs::create_dir_all(parent)?;
+                    tokio::fs::create_dir_all(parent).await?;
                 }
-                std::fs::copy(&src, &dst)?;
+                tokio::fs::copy(&src, &dst).await?;
             }
         }
 
@@ -161,13 +161,13 @@ impl WorktreeManager {
                 // Remove existing destination first (e.g., empty dir created by git)
                 if dst.exists() || dst.symlink_metadata().is_ok() {
                     if dst.is_dir() && !dst.is_symlink() {
-                        let _ = std::fs::remove_dir_all(&dst);
+                        let _ = tokio::fs::remove_dir_all(&dst).await;
                     } else {
-                        let _ = std::fs::remove_file(&dst);
+                        let _ = tokio::fs::remove_file(&dst).await;
                     }
                 }
                 #[cfg(unix)]
-                std::os::unix::fs::symlink(&src, &dst)?;
+                tokio::fs::symlink(&src, &dst).await?;
                 #[cfg(not(unix))]
                 warn!(src = %src.display(), dst = %dst.display(), "symlink_dirs unsupported on non-Unix; skipping");
             }
@@ -183,7 +183,7 @@ impl WorktreeManager {
         let meta_path = wt_path.join(".orka-worktree-meta.json");
         let json =
             serde_json::to_string_pretty(&meta).map_err(|e| GitError::Command(e.to_string()))?;
-        std::fs::write(&meta_path, json)?;
+        tokio::fs::write(&meta_path, json).await?;
 
         // Get HEAD sha for the new worktree
         let head_sha = run_git(
@@ -236,7 +236,7 @@ impl WorktreeManager {
             }
             // Load metadata if present
             let meta_path = entry.path.join(".orka-worktree-meta.json");
-            let (created_at, agent_id) = if let Ok(raw) = std::fs::read_to_string(&meta_path) {
+            let (created_at, agent_id) = if let Ok(raw) = tokio::fs::read_to_string(&meta_path).await {
                 let meta: Option<WorktreeMeta> = serde_json::from_str(&raw).ok();
                 (
                     meta.as_ref().map(|m| m.created_at),
