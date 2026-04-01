@@ -161,6 +161,7 @@ notify = { version = "7", default-features = false, features = [
 ] }
 tempfile = "3"
 shell-words = "1"
+image = { version = "0.25", default-features = false }
 
 # Redis
 redis = { version = "0.27", features = ["tokio-comp", "streams"] }

@@ -10,8 +10,8 @@ use plotters::{
 };
 
 use crate::{
-    Error,
     types::{ChartData, ChartSpec, ChartType, Series},
+    Error,
 };
 
 // ---------------------------------------------------------------------------
@@ -756,7 +756,7 @@ fn encode_rgb_to_png(rgb: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, E
     let mut png_bytes: Vec<u8> = Vec::new();
     img.write_to(
         &mut std::io::Cursor::new(&mut png_bytes),
-        image::ImageOutputFormat::Png,
+        image::ImageFormat::Png,
     )
     .map_err(|e| Error::Render(format!("PNG encode failed: {e}")))?;
     Ok(png_bytes)
