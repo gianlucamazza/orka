@@ -70,7 +70,7 @@ pub fn infer_provider(model: &str) -> String {
 }
 
 #[cfg(feature = "anthropic")]
-pub use anthropic::{AnthropicAuthKind, AnthropicClient};
+pub use anthropic::{AnthropicAuthKind, AnthropicClient, AnthropicClientConfig};
 pub use client::{
     ChatContent, ChatMessage, CompletionOptions, CompletionResponse, ContentBlock,
     ContentBlockInput, LlmClient, LlmStream, LlmToolStream, ReasoningEffort, Role, StopReason,

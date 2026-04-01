@@ -96,20 +96,22 @@ pub(crate) fn create_experience_service(
         "ollama" => Arc::new(orka_llm::OllamaClient::new(model)),
         _ => Arc::new(orka_llm::AnthropicClient::with_auth_options(
             credential,
-            match auth_kind {
-                LlmAuthKind::AuthToken | LlmAuthKind::Subscription => {
-                    orka_llm::AnthropicAuthKind::Bearer
-                }
-                _ => orka_llm::AnthropicAuthKind::ApiKey,
+            orka_llm::AnthropicClientConfig {
+                auth_kind: match auth_kind {
+                    LlmAuthKind::AuthToken | LlmAuthKind::Subscription => {
+                        orka_llm::AnthropicAuthKind::Bearer
+                    }
+                    _ => orka_llm::AnthropicAuthKind::ApiKey,
+                },
+                model,
+                timeout_secs: first_provider.timeout_secs.unwrap_or(30),
+                max_tokens: first_provider
+                    .max_tokens
+                    .unwrap_or(config.llm.default_max_tokens),
+                max_retries: first_provider.max_retries.unwrap_or(2),
+                api_version: orka_llm::ANTHROPIC_API_VERSION.into(),
+                base_url: first_provider.base_url.clone(),
             },
-            model,
-            first_provider.timeout_secs.unwrap_or(30),
-            first_provider
-                .max_tokens
-                .unwrap_or(config.llm.default_max_tokens),
-            first_provider.max_retries.unwrap_or(2),
-            orka_llm::ANTHROPIC_API_VERSION.into(),
-            first_provider.base_url.clone(),
         )),
     };
 

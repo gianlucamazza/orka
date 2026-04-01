@@ -22,7 +22,7 @@ use orka_core::{
 use orka_skills::SkillRegistry;
 use orka_worker::{
     EchoHandler, HandlerDispatcher, WorkerPool,
-    commands::{CommandRegistry, register_all},
+    commands::{CommandRegistry, CommandRegistryDeps, register_all},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -53,13 +53,15 @@ fn command_registry_help_lists_all_commands() {
     let mut registry = CommandRegistry::new();
     register_all(
         &mut registry,
-        skills,
-        memory,
-        None,
-        secrets,
-        workspace_registry,
-        &agent_config,
-        None,
+        CommandRegistryDeps {
+            skills,
+            memory,
+            facts: None,
+            secrets,
+            workspace_registry,
+            agent_config,
+            experience: None,
+        },
     );
 
     let help_text = registry.help_text();
@@ -212,13 +214,15 @@ async fn rate_limiter_allows_commands_under_limit() {
     let mut registry = CommandRegistry::new();
     register_all(
         &mut registry,
-        skills,
-        memory,
-        None,
-        secrets,
-        workspace_registry,
-        &agent_config,
-        None,
+        CommandRegistryDeps {
+            skills,
+            memory,
+            facts: None,
+            secrets,
+            workspace_registry,
+            agent_config,
+            experience: None,
+        },
     );
 
     // The memory command should be registered

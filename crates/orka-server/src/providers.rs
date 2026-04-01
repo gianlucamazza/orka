@@ -256,19 +256,21 @@ fn build_anthropic_client(
     let auth_kind = anthropic_auth_kind(&resolved);
     Arc::new(orka_llm::AnthropicClient::with_auth_options(
         resolved.value,
-        auth_kind,
-        model,
-        provider
-            .timeout_secs
-            .unwrap_or(defaults::default_llm_timeout_secs()),
-        provider
-            .max_tokens
-            .unwrap_or(defaults::default_llm_max_tokens()),
-        provider
-            .max_retries
-            .unwrap_or(defaults::default_llm_max_retries()),
-        orka_llm::ANTHROPIC_API_VERSION.into(),
-        provider.base_url.clone(),
+        orka_llm::AnthropicClientConfig {
+            auth_kind,
+            model,
+            timeout_secs: provider
+                .timeout_secs
+                .unwrap_or(defaults::default_llm_timeout_secs()),
+            max_tokens: provider
+                .max_tokens
+                .unwrap_or(defaults::default_llm_max_tokens()),
+            max_retries: provider
+                .max_retries
+                .unwrap_or(defaults::default_llm_max_retries()),
+            api_version: orka_llm::ANTHROPIC_API_VERSION.into(),
+            base_url: provider.base_url.clone(),
+        },
     )) as Arc<dyn orka_llm::LlmClient>
 }
 

@@ -99,21 +99,27 @@ impl EnvWatcher {
                     let new_client: Arc<dyn orka_llm::LlmClient> = match pc.provider.as_str() {
                         "anthropic" => Arc::new(orka_llm::AnthropicClient::with_auth_options(
                             key,
-                            match credential.auth_kind {
-                                LlmAuthKind::ApiKey => orka_llm::AnthropicAuthKind::ApiKey,
-                                LlmAuthKind::AuthToken | LlmAuthKind::Subscription => {
-                                    orka_llm::AnthropicAuthKind::Bearer
-                                }
-                                _ => orka_llm::AnthropicAuthKind::Auto,
+                            orka_llm::AnthropicClientConfig {
+                                auth_kind: match credential.auth_kind {
+                                    LlmAuthKind::ApiKey => orka_llm::AnthropicAuthKind::ApiKey,
+                                    LlmAuthKind::AuthToken | LlmAuthKind::Subscription => {
+                                        orka_llm::AnthropicAuthKind::Bearer
+                                    }
+                                    _ => orka_llm::AnthropicAuthKind::Auto,
+                                },
+                                model: resolved_model(pc, &default_model),
+                                timeout_secs: pc
+                                    .timeout_secs
+                                    .unwrap_or(defaults::default_llm_timeout_secs()),
+                                max_tokens: pc
+                                    .max_tokens
+                                    .unwrap_or(defaults::default_llm_max_tokens()),
+                                max_retries: pc
+                                    .max_retries
+                                    .unwrap_or(defaults::default_llm_max_retries()),
+                                api_version: orka_llm::ANTHROPIC_API_VERSION.into(),
+                                base_url: pc.base_url.clone(),
                             },
-                            resolved_model(pc, &default_model),
-                            pc.timeout_secs
-                                .unwrap_or(defaults::default_llm_timeout_secs()),
-                            pc.max_tokens.unwrap_or(defaults::default_llm_max_tokens()),
-                            pc.max_retries
-                                .unwrap_or(defaults::default_llm_max_retries()),
-                            orka_llm::ANTHROPIC_API_VERSION.into(),
-                            pc.base_url.clone(),
                         )),
                         "openai" | "moonshot" => {
                             let url = pc.base_url.clone().unwrap_or_else(|| {

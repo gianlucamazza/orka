@@ -99,18 +99,35 @@ impl Default for CommandRegistry {
     }
 }
 
+/// Dependencies for [`register_all`].
+pub struct CommandRegistryDeps {
+    /// Registered skills available for the `/skill` command.
+    pub skills: Arc<SkillRegistry>,
+    /// Memory store used by the `/memory` command.
+    pub memory: Arc<dyn MemoryStore>,
+    /// Optional fact store for knowledge queries.
+    pub facts: Option<Arc<FactStore>>,
+    /// Secret manager passed to skill execution.
+    pub secrets: Arc<dyn SecretManager>,
+    /// Workspace registry for context-switching.
+    pub workspace_registry: Arc<WorkspaceRegistry>,
+    /// Agent configuration for status display.
+    pub agent_config: AgentConfig,
+    /// Optional experience service for the `/experience` command.
+    pub experience: Option<Arc<ExperienceService>>,
+}
+
 /// Register all built-in server commands.
-#[allow(clippy::too_many_arguments)]
-pub fn register_all(
-    registry: &mut CommandRegistry,
-    skills: Arc<SkillRegistry>,
-    memory: Arc<dyn MemoryStore>,
-    facts: Option<Arc<FactStore>>,
-    secrets: Arc<dyn SecretManager>,
-    workspace_registry: Arc<WorkspaceRegistry>,
-    agent_config: &AgentConfig,
-    experience: Option<Arc<ExperienceService>>,
-) {
+pub fn register_all(registry: &mut CommandRegistry, deps: CommandRegistryDeps) {
+    let CommandRegistryDeps {
+        skills,
+        memory,
+        facts,
+        secrets,
+        workspace_registry,
+        agent_config,
+        experience,
+    } = deps;
     registry.register(Arc::new(cancel::CancelCommand::new()));
     registry.register(Arc::new(skill::SkillCommand::new(skills.clone(), secrets)));
     registry.register(Arc::new(skills::SkillsCommand::new(skills)));
@@ -126,7 +143,7 @@ pub fn register_all(
     )));
     registry.register(Arc::new(start::StartCommand::new(
         workspace_registry.clone(),
-        agent_config.clone(),
+        agent_config,
     )));
     registry.register(Arc::new(workspace::WorkspaceCommand::new(
         workspace_registry.clone(),

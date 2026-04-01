@@ -140,6 +140,16 @@ pub struct WorkspaceHandler {
     pub(super) session_cancel_tokens: Option<crate::SessionCancelTokens>,
 }
 
+/// Parameters for [`WorkspaceHandler::save_conversation_history`].
+struct HistoryPersistenceConfig {
+    max_entries: usize,
+    existing_summary: Option<String>,
+    memory_key: String,
+    summary_key: String,
+    session_tokens: u64,
+    token_key: String,
+}
+
 impl WorkspaceHandler {
     /// Create a handler wired to the given registries and stores.
     pub fn new(deps: WorkspaceHandlerDeps, config: WorkspaceHandlerConfig) -> Self {
@@ -388,20 +398,21 @@ impl WorkspaceHandler {
     /// summary text is stored separately under `summary_key` and injected
     /// into the system prompt on the next
     /// turn via [`Self::build_system_prompt`].
-    #[allow(clippy::too_many_arguments)]
     async fn save_conversation_history(
         &self,
         messages: Vec<ChatMessage>,
-        max_entries: usize,
-        _summarization_model: Option<&str>,
-        existing_summary: Option<&str>,
-        memory_key: &str,
-        summary_key: &str,
-        session_tokens: u64,
-        token_key: &str,
+        config: HistoryPersistenceConfig,
     ) {
         // Compact verbose tool results before persisting to keep storage lean.
         const MAX_TOOL_RESULT_CHARS: usize = 2000;
+        let HistoryPersistenceConfig {
+            max_entries,
+            existing_summary,
+            memory_key,
+            summary_key,
+            session_tokens,
+            token_key,
+        } = config;
         let messages = Self::compact_tool_results(messages, MAX_TOOL_RESULT_CHARS);
 
         let history_to_save = if messages.len() > max_entries {
@@ -409,7 +420,8 @@ impl WorkspaceHandler {
             let old_messages = &messages[..split_point];
 
             let summary_text = if let Some(llm) = &self.llm {
-                Self::summarize_messages(llm, old_messages, None, existing_summary).await
+                Self::summarize_messages(llm, old_messages, None, existing_summary.as_deref())
+                    .await
             } else {
                 // No LLM configured: fall back to bullet-point extraction.
                 Self::fallback_summary(old_messages)
@@ -421,12 +433,13 @@ impl WorkspaceHandler {
                 .strip_prefix("conversation:")
                 .unwrap_or_default()
                 .to_string();
-            let summary_entry = MemoryEntry::episodic(summary_key, serde_json::json!(summary_text))
-                .with_scope(MemoryScope::Session)
-                .with_source("workspace_handler")
-                .with_metadata(HashMap::from([("session_id".into(), session_id.clone())]))
-                .with_tags(vec!["conversation_summary".to_string()]);
-            if let Err(e) = self.memory.store(summary_key, summary_entry, None).await {
+            let summary_entry =
+                MemoryEntry::episodic(&summary_key, serde_json::json!(summary_text))
+                    .with_scope(MemoryScope::Session)
+                    .with_source("workspace_handler")
+                    .with_metadata(HashMap::from([("session_id".into(), session_id.clone())]))
+                    .with_tags(vec!["conversation_summary".to_string()]);
+            if let Err(e) = self.memory.store(&summary_key, summary_entry, None).await {
                 warn!(%e, key = %summary_key, "failed to persist conversation summary");
             }
 
@@ -446,21 +459,21 @@ impl WorkspaceHandler {
             .strip_prefix("conversation:")
             .unwrap_or_default()
             .to_string();
-        let entry = MemoryEntry::working(memory_key, history_value)
+        let entry = MemoryEntry::working(&memory_key, history_value)
             .with_scope(MemoryScope::Session)
             .with_source("workspace_handler")
             .with_metadata(HashMap::from([("session_id".into(), session_id.clone())]))
             .with_tags(vec!["conversation".to_string()]);
-        if let Err(e) = self.memory.store(memory_key, entry, None).await {
+        if let Err(e) = self.memory.store(&memory_key, entry, None).await {
             warn!(%e, key = %memory_key, "failed to persist conversation history");
         }
 
-        let token_entry = MemoryEntry::working(token_key, serde_json::json!(session_tokens))
+        let token_entry = MemoryEntry::working(&token_key, serde_json::json!(session_tokens))
             .with_scope(MemoryScope::Session)
             .with_source("workspace_handler")
             .with_metadata(HashMap::from([("session_id".into(), session_id)]))
             .with_tags(vec!["token_usage".to_string()]);
-        if let Err(e) = self.memory.store(token_key, token_entry, None).await {
+        if let Err(e) = self.memory.store(&token_key, token_entry, None).await {
             warn!(%e, key = %token_key, "failed to persist token usage");
         }
     }
@@ -1159,13 +1172,14 @@ impl AgentHandler for WorkspaceHandler {
             let max_entries = 50; // Default max history entries
             self.save_conversation_history(
                 messages,
-                max_entries,
-                None, // summarization_model removed from config
-                conversation_summary.as_deref(),
-                &memory_key,
-                &summary_key,
-                session_tokens,
-                &token_key,
+                HistoryPersistenceConfig {
+                    max_entries,
+                    existing_summary: conversation_summary,
+                    memory_key: memory_key.clone(),
+                    summary_key: summary_key.clone(),
+                    session_tokens,
+                    token_key: token_key.clone(),
+                },
             )
             .await;
 
@@ -1333,13 +1347,15 @@ mod tests {
         let mut commands = CommandRegistry::new();
         crate::commands::register_all(
             &mut commands,
-            skills.clone(),
-            memory.clone(),
-            None,
-            secrets.clone(),
-            ws_registry.clone(),
-            &agent_config,
-            None,
+            crate::commands::CommandRegistryDeps {
+                skills: skills.clone(),
+                memory: memory.clone(),
+                facts: None,
+                secrets: secrets.clone(),
+                workspace_registry: ws_registry.clone(),
+                agent_config: agent_config.clone(),
+                experience: None,
+            },
         );
         let commands = Arc::new(commands);
 

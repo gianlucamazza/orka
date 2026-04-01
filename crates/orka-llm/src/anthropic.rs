@@ -33,6 +33,24 @@ pub enum AnthropicAuthKind {
     Bearer,
 }
 
+/// Configuration bundle for [`AnthropicClient::with_auth_options`].
+pub struct AnthropicClientConfig {
+    /// Transport auth mode.
+    pub auth_kind: AnthropicAuthKind,
+    /// Model identifier (e.g. `"claude-opus-4-6"`).
+    pub model: String,
+    /// HTTP request timeout in seconds.
+    pub timeout_secs: u64,
+    /// Maximum tokens in the completion response.
+    pub max_tokens: u32,
+    /// Maximum number of retries on transient failures.
+    pub max_retries: u32,
+    /// Anthropic API version header value.
+    pub api_version: String,
+    /// Optional custom base URL; falls back to the Anthropic default.
+    pub base_url: Option<String>,
+}
+
 /// Anthropic Messages API client with retry and streaming support.
 pub struct AnthropicClient {
     client: Client,
@@ -78,41 +96,33 @@ impl AnthropicClient {
     ) -> Self {
         Self::with_auth_options(
             api_key,
-            AnthropicAuthKind::Auto,
-            model,
-            timeout_secs,
-            max_tokens,
-            max_retries,
-            api_version,
-            base_url,
+            AnthropicClientConfig {
+                auth_kind: AnthropicAuthKind::Auto,
+                model,
+                timeout_secs,
+                max_tokens,
+                max_retries,
+                api_version,
+                base_url,
+            },
         )
     }
 
     /// Create a client with explicit auth mode.
-    #[allow(clippy::too_many_arguments)]
-    pub fn with_auth_options(
-        api_key: SecretStr,
-        auth_kind: AnthropicAuthKind,
-        model: String,
-        timeout_secs: u64,
-        max_tokens: u32,
-        max_retries: u32,
-        api_version: String,
-        base_url: Option<String>,
-    ) -> Self {
+    pub fn with_auth_options(api_key: SecretStr, config: AnthropicClientConfig) -> Self {
         let client = Client::builder()
-            .timeout(Duration::from_secs(timeout_secs))
+            .timeout(Duration::from_secs(config.timeout_secs))
             .build()
             .unwrap_or_default();
         Self {
             client,
             api_key,
-            auth_kind,
-            model,
-            max_tokens,
-            max_retries,
-            api_version,
-            base_url: base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
+            auth_kind: config.auth_kind,
+            model: config.model,
+            max_tokens: config.max_tokens,
+            max_retries: config.max_retries,
+            api_version: config.api_version,
+            base_url: config.base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
         }
     }
 
@@ -1075,13 +1085,15 @@ mod tests {
     fn explicit_auth_kind_overrides_token_shape() {
         let client = AnthropicClient::with_auth_options(
             SecretStr::new("sk-ant-oat01-abc"),
-            AnthropicAuthKind::ApiKey,
-            "m".into(),
-            30,
-            100,
-            2,
-            "v".into(),
-            None,
+            AnthropicClientConfig {
+                auth_kind: AnthropicAuthKind::ApiKey,
+                model: "m".into(),
+                timeout_secs: 30,
+                max_tokens: 100,
+                max_retries: 2,
+                api_version: "v".into(),
+                base_url: None,
+            },
         );
         assert_eq!(client.resolved_auth_kind(), AnthropicAuthKind::ApiKey);
     }
