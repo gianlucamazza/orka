@@ -216,13 +216,9 @@ impl SkillRegistry {
         let elapsed_ms = exec_start.elapsed().as_millis() as u64;
 
         // Budget enforcement: duration check (post-hoc, not a hard cancel)
-        if budget
-            .as_ref()
-            .and_then(|b| b.max_duration_ms)
-            .is_some_and(|max_ms| elapsed_ms > max_ms)
+        if let Some(max_ms) = budget.as_ref().and_then(|b| b.max_duration_ms)
+            && elapsed_ms > max_ms
         {
-            #[allow(clippy::unwrap_used)]
-            let max_ms = budget.as_ref().and_then(|b| b.max_duration_ms).unwrap();
             return Err(Error::SkillCategorized {
                 message: format!(
                     "skill '{name}' exceeded duration budget: {elapsed_ms}ms > {max_ms}ms"
