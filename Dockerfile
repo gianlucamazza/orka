@@ -2,7 +2,7 @@
 
 # --- Base: shared stage with cargo-chef + build deps ---
 FROM rust:1.93-slim-bookworm AS chef
-RUN cargo install cargo-chef --version 0.1.68 --locked
+RUN cargo install cargo-chef --version 0.1.77 --locked
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y pkg-config curl g++ \
     $([ "${TARGETARCH:-amd64}" = "amd64" ] && echo "mold clang") \
