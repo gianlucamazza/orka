@@ -30,6 +30,20 @@ pub use crate::config::GatewayConfig;
 
 const DEDUP_KEY_PREFIX: &str = "orka:dedup:";
 
+/// Runtime dependencies injected into a [`Gateway`].
+pub struct GatewayDeps {
+    /// Message bus used to subscribe to inbound messages.
+    pub bus: Arc<dyn MessageBus>,
+    /// Session store for resolving or creating user sessions.
+    pub sessions: Arc<dyn SessionStore>,
+    /// Priority queue where processed envelopes are placed.
+    pub queue: Arc<dyn PriorityQueue>,
+    /// Default workspace loader (used for context resolution).
+    pub workspace: Arc<WorkspaceLoader>,
+    /// Event sink for domain events emitted by the gateway.
+    pub event_sink: Arc<dyn EventSink>,
+}
+
 /// Central message gateway that bridges adapters to the worker queue.
 pub struct Gateway {
     bus: Arc<dyn MessageBus>,
@@ -45,31 +59,21 @@ pub struct Gateway {
 }
 
 impl Gateway {
-    #[allow(clippy::too_many_arguments)]
-    /// Create a new gateway with the given dependencies.
-    pub fn new(
-        bus: Arc<dyn MessageBus>,
-        sessions: Arc<dyn SessionStore>,
-        queue: Arc<dyn PriorityQueue>,
-        workspace: Arc<WorkspaceLoader>,
-        event_sink: Arc<dyn EventSink>,
-        redis_url: Option<&str>,
-        rate_limit: u32,
-        dedup_ttl_secs: u64,
-    ) -> Self {
-        let redis_pool = redis_url.and_then(|url| {
-            let cfg = deadpool_redis::Config::from_url(url);
+    /// Create a new gateway with the given dependencies and configuration.
+    pub fn new(deps: GatewayDeps, config: GatewayConfig) -> Self {
+        let redis_pool = config.redis_url.and_then(|url| {
+            let cfg = deadpool_redis::Config::from_url(&url);
             cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1)).ok()
         });
         Self {
-            bus,
-            sessions,
-            queue,
-            _workspace: workspace,
-            event_sink,
+            bus: deps.bus,
+            sessions: deps.sessions,
+            queue: deps.queue,
+            _workspace: deps.workspace,
+            event_sink: deps.event_sink,
             redis_pool,
-            rate_limit,
-            dedup_ttl_secs,
+            rate_limit: config.rate_limit,
+            dedup_ttl_secs: config.dedup_ttl_secs,
             rate_counters: Mutex::new(HashMap::new()),
         }
     }
@@ -351,14 +355,18 @@ mod tests {
         let event_sink = Arc::new(InMemoryEventSink::new());
 
         let gw = Gateway::new(
-            bus,
-            sessions.clone(),
-            queue.clone(),
-            workspace,
-            event_sink.clone(),
-            None, // no Redis
-            rate_limit,
-            60,
+            GatewayDeps {
+                bus,
+                sessions: sessions.clone(),
+                queue: queue.clone(),
+                workspace,
+                event_sink: event_sink.clone(),
+            },
+            GatewayConfig {
+                rate_limit,
+                dedup_ttl_secs: 60,
+                ..Default::default()
+            },
         );
         (gw, queue, event_sink, sessions)
     }

@@ -10,8 +10,10 @@ const fn default_gateway_dedup_ttl_secs() -> u64 {
 
 /// API gateway rate limiting and deduplication configuration.
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct GatewayConfig {
+    /// Redis URL for deduplication and rate limiting (optional).
+    #[serde(default)]
+    pub redis_url: Option<String>,
     /// Maximum requests per minute per session (0 = unlimited).
     #[serde(default = "default_gateway_rate_limit")]
     pub rate_limit: u32,
@@ -26,6 +28,7 @@ pub struct GatewayConfig {
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
+            redis_url: None,
             rate_limit: default_gateway_rate_limit(),
             dedup_ttl_secs: default_gateway_dedup_ttl_secs(),
             dedup_enabled: false,

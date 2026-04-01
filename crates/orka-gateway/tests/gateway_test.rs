@@ -7,7 +7,7 @@ use orka_core::{
     testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
     traits::{MessageBus, PriorityQueue, SessionStore},
 };
-use orka_gateway::Gateway;
+use orka_gateway::{Gateway, GatewayConfig, GatewayDeps};
 use orka_workspace::WorkspaceLoader;
 use tokio_util::sync::CancellationToken;
 
@@ -21,14 +21,18 @@ async fn gateway_creates_session_and_enqueues() {
     let event_sink = Arc::new(InMemoryEventSink::new());
 
     let gateway = Gateway::new(
-        bus.clone(),
-        sessions.clone(),
-        queue.clone(),
-        workspace,
-        event_sink,
-        None,
-        60,
-        3600,
+        GatewayDeps {
+            bus: bus.clone(),
+            sessions: sessions.clone(),
+            queue: queue.clone(),
+            workspace,
+            event_sink,
+        },
+        GatewayConfig {
+            rate_limit: 60,
+            dedup_ttl_secs: 3600,
+            ..Default::default()
+        },
     );
 
     let cancel = CancellationToken::new();
