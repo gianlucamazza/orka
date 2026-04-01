@@ -321,12 +321,12 @@ async fn handle_message_send(
     task.artifacts.push(artifact);
     task.last_modified = Utc::now();
 
-    state.task_store.put(task.clone()).await?;
     debug!(task_id, "A2A task completed");
-
-    maybe_deliver_push(state, &task_id, &context_id, &task.status).await;
-
-    serde_json::to_value(&task).map_err(|e| A2aError::Internal(e.to_string()))
+    let status_for_push = task.status.clone();
+    let json = serde_json::to_value(&task).map_err(|e| A2aError::Internal(e.to_string()))?;
+    state.task_store.put(task).await?;
+    maybe_deliver_push(state, &task_id, &context_id, &status_for_push).await;
+    Ok(json)
 }
 
 /// Fire-and-forget push notification for a task status update if a config is
