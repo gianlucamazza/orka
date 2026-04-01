@@ -6074,7 +6074,6 @@ name = "orka-eval"
 version = "1.0.0"
 dependencies = [
  "glob",
- "insta",
  "orka-core",
  "orka-llm",
  "orka-skills",
@@ -6200,7 +6199,6 @@ dependencies = [
 name = "orka-llm"
 version = "1.0.0"
 dependencies = [
- "arc-swap",
  "async-trait",
  "futures-util",
  "orka-circuit-breaker",

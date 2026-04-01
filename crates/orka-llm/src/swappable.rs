@@ -1,6 +1,5 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use orka_core::Result;
 
@@ -10,29 +9,36 @@ use crate::client::{
 };
 
 /// An `LlmClient` wrapper that allows atomic hot-swapping of the underlying
-/// client.
+/// client without double indirection.
 ///
-/// Uses `ArcSwap` for lock-free reads on the hot path. Call [`Self::swap`] to
-/// atomically replace the inner client (e.g., after an API key rotation).
+/// Swaps are rare (API-key rotation); reads use a shared `RwLock` whose
+/// overhead is negligible compared to any LLM HTTP round-trip. Call
+/// [`Self::swap`] to replace the inner client while existing in-flight calls
+/// complete normally on the previous instance.
 pub struct SwappableLlmClient {
-    inner: ArcSwap<Arc<dyn LlmClient>>,
+    inner: RwLock<Arc<dyn LlmClient>>,
 }
 
 impl SwappableLlmClient {
     /// Wrap an existing client for hot-swapping.
     pub fn new(client: Arc<dyn LlmClient>) -> Self {
         Self {
-            inner: ArcSwap::from_pointee(client),
+            inner: RwLock::new(client),
         }
     }
 
-    /// Atomically replace the inner client.
+    /// Replace the inner client. Ongoing calls on the previous client
+    /// finish normally; new calls use the replacement.
     pub fn swap(&self, new: Arc<dyn LlmClient>) {
-        self.inner.store(Arc::new(new));
+        if let Ok(mut guard) = self.inner.write() {
+            *guard = new;
+        }
     }
 
-    fn load(&self) -> Arc<Arc<dyn LlmClient>> {
-        self.inner.load_full()
+    fn load(&self) -> Arc<dyn LlmClient> {
+        self.inner
+            .read()
+            .map_or_else(|e| Arc::clone(&*e.into_inner()), |g| Arc::clone(&*g))
     }
 }
 
@@ -46,7 +52,7 @@ impl LlmClient for SwappableLlmClient {
         &self,
         messages: Vec<ChatMessage>,
         system: &str,
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<String> {
         self.load()
             .complete_with_options(messages, system, options)
@@ -62,7 +68,7 @@ impl LlmClient for SwappableLlmClient {
         messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<CompletionResponse> {
         self.load()
             .complete_with_tools(messages, system, tools, options)
@@ -74,7 +80,7 @@ impl LlmClient for SwappableLlmClient {
         messages: &[ChatMessage],
         system: &str,
         tools: &[ToolDefinition],
-        options: CompletionOptions,
+        options: &CompletionOptions,
     ) -> Result<LlmToolStream> {
         self.load()
             .complete_stream_with_tools(messages, system, tools, options)
