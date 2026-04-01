@@ -203,7 +203,10 @@ struct SseFrame {
 /// Build the public mobile auth routes that remain accessible before login.
 pub(super) fn public_routes(mobile_auth: Option<Arc<dyn MobileAuthService>>) -> Router {
     Router::new()
-        .route("/mobile/v1/pairings/complete", post(handle_complete_pairing))
+        .route(
+            "/mobile/v1/pairings/complete",
+            post(handle_complete_pairing),
+        )
         .route("/mobile/v1/auth/refresh", post(handle_refresh_session))
         .with_state(PublicMobileState { mobile_auth })
 }
@@ -330,7 +333,10 @@ pub(super) async fn handle_get_pairing_status(
         );
     };
 
-    match mobile_auth.get_pairing_status(&identity.principal, &id).await {
+    match mobile_auth
+        .get_pairing_status(&identity.principal, &id)
+        .await
+    {
         Ok(Some(status)) => Json(PairingStatusResponse {
             pairing_id: status.pairing_id,
             status: map_pairing_status(status.status),
@@ -828,7 +834,13 @@ fn parse_optional_pagination(
 }
 
 fn error_response(status: StatusCode, error: impl Into<String>) -> axum::response::Response {
-    (status, Json(ApiError { error: error.into() })).into_response()
+    (
+        status,
+        Json(ApiError {
+            error: error.into(),
+        }),
+    )
+        .into_response()
 }
 
 fn mobile_auth_error_response(error: MobileAuthError) -> axum::response::Response {
@@ -843,13 +855,10 @@ fn mobile_auth_error_response(error: MobileAuthError) -> axum::response::Respons
         MobileAuthError::NotFound | MobileAuthError::Forbidden => {
             error_response(StatusCode::NOT_FOUND, "pairing session not found")
         }
-        MobileAuthError::Expired => {
-            error_response(StatusCode::GONE, "pairing session has expired")
+        MobileAuthError::Expired => error_response(StatusCode::GONE, "pairing session has expired"),
+        MobileAuthError::AlreadyUsed => {
+            error_response(StatusCode::GONE, "pairing session has already been used")
         }
-        MobileAuthError::AlreadyUsed => error_response(
-            StatusCode::GONE,
-            "pairing session has already been used",
-        ),
         MobileAuthError::Unauthorized => {
             error_response(StatusCode::UNAUTHORIZED, "invalid pairing or refresh token")
         }
@@ -868,10 +877,11 @@ fn mobile_refresh_error_response(error: MobileAuthError) -> axum::response::Resp
         MobileAuthError::InvalidRequest(message) => {
             error_response(StatusCode::BAD_REQUEST, message)
         }
-        MobileAuthError::Unauthorized | MobileAuthError::Expired => {
-            error_response(StatusCode::UNAUTHORIZED, "invalid pairing or refresh token")
-        }
-        MobileAuthError::AlreadyUsed | MobileAuthError::NotFound | MobileAuthError::Forbidden => {
+        MobileAuthError::Unauthorized
+        | MobileAuthError::Expired
+        | MobileAuthError::AlreadyUsed
+        | MobileAuthError::NotFound
+        | MobileAuthError::Forbidden => {
             error_response(StatusCode::UNAUTHORIZED, "invalid pairing or refresh token")
         }
         MobileAuthError::Internal(message) => {

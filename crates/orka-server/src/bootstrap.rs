@@ -5,7 +5,6 @@ use std::{future::IntoFuture, sync::Arc};
 
 use anyhow::Context;
 use orka_config::{CodingConfig, CodingProvider, CodingSelectionPolicy, OrkaConfig};
-use orka_infra::{create_bus, create_conversation_store};
 use orka_core::{
     ConversationMessage, ConversationMessageRole, ConversationMessageStatus, ConversationStatus,
     Envelope, OutboundMessage,
@@ -16,12 +15,15 @@ use orka_core::{
     },
 };
 use orka_gateway::{Gateway, GatewayConfig, GatewayDeps};
-use orka_infra::{QueueBundle, create_queue};
-use orka_server::router::{
-    BUILD_DATE, GIT_SHA, MobileEventHub, RouterParams, ServerFeatures, VERSION, build_router,
+use orka_infra::{
+    QueueBundle, create_bus, create_conversation_store, create_queue, create_session_store,
 };
-use orka_server::mobile_auth::{MobileAuthConfig, MobileAuthService, RedisMobileAuthService};
-use orka_infra::create_session_store;
+use orka_server::{
+    mobile_auth::{MobileAuthConfig, MobileAuthService, RedisMobileAuthService},
+    router::{
+        BUILD_DATE, GIT_SHA, MobileEventHub, RouterParams, ServerFeatures, VERSION, build_router,
+    },
+};
 use orka_worker::{CommandRegistry, GraphDispatcher, WorkerPool};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 use tokio::task::JoinHandle;
@@ -493,8 +495,7 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
     skills.register(Arc::new(orka_skills::EchoSkill));
 
     // 4b. Sandbox + SandboxSkill
-    let sandbox =
-        orka_wasm::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
+    let sandbox = orka_wasm::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
     skills.register(Arc::new(orka_wasm::SandboxSkill::new(sandbox)));
 
     // 4c. Shared WASM engine + WASM plugins
@@ -1160,12 +1161,9 @@ async fn persist_mobile_outbound(
         _ => None,
     };
 
-    let mut conversation = match conversations.get_conversation(&conversation_id).await? {
-        Some(conversation) => conversation,
-        None => {
-            warn!(conversation_id = %conversation_id, "mobile outbound without conversation metadata");
-            return Ok(());
-        }
+    let Some(mut conversation) = conversations.get_conversation(&conversation_id).await? else {
+        warn!(conversation_id = %conversation_id, "mobile outbound without conversation metadata");
+        return Ok(());
     };
 
     let message = text
@@ -1598,8 +1596,7 @@ mod tests {
 
     use orka_core::{
         Conversation, ConversationId, Envelope, MessageId, SessionId,
-        testing::InMemoryConversationStore,
-        traits::ConversationStore,
+        testing::InMemoryConversationStore, traits::ConversationStore,
     };
 
     use super::*;
@@ -1632,12 +1629,18 @@ mod tests {
             .expect("conversation should exist");
         assert_eq!(updated.status, ConversationStatus::Failed);
 
-        let messages = store.list_messages(&conversation_id, None, 0).await.unwrap();
+        let messages = store
+            .list_messages(&conversation_id, None, 0)
+            .await
+            .unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].status, ConversationMessageStatus::Failed);
         assert_eq!(messages[0].text, "tool execution failed");
 
-        let event = events.recv().await.expect("failure event should be emitted");
+        let event = events
+            .recv()
+            .await
+            .expect("failure event should be emitted");
         match event {
             orka_server::router::MobileStreamEvent::MessageFailed {
                 conversation_id: event_conversation_id,
@@ -1678,12 +1681,18 @@ mod tests {
             .expect("conversation should exist");
         assert_eq!(updated.status, ConversationStatus::Interrupted);
 
-        let messages = store.list_messages(&conversation_id, None, 0).await.unwrap();
+        let messages = store
+            .list_messages(&conversation_id, None, 0)
+            .await
+            .unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].status, ConversationMessageStatus::Completed);
         assert_eq!(messages[0].text, "Paused for approval.");
 
-        let event = events.recv().await.expect("completion event should be emitted");
+        let event = events
+            .recv()
+            .await
+            .expect("completion event should be emitted");
         match event {
             orka_server::router::MobileStreamEvent::MessageCompleted { message } => {
                 assert_eq!(message.id, envelope.id);

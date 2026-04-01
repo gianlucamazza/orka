@@ -5,10 +5,7 @@ use std::{collections::HashMap, fmt, sync::Arc};
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
-use deadpool_redis::{
-    Config as RedisConfig, Pool, Runtime,
-    redis::Script,
-};
+use deadpool_redis::{Config as RedisConfig, Pool, Runtime, redis::Script};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use rand::TryRngCore as _;
 use serde::{Deserialize, Serialize};
@@ -44,13 +41,11 @@ impl fmt::Display for MobileAuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Disabled => write!(f, "mobile pairing is unavailable on this server"),
-            Self::InvalidRequest(message) => write!(f, "{message}"),
-            Self::NotFound => write!(f, "pairing session not found"),
-            Self::Forbidden => write!(f, "pairing session not found"),
+            Self::InvalidRequest(message) | Self::Internal(message) => write!(f, "{message}"),
+            Self::NotFound | Self::Forbidden => write!(f, "pairing session not found"),
             Self::Expired => write!(f, "pairing session has expired"),
             Self::AlreadyUsed => write!(f, "pairing session has already been used"),
             Self::Unauthorized => write!(f, "invalid pairing or refresh token"),
-            Self::Internal(message) => write!(f, "{message}"),
         }
     }
 }
@@ -146,9 +141,11 @@ struct RefreshRecord {
 /// Result returned to the CLI when a pairing session is created.
 #[derive(Debug, Clone)]
 pub struct CreatedPairing {
-    /// Stable pairing identifier used by both CLI polling and mobile completion.
+    /// Stable pairing identifier used by both CLI polling and mobile
+    /// completion.
     pub pairing_id: String,
-    /// One-time secret carried inside the QR/deep link and validated on completion.
+    /// One-time secret carried inside the QR/deep link and validated on
+    /// completion.
     pub pairing_secret: String,
     /// Absolute expiration time for the one-time pairing session.
     pub expires_at: DateTime<Utc>,
@@ -165,7 +162,8 @@ pub struct PairingStatusView {
     pub status: PairingStatus,
     /// Absolute expiration time for the pairing session.
     pub expires_at: DateTime<Utc>,
-    /// Completion timestamp when the mobile device has successfully consumed the pairing.
+    /// Completion timestamp when the mobile device has successfully consumed
+    /// the pairing.
     pub completed_at: Option<DateTime<Utc>>,
     /// Human-readable device label recorded at completion time.
     pub device_label: Option<String>,
@@ -278,7 +276,10 @@ impl MobileAuthService for InMemoryMobileAuthService {
             device_label: None,
         };
 
-        self.pairings.lock().await.insert(pairing_id.clone(), record);
+        self.pairings
+            .lock()
+            .await
+            .insert(pairing_id.clone(), record);
 
         Ok(CreatedPairing {
             pairing_uri: build_pairing_uri(&server_base_url, &pairing_id, &pairing_secret)?,
@@ -410,7 +411,9 @@ impl RedisMobileAuthService {
         let pool = RedisConfig::from_url(redis_url)
             .create_pool(Some(Runtime::Tokio1))
             .map_err(|error| {
-                MobileAuthError::Internal(format!("failed to create mobile auth Redis pool: {error}"))
+                MobileAuthError::Internal(format!(
+                    "failed to create mobile auth Redis pool: {error}"
+                ))
             })?;
         Ok(Self { config, pool })
     }
@@ -480,7 +483,7 @@ impl MobileAuthService for RedisMobileAuthService {
             return Ok(None);
         }
 
-        let record = pairing_record_from_map(data)?;
+        let record = pairing_record_from_map(&data)?;
         if record.creator_principal != creator_principal {
             return Err(MobileAuthError::Forbidden);
         }
@@ -517,7 +520,7 @@ impl MobileAuthService for RedisMobileAuthService {
         let label = device_label(&input.device_name, &input.platform);
         let mut conn = self.pool.get().await.map_err(internal_redis_error)?;
         let result = Script::new(
-            r#"
+            r"
 local key = KEYS[1]
 local expected_hash = ARGV[1]
 local now_ts = tonumber(ARGV[2])
@@ -540,7 +543,7 @@ if actual_hash ~= expected_hash then
 end
 redis.call('HSET', key, 'status', 'completed', 'completed_at', now_ts, 'device_label', device_label)
 return {'ok', redis.call('HGET', key, 'creator_principal')}
-"#,
+",
         )
         .key(&key)
         .arg(secret_hash)
@@ -595,7 +598,7 @@ return {'ok', redis.call('HGET', key, 'creator_principal')}
         let key = refresh_key(&input.refresh_token);
         let mut conn = self.pool.get().await.map_err(internal_redis_error)?;
         let result = Script::new(
-            r#"
+            r"
 local key = KEYS[1]
 local expected_device_id = ARGV[1]
 local now_ts = tonumber(ARGV[2])
@@ -618,7 +621,7 @@ local platform = redis.call('HGET', key, 'platform')
 local created_at = redis.call('HGET', key, 'created_at')
 redis.call('DEL', key)
 return {'ok', user_id, session_id, device_name, platform, created_at}
-"#,
+",
         )
         .key(&key)
         .arg(input.device_id.trim())
@@ -629,7 +632,7 @@ return {'ok', user_id, session_id, device_name, platform, created_at}
 
         match result.first().map(String::as_str) {
             Some("ok") => {}
-            Some("missing") | Some("device_mismatch") => {
+            Some("missing" | "device_mismatch") => {
                 return Err(MobileAuthError::Unauthorized);
             }
             Some("expired") => return Err(MobileAuthError::Expired),
@@ -708,7 +711,9 @@ fn random_secret() -> Result<String, MobileAuthError> {
     let mut bytes = [0_u8; 32];
     rand::rngs::OsRng
         .try_fill_bytes(&mut bytes)
-        .map_err(|error| MobileAuthError::Internal(format!("failed to generate secure random bytes: {error}")))?;
+        .map_err(|error| {
+            MobileAuthError::Internal(format!("failed to generate secure random bytes: {error}"))
+        })?;
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
@@ -846,6 +851,7 @@ async fn store_refresh_record(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn store_refresh_record_with_session_id(
     conn: &mut deadpool_redis::Connection,
     session: &MobileSession,
@@ -888,7 +894,9 @@ async fn store_refresh_record_with_session_id(
     Ok(())
 }
 
-fn pairing_record_from_map(data: HashMap<String, String>) -> Result<PairingRecord, MobileAuthError> {
+fn pairing_record_from_map(
+    data: &HashMap<String, String>,
+) -> Result<PairingRecord, MobileAuthError> {
     let creator_principal = data
         .get("creator_principal")
         .cloned()
