@@ -310,4 +310,48 @@ mod tests {
 
         assert!(s1 < s2, "Earlier timestamp should have lower score (FIFO)");
     }
+
+    #[test]
+    fn urgent_strictly_below_background_at_same_time() {
+        let t = Utc.with_ymd_and_hms(2025, 6, 1, 12, 0, 0).unwrap();
+        let urgent = priority_score(&Priority::Urgent, t);
+        let background = priority_score(&Priority::Background, t);
+        // Two full buckets apart — a large gap, not just "slightly less"
+        assert!(
+            urgent < background,
+            "urgent={urgent} should be much less than background={background}"
+        );
+    }
+
+    #[test]
+    fn same_priority_same_time_gives_same_score() {
+        let t = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let s1 = priority_score(&Priority::Urgent, t);
+        let s2 = priority_score(&Priority::Urgent, t);
+        assert!(
+            (s1 - s2).abs() < f64::EPSILON,
+            "same priority+time must yield identical score"
+        );
+    }
+
+    #[test]
+    fn urgent_later_still_beats_normal_earlier() {
+        let t_early = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let t_late = Utc.with_ymd_and_hms(2025, 12, 31, 23, 59, 59).unwrap();
+        let normal_early = priority_score(&Priority::Normal, t_early);
+        let urgent_late = priority_score(&Priority::Urgent, t_late);
+        assert!(
+            urgent_late < normal_early,
+            "Urgent message late in year must still outrank Normal message early in year"
+        );
+    }
+
+    #[test]
+    fn fifo_ordering_holds_for_urgent() {
+        let t1 = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let t2 = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 1).unwrap();
+        let s1 = priority_score(&Priority::Urgent, t1);
+        let s2 = priority_score(&Priority::Urgent, t2);
+        assert!(s1 < s2, "Earlier urgent message must rank higher");
+    }
 }
