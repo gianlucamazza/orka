@@ -3,8 +3,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 
 use crate::{
-    DomainEvent, Envelope, MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage,
-    Result, SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
+    Conversation, ConversationId, ConversationMessage, DomainEvent, Envelope, MemoryEntry,
+    MessageId, MessageSink, MessageStream, OutboundMessage, Result, SecretValue, Session,
+    SessionId, SkillInput, SkillOutput, SkillSchema,
 };
 
 /// Adapter for an external messaging channel (Telegram, Discord, etc.).
@@ -59,6 +60,29 @@ pub trait SessionStore: Send + Sync + 'static {
     async fn list(&self, _limit: usize) -> Result<Vec<Session>> {
         Ok(Vec::new())
     }
+}
+
+/// Persistent conversation storage for product-facing chat clients.
+#[async_trait]
+pub trait ConversationStore: Send + Sync + 'static {
+    /// Store or update conversation metadata.
+    async fn put_conversation(&self, conversation: &Conversation) -> Result<()>;
+
+    /// Retrieve a conversation by ID.
+    async fn get_conversation(&self, id: &ConversationId) -> Result<Option<Conversation>>;
+
+    /// List recent conversations for a user.
+    async fn list_conversations(&self, user_id: &str, limit: usize) -> Result<Vec<Conversation>>;
+
+    /// Append a user-facing message to a conversation transcript.
+    async fn append_message(&self, message: &ConversationMessage) -> Result<()>;
+
+    /// List transcript messages for a conversation in ascending order.
+    async fn list_messages(
+        &self,
+        conversation_id: &ConversationId,
+        limit: Option<usize>,
+    ) -> Result<Vec<ConversationMessage>>;
 }
 
 /// Key-value memory store with TTL and search.

@@ -5,10 +5,10 @@
 //! depend on:
 //!
 //! - **Traits** ([`traits`]): `ChannelAdapter`, `MessageBus`, `SessionStore`,
-//!   `MemoryStore`, `PriorityQueue`, `EventSink`, `Skill`, `SecretManager`,
-//!   `Guardrail`
+//!   `ConversationStore`, `MemoryStore`, `PriorityQueue`, `EventSink`,
+//!   `Skill`, `SecretManager`, `Guardrail`
 //! - **Types** ([`types`]): `Envelope`, `OutboundMessage`, `Session`,
-//!   `Payload`, `DomainEvent`, etc.
+//!   `Conversation`, `Payload`, `DomainEvent`, etc.
 //! - **Error** ([`Error`]): unified error type for the entire platform
 //! - **Config** ([`config`]): shared config submodules and primitives used by
 //!   the composed workspace config
@@ -71,10 +71,11 @@ pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry, forward_delegate_progress};
 pub use traits::NoopEventSink;
 pub use types::{
-    CommandArgs, CommandPayload, DomainEvent, DomainEventKind, Envelope, ErrorCategory, EventId,
-    EventPayload, MediaPayload, MemoryEntry, MemoryKind, MemoryScope, MessageId, MessageSink,
-    MessageStream, OutboundMessage, Payload, Priority, RunId, SecretStr, SecretValue, Session,
-    SessionId, SkillBudget, SkillContext, SkillInput, SkillOutput, SkillSchema, TraceContext,
-    backoff_delay,
+    CommandArgs, CommandPayload, Conversation, ConversationId, ConversationMessage,
+    ConversationMessageRole, ConversationMessageStatus, ConversationStatus, DomainEvent,
+    DomainEventKind, Envelope, ErrorCategory, EventId, EventPayload, MediaPayload, MemoryEntry,
+    MemoryKind, MemoryScope, MessageId, MessageSink, MessageStream, OutboundMessage, Payload,
+    Priority, RunId, SecretStr, SecretValue, Session, SessionId, SkillBudget, SkillContext,
+    SkillInput, SkillOutput, SkillSchema, TraceContext, backoff_delay,
 };
 pub use util::truncate_tool_result;

@@ -4,11 +4,12 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::{
-    DomainEvent, Envelope, Error, MemoryEntry, MessageId, MessageStream, Priority, Result,
-    SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
+    Conversation, ConversationId, ConversationMessage, DomainEvent, Envelope, Error, MemoryEntry,
+    MessageId, MessageStream, Priority, Result, SecretValue, Session, SessionId, SkillInput,
+    SkillOutput, SkillSchema,
     traits::{
-        DeadLetterQueue, EventSink, MemoryStore, MessageBus, PriorityQueue, SecretManager,
-        SessionLock, SessionStore, Skill,
+        ConversationStore, DeadLetterQueue, EventSink, MemoryStore, MessageBus, PriorityQueue,
+        SecretManager, SessionLock, SessionStore, Skill,
     },
 };
 
@@ -108,6 +109,83 @@ impl SessionStore for InMemorySessionStore {
         let mut result: Vec<Session> = sessions.values().cloned().collect();
         result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         result.truncate(limit);
+        Ok(result)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// InMemoryConversationStore
+// ---------------------------------------------------------------------------
+
+/// In-memory [`ConversationStore`] implementation for use in tests.
+pub struct InMemoryConversationStore {
+    conversations: Arc<Mutex<HashMap<ConversationId, Conversation>>>,
+    messages: Arc<Mutex<HashMap<ConversationId, Vec<ConversationMessage>>>>,
+}
+
+impl InMemoryConversationStore {
+    /// Create a new empty conversation store.
+    pub fn new() -> Self {
+        Self {
+            conversations: Arc::new(Mutex::new(HashMap::new())),
+            messages: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+impl Default for InMemoryConversationStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl ConversationStore for InMemoryConversationStore {
+    async fn put_conversation(&self, conversation: &Conversation) -> Result<()> {
+        let mut conversations = self.conversations.lock().await;
+        conversations.insert(conversation.id, conversation.clone());
+        Ok(())
+    }
+
+    async fn get_conversation(&self, id: &ConversationId) -> Result<Option<Conversation>> {
+        let conversations = self.conversations.lock().await;
+        Ok(conversations.get(id).cloned())
+    }
+
+    async fn list_conversations(&self, user_id: &str, limit: usize) -> Result<Vec<Conversation>> {
+        let conversations = self.conversations.lock().await;
+        let mut result: Vec<_> = conversations
+            .values()
+            .filter(|conversation| conversation.user_id == user_id)
+            .cloned()
+            .collect();
+        result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        result.truncate(limit);
+        Ok(result)
+    }
+
+    async fn append_message(&self, message: &ConversationMessage) -> Result<()> {
+        let mut messages = self.messages.lock().await;
+        messages
+            .entry(message.conversation_id)
+            .or_default()
+            .push(message.clone());
+        Ok(())
+    }
+
+    async fn list_messages(
+        &self,
+        conversation_id: &ConversationId,
+        limit: Option<usize>,
+    ) -> Result<Vec<ConversationMessage>> {
+        let messages = self.messages.lock().await;
+        let mut result = messages.get(conversation_id).cloned().unwrap_or_default();
+        if let Some(limit) = limit
+            && result.len() > limit
+        {
+            let keep_from = result.len() - limit;
+            result = result.split_off(keep_from);
+        }
         Ok(result)
     }
 }

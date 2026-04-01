@@ -112,6 +112,52 @@ impl std::fmt::Display for SessionId {
     }
 }
 
+/// Unique identifier for a user-facing conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ConversationId(Uuid);
+
+impl ConversationId {
+    /// Create a new unique conversation ID (UUID v7).
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// Return the underlying UUID.
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl Default for ConversationId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<Uuid> for ConversationId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl From<ConversationId> for SessionId {
+    fn from(id: ConversationId) -> Self {
+        Self(id.0)
+    }
+}
+
+impl From<SessionId> for ConversationId {
+    fn from(id: SessionId) -> Self {
+        Self(id.0)
+    }
+}
+
+impl std::fmt::Display for ConversationId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Unique identifier for a graph execution run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RunId(Uuid);
@@ -1192,6 +1238,137 @@ impl Session {
             .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
         if let serde_json::Value::Object(map) = scratchpad {
             map.insert(key.into(), value);
+        }
+    }
+}
+
+/// Lifecycle state for a product-facing conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ConversationStatus {
+    /// Conversation is active and can accept more messages.
+    Active,
+    /// Conversation is paused waiting for a human or external decision.
+    Interrupted,
+    /// Conversation completed with an error state.
+    Failed,
+}
+
+impl Default for ConversationStatus {
+    fn default() -> Self {
+        Self::Active
+    }
+}
+
+/// Product-facing conversation metadata used by mobile clients.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
+pub struct Conversation {
+    /// Stable conversation identifier.
+    pub id: ConversationId,
+    /// Runtime session backing this conversation.
+    pub session_id: SessionId,
+    /// Owning authenticated user.
+    pub user_id: String,
+    /// Human-readable conversation title.
+    pub title: String,
+    /// Preview of the most recent user-facing message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message_preview: Option<String>,
+    /// Lifecycle state shown to clients.
+    pub status: ConversationStatus,
+    /// Conversation creation time.
+    pub created_at: DateTime<Utc>,
+    /// Last update time.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl Conversation {
+    /// Create a new active conversation.
+    pub fn new(
+        id: ConversationId,
+        session_id: SessionId,
+        user_id: impl Into<String>,
+        title: impl Into<String>,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            session_id,
+            user_id: user_id.into(),
+            title: title.into(),
+            last_message_preview: None,
+            status: ConversationStatus::Active,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+/// Role of a transcript message in a product-facing conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ConversationMessageRole {
+    /// End-user authored message.
+    User,
+    /// Assistant authored message.
+    Assistant,
+}
+
+/// Delivery state of a transcript message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ConversationMessageStatus {
+    /// Message has been accepted but not finalized yet.
+    Pending,
+    /// Message has been fully committed.
+    Completed,
+    /// Message generation failed.
+    Failed,
+}
+
+/// Product-facing transcript message for mobile clients.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
+pub struct ConversationMessage {
+    /// Stable message identifier.
+    pub id: MessageId,
+    /// Owning conversation.
+    pub conversation_id: ConversationId,
+    /// Runtime session backing this message.
+    pub session_id: SessionId,
+    /// User-visible role.
+    pub role: ConversationMessageRole,
+    /// Message text content.
+    pub text: String,
+    /// Persistence / delivery state.
+    pub status: ConversationMessageStatus,
+    /// Message creation time.
+    pub created_at: DateTime<Utc>,
+    /// Finalization time when completed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finalized_at: Option<DateTime<Utc>>,
+}
+
+impl ConversationMessage {
+    /// Create a completed user-facing message.
+    pub fn new(
+        id: MessageId,
+        conversation_id: ConversationId,
+        session_id: SessionId,
+        role: ConversationMessageRole,
+        text: impl Into<String>,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            conversation_id,
+            session_id,
+            role,
+            text: text.into(),
+            status: ConversationMessageStatus::Completed,
+            created_at: now,
+            finalized_at: Some(now),
         }
     }
 }

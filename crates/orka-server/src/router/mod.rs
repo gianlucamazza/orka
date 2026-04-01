@@ -11,6 +11,7 @@ mod checkpoints;
 mod dlq;
 mod health;
 mod management;
+mod mobile;
 mod research;
 mod schedules;
 
@@ -20,7 +21,7 @@ use orka_a2a::{A2aState, AgentDirectory};
 use orka_agent::AgentGraph;
 use orka_auth::AuthLayer;
 use orka_checkpoint::CheckpointStore;
-use orka_core::traits::{DeadLetterQueue, PriorityQueue, SessionStore};
+use orka_core::traits::{ConversationStore, DeadLetterQueue, MessageBus, PriorityQueue, SessionStore};
 use orka_experience::ExperienceService;
 use orka_observe::metrics::PrometheusHandle;
 use orka_research::ResearchService;
@@ -30,6 +31,8 @@ use orka_workspace::WorkspaceRegistry;
 use tower_http::limit::RequestBodyLimitLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+pub use mobile::{MobileEventHub, MobileStreamEvent};
 
 /// Server version from `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -178,6 +181,8 @@ pub struct ServerInfo {
 
 /// All dependencies needed to build the server's HTTP router.
 pub struct RouterParams {
+    /// Bus used by product-facing routes to publish inbound messages.
+    pub bus: Arc<dyn MessageBus>,
     /// Priority queue (for health checks).
     pub queue: Arc<dyn PriorityQueue>,
     /// Dead-letter queue (for DLQ API endpoints).
@@ -188,6 +193,8 @@ pub struct RouterParams {
     pub soft_skills: Option<Arc<SoftSkillRegistry>>,
     /// Session store (for /api/v1/sessions*).
     pub sessions: Arc<dyn SessionStore>,
+    /// Product-facing conversation store.
+    pub conversations: Arc<dyn ConversationStore>,
     /// Schedule store (for /api/v1/schedules*; `None` = scheduler disabled).
     pub scheduler_store: Option<Arc<dyn ScheduleStore>>,
     /// Checkpoint store (for /api/v1/runs*; `None` = checkpointing disabled).
@@ -243,6 +250,10 @@ pub struct RouterParams {
     pub research_service: Option<Arc<ResearchService>>,
     /// Stream registry for SSE endpoints.
     pub stream_registry: orka_core::StreamRegistry,
+    /// Product-facing mobile event hub.
+    pub mobile_events: MobileEventHub,
+    /// Whether the mobile product API should be exposed.
+    pub mobile_enabled: bool,
 }
 
 /// Build the complete server `Router` from the given parameters.
@@ -253,10 +264,12 @@ pub struct RouterParams {
 pub fn build_router(p: RouterParams) -> axum::Router {
     let RouterParams {
         queue,
+        bus,
         dlq,
         skills,
         soft_skills,
         sessions,
+        conversations,
         scheduler_store,
         checkpoint_store,
         workspace_registry,
@@ -283,6 +296,8 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         web_search,
         research_service,
         stream_registry,
+        mobile_events,
+        mobile_enabled,
     } = p;
 
     // --- Public routes (no auth) ---
@@ -363,7 +378,18 @@ pub fn build_router(p: RouterParams) -> axum::Router {
             graph,
             experience_service,
         ))
-        .merge(research::routes(research_service, stream_registry));
+        .merge(research::routes(research_service, stream_registry.clone()));
+
+    let api_routes = if mobile_enabled {
+        api_routes.merge(mobile::routes(
+            conversations,
+            bus,
+            stream_registry,
+            mobile_events,
+        ))
+    } else {
+        api_routes
+    };
 
     // Optionally add A2A protocol routes.
     // When auth is enabled, the agent-card stays public while POST /a2a is

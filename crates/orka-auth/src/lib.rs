@@ -26,7 +26,7 @@ pub mod types;
 pub mod testing;
 
 pub use api_key::ApiKeyAuthenticator;
-pub use authenticator::Authenticator;
+pub use authenticator::{Authenticator, CompositeAuthenticator};
 pub use config::{ApiKeyEntry, AuthConfig, JwtAuthConfig};
 pub use jwt::JwtAuthenticator;
 pub use middleware::{AuthLayer, AuthService};
