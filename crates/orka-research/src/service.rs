@@ -1041,8 +1041,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        create_research_service, create_research_skills, store::InMemoryResearchStore,
-        types::CreateResearchCampaign, util::extract_metric,
+        create_research_service, create_research_skills,
+        store::{InMemoryResearchStore, ResearchStore},
+        types::CreateResearchCampaign,
+        util::extract_metric,
     };
 
     struct StaticJsonSkill {
@@ -1329,5 +1331,486 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(matches!(resolved.status, RunStatus::Completed));
+    }
+
+    // -----------------------------------------------------------------------
+    // Config validation
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn validate_config_rejects_empty_pattern() {
+        let config = ResearchConfig {
+            protected_target_branches: vec!["main".into(), String::new()],
+            ..ResearchConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_config_rejects_invalid_glob() {
+        let config = ResearchConfig {
+            protected_target_branches: vec!["[invalid".into()],
+            ..ResearchConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_config_accepts_valid_globs() {
+        let config = ResearchConfig {
+            protected_target_branches: vec!["main".into(), "release/*".into()],
+            ..ResearchConfig::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // Campaign input validation
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn validate_campaign_input_rejects_empty_name() {
+        let input = CreateResearchCampaign {
+            name: "  ".into(),
+            workspace: "default".into(),
+            repo_path: ".".into(),
+            baseline_ref: "HEAD".into(),
+            task: "do something".into(),
+            context: None,
+            verification_command: "make test".into(),
+            editable_paths: vec!["src".into()],
+            metric: None,
+            cron: None,
+            target_branch: "main".into(),
+        };
+        assert!(validate_campaign_input(&input).is_err());
+    }
+
+    #[test]
+    fn validate_campaign_input_rejects_empty_editable_paths() {
+        let input = CreateResearchCampaign {
+            name: "my-campaign".into(),
+            workspace: "default".into(),
+            repo_path: ".".into(),
+            baseline_ref: "HEAD".into(),
+            task: "do something".into(),
+            context: None,
+            verification_command: "make test".into(),
+            editable_paths: vec![],
+            metric: None,
+            cron: None,
+            target_branch: "main".into(),
+        };
+        assert!(validate_campaign_input(&input).is_err());
+    }
+
+    #[test]
+    fn validate_campaign_input_rejects_invalid_metric_regex() {
+        let input = CreateResearchCampaign {
+            name: "my-campaign".into(),
+            workspace: "default".into(),
+            repo_path: ".".into(),
+            baseline_ref: "HEAD".into(),
+            task: "do something".into(),
+            context: None,
+            verification_command: "make test".into(),
+            editable_paths: vec!["src".into()],
+            metric: Some(EvaluationMetricConfig {
+                name: "score".into(),
+                regex: Some("[invalid".into()),
+                direction: ComparisonDirection::HigherIsBetter,
+                baseline_value: None,
+                min_improvement: None,
+            }),
+            cron: None,
+            target_branch: "main".into(),
+        };
+        assert!(validate_campaign_input(&input).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // compare_against_metric edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn compare_against_metric_no_metric_config_keeps_on_success() {
+        let evaluation = EvaluationResult {
+            command: "make test".into(),
+            working_dir: ".".into(),
+            exit_code: Some(0),
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 5,
+            success: true,
+            metric_name: None,
+            metric_value: None,
+        };
+        let (improvement, status) = compare_against_metric(&evaluation, None);
+        assert_eq!(status, CandidateStatus::Kept);
+        assert!(improvement.is_none());
+    }
+
+    #[test]
+    fn compare_against_metric_failed_eval_always_discards() {
+        let evaluation = EvaluationResult {
+            command: "make test".into(),
+            working_dir: ".".into(),
+            exit_code: Some(1),
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 5,
+            success: false,
+            metric_name: None,
+            metric_value: None,
+        };
+        let metric = EvaluationMetricConfig {
+            name: "score".into(),
+            regex: None,
+            direction: ComparisonDirection::HigherIsBetter,
+            baseline_value: Some(0.5),
+            min_improvement: None,
+        };
+        let (_, status) = compare_against_metric(&evaluation, Some(&metric));
+        assert_eq!(status, CandidateStatus::Discarded);
+    }
+
+    #[test]
+    fn compare_against_metric_no_baseline_keeps_when_success() {
+        // When metric has no baseline_value the comparison cannot be made and
+        // the run is accepted on success alone.
+        let evaluation = EvaluationResult {
+            command: "make test".into(),
+            working_dir: ".".into(),
+            exit_code: Some(0),
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 5,
+            success: true,
+            metric_name: Some("score".into()),
+            metric_value: Some(0.9),
+        };
+        let metric = EvaluationMetricConfig {
+            name: "score".into(),
+            regex: None,
+            direction: ComparisonDirection::HigherIsBetter,
+            baseline_value: None,
+            min_improvement: None,
+        };
+        let (_, status) = compare_against_metric(&evaluation, Some(&metric));
+        assert_eq!(status, CandidateStatus::Kept);
+    }
+
+    #[test]
+    fn compare_against_metric_lower_is_better_improvement() {
+        let evaluation = EvaluationResult {
+            command: "make test".into(),
+            working_dir: ".".into(),
+            exit_code: Some(0),
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 5,
+            success: true,
+            metric_name: Some("loss".into()),
+            metric_value: Some(0.2),
+        };
+        let metric = EvaluationMetricConfig {
+            name: "loss".into(),
+            regex: None,
+            direction: ComparisonDirection::LowerIsBetter,
+            baseline_value: Some(0.5),
+            min_improvement: Some(0.1),
+        };
+        let (improvement, status) = compare_against_metric(&evaluation, Some(&metric));
+        assert_eq!(status, CandidateStatus::Kept);
+        // improvement = baseline - candidate = 0.5 - 0.2 = 0.3
+        assert!((improvement.unwrap() - 0.3_f64).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn compare_against_metric_kept_at_exact_min_improvement_boundary() {
+        // improvement == min_improvement should be Kept (not < threshold)
+        let evaluation = EvaluationResult {
+            command: "eval".into(),
+            working_dir: ".".into(),
+            exit_code: Some(0),
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 1,
+            success: true,
+            metric_name: Some("score".into()),
+            metric_value: Some(0.91),
+        };
+        let metric = EvaluationMetricConfig {
+            name: "score".into(),
+            regex: None,
+            direction: ComparisonDirection::HigherIsBetter,
+            baseline_value: Some(0.90),
+            min_improvement: Some(0.01),
+        };
+        let (improvement, status) = compare_against_metric(&evaluation, Some(&metric));
+        assert_eq!(status, CandidateStatus::Kept);
+        assert!((improvement.unwrap() - 0.01_f64).abs() < 1e-10);
+    }
+
+    // -----------------------------------------------------------------------
+    // branch_matches_any
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn branch_matches_any_exact_name() {
+        assert!(branch_matches_any("main", &["main".into(), "master".into()]));
+    }
+
+    #[test]
+    fn branch_matches_any_glob_wildcard() {
+        assert!(branch_matches_any(
+            "release/1.2",
+            &["release/*".into()]
+        ));
+    }
+
+    #[test]
+    fn branch_matches_any_no_match() {
+        assert!(!branch_matches_any(
+            "feature/experiment",
+            &["main".into(), "release/*".into()]
+        ));
+    }
+
+    // -----------------------------------------------------------------------
+    // run_campaign error paths
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn run_nonexistent_campaign_fails() {
+        let store = Arc::new(InMemoryResearchStore::new());
+        let service = create_research_service(
+            store,
+            None,
+            None,
+            ResearchConfig::default(),
+            Arc::new(InMemorySecretManager::new()),
+            None,
+        );
+        let result = service.run_campaign("no-such-id").await;
+        assert!(matches!(result, Err(orka_core::Error::ResearchNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn run_inactive_campaign_fails() {
+        let store = Arc::new(InMemoryResearchStore::new());
+        let service = create_research_service(
+            store,
+            None,
+            None,
+            ResearchConfig::default(),
+            Arc::new(InMemorySecretManager::new()),
+            None,
+        );
+
+        let campaign = service
+            .create_campaign(CreateResearchCampaign {
+                name: "paused".into(),
+                workspace: "default".into(),
+                repo_path: ".".into(),
+                baseline_ref: "HEAD".into(),
+                task: "do stuff".into(),
+                context: None,
+                verification_command: "make test".into(),
+                editable_paths: vec!["src".into()],
+                metric: None,
+                cron: None,
+                target_branch: "main".into(),
+            })
+            .await
+            .unwrap();
+        service.pause_campaign(&campaign.id).await.unwrap();
+
+        let result = service.run_campaign(&campaign.id).await;
+        assert!(matches!(result, Err(orka_core::Error::ResearchConflict(_))));
+    }
+
+    // -----------------------------------------------------------------------
+    // Promotion request lifecycle
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn approve_nonexistent_request_fails() {
+        let store = Arc::new(InMemoryResearchStore::new());
+        let service = create_research_service(
+            store,
+            None,
+            None,
+            ResearchConfig::default(),
+            Arc::new(InMemorySecretManager::new()),
+            None,
+        );
+        let result = service.approve_promotion_request("no-such-id").await;
+        assert!(matches!(result, Err(orka_core::Error::ResearchNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn reject_non_pending_request_fails() {
+        let store = Arc::new(InMemoryResearchStore::new());
+        let service = create_research_service(
+            store.clone(),
+            None,
+            None,
+            ResearchConfig::default(),
+            Arc::new(InMemorySecretManager::new()),
+            None,
+        );
+
+        // Persist a manually-constructed request that is already Approved.
+        let request = ResearchPromotionRequest {
+            id: "req-1".into(),
+            candidate_id: "cand-1".into(),
+            campaign_id: "camp-1".into(),
+            target_branch: "main".into(),
+            status: PromotionRequestStatus::Approved,
+            reason: None,
+            created_at: chrono::Utc::now(),
+            resolved_at: Some(chrono::Utc::now()),
+        };
+        store.put_promotion_request(&request).await.unwrap();
+
+        let result = service
+            .reject_promotion_request("req-1", None)
+            .await;
+        assert!(matches!(result, Err(orka_core::Error::ResearchConflict(_))));
+    }
+
+    #[tokio::test]
+    async fn reject_pending_request_stores_custom_reason() {
+        let store = Arc::new(InMemoryResearchStore::new());
+        let service = create_research_service(
+            store.clone(),
+            None,
+            None,
+            ResearchConfig::default(),
+            Arc::new(InMemorySecretManager::new()),
+            None,
+        );
+
+        let request = ResearchPromotionRequest {
+            id: "req-2".into(),
+            candidate_id: "cand-2".into(),
+            campaign_id: "camp-2".into(),
+            target_branch: "main".into(),
+            status: PromotionRequestStatus::Pending,
+            reason: None,
+            created_at: chrono::Utc::now(),
+            resolved_at: None,
+        };
+        store.put_promotion_request(&request).await.unwrap();
+
+        let rejected = service
+            .reject_promotion_request("req-2", Some("not good enough".into()))
+            .await
+            .unwrap();
+        assert_eq!(rejected.status, PromotionRequestStatus::Rejected);
+        assert_eq!(rejected.reason.as_deref(), Some("not good enough"));
+        assert!(rejected.resolved_at.is_some());
+    }
+
+    // -----------------------------------------------------------------------
+    // delete_campaign cascade
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn delete_campaign_removes_all_children() {
+        let store = Arc::new(InMemoryResearchStore::new());
+        let service = create_research_service(
+            store.clone(),
+            None,
+            None,
+            ResearchConfig::default(),
+            Arc::new(InMemorySecretManager::new()),
+            None,
+        );
+
+        let mut registry = SkillRegistry::new();
+        for (skill_name, cat, data) in [
+            (
+                "git_worktree_create",
+                "git_worktree",
+                serde_json::json!({ "path": "/tmp/wt" }),
+            ),
+            (
+                "coding_delegate",
+                "coding",
+                serde_json::json!({ "backend": "codex", "result": "done" }),
+            ),
+            (
+                "git_diff",
+                "git",
+                serde_json::json!({ "diff": "diff --git a/x b/x" }),
+            ),
+            (
+                "shell_exec",
+                "shell",
+                serde_json::json!({
+                    "exit_code": 0,
+                    "stdout": "",
+                    "stderr": "",
+                    "duration_ms": 1,
+                }),
+            ),
+        ] {
+            registry.register(Arc::new(StaticJsonSkill {
+                name: skill_name,
+                category: cat,
+                data,
+            }));
+        }
+        for skill in create_research_skills(service.clone()) {
+            registry.register(skill);
+        }
+        service.bind_registry(Arc::new(registry));
+
+        let campaign = service
+            .create_campaign(CreateResearchCampaign {
+                name: "delete-me".into(),
+                workspace: "default".into(),
+                repo_path: ".".into(),
+                baseline_ref: "HEAD".into(),
+                task: "do stuff".into(),
+                context: None,
+                verification_command: "make test".into(),
+                editable_paths: vec!["src".into()],
+                metric: None,
+                cron: None,
+                target_branch: "main".into(),
+            })
+            .await
+            .unwrap();
+        service.run_campaign(&campaign.id).await.unwrap();
+
+        // Verify children exist before delete.
+        assert!(!service
+            .list_runs(Some(&campaign.id))
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(!service
+            .list_candidates(Some(&campaign.id))
+            .await
+            .unwrap()
+            .is_empty());
+
+        let deleted = service.delete_campaign(&campaign.id).await.unwrap();
+        assert!(deleted);
+
+        assert!(service.get_campaign(&campaign.id).await.unwrap().is_none());
+        assert!(service
+            .list_runs(Some(&campaign.id))
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(service
+            .list_candidates(Some(&campaign.id))
+            .await
+            .unwrap()
+            .is_empty());
     }
 }
