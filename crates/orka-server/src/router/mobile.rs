@@ -220,7 +220,12 @@ fn stream_chunk_to_sse(
                 "delta": delta,
             }),
         ),
-        StreamChunkKind::ToolExecStart { name, id, input_summary, category } => (
+        StreamChunkKind::ToolExecStart {
+            name,
+            id,
+            input_summary,
+            category,
+        } => (
             "tool_exec_start",
             serde_json::json!({
                 "conversation_id": conversation_id,
@@ -230,7 +235,13 @@ fn stream_chunk_to_sse(
                 "category": category,
             }),
         ),
-        StreamChunkKind::ToolExecEnd { id, success, duration_ms, error, result_summary } => (
+        StreamChunkKind::ToolExecEnd {
+            id,
+            success,
+            duration_ms,
+            error,
+            result_summary,
+        } => (
             "tool_exec_end",
             serde_json::json!({
                 "conversation_id": conversation_id,
@@ -250,7 +261,10 @@ fn stream_chunk_to_sse(
         ),
         _ => return None,
     };
-    Some(SseFrame { event, data: data.to_string() })
+    Some(SseFrame {
+        event,
+        data: data.to_string(),
+    })
 }
 
 /// Build the public mobile auth routes that remain accessible before login.
