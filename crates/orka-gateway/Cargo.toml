@@ -7,9 +7,7 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
-orka-bus.workspace = true
-orka-session.workspace = true
-orka-queue.workspace = true
+orka-infra.workspace = true
 orka-workspace.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

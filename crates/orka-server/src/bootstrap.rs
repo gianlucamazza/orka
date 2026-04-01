@@ -4,9 +4,8 @@
 use std::{future::IntoFuture, sync::Arc};
 
 use anyhow::Context;
-use orka_bus::create_bus;
-use orka_conversation::create_conversation_store;
 use orka_config::{CodingConfig, CodingProvider, CodingSelectionPolicy, OrkaConfig};
+use orka_infra::{create_bus, create_conversation_store};
 use orka_core::{
     OutboundMessage,
     traits::{
@@ -15,11 +14,11 @@ use orka_core::{
     },
 };
 use orka_gateway::{Gateway, GatewayConfig, GatewayDeps};
-use orka_queue::{QueueBundle, create_queue};
+use orka_infra::{QueueBundle, create_queue};
 use orka_server::router::{
     BUILD_DATE, GIT_SHA, MobileEventHub, RouterParams, ServerFeatures, VERSION, build_router,
 };
-use orka_session::create_session_store;
+use orka_infra::create_session_store;
 use orka_worker::{CommandRegistry, GraphDispatcher, WorkerPool};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 use tokio::task::JoinHandle;
@@ -214,8 +213,7 @@ fn init_config_and_tracing() -> anyhow::Result<OrkaConfig> {
 fn init_infra(
     config: &OrkaConfig,
 ) -> anyhow::Result<(InfraBundle, Option<orka_observe::metrics::PrometheusHandle>)> {
-    let bus =
-        create_bus(&config.bus, &config.redis.url).context("failed to create message bus")?;
+    let bus = create_bus(&config.bus, &config.redis.url).context("failed to create message bus")?;
     let sessions = create_session_store(&config.session, &config.redis.url)
         .context("failed to create session store")?;
     let conversations = create_conversation_store(&config.redis.url)
@@ -401,8 +399,7 @@ async fn register_os_skills(
     let claude_code_available =
         config.os.coding.providers.claude_code.enabled && caps.claude_code.available;
     let codex_available = config.os.coding.providers.codex.enabled && caps.codex.available;
-    let opencode_available =
-        config.os.coding.providers.opencode.enabled && caps.opencode.available;
+    let opencode_available = config.os.coding.providers.opencode.enabled && caps.opencode.available;
     let selected_backend = select_coding_backend(
         &config.os.coding,
         claude_code_available,
@@ -411,8 +408,18 @@ async fn register_os_skills(
     );
     let (file_modifications_allowed, command_execution_allowed) = match selected_backend {
         Some(CodingProvider::ClaudeCode) => (
-            config.os.coding.providers.claude_code.allow_file_modifications,
-            config.os.coding.providers.claude_code.allow_command_execution,
+            config
+                .os
+                .coding
+                .providers
+                .claude_code
+                .allow_file_modifications,
+            config
+                .os
+                .coding
+                .providers
+                .claude_code
+                .allow_command_execution,
         ),
         Some(CodingProvider::Codex) => (
             config.os.coding.providers.codex.allow_file_modifications,
@@ -457,9 +464,7 @@ async fn register_os_skills(
 }
 
 /// Scan and load SKILL.md-based soft skills from the configured directory.
-fn register_soft_skills(
-    config: &OrkaConfig,
-) -> Option<Arc<orka_skills::SoftSkillRegistry>> {
+fn register_soft_skills(config: &OrkaConfig) -> Option<Arc<orka_skills::SoftSkillRegistry>> {
     let dir = config.soft_skills.dir.as_ref()?;
     let skills_list = orka_skills::scan_soft_skills(std::path::Path::new(dir));
     let selection_mode =
@@ -486,8 +491,8 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
 
     // 4b. Sandbox + SandboxSkill
     let sandbox =
-        orka_sandbox::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
-    skills.register(Arc::new(orka_sandbox::SandboxSkill::new(sandbox)));
+        orka_wasm::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
+    skills.register(Arc::new(orka_wasm::SandboxSkill::new(sandbox)));
 
     // 4c. Shared WASM engine + WASM plugins
     #[cfg(feature = "wasm")]
@@ -528,7 +533,7 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
     }
 
     // 4f. HTTP skills
-    match orka_http::create_http_skills(&config.http) {
+    match orka_web::create_http_skills(&config.http) {
         Ok(http_skills) => {
             for skill in http_skills {
                 skills.register(skill);
@@ -647,9 +652,7 @@ async fn load_workspaces(config: &OrkaConfig) -> anyhow::Result<Arc<WorkspaceReg
 // ---------------------------------------------------------------------------
 
 /// Build the auth layer and return whether authentication is enabled.
-fn build_auth_layer(
-    config: &OrkaConfig,
-) -> (bool, Option<orka_auth::AuthLayer>) {
+fn build_auth_layer(config: &OrkaConfig) -> (bool, Option<orka_auth::AuthLayer>) {
     let enabled = config.auth.jwt.is_some() || !config.auth.api_keys.is_empty();
     if enabled {
         use orka_auth::{
@@ -855,9 +858,7 @@ fn spawn_worker_pool(
 // Checkpoint store
 // ---------------------------------------------------------------------------
 
-fn build_checkpoint_store(
-    redis_url: &str,
-) -> Option<Arc<dyn orka_checkpoint::CheckpointStore>> {
+fn build_checkpoint_store(redis_url: &str) -> Option<Arc<dyn orka_checkpoint::CheckpointStore>> {
     match orka_checkpoint::RedisCheckpointStore::new_default_ttl(redis_url) {
         Ok(store) => {
             info!("checkpoint store: Redis at {redis_url}");
@@ -909,13 +910,15 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         }
     });
 
-    let adapter_names: Vec<String> = deps.adapters
+    let adapter_names: Vec<String> = deps
+        .adapters
         .iter()
         .map(|a| a.channel_id().to_string())
         .filter(|id| id != "custom")
         .collect();
 
-    let coding_backend = deps.skill_bundle
+    let coding_backend = deps
+        .skill_bundle
         .coding_runtime
         .as_ref()
         .and_then(|r| r.selected_backend.clone());
@@ -1038,8 +1041,7 @@ fn spawn_distillation_loop(
         .collect();
     let sink = event_sink.clone();
     Some(tokio::spawn(async move {
-        let mut interval =
-            tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
         interval.tick().await;
         loop {
             tokio::select! {
@@ -1283,8 +1285,7 @@ impl Bootstrap {
         let start_time = std::time::Instant::now();
 
         // 8. Gateway
-        let gateway_handle =
-            spawn_gateway(&infra, &workspace_registry, &config, shutdown.clone())?;
+        let gateway_handle = spawn_gateway(&infra, &workspace_registry, &config, shutdown.clone())?;
 
         // 9. Experience / self-learning service
         let experience_service = if config.experience.enabled {
@@ -1315,9 +1316,12 @@ impl Bootstrap {
             facts: skill_bundle.fact_store.clone(),
             secrets: infra.secrets.clone(),
             workspace_registry: workspace_registry.clone(),
-            agent_config: config.agents.first()
+            agent_config: config
+                .agents
+                .first()
                 .context("no agents defined after configuration validation")?
-                .config.clone(),
+                .config
+                .clone(),
             experience: experience_service.clone(),
         };
         orka_worker::commands::register_all(&mut commands, cmd_deps);
@@ -1357,7 +1361,8 @@ impl Bootstrap {
     async fn run(self) -> anyhow::Result<()> {
         // 12. A2A state
         let agent_directory = Arc::new(orka_a2a::AgentDirectory::new());
-        let a2a_state = build_a2a_state(&self.config, &self.skill_bundle.skills, &self.infra.secrets);
+        let a2a_state =
+            build_a2a_state(&self.config, &self.skill_bundle.skills, &self.infra.secrets);
         spawn_a2a_discovery(&self.config, agent_directory.clone(), self.shutdown.clone());
 
         let checkpoint_store = build_checkpoint_store(&self.config.redis.url);
@@ -1382,7 +1387,9 @@ impl Bootstrap {
         .await?;
 
         // 13. Template registry from default workspace
-        let lock = self.workspace_registry.default_state()
+        let lock = self
+            .workspace_registry
+            .default_state()
             .context("default workspace not registered")?;
         let templates = lock.read().await.templates.clone();
 
@@ -1412,7 +1419,11 @@ impl Bootstrap {
             Some(self.commands.clone()),
         ));
         let worker_handle = spawn_worker_pool(
-            &self.config, &self.infra, dispatcher, memory_lock, self.shutdown.clone(),
+            &self.config,
+            &self.infra,
+            dispatcher,
+            memory_lock,
+            self.shutdown.clone(),
         );
 
         // 15. Scheduler loop

@@ -10,10 +10,7 @@ members = [
 
   # ── Infrastructure ────────────────────────────────────────────────────────
   # Redis-backed runtime services (bus, queue, session, memory, secrets, ...)
-  "crates/orka-bus",
-  "crates/orka-queue",
-  "crates/orka-session",
-  "crates/orka-conversation",
+  "crates/orka-infra",
   "crates/orka-memory",
   "crates/orka-secrets",
   "crates/orka-scheduler",
@@ -30,10 +27,9 @@ members = [
   "crates/orka-research",
 
   # ── Execution / Extensibility ─────────────────────────────────────────────
-  # Skill registry, WASM sandbox, MCP and A2A protocol clients
+  # Skill registry, WASM sandbox (now inside orka-wasm), MCP and A2A protocol clients
   "crates/orka-skills",
   "crates/orka-wasm",
-  "crates/orka-sandbox",
   "crates/orka-mcp",
   "crates/orka-a2a",
 
@@ -54,15 +50,10 @@ members = [
   "crates/orka-chart",
 
   # ── Networking / OS ───────────────────────────────────────────────────────
-  # HTTP client, web search, auth, Linux OS integration
-  "crates/orka-http",
+  # HTTP client (now inside orka-web), web search, auth, Linux OS integration
   "crates/orka-web",
   "crates/orka-auth",
   "crates/orka-os",
-
-  # ── Onboarding ────────────────────────────────────────────────────────────
-  # LLM-driven interactive setup wizard
-  "crates/orka-onboard",
 
   # ── Orchestration ─────────────────────────────────────────────────────────
   # High-level: agent loop, workspace loader, gateway, worker pool, CLI, server
@@ -264,13 +255,9 @@ tracing-opentelemetry = "0.29"
 orka-core = { path = "crates/orka-core" }
 orka-config = { path = "crates/orka-config" }
 orka-test-support = { path = "crates/orka-test-support" }
-orka-bus = { path = "crates/orka-bus" }
+orka-infra = { path = "crates/orka-infra" }
 orka-auth = { path = "crates/orka-auth" }
-orka-session = { path = "crates/orka-session" }
-orka-conversation = { path = "crates/orka-conversation" }
-orka-queue = { path = "crates/orka-queue" }
 orka-worker = { path = "crates/orka-worker" }
-orka-sandbox = { path = "crates/orka-sandbox" }
 orka-gateway = { path = "crates/orka-gateway" }
 orka-workspace = { path = "crates/orka-workspace" }
 orka-memory = { path = "crates/orka-memory" }
@@ -291,7 +278,6 @@ orka-wasm = { path = "crates/orka-wasm" }
 orka-cli = { path = "crates/orka-cli" }
 orka-web = { path = "crates/orka-web" }
 orka-os = { path = "crates/orka-os" }
-orka-http = { path = "crates/orka-http" }
 orka-knowledge = { path = "crates/orka-knowledge" }
 orka-scheduler = { path = "crates/orka-scheduler" }
 orka-experience = { path = "crates/orka-experience" }
@@ -301,7 +287,6 @@ orka-checkpoint = { path = "crates/orka-checkpoint" }
 orka-agent = { path = "crates/orka-agent" }
 orka-git = { path = "crates/orka-git" }
 orka-chart = { path = "crates/orka-chart" }
-orka-onboard = { path = "crates/orka-onboard" }
 orka-plugin-sdk = { path = "sdk/orka-plugin-sdk" }
 orka-prompts = { path = "crates/orka-prompts" }
 handlebars = { version = "6", default-features = false, features = [

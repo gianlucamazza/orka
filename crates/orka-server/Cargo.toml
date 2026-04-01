@@ -14,13 +14,7 @@ name = "orka_server"
 path = "src/lib.rs"
 
 [features]
-default = [
-  "telegram",
-  "discord",
-  "slack",
-  "whatsapp",
-  "wasm",
-]
+default = ["telegram", "discord", "slack", "whatsapp", "wasm"]
 ## Enable local embedding models (ONNX Runtime, not available on all platforms).
 local-embeddings = ["orka-knowledge/local-embeddings"]
 ## Enable the Telegram bot adapter.
@@ -32,15 +26,12 @@ slack = ["dep:orka-adapter-slack"]
 ## Enable the WhatsApp Cloud API adapter.
 whatsapp = ["dep:orka-adapter-whatsapp"]
 ## Enable the WASM plugin runtime (wasmtime).
-wasm = ["dep:orka-wasm", "orka-skills/wasm", "orka-sandbox/wasm"]
+wasm = ["orka-skills/wasm"]
 
 [dependencies]
 orka-core.workspace = true
 orka-config.workspace = true
-orka-bus.workspace = true
-orka-session.workspace = true
-orka-conversation.workspace = true
-orka-queue.workspace = true
+orka-infra.workspace = true
 orka-gateway.workspace = true
 orka-worker.workspace = true
 orka-workspace.workspace = true
@@ -55,15 +46,13 @@ orka-secrets.workspace = true
 orka-observe.workspace = true
 orka-skills.workspace = true
 orka-circuit-breaker.workspace = true
-orka-sandbox.workspace = true
-orka-wasm = { workspace = true, optional = true }
+orka-wasm.workspace = true
 orka-llm.workspace = true
 orka-mcp.workspace = true
 orka-guardrails.workspace = true
 orka-web.workspace = true
 orka-os.workspace = true
 orka-a2a.workspace = true
-orka-http.workspace = true
 orka-knowledge.workspace = true
 orka-experience.workspace = true
 orka-agent.workspace = true
@@ -119,6 +108,8 @@ tokio-tungstenite = { workspace = true }
 futures-util.workspace = true
 sha2.workspace = true
 async-trait.workspace = true
+jsonwebtoken.workspace = true
+http-body-util = "0.1"
 
 [lints]
 workspace = true

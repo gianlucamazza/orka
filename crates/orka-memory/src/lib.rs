@@ -56,7 +56,7 @@ pub fn create_memory_store(
 
 #[cfg(test)]
 mod tests {
-    use orka_bus::BusBackend;
+    use orka_infra::BusBackend;
 
     use crate::config::{MemoryBackend, MemoryConfig};
 

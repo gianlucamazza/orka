@@ -18,7 +18,7 @@ use orka_llm::{
     ANTHROPIC_API_VERSION, AnthropicClient, CompletionOptions, LlmClient, OllamaClient,
     OpenAiClient,
 };
-use orka_onboard::{BootstrapProvider, OnboardIo, OnboardSession};
+use crate::onboard::{BootstrapProvider, OnboardIo, OnboardSession};
 use orka_secrets::create_file_secret_manager;
 
 use crate::client::Result;
@@ -418,7 +418,7 @@ fn build_client(
 
 /// Write a minimal working `orka.toml` without LLM conversation.
 fn write_minimal_config(output: &PathBuf, provider: &BootstrapProvider) -> Result<()> {
-    use orka_onboard::ConfigBuilder;
+    use crate::onboard::ConfigBuilder;
 
     let mut builder = ConfigBuilder::new();
 

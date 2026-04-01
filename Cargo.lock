@@ -5893,22 +5893,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "orka-bus"
-version = "1.0.0"
-dependencies = [
- "async-trait",
- "deadpool-redis",
- "orka-core",
- "orka-test-support",
- "redis",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "orka-chart"
 version = "1.0.0"
 dependencies = [
@@ -5977,7 +5961,6 @@ dependencies = [
  "orka-core",
  "orka-llm",
  "orka-mcp",
- "orka-onboard",
  "orka-secrets",
  "orka-skills",
  "orka-wasm",
@@ -6018,14 +6001,13 @@ dependencies = [
  "orka-adapter-telegram",
  "orka-adapter-whatsapp",
  "orka-auth",
- "orka-bus",
  "orka-chart",
  "orka-core",
  "orka-experience",
  "orka-gateway",
  "orka-git",
  "orka-guardrails",
- "orka-http",
+ "orka-infra",
  "orka-knowledge",
  "orka-llm",
  "orka-mcp",
@@ -6034,30 +6016,15 @@ dependencies = [
  "orka-os",
  "orka-prompts",
  "orka-research",
- "orka-sandbox",
  "orka-scheduler",
  "orka-secrets",
- "orka-session",
  "orka-skills",
+ "orka-wasm",
  "orka-web",
  "serde",
  "serde_json",
  "tempfile",
  "tracing",
-]
-
-[[package]]
-name = "orka-conversation"
-version = "1.0.0"
-dependencies = [
- "async-trait",
- "deadpool-redis",
- "orka-core",
- "redis",
- "serde",
- "serde_json",
- "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -6126,10 +6093,8 @@ dependencies = [
  "async-trait",
  "chrono",
  "deadpool-redis",
- "orka-bus",
  "orka-core",
- "orka-queue",
- "orka-session",
+ "orka-infra",
  "orka-workspace",
  "redis",
  "serde",
@@ -6174,17 +6139,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "orka-http"
+name = "orka-infra"
 version = "1.0.0"
 dependencies = [
  "async-trait",
+ "chrono",
+ "deadpool-redis",
  "orka-core",
- "reqwest",
+ "orka-test-support",
+ "redis",
  "serde",
  "serde_json",
+ "serial_test",
  "tokio",
  "tracing",
- "url",
+ "uuid",
 ]
 
 [[package]]
@@ -6249,8 +6218,8 @@ dependencies = [
  "async-trait",
  "chrono",
  "deadpool-redis",
- "orka-bus",
  "orka-core",
+ "orka-infra",
  "orka-test-support",
  "redis",
  "serde",
@@ -6279,24 +6248,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-opentelemetry",
-]
-
-[[package]]
-name = "orka-onboard"
-version = "1.0.0"
-dependencies = [
- "async-trait",
- "futures-util",
- "orka-config",
- "orka-core",
- "orka-llm",
- "orka-secrets",
- "serde",
- "serde_json",
- "tokio",
- "toml 0.8.23",
- "toml_edit 0.22.27",
- "tracing",
 ]
 
 [[package]]
@@ -6356,23 +6307,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "orka-queue"
-version = "1.0.0"
-dependencies = [
- "async-trait",
- "chrono",
- "deadpool-redis",
- "orka-core",
- "orka-test-support",
- "redis",
- "serde",
- "serde_json",
- "serial_test",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "orka-research"
 version = "1.0.0"
 dependencies = [
@@ -6393,21 +6327,6 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "orka-sandbox"
-version = "1.0.0"
-dependencies = [
- "async-trait",
- "nix",
- "orka-core",
- "orka-wasm",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -6462,6 +6381,8 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "http",
+ "http-body-util",
+ "jsonwebtoken",
  "mimalloc",
  "notify",
  "orka-a2a",
@@ -6472,31 +6393,26 @@ dependencies = [
  "orka-adapter-whatsapp",
  "orka-agent",
  "orka-auth",
- "orka-bus",
  "orka-chart",
  "orka-checkpoint",
  "orka-circuit-breaker",
  "orka-config",
- "orka-conversation",
  "orka-core",
  "orka-eval",
  "orka-experience",
  "orka-gateway",
  "orka-git",
  "orka-guardrails",
- "orka-http",
+ "orka-infra",
  "orka-knowledge",
  "orka-llm",
  "orka-mcp",
  "orka-memory",
  "orka-observe",
  "orka-os",
- "orka-queue",
  "orka-research",
- "orka-sandbox",
  "orka-scheduler",
  "orka-secrets",
- "orka-session",
  "orka-skills",
  "orka-wasm",
  "orka-web",
@@ -6520,22 +6436,6 @@ dependencies = [
  "utoipa",
  "utoipa-swagger-ui",
  "uuid",
-]
-
-[[package]]
-name = "orka-session"
-version = "1.0.0"
-dependencies = [
- "async-trait",
- "chrono",
- "deadpool-redis",
- "orka-core",
- "orka-test-support",
- "redis",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -6570,8 +6470,14 @@ dependencies = [
 name = "orka-wasm"
 version = "1.0.0"
 dependencies = [
+ "async-trait",
  "cap-std",
+ "nix",
  "orka-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
  "tracing",
  "wasmtime",
  "wasmtime-wasi",
@@ -6591,6 +6497,7 @@ dependencies = [
  "sha2",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -6602,15 +6509,13 @@ dependencies = [
  "chrono-tz",
  "futures-util",
  "orka-agent",
- "orka-bus",
  "orka-core",
  "orka-experience",
  "orka-guardrails",
+ "orka-infra",
  "orka-knowledge",
  "orka-llm",
  "orka-prompts",
- "orka-queue",
- "orka-session",
  "orka-skills",
  "orka-workspace",
  "serde",

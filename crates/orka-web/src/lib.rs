@@ -7,6 +7,7 @@
 
 mod cache;
 pub(crate) mod extract;
+pub mod http;
 mod provider;
 mod read;
 mod search;
@@ -21,6 +22,7 @@ use provider::{BraveProvider, SearchProvider, SearxngProvider, TavilyProvider};
 use read::WebReadSkill;
 use search::WebSearchSkill;
 use tracing::info;
+pub use http::{HttpClientConfig, SsrfGuard, WebhookConfig, WebhookRetryConfig, create_http_skills};
 pub use types::{SearchProviderKind, WebConfig};
 
 /// Create web skills (`web_search` + `web_read`) from config.

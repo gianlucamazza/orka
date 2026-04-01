@@ -11,7 +11,14 @@ pub mod engine;
 /// sandbox).
 pub mod instance;
 
+/// Sandboxed code execution (WASM + process backends).
+pub mod sandbox;
+
 pub use component::{PluginCapabilities, WasmComponent};
 pub use config::WasmLimits;
 pub use engine::{WasmEngine, WasmModule};
 pub use instance::WasmInstance;
+pub use sandbox::{
+    ProcessSandbox, SandboxConfig, SandboxExecutor, SandboxLang, SandboxLimits,
+    SandboxLimitsConfig, SandboxRequest, SandboxResult, SandboxSkill, WasmSandbox, create_sandbox,
+};
