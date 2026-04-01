@@ -20,7 +20,6 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "rt-multi-thread"] }
-insta = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

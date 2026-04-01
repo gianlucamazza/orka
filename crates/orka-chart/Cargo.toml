@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-orka-core = { path = "../orka-core" }
+orka-core.workspace = true
 plotters = { version = "0.3", default-features = false, features = [
   "bitmap_backend",
   "bitmap_encoder",
