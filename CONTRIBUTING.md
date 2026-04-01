@@ -149,25 +149,24 @@ Orka is organized as a Cargo workspace with about 40 packages across `crates/`
 and `sdk/`. Each crate has a single responsibility:
 
 - **orka-core**: Shared types, traits, and error definitions
-- **orka-bus**: Message bus abstraction (Redis Streams)
-- **orka-queue**: Priority queue (Redis Sorted Sets)
+- **orka-infra**: Message bus, priority queue, session store, conversation store (Redis)
 - **orka-worker**: Worker pool and message handlers
 - **orka-gateway**: Inbound message routing
 - **orka-llm**: LLM provider integrations (Anthropic, OpenAI)
 - **orka-skills**: Skill registry and execution
 - **orka-adapter-\***: Platform adapters (Telegram, Discord, Slack, WhatsApp)
 - **orka-os**: Linux OS integration skills
-- **orka-web**: Web search and page reading skills
+- **orka-web**: Web search, page reading, and HTTP client skills
 - **orka-knowledge**: RAG/vector store skills
 - **orka-observe**: Observability (Prometheus metrics, Redis/OTel event sinks)
 - **orka-mcp**: Model Context Protocol server
 - **orka-a2a**: Agent-to-Agent protocol
 - **orka-guardrails**: Input/output validation and content filtering
 - **orka-circuit-breaker**: Circuit breaker pattern for external services
-- **orka-sandbox**: Sandboxed code execution (process + WASM)
+- **orka-wasm**: WASM runtime, Component Model plugins, and code sandbox (process + WASM)
 - **orka-secrets**: Secret management (AES-256-GCM)
 - **orka-auth**: JWT and API key authentication
-- **orka-http**: HTTP request skill with SSRF protection
+- **orka-web** (http submodule): HTTP request skill with SSRF protection
 - **orka-workspace**: Workspace loader and hot-reload watcher
 - **orka-scheduler**: Cron-based task scheduler
 - **orka-experience**: Self-learning loop (trajectory recording, reflection, distillation)

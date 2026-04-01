@@ -327,15 +327,12 @@ exhaustive listing of every workspace package.
 orka/
 ├── crates/
 │   ├── orka-core/            # Shared types, traits, errors
-│   ├── orka-bus/             # Message bus (Redis Streams + in-memory)
+│   ├── orka-infra/           # Message bus, queue, session, conversation (Redis)
 │   ├── orka-auth/            # JWT and API key authentication
-│   ├── orka-session/         # Session store
-│   ├── orka-queue/           # Priority queue
 │   ├── orka-worker/          # Worker pool & handlers
 │   ├── orka-gateway/         # Inbound message gateway
 │   ├── orka-observe/         # Domain event observability
 │   ├── orka-skills/          # Skill registry & execution
-│   ├── orka-sandbox/         # Code execution sandbox (process + WASM)
 │   ├── orka-memory/          # Key-value memory store
 │   ├── orka-secrets/         # Secret management (AES-256-GCM)
 │   ├── orka-workspace/       # Workspace loader & watcher
@@ -344,14 +341,13 @@ orka/
 │   ├── orka-a2a/             # Agent-to-Agent protocol
 │   ├── orka-guardrails/      # Input/output guardrails
 │   ├── orka-circuit-breaker/ # Circuit breaker pattern
-│   ├── orka-web/             # Web content extraction
+│   ├── orka-web/             # Web search, page reading, and HTTP client skills
 │   ├── orka-os/              # OS integration skills
-│   ├── orka-http/            # HTTP request skill
 │   ├── orka-knowledge/       # RAG & vector knowledge base
 │   ├── orka-scheduler/       # Cron-based task scheduler
 │   ├── orka-experience/      # Self-learning experience system
 │   ├── orka-agent/           # Agent orchestration and routing
-│   ├── orka-wasm/            # WASM runtime utilities (module + Component Model)
+│   ├── orka-wasm/            # WASM runtime utilities, Component Model, and code sandbox
 │   ├── orka-checkpoint/      # Execution checkpointing and crash recovery
 │   ├── orka-eval/            # Skill evaluation framework (TOML scenarios)
 │   ├── orka-cli/             # CLI tool

@@ -9,9 +9,9 @@ flowchart TD
     User["User / External System"]
     Auth["Auth Middleware — orka-auth<br/>API Key (SHA-256) · JWT (HMAC / RSA)"]
     CA1["ChannelAdapter<br/>orka-adapter-{telegram,discord,slack,whatsapp,custom}<br/>Converts platform-specific format → Envelope"]
-    RS1["Redis Streams — inbound<br/>orka-bus"]
+    RS1["Redis Streams — inbound<br/>orka-infra"]
     GW["Gateway — orka-gateway<br/>1. Deduplication (Redis SET NX EX)<br/>2. Rate limiting (Redis INCR / in-memory fallback)<br/>3. Session resolution (create or load)<br/>4. Priority routing (DM → Urgent, group → Normal)<br/>5. Trace context generation (W3C traceparent)"]
-    PQ["Redis Sorted Set — orka-queue<br/>Score = bucket × 10¹⁵ + timestamp_µs (lowest first)"]
+    PQ["Redis Sorted Set — orka-infra<br/>Score = bucket × 10¹⁵ + timestamp_µs (lowest first)"]
     WP["WorkerPool — orka-worker (N concurrent)<br/>Retries: base × 3ⁿ backoff · DLQ after max_retries"]
     WH["GraphExecutor — orka-agent<br/>1. Resolve entry-point agent from [[agents]] / [graph]<br/>2. run_agent_node: inject memory + principles (orka-experience)<br/>3. Input guardrail checkpoint (orka-guardrails)<br/>4. Agentic loop: LLM call → tool calls (skill dispatch) → repeat<br/>5. Output guardrail checkpoint<br/>6. Evaluate outgoing edge conditions → next agent<br/>7. Post-task reflection → trajectory recording (orka-experience)"]
     RS2["Redis Streams — outbound<br/>bus.publish('outbound', envelope)"]
@@ -34,24 +34,23 @@ flowchart TD
 
 ## Subsystems
 
-### Message Bus (orka-bus)
+### Infrastructure (orka-infra)
 
-Redis Streams back the `MessageBus` trait. Adapters publish inbound envelopes
-to the `"inbound"` stream and subscribe to the `"outbound"` stream to deliver
-replies. Each consumer group ensures at-most-once delivery per consumer.
+`orka-infra` consolidates four Redis-backed runtime services:
 
-### Priority Queue (orka-queue)
-
-A Redis Sorted Set stores pending envelopes. The score encodes both priority
-(`Urgent > Normal > Background`) and arrival time so higher-priority messages
-are always processed first, with FIFO ordering within a priority tier.
-Dead-letter entries are written to a separate key (`orka:dlq`).
-
-### Session Store (orka-session)
-
-Sessions are stored in Redis as JSON. A session represents a single user conversation
-on a specific channel. It carries a `state` scratchpad that skills can read and
-write for cross-turn memory within a session.
+- **Message Bus** — Redis Streams back the `MessageBus` trait. Adapters publish
+  inbound envelopes to the `"inbound"` stream and subscribe to the `"outbound"`
+  stream to deliver replies. Each consumer group ensures at-most-once delivery
+  per consumer.
+- **Priority Queue** — A Redis Sorted Set stores pending envelopes. The score
+  encodes both priority (`Urgent > Normal > Background`) and arrival time so
+  higher-priority messages are always processed first, with FIFO ordering within
+  a priority tier. Dead-letter entries are written to a separate key (`orka:dlq`).
+- **Session Store** — Sessions are stored in Redis as JSON. A session represents
+  a single user conversation on a specific channel. It carries a `state`
+  scratchpad that skills can read and write for cross-turn memory within a session.
+- **Conversation Store** — Persists conversation history (messages, tool calls,
+  outcomes) in Redis for multi-turn context and mobile API access.
 
 ### Memory Store (orka-memory)
 
@@ -93,11 +92,17 @@ Guardrails can block, modify, or log messages. Privileged command approval
 is implemented here: commands matching a deny-list require explicit approval
 before the sandbox executes them.
 
-### Sandbox (orka-sandbox)
+### Sandbox (orka-wasm)
 
-Isolated execution environment for the `shell` skill. Commands run in a
-restricted process with configurable allow/deny lists. Execution results and
-exit codes are emitted as `PrivilegedCommandExecuted` domain events.
+Isolated execution environment for the `sandbox` skill. Two backends:
+
+- **Process sandbox** — spawns a subprocess (Python, Bash, JavaScript) with
+  resource limits (`RLIMIT_AS`, timeout) and captures stdout/stderr.
+- **WASM sandbox** — compiles and runs WASM modules in a `WasmInstance` with
+  configurable memory and fuel limits.
+
+The sandbox implementation lives in `orka_wasm::sandbox` alongside the shared
+WASM engine used by the plugin system.
 
 ### Secrets (orka-secrets)
 
@@ -169,12 +174,12 @@ The coding-delegation path is split into three layers:
 3. The backend normalizes CLI output into a common Orka `SkillOutput` shape so
    the orchestrator does not depend on provider-specific event formats.
 
-### HTTP Client (orka-http)
+### HTTP Client (orka-web)
 
-Provides an outbound `http_request` skill configured by the `http` section. Supports GET,
-POST, PUT, PATCH, DELETE with configurable headers and body. SSRF protection
-blocks requests to internal metadata endpoints. Response bodies are capped by
-the runtime skill limits.
+Provides an outbound `http_request` skill configured by the `http` section.
+Implemented in `orka_web::http`. Supports GET, POST, PUT, PATCH, DELETE with
+configurable headers and body. SSRF protection blocks requests to internal
+metadata endpoints. Response bodies are capped by the runtime skill limits.
 
 ### Web Search & Read (orka-web)
 

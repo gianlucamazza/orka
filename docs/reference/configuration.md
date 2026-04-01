@@ -7,6 +7,21 @@ concrete end-to-end example, prefer the repository root
 [`orka.toml`](../../orka.toml), which is intended to stay aligned with the
 current parser.
 
+## Cargo Feature Flags (`orka-config`)
+
+`orka-config` uses Cargo features to make heavy subsystem dependencies optional.
+The `default = ["full"]` feature set enables everything, so normal builds are
+unaffected. Partial builds can skip unused subsystems:
+
+```bash
+# Check only the core config crate without optional subsystems
+cargo check -p orka-config --no-default-features
+```
+
+Available features: `telegram`, `discord`, `slack`, `whatsapp`, `chart`,
+`research`, `a2a`, `mcp`, `knowledge`, `experience`. The `full` meta-feature
+enables all of them.
+
 ## Environment Variables
 
 | Variable | Description |

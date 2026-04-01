@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+
+- **Crate consolidation** — reduced workspace from 46 to 40 members:
+  - `orka-bus`, `orka-queue`, `orka-session`, `orka-conversation` merged into `orka-infra`
+    (Redis-backed infrastructure services; all public APIs re-exported at crate root)
+  - `orka-onboard` folded into `orka-cli` (was a single-dependent crate; now lives
+    under `crates/orka-cli/src/onboard/`)
+  - `orka-http` merged into `orka-web` (HTTP client skills now under `orka_web::http`;
+    `HttpClientConfig`, `SsrfGuard`, and `create_http_skills` re-exported at crate root)
+  - `orka-sandbox` merged into `orka-wasm` (sandbox execution now under
+    `orka_wasm::sandbox`; `SandboxConfig`, `ProcessSandbox`, `WasmSandbox`, etc.
+    re-exported at crate root)
+- **`orka-config` feature gates** — 10 optional subsystem deps are now behind
+  Cargo features: `telegram`, `discord`, `slack`, `whatsapp`, `chart`, `research`,
+  `a2a`, `mcp`, `knowledge`, `experience`. The `default = ["full"]` meta-feature
+  enables all of them for backwards compatibility. Partial builds
+  (`cargo check -p orka-config --no-default-features`) now skip all unused
+  subsystem crates, reducing incremental compile overhead.
+
+### Removed
+
+- Standalone crates `orka-bus`, `orka-queue`, `orka-session`, `orka-conversation`,
+  `orka-onboard`, `orka-http`, `orka-sandbox` — functionality is fully preserved in
+  the consolidated crates listed above; only import paths changed.
+
 ## [1.0.0] - 2026-03-29
 
 ### Added
