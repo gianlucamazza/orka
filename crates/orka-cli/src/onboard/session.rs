@@ -11,9 +11,7 @@ use orka_llm::{
 };
 use tracing::debug;
 
-use super::{
-    config_builder::ConfigBuilder, system_prompt::wizard_system_prompt, tools::all_tools,
-};
+use super::{config_builder::ConfigBuilder, system_prompt::wizard_system_prompt, tools::all_tools};
 
 // ── I/O trait ────────────────────────────────────────────────────────────────
 
@@ -41,7 +39,8 @@ pub(crate) trait OnboardIo: Send {
     async fn on_config_updated(&mut self, toml_preview: &str);
 }
 
-// ── Session ───────────────────────────────────────────────────────────────────
+// ── Session
+// ───────────────────────────────────────────────────────────────────
 
 /// Provider metadata captured during Phase 1 bootstrap.
 #[derive(Debug, Clone)]
@@ -244,9 +243,7 @@ impl OnboardSession {
                     .input
                     .get("section")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| {
-                        Error::Config("append_config: missing `section`".to_string())
-                    })?;
+                    .ok_or_else(|| Error::Config("append_config: missing `section`".to_string()))?;
                 let entry = call
                     .input
                     .get("entry")
@@ -340,7 +337,8 @@ impl OnboardSession {
     }
 }
 
-// ── Stream consumer ───────────────────────────────────────────────────────────
+// ── Stream consumer
+// ───────────────────────────────────────────────────────────
 
 struct TurnResult {
     content_blocks: Vec<ContentBlock>,

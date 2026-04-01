@@ -18,10 +18,12 @@ use orka_llm::{
     ANTHROPIC_API_VERSION, AnthropicClient, CompletionOptions, LlmClient, OllamaClient,
     OpenAiClient,
 };
-use crate::onboard::{BootstrapProvider, OnboardIo, OnboardSession};
 use orka_secrets::create_file_secret_manager;
 
-use crate::client::Result;
+use crate::{
+    client::Result,
+    onboard::{BootstrapProvider, OnboardIo, OnboardSession},
+};
 
 // ── Argument definition (parsed in main.rs) ──────────────────────────────────
 

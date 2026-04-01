@@ -420,8 +420,7 @@ impl WorkspaceHandler {
             let old_messages = &messages[..split_point];
 
             let summary_text = if let Some(llm) = &self.llm {
-                Self::summarize_messages(llm, old_messages, None, existing_summary.as_deref())
-                    .await
+                Self::summarize_messages(llm, old_messages, None, existing_summary.as_deref()).await
             } else {
                 // No LLM configured: fall back to bullet-point extraction.
                 Self::fallback_summary(old_messages)

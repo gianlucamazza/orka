@@ -1558,15 +1558,15 @@ mod tests {
 
     #[test]
     fn branch_matches_any_exact_name() {
-        assert!(branch_matches_any("main", &["main".into(), "master".into()]));
+        assert!(branch_matches_any(
+            "main",
+            &["main".into(), "master".into()]
+        ));
     }
 
     #[test]
     fn branch_matches_any_glob_wildcard() {
-        assert!(branch_matches_any(
-            "release/1.2",
-            &["release/*".into()]
-        ));
+        assert!(branch_matches_any("release/1.2", &["release/*".into()]));
     }
 
     #[test]
@@ -1674,9 +1674,7 @@ mod tests {
         };
         store.put_promotion_request(&request).await.unwrap();
 
-        let result = service
-            .reject_promotion_request("req-1", None)
-            .await;
+        let result = service.reject_promotion_request("req-1", None).await;
         assert!(matches!(result, Err(orka_core::Error::ResearchConflict(_))));
     }
 
@@ -1787,30 +1785,38 @@ mod tests {
         service.run_campaign(&campaign.id).await.unwrap();
 
         // Verify children exist before delete.
-        assert!(!service
-            .list_runs(Some(&campaign.id))
-            .await
-            .unwrap()
-            .is_empty());
-        assert!(!service
-            .list_candidates(Some(&campaign.id))
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            !service
+                .list_runs(Some(&campaign.id))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !service
+                .list_candidates(Some(&campaign.id))
+                .await
+                .unwrap()
+                .is_empty()
+        );
 
         let deleted = service.delete_campaign(&campaign.id).await.unwrap();
         assert!(deleted);
 
         assert!(service.get_campaign(&campaign.id).await.unwrap().is_none());
-        assert!(service
-            .list_runs(Some(&campaign.id))
-            .await
-            .unwrap()
-            .is_empty());
-        assert!(service
-            .list_candidates(Some(&campaign.id))
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            service
+                .list_runs(Some(&campaign.id))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            service
+                .list_candidates(Some(&campaign.id))
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }

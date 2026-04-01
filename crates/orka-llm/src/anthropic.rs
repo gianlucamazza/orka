@@ -122,7 +122,9 @@ impl AnthropicClient {
             max_tokens: config.max_tokens,
             max_retries: config.max_retries,
             api_version: config.api_version,
-            base_url: config.base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
+            base_url: config
+                .base_url
+                .unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
         }
     }
 

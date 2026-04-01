@@ -3,7 +3,8 @@
 use orka_core::{Session, SessionId, testing::InMemorySessionStore, traits::SessionStore};
 use orka_infra::SessionConfig;
 
-// ── SessionConfig validation ──────────────────────────────────────────────────
+// ── SessionConfig validation
+// ──────────────────────────────────────────────────
 
 #[test]
 fn config_default_ttl_is_positive() {
@@ -26,7 +27,8 @@ fn config_validate_accepts_nonzero_ttl() {
     assert!(config.validate().is_ok());
 }
 
-// ── InMemorySessionStore behaviour (no Redis) ─────────────────────────────────
+// ── InMemorySessionStore behaviour (no Redis)
+// ─────────────────────────────────
 
 #[tokio::test]
 async fn in_memory_put_get_roundtrip() {

@@ -14,7 +14,8 @@ fn tagged_entry(key: &str, tags: &[&str]) -> MemoryEntry {
         .with_tags(tags.iter().map(|s| (*s).to_string()).collect())
 }
 
-// ── store / recall ────────────────────────────────────────────────────────────
+// ── store / recall
+// ────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn store_recall_roundtrip() {
@@ -69,9 +70,18 @@ async fn delete_nonexistent_returns_false() {
 #[tokio::test]
 async fn search_by_key_substring() {
     let store = InMemoryMemoryStore::new();
-    store.store("user-alice", entry("user-alice"), None).await.unwrap();
-    store.store("user-bob", entry("user-bob"), None).await.unwrap();
-    store.store("system-log", entry("system-log"), None).await.unwrap();
+    store
+        .store("user-alice", entry("user-alice"), None)
+        .await
+        .unwrap();
+    store
+        .store("user-bob", entry("user-bob"), None)
+        .await
+        .unwrap();
+    store
+        .store("system-log", entry("system-log"), None)
+        .await
+        .unwrap();
 
     let results = store.search("user", 10).await.unwrap();
     assert_eq!(results.len(), 2);
@@ -132,7 +142,10 @@ async fn list_with_prefix_filters() {
     let store = InMemoryMemoryStore::new();
     store.store("conv:1", entry("conv:1"), None).await.unwrap();
     store.store("conv:2", entry("conv:2"), None).await.unwrap();
-    store.store("meta:info", entry("meta:info"), None).await.unwrap();
+    store
+        .store("meta:info", entry("meta:info"), None)
+        .await
+        .unwrap();
 
     let results = store.list(Some("conv:"), 100).await.unwrap();
     assert_eq!(results.len(), 2);
@@ -158,13 +171,18 @@ async fn list_empty_store_returns_empty() {
     assert!(store.list(None, 100).await.unwrap().is_empty());
 }
 
-// ── TTL / compact ─────────────────────────────────────────────────────────────
+// ── TTL / compact
+// ─────────────────────────────────────────────────────────────
 
 #[tokio::test(start_paused = true)]
 async fn ttl_entry_not_visible_after_expiry() {
     let store = InMemoryMemoryStore::new();
     store
-        .store("ephemeral", entry("ephemeral"), Some(Duration::from_secs(1)))
+        .store(
+            "ephemeral",
+            entry("ephemeral"),
+            Some(Duration::from_secs(1)),
+        )
         .await
         .unwrap();
 
@@ -181,10 +199,17 @@ async fn ttl_entry_not_visible_after_expiry() {
 async fn compact_removes_expired_entries() {
     let store = InMemoryMemoryStore::new();
     store
-        .store("expire-me", entry("expire-me"), Some(Duration::from_secs(1)))
+        .store(
+            "expire-me",
+            entry("expire-me"),
+            Some(Duration::from_secs(1)),
+        )
         .await
         .unwrap();
-    store.store("keep-me", entry("keep-me"), None).await.unwrap();
+    store
+        .store("keep-me", entry("keep-me"), None)
+        .await
+        .unwrap();
 
     tokio::time::advance(Duration::from_secs(2)).await;
 
@@ -208,7 +233,8 @@ async fn compact_with_no_expired_entries_returns_zero() {
     assert_eq!(store.compact().await.unwrap(), 0);
 }
 
-// ── MemoryConfig validation ───────────────────────────────────────────────────
+// ── MemoryConfig validation
+// ───────────────────────────────────────────────────
 
 #[test]
 fn config_validate_rejects_zero_max_entries() {

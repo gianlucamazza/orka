@@ -101,9 +101,7 @@ fn print_pairing_banner(server_url: &str, pairing: &CreatePairingResponse) -> Re
     println!("Pairing URI:");
     println!("{}", pairing.pairing_uri);
     println!();
-    println!(
-        "The pairing secret is one-time and short-lived. Do not paste it into chats or logs."
-    );
+    println!("The pairing secret is one-time and short-lived. Do not paste it into chats or logs.");
     let _ = &pairing.pairing_secret;
     Ok(())
 }

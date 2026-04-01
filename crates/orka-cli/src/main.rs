@@ -4,10 +4,10 @@
 mod chat_renderer;
 mod client;
 mod cmd;
-mod onboard;
 mod completion;
 mod markdown;
 mod media;
+mod onboard;
 mod prompt;
 mod protocol;
 mod shell;

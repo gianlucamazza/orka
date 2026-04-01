@@ -5,8 +5,8 @@
 //! depend on:
 //!
 //! - **Traits** ([`traits`]): `ChannelAdapter`, `MessageBus`, `SessionStore`,
-//!   `ConversationStore`, `MemoryStore`, `PriorityQueue`, `EventSink`,
-//!   `Skill`, `SecretManager`, `Guardrail`
+//!   `ConversationStore`, `MemoryStore`, `PriorityQueue`, `EventSink`, `Skill`,
+//!   `SecretManager`, `Guardrail`
 //! - **Types** ([`types`]): `Envelope`, `OutboundMessage`, `Session`,
 //!   `Conversation`, `Payload`, `DomainEvent`, etc.
 //! - **Error** ([`Error`]): unified error type for the entire platform

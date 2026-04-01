@@ -3,8 +3,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use orka_core::{
-    DomainEvent, DomainEventKind, SkillInput, SkillOutput, truncate_tool_result,
+    DomainEvent, DomainEventKind, SkillInput, SkillOutput,
     traits::{EventSink, GuardrailDecision, SecretManager},
+    truncate_tool_result,
     types::MediaPayload,
 };
 use orka_llm::{
@@ -189,8 +190,7 @@ impl<'a> AgentNodeRunner<'a> {
             vec![]
         };
 
-        let initial_skill_tools =
-            build_skill_tools(deps, agent, progressive, &enabled_categories);
+        let initial_skill_tools = build_skill_tools(deps, agent, progressive, &enabled_categories);
         let tools = assemble_tools(
             progressive,
             initial_skill_tools,
@@ -226,7 +226,8 @@ impl<'a> AgentNodeRunner<'a> {
 
         let mut messages = load_history(agent, ctx).await;
 
-        // Input guardrail: modify message if needed (block is handled in run_agent_node).
+        // Input guardrail: modify message if needed (block is handled in
+        // run_agent_node).
         messages = apply_input_guardrail_modify(deps, ctx, &trigger_text, messages).await;
 
         // PlanningMode::Always — eager plan generation
@@ -406,17 +407,19 @@ impl<'a> AgentNodeRunner<'a> {
                     .iter()
                     .map(|m| estimate_message_tokens_with_hint(m, hint))
                     .sum();
-                self.deps.stream_registry.send(orka_core::stream::StreamChunk::new(
-                    self.ctx.session_id,
-                    envelope.channel.clone(),
-                    Some(envelope.id),
-                    orka_core::stream::StreamChunkKind::ContextInfo {
-                        history_tokens,
-                        context_window: self.context_window,
-                        messages_truncated: dropped as u32,
-                        summary_generated: true,
-                    },
-                ));
+                self.deps
+                    .stream_registry
+                    .send(orka_core::stream::StreamChunk::new(
+                        self.ctx.session_id,
+                        envelope.channel.clone(),
+                        Some(envelope.id),
+                        orka_core::stream::StreamChunkKind::ContextInfo {
+                            history_tokens,
+                            context_window: self.context_window,
+                            messages_truncated: dropped as u32,
+                            summary_generated: true,
+                        },
+                    ));
             }
         } else {
             let budget = available_history_budget_with_hint(
@@ -440,17 +443,19 @@ impl<'a> AgentNodeRunner<'a> {
                     .iter()
                     .map(|m| estimate_message_tokens_with_hint(m, hint))
                     .sum();
-                self.deps.stream_registry.send(orka_core::stream::StreamChunk::new(
-                    self.ctx.session_id,
-                    envelope.channel.clone(),
-                    Some(envelope.id),
-                    orka_core::stream::StreamChunkKind::ContextInfo {
-                        history_tokens,
-                        context_window: self.context_window,
-                        messages_truncated: dropped as u32,
-                        summary_generated: false,
-                    },
-                ));
+                self.deps
+                    .stream_registry
+                    .send(orka_core::stream::StreamChunk::new(
+                        self.ctx.session_id,
+                        envelope.channel.clone(),
+                        Some(envelope.id),
+                        orka_core::stream::StreamChunkKind::ContextInfo {
+                            history_tokens,
+                            context_window: self.context_window,
+                            messages_truncated: dropped as u32,
+                            summary_generated: false,
+                        },
+                    ));
             }
         }
     }
@@ -526,23 +531,25 @@ impl<'a> AgentNodeRunner<'a> {
         )
         .await;
 
-        self.deps.stream_registry.send(orka_core::stream::StreamChunk::new(
-            self.ctx.session_id,
-            envelope.channel.clone(),
-            Some(envelope.id),
-            orka_core::stream::StreamChunkKind::Usage {
-                input_tokens: completion.usage.input_tokens,
-                output_tokens: completion.usage.output_tokens,
-                cache_read_tokens: (completion.usage.cache_read_input_tokens > 0)
-                    .then_some(completion.usage.cache_read_input_tokens),
-                cache_creation_tokens: (completion.usage.cache_creation_input_tokens > 0)
-                    .then_some(completion.usage.cache_creation_input_tokens),
-                reasoning_tokens: (completion.usage.reasoning_tokens > 0)
-                    .then_some(completion.usage.reasoning_tokens),
-                model: llm_model,
-                cost_usd: None,
-            },
-        ));
+        self.deps
+            .stream_registry
+            .send(orka_core::stream::StreamChunk::new(
+                self.ctx.session_id,
+                envelope.channel.clone(),
+                Some(envelope.id),
+                orka_core::stream::StreamChunkKind::Usage {
+                    input_tokens: completion.usage.input_tokens,
+                    output_tokens: completion.usage.output_tokens,
+                    cache_read_tokens: (completion.usage.cache_read_input_tokens > 0)
+                        .then_some(completion.usage.cache_read_input_tokens),
+                    cache_creation_tokens: (completion.usage.cache_creation_input_tokens > 0)
+                        .then_some(completion.usage.cache_creation_input_tokens),
+                    reasoning_tokens: (completion.usage.reasoning_tokens > 0)
+                        .then_some(completion.usage.reasoning_tokens),
+                    model: llm_model,
+                    cost_usd: None,
+                },
+            ));
 
         Ok(completion)
     }
@@ -610,9 +617,7 @@ impl<'a> AgentNodeRunner<'a> {
             }
         }
 
-        if let Some(hint) =
-            build_tool_error_hint(&self.tool_error_counts, self.max_tool_retries)
-        {
+        if let Some(hint) = build_tool_error_hint(&self.tool_error_counts, self.max_tool_retries) {
             result_blocks.push(ContentBlockInput::Text { text: hint });
         }
 
@@ -634,7 +639,10 @@ impl<'a> AgentNodeRunner<'a> {
 
         self.tool_turns += 1;
         if self.tool_turns >= self.agent.max_turns {
-            warn!(max_turns = self.agent.max_turns, "agent reached max tool turns");
+            warn!(
+                max_turns = self.agent.max_turns,
+                "agent reached max tool turns"
+            );
             self.stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
             return Ok(IterationOutcome::Done);
         }
@@ -687,12 +695,8 @@ impl<'a> AgentNodeRunner<'a> {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        let progress_tx = maybe_spawn_progress_bridge(
-            &call.name,
-            &self.ctx.trigger.channel,
-            self.deps,
-            self.ctx,
-        );
+        let progress_tx =
+            maybe_spawn_progress_bridge(&call.name, &self.ctx.trigger.channel, self.deps, self.ctx);
 
         SkillTaskParams {
             call_id: call.id.clone(),
@@ -734,9 +738,7 @@ struct SkillTaskParams {
     progress_tx: Option<tokio::sync::mpsc::UnboundedSender<serde_json::Value>>,
 }
 
-async fn invoke_skill_task(
-    p: SkillTaskParams,
-) -> (String, String, bool, Vec<MediaPayload>) {
+async fn invoke_skill_task(p: SkillTaskParams) -> (String, String, bool, Vec<MediaPayload>) {
     let args: HashMap<String, serde_json::Value> = match p.call_input {
         serde_json::Value::Object(map) => map.into_iter().collect(),
         _ => HashMap::new(),
@@ -755,19 +757,17 @@ async fn invoke_skill_task(
         skill_ctx = skill_ctx.with_progress(tx);
     }
     let skill_input = SkillInput::new(args).with_context(skill_ctx);
-    let result = match tokio::time::timeout(
-        p.skill_timeout,
-        p.skills.invoke(&p.call_name, skill_input),
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(_) => Err(orka_core::Error::Skill(format!(
-            "skill '{}' timed out after {}s",
-            p.call_name,
-            p.skill_timeout.as_secs()
-        ))),
-    };
+    let result =
+        match tokio::time::timeout(p.skill_timeout, p.skills.invoke(&p.call_name, skill_input))
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => Err(orka_core::Error::Skill(format!(
+                "skill '{}' timed out after {}s",
+                p.call_name,
+                p.skill_timeout.as_secs()
+            ))),
+        };
     let (content, is_error, task_attachments) = extract_skill_result(&result, p.max_result_chars);
     emit_skill_completed(
         &p.event_sink,
@@ -1164,8 +1164,8 @@ async fn build_facts_section(
         Ok(results) => {
             let filtered: Vec<_> = results
                 .into_iter()
-                .filter(|result| {
-                    match result.metadata.get("memory_scope").map(String::as_str) {
+                .filter(
+                    |result| match result.metadata.get("memory_scope").map(String::as_str) {
                         Some("session") => result
                             .metadata
                             .get("session_id")
@@ -1176,8 +1176,8 @@ async fn build_facts_section(
                             .is_some_and(|ws| ws == workspace_name),
                         Some("global") | None => true,
                         Some(_) => false,
-                    }
-                })
+                    },
+                )
                 .take(5)
                 .collect();
             if filtered.is_empty() {
@@ -1231,8 +1231,7 @@ fn build_coordinator(
     }
 
     if let Some(ref soft_reg) = deps.soft_skills {
-        let adapter =
-            crate::context_adapters::SoftSkillRegistryAdapter::new(Arc::clone(soft_reg));
+        let adapter = crate::context_adapters::SoftSkillRegistryAdapter::new(Arc::clone(soft_reg));
         let mode = crate::context_adapters::get_soft_skill_selection_mode(soft_reg);
         coordinator = coordinator.with_provider(Box::new(SoftSkillsContextProvider::new(
             Arc::new(adapter),
@@ -1305,7 +1304,8 @@ async fn check_input_guardrail(
     }
 }
 
-/// Apply guardrail modification to the last user message (Modify decision only).
+/// Apply guardrail modification to the last user message (Modify decision
+/// only).
 async fn apply_input_guardrail_modify(
     deps: &ExecutorDeps,
     ctx: &ExecutionContext,

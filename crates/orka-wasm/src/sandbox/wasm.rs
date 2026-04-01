@@ -3,12 +3,11 @@ use std::time::Instant;
 use async_trait::async_trait;
 use orka_core::{Error, Result};
 
-use crate::{WasmEngine, WasmInstance, WasmLimits};
-
 use super::{
     config::SandboxConfig,
     executor::{SandboxExecutor, SandboxLang, SandboxLimits, SandboxRequest, SandboxResult},
 };
+use crate::{WasmEngine, WasmInstance, WasmLimits};
 
 /// WASM-based sandbox executor using a shared [`WasmEngine`].
 pub struct WasmSandbox {

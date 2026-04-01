@@ -7,12 +7,12 @@
 
 /// Message bus backed by Redis Streams.
 pub mod bus;
+/// Conversation store backed by Redis.
+pub mod conversation;
 /// Priority queue backed by Redis Sorted Sets.
 pub mod queue;
 /// Session store backed by Redis.
 pub mod session;
-/// Conversation store backed by Redis.
-pub mod conversation;
 
 // Flat re-exports for backwards-compatible access.
 pub use bus::{BusBackend, BusConfig, RedisBus, create_bus};

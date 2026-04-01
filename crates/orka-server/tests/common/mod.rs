@@ -13,8 +13,10 @@ use orka_agent::{Agent, AgentGraph, AgentId, GraphNode, NodeKind, TerminationPol
 use orka_core::testing::{
     InMemoryBus, InMemoryConversationStore, InMemoryQueue, InMemorySessionStore,
 };
-use orka_server::mobile_auth::{InMemoryMobileAuthService, MobileAuthConfig, MobileAuthService};
-use orka_server::router::{MobileEventHub, RouterParams, ServerFeatures, build_router};
+use orka_server::{
+    mobile_auth::{InMemoryMobileAuthService, MobileAuthConfig, MobileAuthService},
+    router::{MobileEventHub, RouterParams, ServerFeatures, build_router},
+};
 use orka_skills::{EchoSkill, SkillRegistry};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 

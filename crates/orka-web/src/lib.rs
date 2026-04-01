@@ -17,12 +17,14 @@ pub mod types;
 use std::sync::Arc;
 
 use cache::WebCache;
+pub use http::{
+    HttpClientConfig, SsrfGuard, WebhookConfig, WebhookRetryConfig, create_http_skills,
+};
 use orka_core::{Result, traits::Skill};
 use provider::{BraveProvider, SearchProvider, SearxngProvider, TavilyProvider};
 use read::WebReadSkill;
 use search::WebSearchSkill;
 use tracing::info;
-pub use http::{HttpClientConfig, SsrfGuard, WebhookConfig, WebhookRetryConfig, create_http_skills};
 pub use types::{SearchProviderKind, WebConfig};
 
 /// Create web skills (`web_search` + `web_read`) from config.

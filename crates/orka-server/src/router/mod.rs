@@ -17,6 +17,7 @@ mod schedules;
 
 use std::sync::Arc;
 
+pub use mobile::{MobileEventHub, MobileStreamEvent};
 use orka_a2a::{A2aState, AgentDirectory};
 use orka_agent::AgentGraph;
 use orka_auth::AuthLayer;
@@ -35,8 +36,6 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::mobile_auth::MobileAuthService;
-
-pub use mobile::{MobileEventHub, MobileStreamEvent};
 
 /// Server version from `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

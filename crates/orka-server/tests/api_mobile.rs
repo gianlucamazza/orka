@@ -32,8 +32,12 @@ async fn seed_conversation(
     updated_at: chrono::DateTime<chrono::Utc>,
 ) -> common::TestResult<Conversation> {
     let conversation_id = ConversationId::new();
-    let mut conversation =
-        Conversation::new(conversation_id, SessionId::from(conversation_id), user_id, title);
+    let mut conversation = Conversation::new(
+        conversation_id,
+        SessionId::from(conversation_id),
+        user_id,
+        title,
+    );
     conversation.updated_at = updated_at;
     store.put_conversation(&conversation).await?;
     Ok(conversation)
@@ -77,9 +81,10 @@ fn parse_sse_frame(frame: &str) -> common::TestResult<(String, serde_json::Value
 async fn mobile_me_returns_authenticated_identity() -> common::TestResult {
     let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
     let req = common::request(
-        Request::builder()
-            .uri("/mobile/v1/me")
-            .header("Authorization", bearer("user-123", &["chat:read", "chat:write"])),
+        Request::builder().uri("/mobile/v1/me").header(
+            "Authorization",
+            bearer("user-123", &["chat:read", "chat:write"]),
+        ),
         Body::empty(),
     )?;
     let resp = ctx.app.oneshot(req).await?;
@@ -87,7 +92,10 @@ async fn mobile_me_returns_authenticated_identity() -> common::TestResult {
 
     let json = common::json_body(resp).await?;
     assert_eq!(json["user_id"], "user-123");
-    assert_eq!(json["scopes"], serde_json::json!(["chat:read", "chat:write"]));
+    assert_eq!(
+        json["scopes"],
+        serde_json::json!(["chat:read", "chat:write"])
+    );
     Ok(())
 }
 
@@ -110,7 +118,8 @@ async fn mobile_conversation_list_supports_pagination() -> common::TestResult {
     )
     .await?;
     let newest = seed_conversation(ctx.conversations.as_ref(), "user-a", "newest", now).await?;
-    let _other_user = seed_conversation(ctx.conversations.as_ref(), "user-b", "hidden", now).await?;
+    let _other_user =
+        seed_conversation(ctx.conversations.as_ref(), "user-b", "hidden", now).await?;
 
     let req = common::request(
         Request::builder()
@@ -132,9 +141,13 @@ async fn mobile_conversation_list_supports_pagination() -> common::TestResult {
 #[tokio::test]
 async fn mobile_message_list_supports_limit_and_offset() -> common::TestResult {
     let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
-    let conversation =
-        seed_conversation(ctx.conversations.as_ref(), "user-a", "thread", chrono::Utc::now())
-            .await?;
+    let conversation = seed_conversation(
+        ctx.conversations.as_ref(),
+        "user-a",
+        "thread",
+        chrono::Utc::now(),
+    )
+    .await?;
     for index in 0..4 {
         ctx.conversations
             .append_message(&ConversationMessage::new(
@@ -170,9 +183,13 @@ async fn mobile_message_list_supports_limit_and_offset() -> common::TestResult {
 #[tokio::test]
 async fn mobile_send_persists_user_message_and_publishes_inbound_envelope() -> common::TestResult {
     let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
-    let conversation =
-        seed_conversation(ctx.conversations.as_ref(), "user-a", "thread", chrono::Utc::now())
-            .await?;
+    let conversation = seed_conversation(
+        ctx.conversations.as_ref(),
+        "user-a",
+        "thread",
+        chrono::Utc::now(),
+    )
+    .await?;
     let mut inbound = ctx.bus.subscribe("inbound").await?;
 
     let req = common::request(
@@ -211,9 +228,13 @@ async fn mobile_send_persists_user_message_and_publishes_inbound_envelope() -> c
 #[tokio::test]
 async fn mobile_routes_hide_other_users_conversations() -> common::TestResult {
     let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
-    let conversation =
-        seed_conversation(ctx.conversations.as_ref(), "owner", "private", chrono::Utc::now())
-            .await?;
+    let conversation = seed_conversation(
+        ctx.conversations.as_ref(),
+        "owner",
+        "private",
+        chrono::Utc::now(),
+    )
+    .await?;
 
     let req = common::request(
         Request::builder()
@@ -229,13 +250,20 @@ async fn mobile_routes_hide_other_users_conversations() -> common::TestResult {
 #[tokio::test]
 async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestResult {
     let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
-    let conversation =
-        seed_conversation(ctx.conversations.as_ref(), "user-a", "stream", chrono::Utc::now())
-            .await?;
+    let conversation = seed_conversation(
+        ctx.conversations.as_ref(),
+        "user-a",
+        "stream",
+        chrono::Utc::now(),
+    )
+    .await?;
 
     let req = common::request(
         Request::builder()
-            .uri(format!("/mobile/v1/conversations/{}/stream", conversation.id))
+            .uri(format!(
+                "/mobile/v1/conversations/{}/stream",
+                conversation.id
+            ))
             .header("Authorization", bearer("user-a", &["chat:read"])),
         Body::empty(),
     )?;
@@ -294,8 +322,8 @@ async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestRe
 }
 
 #[tokio::test]
-async fn mobile_pairing_create_complete_and_refresh_issue_valid_mobile_session(
-) -> common::TestResult {
+async fn mobile_pairing_create_complete_and_refresh_issue_valid_mobile_session()
+-> common::TestResult {
     let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
 
     let create_req = common::request(

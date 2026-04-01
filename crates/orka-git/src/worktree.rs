@@ -236,15 +236,16 @@ impl WorktreeManager {
             }
             // Load metadata if present
             let meta_path = entry.path.join(".orka-worktree-meta.json");
-            let (created_at, agent_id) = if let Ok(raw) = tokio::fs::read_to_string(&meta_path).await {
-                let meta: Option<WorktreeMeta> = serde_json::from_str(&raw).ok();
-                (
-                    meta.as_ref().map(|m| m.created_at),
-                    meta.and_then(|m| m.agent_id),
-                )
-            } else {
-                (None, None)
-            };
+            let (created_at, agent_id) =
+                if let Ok(raw) = tokio::fs::read_to_string(&meta_path).await {
+                    let meta: Option<WorktreeMeta> = serde_json::from_str(&raw).ok();
+                    (
+                        meta.as_ref().map(|m| m.created_at),
+                        meta.and_then(|m| m.agent_id),
+                    )
+                } else {
+                    (None, None)
+                };
             result.push(WorktreeInfo {
                 name: entry.name,
                 path: entry.path,

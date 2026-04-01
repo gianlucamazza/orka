@@ -12,6 +12,7 @@ use orka_core::{
     Result,
     traits::{DeadLetterQueue, PriorityQueue},
 };
+
 pub use self::redis_queue::{RedisPriorityQueue, priority_score};
 
 /// Paired trait objects produced by [`create_queue`].

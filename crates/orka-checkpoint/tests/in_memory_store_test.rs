@@ -148,7 +148,8 @@ async fn save_same_id_updates_in_place() {
 async fn checkpoint_state_round_trips_through_json() {
     let store = InMemoryCheckpointStore::new();
     let mut c = make_checkpoint("run-8", "node-a");
-    c.state.insert("ns::key".to_string(), serde_json::json!({"val": 42}));
+    c.state
+        .insert("ns::key".to_string(), serde_json::json!({"val": 42}));
     c.total_tokens = 999;
     store.save(&c).await.unwrap();
 
@@ -157,7 +158,8 @@ async fn checkpoint_state_round_trips_through_json() {
     assert_eq!(loaded.state["ns::key"], serde_json::json!({"val": 42}));
 }
 
-// ── SerializableSlotKey unit tests ────────────────────────────────────────────
+// ── SerializableSlotKey unit tests
+// ────────────────────────────────────────────
 
 #[test]
 fn slot_key_to_map_key_format() {
@@ -188,7 +190,8 @@ fn slot_key_from_map_key_rejects_malformed() {
 
 #[test]
 fn slot_key_from_map_key_handles_double_colon_in_name() {
-    // split_once stops at the first "::", so "a::b::c" parses as namespace="a", name="b::c"
+    // split_once stops at the first "::", so "a::b::c" parses as namespace="a",
+    // name="b::c"
     let key = SerializableSlotKey::from_map_key("a::b::c").unwrap();
     assert_eq!(key.namespace, "a");
     assert_eq!(key.name, "b::c");

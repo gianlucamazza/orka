@@ -24,7 +24,6 @@ pub use orka_adapter_telegram::TelegramAdapterConfig;
 #[cfg(feature = "whatsapp")]
 pub use orka_adapter_whatsapp::WhatsAppAdapterConfig;
 pub use orka_auth::{ApiKeyEntry, AuthConfig, JwtAuthConfig};
-pub use orka_infra::BusConfig;
 #[cfg(feature = "chart")]
 pub use orka_chart::ChartConfig;
 pub use orka_core::{
@@ -39,7 +38,7 @@ pub use orka_git::{GitAuthorshipConfig, GitAuthorshipMode, GitConfig, GitWorktre
 pub use orka_guardrails::{
     GuardrailRules, GuardrailsConfig, LlmModerationConfig, ModerationCategory, RedactPattern,
 };
-pub use orka_web::HttpClientConfig;
+pub use orka_infra::{BusConfig, SessionConfig};
 #[cfg(feature = "knowledge")]
 pub use orka_knowledge::{
     ChunkingConfig, EmbeddingProviderKind, EmbeddingsConfig, KnowledgeConfig, RetrievalConfig,
@@ -58,12 +57,11 @@ pub use orka_os::{
 pub use orka_prompts::PromptsConfig;
 #[cfg(feature = "research")]
 pub use orka_research::ResearchConfig;
-pub use orka_wasm::{SandboxConfig, SandboxLimitsConfig};
 pub use orka_scheduler::{ScheduledJob, SchedulerConfig};
 pub use orka_secrets::{SecretBackend, SecretConfig};
-pub use orka_infra::SessionConfig;
 pub use orka_skills::{PluginCapabilities, PluginConfig, PluginInstanceConfig, SoftSkillConfig};
-pub use orka_web::{SearchProviderKind, WebConfig};
+pub use orka_wasm::{SandboxConfig, SandboxLimitsConfig};
+pub use orka_web::{HttpClientConfig, SearchProviderKind, WebConfig};
 pub use runtime::{
     LogLevel, LoggingConfig, QueueConfig, RedisConfig, SYSTEM_CONFIG_PATH, ServerConfig,
     WorkerConfig, WorkspaceEntry,
