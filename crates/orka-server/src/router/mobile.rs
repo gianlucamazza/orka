@@ -189,15 +189,68 @@ pub(super) struct SendMessageResponse {
     message_id: MessageId,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
-pub(super) struct StreamDonePayload {
-    conversation_id: ConversationId,
-}
-
 #[derive(Debug)]
 struct SseFrame {
     event: &'static str,
     data: String,
+}
+
+fn stream_chunk_to_sse(
+    kind: &StreamChunkKind,
+    conversation_id: ConversationId,
+    reply_to: Option<MessageId>,
+) -> Option<SseFrame> {
+    let (event, data) = match kind {
+        StreamChunkKind::Delta(delta) => (
+            "message_delta",
+            serde_json::json!({
+                "conversation_id": conversation_id,
+                "reply_to": reply_to,
+                "delta": delta,
+            }),
+        ),
+        StreamChunkKind::Done => (
+            "stream_done",
+            serde_json::json!({ "conversation_id": conversation_id }),
+        ),
+        StreamChunkKind::ThinkingDelta(delta) => (
+            "thinking_delta",
+            serde_json::json!({
+                "conversation_id": conversation_id,
+                "delta": delta,
+            }),
+        ),
+        StreamChunkKind::ToolExecStart { name, id, input_summary, category } => (
+            "tool_exec_start",
+            serde_json::json!({
+                "conversation_id": conversation_id,
+                "id": id,
+                "name": name,
+                "input_summary": input_summary,
+                "category": category,
+            }),
+        ),
+        StreamChunkKind::ToolExecEnd { id, success, duration_ms, error, result_summary } => (
+            "tool_exec_end",
+            serde_json::json!({
+                "conversation_id": conversation_id,
+                "id": id,
+                "success": success,
+                "duration_ms": duration_ms,
+                "error": error,
+                "result_summary": result_summary,
+            }),
+        ),
+        StreamChunkKind::AgentSwitch { display_name, .. } => (
+            "agent_switch",
+            serde_json::json!({
+                "conversation_id": conversation_id,
+                "display_name": display_name,
+            }),
+        ),
+        _ => return None,
+    };
+    Some(SseFrame { event, data: data.to_string() })
 }
 
 /// Build the public mobile auth routes that remain accessible before login.
@@ -673,7 +726,6 @@ async fn handle_send_message(
 )]
 /// GET `/mobile/v1/conversations/{id}/stream` — subscribe to mobile SSE
 /// events for a conversation.
-#[allow(clippy::too_many_lines)]
 async fn handle_stream(
     State(state): State<ProtectedMobileState>,
     Extension(identity): Extension<AuthIdentity>,
@@ -699,81 +751,10 @@ async fn handle_stream(
                     let Some(chunk) = chunk else {
                         break;
                     };
-                    match &chunk.kind {
-                        StreamChunkKind::Delta(delta) => {
-                            if tx.send(SseFrame {
-                                event: "message_delta",
-                                data: serde_json::json!({
-                                    "conversation_id": conversation.id,
-                                    "reply_to": chunk.reply_to,
-                                    "delta": delta,
-                                }).to_string(),
-                            }).is_err() {
-                                break;
-                            }
-                        }
-                        StreamChunkKind::Done => {
-                            if tx.send(SseFrame {
-                                event: "stream_done",
-                                data: serde_json::to_string(&StreamDonePayload {
-                                    conversation_id: conversation.id,
-                                }).unwrap_or_else(|_| "{}".to_string()),
-                            }).is_err() {
-                                break;
-                            }
-                        }
-                        StreamChunkKind::ThinkingDelta(delta) => {
-                            if tx.send(SseFrame {
-                                event: "thinking_delta",
-                                data: serde_json::json!({
-                                    "conversation_id": conversation.id,
-                                    "delta": delta,
-                                }).to_string(),
-                            }).is_err() {
-                                break;
-                            }
-                        }
-                        StreamChunkKind::ToolExecStart { name, id, input_summary, category } => {
-                            if tx.send(SseFrame {
-                                event: "tool_exec_start",
-                                data: serde_json::json!({
-                                    "conversation_id": conversation.id,
-                                    "id": id,
-                                    "name": name,
-                                    "input_summary": input_summary,
-                                    "category": category,
-                                }).to_string(),
-                            }).is_err() {
-                                break;
-                            }
-                        }
-                        StreamChunkKind::ToolExecEnd { id, success, duration_ms, error, result_summary } => {
-                            if tx.send(SseFrame {
-                                event: "tool_exec_end",
-                                data: serde_json::json!({
-                                    "conversation_id": conversation.id,
-                                    "id": id,
-                                    "success": success,
-                                    "duration_ms": duration_ms,
-                                    "error": error,
-                                    "result_summary": result_summary,
-                                }).to_string(),
-                            }).is_err() {
-                                break;
-                            }
-                        }
-                        StreamChunkKind::AgentSwitch { agent_id: _, display_name } => {
-                            if tx.send(SseFrame {
-                                event: "agent_switch",
-                                data: serde_json::json!({
-                                    "conversation_id": conversation.id,
-                                    "display_name": display_name,
-                                }).to_string(),
-                            }).is_err() {
-                                break;
-                            }
-                        }
-                        _ => {}
+                    if let Some(frame) = stream_chunk_to_sse(&chunk.kind, conversation.id, chunk.reply_to)
+                        && tx.send(frame).is_err()
+                    {
+                        break;
                     }
                 }
                 event = mobile_rx.recv() => {

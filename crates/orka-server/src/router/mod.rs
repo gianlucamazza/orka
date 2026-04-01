@@ -120,7 +120,6 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         mobile::MobileSessionResponse,
         mobile::SendMessageRequest,
         mobile::SendMessageResponse,
-        mobile::StreamDonePayload,
     )),
     tags(
         (name = "messages", description = "Message endpoints"),
