@@ -6,8 +6,14 @@ use std::{future::IntoFuture, sync::Arc};
 use anyhow::Context;
 use orka_bus::create_bus;
 use orka_config::{CodingConfig, CodingProvider, CodingSelectionPolicy, OrkaConfig};
-use orka_core::OutboundMessage;
-use orka_gateway::Gateway;
+use orka_core::{
+    OutboundMessage,
+    traits::{
+        DeadLetterQueue, EventSink, Guardrail, MemoryStore, MessageBus, PriorityQueue,
+        SecretManager, SessionLock, SessionStore,
+    },
+};
+use orka_gateway::{Gateway, GatewayConfig, GatewayDeps};
 use orka_queue::{QueueBundle, create_queue};
 use orka_server::router::{
     BUILD_DATE, GIT_SHA, RouterParams, ServerFeatures, VERSION, build_router,
@@ -15,6 +21,7 @@ use orka_server::router::{
 use orka_session::create_session_store;
 use orka_worker::{CommandRegistry, GraphDispatcher, WorkerPool};
 use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -26,6 +33,78 @@ use crate::{
     scheduler_adapter::SchedulerSkillRegistryAdapter,
     update::spawn_update_check,
 };
+
+// ---------------------------------------------------------------------------
+// Private infrastructure types
+// ---------------------------------------------------------------------------
+
+/// Infrastructure primitives created during step 3.
+struct InfraBundle {
+    bus: Arc<dyn MessageBus>,
+    sessions: Arc<dyn SessionStore>,
+    queue: Arc<dyn PriorityQueue>,
+    dlq: Arc<dyn DeadLetterQueue>,
+    memory: Arc<dyn MemoryStore>,
+    memory_lock: Arc<dyn SessionLock>,
+    secrets: Arc<dyn SecretManager>,
+    event_sink: Arc<dyn EventSink>,
+}
+
+/// Skill registry and related services created during step 4.
+struct SkillBundle {
+    skills: Arc<orka_skills::SkillRegistry>,
+    soft_skills: Option<Arc<orka_skills::SoftSkillRegistry>>,
+    scheduler_store: Option<Arc<dyn orka_scheduler::ScheduleStore>>,
+    fact_store: Option<Arc<orka_knowledge::FactStore>>,
+    coding_runtime: Option<orka_agent::executor::CodingRuntimeStatus>,
+    mcp_server_count: usize,
+}
+
+/// Accumulated server state after all initialization phases complete.
+struct Bootstrap {
+    config: OrkaConfig,
+    infra: InfraBundle,
+    /// Prometheus handle kept alive here; not in `InfraBundle` because
+    /// `PrometheusHandle` is not Clone and must be moved to `RouterParams`.
+    metrics_handle: Option<orka_observe::metrics::PrometheusHandle>,
+    skill_bundle: SkillBundle,
+    llm_client: Option<Arc<dyn orka_llm::LlmClient>>,
+    guardrail: Option<Arc<dyn Guardrail>>,
+    workspace_registry: Arc<WorkspaceRegistry>,
+    shutdown: CancellationToken,
+    adapters: Vec<Arc<dyn orka_core::traits::ChannelAdapter>>,
+    experience_service: Option<Arc<orka_experience::ExperienceService>>,
+    graph: Arc<orka_agent::AgentGraph>,
+    commands: Arc<CommandRegistry>,
+    gateway_handle: JoinHandle<()>,
+    start_time: std::time::Instant,
+    stream_registry: orka_core::StreamRegistry,
+    auth_enabled: bool,
+    _env_watcher: Option<crate::env_watcher::EnvWatcher>,
+}
+
+/// Inputs for setting up the HTTP management endpoint.
+struct HttpServerDeps<'a> {
+    config: &'a OrkaConfig,
+    infra: &'a InfraBundle,
+    /// Prometheus handle moved here from `Bootstrap`; not cloneable.
+    metrics_handle: Option<orka_observe::metrics::PrometheusHandle>,
+    skill_bundle: &'a SkillBundle,
+    experience_service: &'a Option<Arc<orka_experience::ExperienceService>>,
+    workspace_registry: &'a Arc<WorkspaceRegistry>,
+    graph: &'a Arc<orka_agent::AgentGraph>,
+    adapters: &'a [Arc<dyn orka_core::traits::ChannelAdapter>],
+    a2a_state: Option<orka_a2a::A2aState>,
+    agent_directory: Arc<orka_a2a::AgentDirectory>,
+    checkpoint_store: Option<Arc<dyn orka_checkpoint::CheckpointStore>>,
+    start_time: std::time::Instant,
+    auth_enabled: bool,
+    stream_registry: orka_core::StreamRegistry,
+}
+
+// ---------------------------------------------------------------------------
+// Helper: select coding backend
+// ---------------------------------------------------------------------------
 
 fn select_coding_backend(
     config: &CodingConfig,
@@ -59,9 +138,13 @@ fn select_coding_backend(
     }
 }
 
-/// Run the Orka server until SIGINT or SIGTERM.
-#[allow(clippy::too_many_lines)]
-pub(crate) async fn run() -> anyhow::Result<()> {
+// ---------------------------------------------------------------------------
+// Step 0–2: config loading + tracing
+// ---------------------------------------------------------------------------
+
+/// Load + validate configuration, initialise tracing, and spawn the background
+/// update checker. Called once at startup before any other step.
+fn init_config_and_tracing() -> anyhow::Result<OrkaConfig> {
     // 0. Load .env file (no-op if missing — production uses systemd
     //    EnvironmentFile)
     let _ = dotenvy::dotenv();
@@ -111,8 +194,24 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     spawn_update_check();
     debug!(?config, "loaded configuration");
 
-    // 3. Create infra
-    let bus = create_bus(&config.bus, &config.redis.url).context("failed to create message bus")?;
+    Ok(config)
+}
+
+// ---------------------------------------------------------------------------
+// Step 3: infrastructure primitives
+// ---------------------------------------------------------------------------
+
+/// Create all stateful infrastructure handles: bus, sessions, queues, memory,
+/// secrets, event sink, and metrics recorder.
+///
+/// Returns `(InfraBundle, metrics_handle)`. The Prometheus handle is returned
+/// separately because `PrometheusHandle` is not `Clone` and must be moved
+/// directly into `RouterParams`.
+fn init_infra(
+    config: &OrkaConfig,
+) -> anyhow::Result<(InfraBundle, Option<orka_observe::metrics::PrometheusHandle>)> {
+    let bus =
+        create_bus(&config.bus, &config.redis.url).context("failed to create message bus")?;
     let sessions = create_session_store(&config.session, &config.redis.url)
         .context("failed to create session store")?;
     let QueueBundle { queue, dlq } =
@@ -136,129 +235,107 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         info!("prometheus metrics recorder installed");
     }
 
-    // 4. Skill registry
-    let mut skills = orka_skills::create_skill_registry();
-    skills.register(Arc::new(orka_skills::EchoSkill));
+    Ok((
+        InfraBundle {
+            bus,
+            sessions,
+            queue,
+            dlq,
+            memory,
+            memory_lock,
+            secrets,
+            event_sink,
+        },
+        metrics_handle,
+    ))
+}
 
-    // 4b. Sandbox + SandboxSkill
-    let sandbox =
-        orka_sandbox::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
-    skills.register(Arc::new(orka_sandbox::SandboxSkill::new(sandbox)));
+// ---------------------------------------------------------------------------
+// Step 4 sub-registrators
+// ---------------------------------------------------------------------------
 
-    // 4c. Shared WASM engine + WASM plugins
-    #[cfg(feature = "wasm")]
-    {
-        let wasm_engine =
-            orka_wasm::WasmEngine::new().context("failed to create shared WASM engine")?;
-        if let Some(ref plugin_dir) = config.plugins.dir {
-            match orka_skills::load_plugins(
-                std::path::Path::new(plugin_dir),
-                &wasm_engine,
-                &config.plugins,
-            ) {
-                Ok(plugins) => {
-                    for plugin in plugins {
-                        skills.register(plugin);
-                    }
+/// Connect MCP servers in parallel and register each tool as a skill.
+/// Returns the number of successfully connected servers.
+async fn register_mcp_skills(
+    config: &OrkaConfig,
+    skills: &mut orka_skills::SkillRegistry,
+) -> usize {
+    let mut mcp_set = tokio::task::JoinSet::new();
+    for server_config in &config.mcp.servers {
+        let transport = match (&server_config.command, &server_config.url) {
+            (Some(cmd), _) => {
+                let mut builder = orka_mcp::McpTransportConfig::stdio(cmd.clone())
+                    .args(server_config.args.clone())
+                    .envs(server_config.env.clone());
+                if let Some(dir) = &server_config.working_dir {
+                    builder = builder.working_dir(std::path::PathBuf::from(dir));
                 }
-                Err(e) => {
-                    warn!(%e, "failed to load plugins");
-                }
+                builder.build()
             }
-        }
+            (None, Some(url)) => {
+                let mut builder = orka_mcp::McpTransportConfig::http(url.clone());
+                if let Some(auth) = &server_config.auth {
+                    builder = builder.auth(orka_mcp::McpOAuthConfig {
+                        token_url: auth.token_url.clone(),
+                        client_id: auth.client_id.clone(),
+                        client_secret_env: auth.client_secret_env.clone(),
+                        scopes: auth.scopes.clone(),
+                    });
+                }
+                builder.build()
+            }
+            (None, None) => {
+                tracing::error!(
+                    name = %server_config.name,
+                    "MCP server entry has neither 'command' nor 'url' — skipping"
+                );
+                continue;
+            }
+        };
+        let mcp_config = orka_mcp::McpServerConfig {
+            name: server_config.name.clone(),
+            transport,
+        };
+        let server_name = server_config.name.clone();
+        mcp_set.spawn(async move {
+            let client = orka_mcp::McpClient::connect(mcp_config).await?;
+            let client = Arc::new(client);
+            let tools = client.list_tools().await?;
+            Ok::<_, orka_core::Error>((server_name, client, tools))
+        });
     }
-
-    // 4d. MCP servers (connect in parallel)
-    let mcp_server_count = {
-        let mut mcp_set = tokio::task::JoinSet::new();
-        for server_config in &config.mcp.servers {
-            let transport = match (&server_config.command, &server_config.url) {
-                (Some(cmd), _) => {
-                    let mut builder = orka_mcp::McpTransportConfig::stdio(cmd.clone())
-                        .args(server_config.args.clone())
-                        .envs(server_config.env.clone());
-                    if let Some(dir) = &server_config.working_dir {
-                        builder = builder.working_dir(std::path::PathBuf::from(dir));
-                    }
-                    builder.build()
-                }
-                (None, Some(url)) => {
-                    let mut builder = orka_mcp::McpTransportConfig::http(url.clone());
-                    if let Some(auth) = &server_config.auth {
-                        builder = builder.auth(orka_mcp::McpOAuthConfig {
-                            token_url: auth.token_url.clone(),
-                            client_id: auth.client_id.clone(),
-                            client_secret_env: auth.client_secret_env.clone(),
-                            scopes: auth.scopes.clone(),
-                        });
-                    }
-                    builder.build()
-                }
-                (None, None) => {
-                    tracing::error!(
-                        name = %server_config.name,
-                        "MCP server entry has neither 'command' nor 'url' — skipping"
+    let mut count: usize = 0;
+    while let Some(result) = mcp_set.join_next().await {
+        match result {
+            Ok(Ok((server_name, client, tools))) => {
+                count += 1;
+                for tool in tools {
+                    let bridge = orka_mcp::McpToolBridge::new(
+                        client.clone(),
+                        tool.name.clone(),
+                        tool.description.unwrap_or_default(),
+                        tool.input_schema,
                     );
-                    continue;
-                }
-            };
-            let mcp_config = orka_mcp::McpServerConfig {
-                name: server_config.name.clone(),
-                transport,
-            };
-            let server_name = server_config.name.clone();
-            mcp_set.spawn(async move {
-                let client = orka_mcp::McpClient::connect(mcp_config).await?;
-                let client = Arc::new(client);
-                let tools = client.list_tools().await?;
-                Ok::<_, orka_core::Error>((server_name, client, tools))
-            });
-        }
-        let mut mcp_server_count: usize = 0;
-        while let Some(result) = mcp_set.join_next().await {
-            match result {
-                Ok(Ok((server_name, client, tools))) => {
-                    mcp_server_count += 1;
-                    for tool in tools {
-                        let bridge = orka_mcp::McpToolBridge::new(
-                            client.clone(),
-                            tool.name.clone(),
-                            tool.description.unwrap_or_default(),
-                            tool.input_schema,
-                        );
-                        skills.register(Arc::new(bridge));
-                        info!(tool = %tool.name, server = %server_name, "registered MCP tool");
-                    }
-                }
-                Ok(Err(e)) => warn!(%e, "failed to connect/list MCP server tools"),
-                Err(e) => warn!(%e, "MCP connection task panicked"),
-            }
-        }
-        mcp_server_count
-    };
-
-    // 4e. Web skills
-    if config.web.search_provider != orka_web::SearchProviderKind::None {
-        match orka_web::create_web_skills(&config.web) {
-            Ok(web_skills) => {
-                for skill in web_skills {
-                    skills.register(skill);
+                    skills.register(Arc::new(bridge));
+                    info!(tool = %tool.name, server = %server_name, "registered MCP tool");
                 }
             }
-            Err(e) => warn!(%e, "failed to initialize web skills"),
+            Ok(Err(e)) => warn!(%e, "failed to connect/list MCP server tools"),
+            Err(e) => warn!(%e, "MCP connection task panicked"),
         }
     }
+    count
+}
 
-    // 4f. HTTP skills
-    match orka_http::create_http_skills(&config.http) {
-        Ok(http_skills) => {
-            for skill in http_skills {
-                skills.register(skill);
-            }
-        }
-        Err(e) => warn!(%e, "failed to initialize HTTP skills"),
-    }
-
+/// Register knowledge/RAG and scheduler skills.
+/// Returns `(fact_store, scheduler_store)`.
+fn register_knowledge_and_scheduler_skills(
+    config: &OrkaConfig,
+    skills: &mut orka_skills::SkillRegistry,
+) -> (
+    Option<Arc<orka_knowledge::FactStore>>,
+    Option<Arc<dyn orka_scheduler::ScheduleStore>>,
+) {
     // 4g. Knowledge/RAG skills
     let fact_store = if config.knowledge.enabled {
         match orka_knowledge::create_knowledge_skills(&config.knowledge) {
@@ -301,77 +378,164 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         None
     };
 
-    // 4i. OS skills
-    let mut coding_runtime = None;
-    if config.os.enabled {
-        let caps = orka_os::EnvironmentCapabilities::probe(&config.os).await;
-        let claude_code_available =
-            config.os.coding.providers.claude_code.enabled && caps.claude_code.available;
-        let codex_available = config.os.coding.providers.codex.enabled && caps.codex.available;
-        let opencode_available =
-            config.os.coding.providers.opencode.enabled && caps.opencode.available;
-        let selected_backend = select_coding_backend(
-            &config.os.coding,
-            claude_code_available,
-            codex_available,
-            opencode_available,
-        );
-        let (file_modifications_allowed, command_execution_allowed) = match selected_backend {
-            Some(CodingProvider::ClaudeCode) => (
-                config
-                    .os
-                    .coding
-                    .providers
-                    .claude_code
-                    .allow_file_modifications,
-                config
-                    .os
-                    .coding
-                    .providers
-                    .claude_code
-                    .allow_command_execution,
-            ),
-            Some(CodingProvider::Codex) => (
-                config.os.coding.providers.codex.allow_file_modifications,
-                config.os.coding.providers.codex.allow_command_execution,
-            ),
-            Some(CodingProvider::OpenCode) => (
-                config.os.coding.providers.opencode.allow_file_modifications,
-                config.os.coding.providers.opencode.allow_command_execution,
-            ),
-            _ => (false, false),
-        };
-        coding_runtime = Some(orka_agent::executor::CodingRuntimeStatus {
-            tool_available: config.os.coding.enabled
-                && (claude_code_available || codex_available || opencode_available),
-            default_provider: config.os.coding.default_provider.to_string(),
-            selection_policy: config.os.coding.selection_policy.to_string(),
-            claude_code_available,
-            codex_available,
-            selected_backend: selected_backend.map(|p| p.to_string()),
-            file_modifications_allowed,
-            command_execution_allowed,
-            allowed_paths: config.os.allowed_paths.clone(),
-            denied_paths: config.os.denied_paths.clone(),
-        });
-        info!(
-            no_new_privileges = caps.no_new_privileges,
-            package_updates = caps.package_updates.available,
-            systemctl = caps.systemctl.available,
-            journalctl = caps.journalctl.available,
-            claude_code = caps.claude_code.available,
-            codex = caps.codex.available,
-            "environment capabilities probed"
-        );
-        match orka_os::create_os_skills(&config.os, Some(&caps)) {
-            Ok(os_skills) => {
-                for skill in os_skills {
+    (fact_store, scheduler_store)
+}
+
+/// Probe environment capabilities and register OS/coding skills.
+/// Returns the coding runtime status if OS skills are enabled.
+async fn register_os_skills(
+    config: &OrkaConfig,
+    skills: &mut orka_skills::SkillRegistry,
+) -> Option<orka_agent::executor::CodingRuntimeStatus> {
+    if !config.os.enabled {
+        return None;
+    }
+    let caps = orka_os::EnvironmentCapabilities::probe(&config.os).await;
+    let claude_code_available =
+        config.os.coding.providers.claude_code.enabled && caps.claude_code.available;
+    let codex_available = config.os.coding.providers.codex.enabled && caps.codex.available;
+    let opencode_available =
+        config.os.coding.providers.opencode.enabled && caps.opencode.available;
+    let selected_backend = select_coding_backend(
+        &config.os.coding,
+        claude_code_available,
+        codex_available,
+        opencode_available,
+    );
+    let (file_modifications_allowed, command_execution_allowed) = match selected_backend {
+        Some(CodingProvider::ClaudeCode) => (
+            config.os.coding.providers.claude_code.allow_file_modifications,
+            config.os.coding.providers.claude_code.allow_command_execution,
+        ),
+        Some(CodingProvider::Codex) => (
+            config.os.coding.providers.codex.allow_file_modifications,
+            config.os.coding.providers.codex.allow_command_execution,
+        ),
+        Some(CodingProvider::OpenCode) => (
+            config.os.coding.providers.opencode.allow_file_modifications,
+            config.os.coding.providers.opencode.allow_command_execution,
+        ),
+        _ => (false, false),
+    };
+    info!(
+        no_new_privileges = caps.no_new_privileges,
+        package_updates = caps.package_updates.available,
+        systemctl = caps.systemctl.available,
+        journalctl = caps.journalctl.available,
+        claude_code = caps.claude_code.available,
+        codex = caps.codex.available,
+        "environment capabilities probed"
+    );
+    match orka_os::create_os_skills(&config.os, Some(&caps)) {
+        Ok(os_skills) => {
+            for skill in os_skills {
+                skills.register(skill);
+            }
+        }
+        Err(e) => warn!(%e, "failed to initialize OS skills"),
+    }
+    Some(orka_agent::executor::CodingRuntimeStatus {
+        tool_available: config.os.coding.enabled
+            && (claude_code_available || codex_available || opencode_available),
+        default_provider: config.os.coding.default_provider.to_string(),
+        selection_policy: config.os.coding.selection_policy.to_string(),
+        claude_code_available,
+        codex_available,
+        selected_backend: selected_backend.map(|p| p.to_string()),
+        file_modifications_allowed,
+        command_execution_allowed,
+        allowed_paths: config.os.allowed_paths.clone(),
+        denied_paths: config.os.denied_paths.clone(),
+    })
+}
+
+/// Scan and load SKILL.md-based soft skills from the configured directory.
+fn register_soft_skills(
+    config: &OrkaConfig,
+) -> Option<Arc<orka_skills::SoftSkillRegistry>> {
+    let dir = config.soft_skills.dir.as_ref()?;
+    let skills_list = orka_skills::scan_soft_skills(std::path::Path::new(dir));
+    let selection_mode =
+        orka_skills::SoftSkillSelectionMode::from(config.soft_skills.selection_mode.as_str());
+    let mut reg = orka_skills::SoftSkillRegistry::new().with_selection_mode(selection_mode);
+    let count = skills_list.len();
+    for skill in skills_list {
+        reg.register(skill);
+    }
+    info!(count, selection_mode = %config.soft_skills.selection_mode, "soft skill registry ready");
+    Some(Arc::new(reg))
+}
+
+// ---------------------------------------------------------------------------
+// Steps 4–4l: skill registry
+// ---------------------------------------------------------------------------
+
+/// Register all built-in, plugin, and external skills into a [`SkillRegistry`].
+/// Returns the finalized registry along with optional sub-services.
+async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
+    // 4. Skill registry
+    let mut skills = orka_skills::create_skill_registry();
+    skills.register(Arc::new(orka_skills::EchoSkill));
+
+    // 4b. Sandbox + SandboxSkill
+    let sandbox =
+        orka_sandbox::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
+    skills.register(Arc::new(orka_sandbox::SandboxSkill::new(sandbox)));
+
+    // 4c. Shared WASM engine + WASM plugins
+    #[cfg(feature = "wasm")]
+    {
+        let wasm_engine =
+            orka_wasm::WasmEngine::new().context("failed to create shared WASM engine")?;
+        if let Some(ref plugin_dir) = config.plugins.dir {
+            match orka_skills::load_plugins(
+                std::path::Path::new(plugin_dir),
+                &wasm_engine,
+                &config.plugins,
+            ) {
+                Ok(plugins) => {
+                    for plugin in plugins {
+                        skills.register(plugin);
+                    }
+                }
+                Err(e) => {
+                    warn!(%e, "failed to load plugins");
+                }
+            }
+        }
+    }
+
+    // 4d. MCP servers
+    let mcp_server_count = register_mcp_skills(config, &mut skills).await;
+
+    // 4e. Web skills
+    if config.web.search_provider != orka_web::SearchProviderKind::None {
+        match orka_web::create_web_skills(&config.web) {
+            Ok(web_skills) => {
+                for skill in web_skills {
                     skills.register(skill);
                 }
             }
-            Err(e) => warn!(%e, "failed to initialize OS skills"),
+            Err(e) => warn!(%e, "failed to initialize web skills"),
         }
     }
+
+    // 4f. HTTP skills
+    match orka_http::create_http_skills(&config.http) {
+        Ok(http_skills) => {
+            for skill in http_skills {
+                skills.register(skill);
+            }
+        }
+        Err(e) => warn!(%e, "failed to initialize HTTP skills"),
+    }
+
+    // 4g+4h. Knowledge/RAG and scheduler skills
+    let (fact_store, scheduler_store) =
+        register_knowledge_and_scheduler_skills(config, &mut skills);
+
+    // 4i. OS skills
+    let coding_runtime = register_os_skills(config, &mut skills).await;
 
     // 4l. Chart skills
     if config.chart.enabled {
@@ -401,49 +565,26 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     info!("skill registry ready ({} skills)", skills.list().len());
 
     // 4j. Soft skills (SKILL.md-based instruction skills)
-    let soft_skills: Option<Arc<orka_skills::SoftSkillRegistry>> = if let Some(ref dir) =
-        config.soft_skills.dir
-    {
-        let skills_list = orka_skills::scan_soft_skills(std::path::Path::new(dir));
-        let selection_mode =
-            orka_skills::SoftSkillSelectionMode::from(config.soft_skills.selection_mode.as_str());
-        let mut reg = orka_skills::SoftSkillRegistry::new().with_selection_mode(selection_mode);
-        let count = skills_list.len();
-        for skill in skills_list {
-            reg.register(skill);
-        }
-        info!(count, selection_mode = %config.soft_skills.selection_mode, "soft skill registry ready");
-        Some(Arc::new(reg))
-    } else {
-        None
-    };
+    let soft_skills = register_soft_skills(config);
 
-    // 5. LLM clients
-    let llm = build_llm_clients(&config, &*secrets).await;
-    if llm.client.is_some() {
-        info!("LLM client ready");
-    } else {
-        error!(
-            "no LLM providers initialized — set ANTHROPIC_API_KEY, MOONSHOT_API_KEY, or OPENAI_API_KEY to enable AI responses"
-        );
-    }
+    Ok(SkillBundle {
+        skills,
+        soft_skills,
+        scheduler_store,
+        fact_store,
+        coding_runtime,
+        mcp_server_count,
+    })
+}
 
-    // Start env file watcher for API key hot-reload
-    let _env_watcher = crate::env_watcher::EnvWatcher::start(
-        config.llm.providers.clone(),
-        config.llm.default_model.clone(),
-        llm.swappable,
-        secrets.clone(),
-    );
+// ---------------------------------------------------------------------------
+// Step 6: workspace loading
+// ---------------------------------------------------------------------------
 
-    // Guardrails
-    let guardrail = orka_guardrails::create_guardrail(&config.guardrails);
-    if guardrail.is_some() {
-        info!("guardrails enabled");
-    }
-
-    // 6. Load workspace(s) into registry
-    let workspace_registry = if config.workspaces.is_empty() {
+/// Load all configured workspaces into a [`WorkspaceRegistry`] and start file
+/// watchers for hot-reload.
+async fn load_workspaces(config: &OrkaConfig) -> anyhow::Result<Arc<WorkspaceRegistry>> {
+    let registry = if config.workspaces.is_empty() {
         let loader = Arc::new(WorkspaceLoader::new(&config.workspace_dir));
         loader.load_all().await?;
         let mut reg = WorkspaceRegistry::new("default".into());
@@ -477,192 +618,223 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         }
         reg
     };
-    let workspace_registry = Arc::new(workspace_registry);
 
-    // 6a. Start workspace file watchers
-    let mut watchers = Vec::new();
-    for ws_name in workspace_registry.list_names() {
-        if let Some(loader) = workspace_registry.get(ws_name) {
+    let registry = Arc::new(registry);
+
+    // Start workspace file watchers for hot-reload
+    for ws_name in registry.list_names() {
+        if let Some(loader) = registry.get(ws_name) {
             match orka_workspace::WorkspaceWatcher::start(loader.clone()) {
-                Ok(w) => watchers.push(w),
+                Ok(_w) => {}
                 Err(e) => warn!(workspace = %ws_name, %e, "failed to start workspace watcher"),
             }
         }
     }
     info!("workspace watchers started");
 
-    let shutdown = CancellationToken::new();
+    Ok(registry)
+}
 
-    // 6c. Auth layer
-    let auth_enabled = config.auth.jwt.is_some() || !config.auth.api_keys.is_empty();
-    let auth_layer = if auth_enabled {
+// ---------------------------------------------------------------------------
+// Auth layer
+// ---------------------------------------------------------------------------
+
+/// Build the auth layer and return whether authentication is enabled.
+fn build_auth_layer(
+    config: &OrkaConfig,
+) -> (bool, Option<orka_auth::AuthLayer>) {
+    let enabled = config.auth.jwt.is_some() || !config.auth.api_keys.is_empty();
+    if enabled {
         use orka_auth::{ApiKeyAuthenticator, AuthLayer, middleware::AuthMiddlewareConfig};
         let authenticator = ApiKeyAuthenticator::new(&config.auth.api_keys);
-        Some(AuthLayer::new(
+        let layer = AuthLayer::new(
             Arc::new(authenticator),
             Arc::new(AuthMiddlewareConfig::default()),
-        ))
+        );
+        (true, Some(layer))
     } else {
-        None
-    };
+        (false, None)
+    }
+}
 
-    // 7. Start all adapters
-    let stream_registry = orka_core::StreamRegistry::new();
-    let (_custom_adapter, adapters) = start_all_adapters(AdapterStartArgs {
-        secrets: secrets.clone(),
-        bus: bus.clone(),
-        shutdown: shutdown.clone(),
-        memory: memory.clone(),
-        auth_layer: auth_layer.clone(),
-        stream_registry: stream_registry.clone(),
-        config: config.clone(),
-    })
-    .await?;
+// ---------------------------------------------------------------------------
+// Gateway
+// ---------------------------------------------------------------------------
 
-    let start_time = std::time::Instant::now();
-
-    // 8. Gateway
+/// Spawn the gateway loop and return its join handle.
+fn spawn_gateway(
+    infra: &InfraBundle,
+    workspace_registry: &Arc<WorkspaceRegistry>,
+    config: &OrkaConfig,
+    shutdown: CancellationToken,
+) -> anyhow::Result<JoinHandle<()>> {
     let gateway = Gateway::new(
-        bus.clone(),
-        sessions.clone(),
-        queue.clone(),
-        workspace_registry
-            .default_loader()
-            .context("default workspace not registered")?
-            .clone(),
-        event_sink.clone(),
-        Some(&config.redis.url),
-        config.gateway.rate_limit,
-        config.gateway.dedup_ttl_secs,
+        GatewayDeps {
+            bus: infra.bus.clone(),
+            sessions: infra.sessions.clone(),
+            queue: infra.queue.clone(),
+            workspace: workspace_registry
+                .default_loader()
+                .context("default workspace not registered")?
+                .clone(),
+            event_sink: infra.event_sink.clone(),
+        },
+        GatewayConfig {
+            redis_url: Some(config.redis.url.clone()),
+            rate_limit: config.gateway.rate_limit,
+            dedup_ttl_secs: config.gateway.dedup_ttl_secs,
+            ..Default::default()
+        },
     );
-    let gateway_cancel = shutdown.clone();
-    let gateway_handle = tokio::spawn(async move {
-        if let Err(e) = gateway.run(gateway_cancel).await {
+    Ok(tokio::spawn(async move {
+        if let Err(e) = gateway.run(shutdown).await {
             error!(%e, "gateway error");
         }
-    });
+    }))
+}
 
-    // 9. Experience / self-learning service
-    let experience_service = if config.experience.enabled {
-        match create_experience_service(&config) {
-            Ok(svc) => svc,
-            Err(e) => {
-                warn!(%e, "failed to initialize experience service");
-                None
-            }
-        }
-    } else {
-        None
-    };
+// ---------------------------------------------------------------------------
+// A2A state
+// ---------------------------------------------------------------------------
 
-    // 10. Agent graph
-    let graph = Arc::new(
-        orka_agent::build_graph_from_config(&config, &workspace_registry)
-            .await
-            .context("failed to build agent graph")?,
-    );
-    info!(graph_id = %graph.id, "agent graph built");
-
-    // 11. Command registry + register with adapters
-    let mut commands = CommandRegistry::new();
-    orka_worker::commands::register_all(
-        &mut commands,
-        skills.clone(),
-        memory.clone(),
-        fact_store.clone(),
-        secrets.clone(),
-        workspace_registry.clone(),
-        &config
-            .agents
-            .first()
-            .context("no agents defined after configuration validation")?
-            .config,
-        experience_service.clone(),
-    );
-    let commands = Arc::new(commands);
-    {
-        let cmd_list = commands.list();
-        for adapter in &adapters {
-            if let Err(e) = adapter.register_commands(&cmd_list).await {
-                warn!(%e, channel = adapter.channel_id(), "failed to register commands with adapter");
-            }
-        }
+/// Build the Agent-to-Agent state when A2A discovery or known agents are
+/// configured.
+fn build_a2a_state(
+    config: &OrkaConfig,
+    skills: &Arc<orka_skills::SkillRegistry>,
+    secrets: &Arc<dyn SecretManager>,
+) -> Option<orka_a2a::A2aState> {
+    let a2a_enabled = config.a2a.discovery_enabled || !config.a2a.known_agents.is_empty();
+    if !a2a_enabled {
+        return None;
     }
 
-    // 12. Build HTTP management + health router
-    let auth_layer_for_router = if auth_enabled {
-        let authenticator = orka_auth::ApiKeyAuthenticator::new(&config.auth.api_keys);
-        Some(orka_auth::AuthLayer::new(
-            Arc::new(authenticator),
-            Arc::new(orka_auth::middleware::AuthMiddlewareConfig::default()),
-        ))
-    } else {
-        None
-    };
+    let base_url = format!("http://{}:{}", config.server.host, config.server.port);
+    let agent_card = orka_a2a::build_agent_card_with_auth(
+        "orka",
+        "Orka AI Agent Platform",
+        &base_url,
+        skills,
+        config.a2a.auth_enabled.then_some(&config.auth),
+    );
 
-    let a2a_enabled = config.a2a.discovery_enabled || !config.a2a.known_agents.is_empty();
-    let agent_directory = Arc::new(orka_a2a::AgentDirectory::new());
-    let a2a_state = if a2a_enabled {
-        let base_url = format!("http://{}:{}", config.server.host, config.server.port);
-        let agent_card = orka_a2a::build_agent_card_with_auth(
-            "orka",
-            "Orka AI Agent Platform",
-            &base_url,
-            &skills,
-            config.a2a.auth_enabled.then_some(&config.auth),
+    let use_redis = config.a2a.store_backend == "redis";
+    let (task_store, push_store): (
+        Arc<dyn orka_a2a::TaskStore>,
+        Arc<dyn orka_a2a::PushNotificationStore>,
+    ) = if use_redis {
+        let redis_url = &config.redis.url;
+        let ts = orka_a2a::RedisTaskStore::new(redis_url).map_or_else(
+            |e| {
+                tracing::warn!(%e, "failed to create RedisTaskStore, falling back to memory");
+                Arc::new(orka_a2a::InMemoryTaskStore::default()) as Arc<dyn orka_a2a::TaskStore>
+            },
+            |s| Arc::new(s) as Arc<dyn orka_a2a::TaskStore>,
         );
-
-        let use_redis = config.a2a.store_backend == "redis";
-        let (task_store, push_store): (
-            Arc<dyn orka_a2a::TaskStore>,
-            Arc<dyn orka_a2a::PushNotificationStore>,
-        ) = if use_redis {
-            let redis_url = &config.redis.url;
-            let ts = orka_a2a::RedisTaskStore::new(redis_url).map_or_else(
-                |e| {
-                    tracing::warn!(%e, "failed to create RedisTaskStore, falling back to memory");
-                    Arc::new(orka_a2a::InMemoryTaskStore::default()) as Arc<dyn orka_a2a::TaskStore>
-                },
-                |s| Arc::new(s) as Arc<dyn orka_a2a::TaskStore>,
-            );
-            let ps = orka_a2a::RedisPushNotificationStore::new(redis_url)
-                .map_or_else(
-                    |e| {
-                        tracing::warn!(%e, "failed to create RedisPushNotificationStore, falling back to memory");
-                        Arc::new(orka_a2a::InMemoryPushNotificationStore::default()) as Arc<dyn orka_a2a::PushNotificationStore>
-                    },
-                    |s| Arc::new(s) as Arc<dyn orka_a2a::PushNotificationStore>,
-                );
-            (ts, ps)
-        } else {
-            (
-                Arc::new(orka_a2a::InMemoryTaskStore::default()),
-                Arc::new(orka_a2a::InMemoryPushNotificationStore::default()),
-            )
-        };
-
-        Some(orka_a2a::A2aState {
-            agent_card,
-            skills: skills.clone(),
-            secrets: secrets.clone(),
-            task_store,
-            task_events: Arc::default(),
-            push_store: push_store.clone(),
-            webhook_deliverer: Arc::new(orka_a2a::WebhookDeliverer::new(push_store)),
-        })
+        let ps = orka_a2a::RedisPushNotificationStore::new(redis_url).map_or_else(
+            |e| {
+                tracing::warn!(%e, "failed to create RedisPushNotificationStore, falling back to memory");
+                Arc::new(orka_a2a::InMemoryPushNotificationStore::default())
+                    as Arc<dyn orka_a2a::PushNotificationStore>
+            },
+            |s| Arc::new(s) as Arc<dyn orka_a2a::PushNotificationStore>,
+        );
+        (ts, ps)
     } else {
-        None
+        (
+            Arc::new(orka_a2a::InMemoryTaskStore::default()),
+            Arc::new(orka_a2a::InMemoryPushNotificationStore::default()),
+        )
     };
 
-    // Spawn A2A discovery client if known agent URLs are configured.
+    Some(orka_a2a::A2aState {
+        agent_card,
+        skills: skills.clone(),
+        secrets: secrets.clone(),
+        task_store,
+        task_events: Arc::default(),
+        push_store: push_store.clone(),
+        webhook_deliverer: Arc::new(orka_a2a::WebhookDeliverer::new(push_store)),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// A2A discovery
+// ---------------------------------------------------------------------------
+
+fn spawn_a2a_discovery(
+    config: &OrkaConfig,
+    agent_directory: Arc<orka_a2a::AgentDirectory>,
+    shutdown: CancellationToken,
+) {
     if !config.a2a.known_agents.is_empty() {
         let client = orka_a2a::DiscoveryClient::new(
             config.a2a.known_agents.clone(),
             config.a2a.discovery_interval_secs,
-            agent_directory.clone(),
+            agent_directory,
         );
-        tokio::spawn(client.run(shutdown.clone()));
+        tokio::spawn(client.run(shutdown));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Worker pool
+// ---------------------------------------------------------------------------
+
+fn spawn_worker_pool(
+    config: &OrkaConfig,
+    infra: &InfraBundle,
+    dispatcher: Arc<GraphDispatcher>,
+    memory_lock: Arc<dyn SessionLock>,
+    shutdown: CancellationToken,
+) -> JoinHandle<()> {
+    let worker_pool = WorkerPool::new(
+        infra.queue.clone(),
+        infra.sessions.clone(),
+        infra.bus.clone(),
+        dispatcher,
+        infra.event_sink.clone(),
+        config.worker.concurrency,
+        config.queue.max_retries,
+    )
+    .with_retry_delay(config.worker.retry_base_delay_ms)
+    .with_session_lock(memory_lock)
+    .with_dlq(infra.dlq.clone());
+    tokio::spawn(async move {
+        if let Err(e) = worker_pool.run(shutdown).await {
+            error!(%e, "worker pool error");
+        }
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoint store
+// ---------------------------------------------------------------------------
+
+fn build_checkpoint_store(
+    redis_url: &str,
+) -> Option<Arc<dyn orka_checkpoint::CheckpointStore>> {
+    match orka_checkpoint::RedisCheckpointStore::new_default_ttl(redis_url) {
+        Ok(store) => {
+            info!("checkpoint store: Redis at {redis_url}");
+            Some(Arc::new(store))
+        }
+        Err(e) => {
+            warn!(%e, "checkpoint store unavailable, running without persistence");
+            None
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP management endpoint
+// ---------------------------------------------------------------------------
+
+/// Build the router parameters from the HTTP server dependencies.
+/// Consumes `deps` so that owned fields (`metrics_handle`, `a2a_state`, etc.)
+/// are moved into `RouterParams` without cloning.
+fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
+    let config = deps.config;
 
     let qdrant_url = if config.knowledge.enabled {
         config.knowledge.vector_store.url.clone()
@@ -670,7 +842,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         None
     };
 
-    let entry = graph.entry_agent();
+    let entry = deps.graph.entry_agent();
     let agent_name = entry.display_name.clone();
     let agent_model = entry
         .llm_config
@@ -693,15 +865,14 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         }
     });
 
-    let agent_count = graph.nodes_iter().count();
-
-    let adapter_names: Vec<String> = adapters
+    let adapter_names: Vec<String> = deps.adapters
         .iter()
         .map(|a| a.channel_id().to_string())
-        .filter(|id| id != "custom") // internal transport, not a user-facing channel
+        .filter(|id| id != "custom")
         .collect();
 
-    let coding_backend = coding_runtime
+    let coding_backend = deps.skill_bundle
+        .coding_runtime
         .as_ref()
         .and_then(|r| r.selected_backend.clone());
 
@@ -712,63 +883,64 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         orka_web::SearchProviderKind::Searxng => Some("searxng".to_string()),
     };
 
-    let features = ServerFeatures {
-        knowledge: config.knowledge.enabled,
-        scheduler: config.scheduler.enabled,
-        experience: config.experience.enabled,
-        guardrails: config.guardrails.enabled,
-        a2a: a2a_enabled,
-        observe: config.observe.enabled,
-        research: config.research.enabled,
+    let auth_layer = if deps.auth_enabled {
+        let authenticator = orka_auth::ApiKeyAuthenticator::new(&config.auth.api_keys);
+        Some(orka_auth::AuthLayer::new(
+            Arc::new(authenticator),
+            Arc::new(orka_auth::middleware::AuthMiddlewareConfig::default()),
+        ))
+    } else {
+        None
     };
 
-    // Build checkpoint store from existing Redis config. Errors are logged and
-    // the server falls back to no checkpointing rather than aborting startup.
-    let checkpoint_store: Option<Arc<dyn orka_checkpoint::CheckpointStore>> =
-        match orka_checkpoint::RedisCheckpointStore::new_default_ttl(&config.redis.url) {
-            Ok(store) => {
-                info!("checkpoint store: Redis at {}", config.redis.url);
-                Some(Arc::new(store))
-            }
-            Err(e) => {
-                warn!(%e, "checkpoint store unavailable, running without persistence");
-                None
-            }
-        };
-
-    let health_app = build_router(RouterParams {
-        queue: queue.clone(),
-        dlq: dlq.clone(),
-        skills: skills.clone(),
-        soft_skills: soft_skills.clone(),
-        sessions: sessions.clone(),
-        scheduler_store: scheduler_store.clone(),
-        checkpoint_store: checkpoint_store.clone(),
-        workspace_registry: workspace_registry.clone(),
-        graph: graph.clone(),
-        experience_service: experience_service.clone(),
-        start_time,
+    RouterParams {
+        queue: deps.infra.queue.clone(),
+        dlq: deps.infra.dlq.clone(),
+        skills: deps.skill_bundle.skills.clone(),
+        soft_skills: deps.skill_bundle.soft_skills.clone(),
+        sessions: deps.infra.sessions.clone(),
+        scheduler_store: deps.skill_bundle.scheduler_store.clone(),
+        checkpoint_store: deps.checkpoint_store,
+        workspace_registry: Arc::clone(deps.workspace_registry),
+        graph: Arc::clone(deps.graph),
+        experience_service: (*deps.experience_service).clone(),
+        start_time: deps.start_time,
         concurrency: config.worker.concurrency,
         redis_url: config.redis.url.clone(),
         qdrant_url,
-        auth_layer: auth_layer_for_router,
-        a2a_state,
+        auth_layer,
+        a2a_state: deps.a2a_state,
         a2a_auth_enabled: config.a2a.auth_enabled,
-        agent_directory,
-        metrics_handle,
+        agent_directory: deps.agent_directory,
+        metrics_handle: deps.metrics_handle,
         agent_name,
         agent_model,
-        mcp_server_count,
-        features,
+        mcp_server_count: deps.skill_bundle.mcp_server_count,
+        features: ServerFeatures {
+            knowledge: config.knowledge.enabled,
+            scheduler: config.scheduler.enabled,
+            experience: config.experience.enabled,
+            guardrails: config.guardrails.enabled,
+            a2a: config.a2a.discovery_enabled || !config.a2a.known_agents.is_empty(),
+            observe: config.observe.enabled,
+            research: config.research.enabled,
+        },
         thinking,
-        agent_count,
-        auth_enabled,
+        agent_count: deps.graph.nodes_iter().count(),
+        auth_enabled: deps.auth_enabled,
         adapters: adapter_names,
         coding_backend,
         web_search,
         research_service: None,
-        stream_registry: orka_core::StreamRegistry::new(),
-    });
+        stream_registry: deps.stream_registry,
+    }
+}
+
+/// Build the router and bind the HTTP management/health endpoint.
+async fn start_http_server(deps: HttpServerDeps<'_>) -> anyhow::Result<()> {
+    let config = deps.config;
+    let router_params = build_router_params(deps);
+    let health_app = build_router(router_params);
 
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", config.server.host, config.server.port))
@@ -779,132 +951,93 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         config.server.host, config.server.port
     );
     tokio::spawn(axum::serve(listener, health_app).into_future());
+    Ok(())
+}
 
-    // 13. Get template registry from workspace
-    let templates = {
-        let default_state = workspace_registry
-            .default_state()
-            .context("default workspace not registered")?;
-        let state = default_state.read().await;
-        state.templates.clone()
-    };
+// ---------------------------------------------------------------------------
+// Background task spawners
+// ---------------------------------------------------------------------------
 
-    // 14. Executor + worker pool
-    let memory_for_worker = memory.clone();
-    let memory_lock_for_worker = memory_lock.clone();
+/// Spawn the scheduler poll loop. Returns `None` if scheduling is not
+/// configured.
+fn spawn_scheduler_loop(
+    config: &OrkaConfig,
+    scheduler_store: Option<Arc<dyn orka_scheduler::ScheduleStore>>,
+    skills: &Arc<orka_skills::SkillRegistry>,
+    shutdown: CancellationToken,
+) -> Option<JoinHandle<()>> {
+    let store = scheduler_store?;
+    let scheduler = orka_scheduler::Scheduler::new(
+        store,
+        Arc::new(SchedulerSkillRegistryAdapter(skills.clone())),
+        config.scheduler.poll_interval_secs,
+        config.scheduler.max_concurrent,
+    );
+    Some(tokio::spawn(async move {
+        scheduler.run(shutdown).await;
+    }))
+}
 
-    let executor = Arc::new(orka_agent::GraphExecutor::new(orka_agent::ExecutorDeps {
-        skills: skills.clone(),
-        memory,
-        secrets,
-        llm: llm.client,
-        event_sink: event_sink.clone(),
-        stream_registry,
-        experience: experience_service.clone(),
-        facts: fact_store,
-        soft_skills,
-        templates,
-        coding_runtime,
-        guardrail,
-        checkpoint_store,
-        bus: Some(bus.clone()),
-    }));
-
-    let dispatcher = Arc::new(GraphDispatcher::new(
-        executor,
-        graph,
-        Some(memory_for_worker),
-        Some(commands.clone()),
-    ));
-    let worker_pool = WorkerPool::new(
-        queue.clone(),
-        sessions.clone(),
-        bus.clone(),
-        dispatcher,
-        event_sink.clone(),
-        config.worker.concurrency,
-        config.queue.max_retries,
-    )
-    .with_retry_delay(config.worker.retry_base_delay_ms)
-    .with_session_lock(memory_lock_for_worker)
-    .with_dlq(dlq.clone());
-    let worker_cancel = shutdown.clone();
-    let worker_handle = tokio::spawn(async move {
-        if let Err(e) = worker_pool.run(worker_cancel).await {
-            error!(%e, "worker pool error");
-        }
-    });
-
-    // 15. Scheduler loop
-    let _scheduler_handle = if let Some(store) = scheduler_store {
-        let scheduler = orka_scheduler::Scheduler::new(
-            store,
-            Arc::new(SchedulerSkillRegistryAdapter(skills.clone())),
-            config.scheduler.poll_interval_secs,
-            config.scheduler.max_concurrent,
-        );
-        let scheduler_cancel = shutdown.clone();
-        Some(tokio::spawn(async move {
-            scheduler.run(scheduler_cancel).await;
-        }))
-    } else {
-        None
-    };
-
-    // 16. Distillation loop
-    let _distillation_handle = if let Some(ref exp) = experience_service {
-        let interval_secs = config.experience.distillation_interval_secs;
-        if interval_secs > 0 {
-            let exp = exp.clone();
-            let workspace_names: Vec<String> = workspace_registry
-                .list_names()
-                .into_iter()
-                .map(std::string::ToString::to_string)
-                .collect();
-            let distill_event_sink = event_sink.clone();
-            let distill_cancel = shutdown.clone();
-            Some(tokio::spawn(async move {
-                let mut interval =
-                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-                interval.tick().await;
-                loop {
-                    tokio::select! {
-                        () = distill_cancel.cancelled() => break,
-                        _ = interval.tick() => {
-                            for ws in &workspace_names {
-                                match exp.distill(ws).await {
-                                    Ok(count) if count > 0 => {
-                                        info!(workspace = %ws, principles_created = count, "distillation completed");
-                                        distill_event_sink.emit(orka_core::DomainEvent::new(
-                                            orka_core::DomainEventKind::DistillationCompleted {
-                                                workspace: ws.clone(),
-                                                principles_created: count,
-                                            },
-                                        )).await;
-                                    }
-                                    Ok(_) => {}
-                                    Err(e) => warn!(workspace = %ws, %e, "distillation failed"),
-                                }
+/// Spawn the experience distillation loop. Returns `None` if distillation is
+/// disabled or no experience service is configured.
+fn spawn_distillation_loop(
+    experience_service: Option<Arc<orka_experience::ExperienceService>>,
+    workspace_registry: &Arc<WorkspaceRegistry>,
+    event_sink: &Arc<dyn EventSink>,
+    interval_secs: u64,
+    shutdown: CancellationToken,
+) -> Option<JoinHandle<()>> {
+    let exp = experience_service?;
+    if interval_secs == 0 {
+        return None;
+    }
+    let workspace_names: Vec<String> = workspace_registry
+        .list_names()
+        .into_iter()
+        .map(std::string::ToString::to_string)
+        .collect();
+    let sink = event_sink.clone();
+    Some(tokio::spawn(async move {
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+        interval.tick().await;
+        loop {
+            tokio::select! {
+                () = shutdown.cancelled() => break,
+                _ = interval.tick() => {
+                    for ws in &workspace_names {
+                        match exp.distill(ws).await {
+                            Ok(count) if count > 0 => {
+                                info!(workspace = %ws, principles_created = count, "distillation completed");
+                                sink.emit(orka_core::DomainEvent::new(
+                                    orka_core::DomainEventKind::DistillationCompleted {
+                                        workspace: ws.clone(),
+                                        principles_created: count,
+                                    },
+                                )).await;
                             }
+                            Ok(_) => {}
+                            Err(e) => warn!(workspace = %ws, %e, "distillation failed"),
                         }
                     }
                 }
-            }))
-        } else {
-            None
+            }
         }
-    } else {
-        None
-    };
+    }))
+}
 
-    // 17. Outbound bridge: bus "outbound" → route to correct adapter by channel
+/// Spawn the outbound bridge that routes bus "outbound" messages to the correct
+/// adapter by channel ID.
+async fn spawn_outbound_bridge(
+    bus: &Arc<dyn MessageBus>,
+    adapters: Vec<Arc<dyn orka_core::traits::ChannelAdapter>>,
+    shutdown: CancellationToken,
+) -> anyhow::Result<JoinHandle<()>> {
     let mut outbound_rx = bus.subscribe("outbound").await?;
-    let adapters_out = adapters.clone();
-    let outbound_cancel = shutdown.clone();
-    let outbound_handle = tokio::spawn(async move {
+    Ok(tokio::spawn(async move {
         loop {
             tokio::select! {
-                () = outbound_cancel.cancelled() => break,
+                () = shutdown.cancelled() => break,
                 msg = outbound_rx.recv() => {
                     if let Some(envelope) = msg {
                         let mut outbound = OutboundMessage::new(
@@ -914,7 +1047,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                             None,
                         );
                         outbound.metadata = envelope.metadata.clone();
-                        let target = adapters_out
+                        let target = adapters
                             .iter()
                             .find(|a| a.channel_id() == envelope.channel.as_str());
                         if let Some(adapter) = target {
@@ -931,9 +1064,24 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                 }
             }
         }
-    });
+    }))
+}
 
-    // 18. Signal ready + wait for shutdown
+// ---------------------------------------------------------------------------
+// Shutdown sequence
+// ---------------------------------------------------------------------------
+
+/// Signal readiness, wait for SIGINT/SIGTERM, drain the queue, and join all
+/// background tasks.
+async fn wait_for_shutdown(
+    config: &OrkaConfig,
+    shutdown: CancellationToken,
+    adapters: Vec<Arc<dyn orka_core::traits::ChannelAdapter>>,
+    queue: Arc<dyn PriorityQueue>,
+    gateway_handle: JoinHandle<()>,
+    worker_handle: JoinHandle<()>,
+    outbound_handle: JoinHandle<()>,
+) -> anyhow::Result<()> {
     let _ = sd_notify::notify(true, &[sd_notify::NotifyState::Ready]);
     info!(
         listen = %format_args!("{}:{}", config.server.host, config.server.port),
@@ -946,7 +1094,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         _ = sigterm.recv() => info!("received SIGTERM"),
     }
 
-    // 19. Graceful shutdown
     let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
     info!("shutting down...");
     for adapter in &adapters {
@@ -990,4 +1137,235 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     info!("Orka server stopped");
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap lifecycle
+// ---------------------------------------------------------------------------
+
+impl Bootstrap {
+    /// Run all initialization phases and return the fully-wired server state.
+    async fn new() -> anyhow::Result<Self> {
+        let config = init_config_and_tracing()?;
+        let (infra, metrics_handle) = init_infra(&config)?;
+        let skill_bundle = init_skills(&config).await?;
+
+        // 5. LLM clients
+        let llm = build_llm_clients(&config, &*infra.secrets).await;
+        if llm.client.is_some() {
+            info!("LLM client ready");
+        } else {
+            error!(
+                "no LLM providers initialized — set ANTHROPIC_API_KEY, MOONSHOT_API_KEY, or OPENAI_API_KEY to enable AI responses"
+            );
+        }
+        let env_watcher = crate::env_watcher::EnvWatcher::start(
+            config.llm.providers.clone(),
+            config.llm.default_model.clone(),
+            llm.swappable,
+            infra.secrets.clone(),
+        );
+        let guardrail = orka_guardrails::create_guardrail(&config.guardrails);
+        if guardrail.is_some() {
+            info!("guardrails enabled");
+        }
+
+        // 6. Load workspace(s) + start file watchers
+        let workspace_registry = load_workspaces(&config).await?;
+        let shutdown = CancellationToken::new();
+        let (auth_enabled, auth_layer) = build_auth_layer(&config);
+
+        // 7. Start all adapters
+        let stream_registry = orka_core::StreamRegistry::new();
+        let (_custom_adapter, adapters) = start_all_adapters(AdapterStartArgs {
+            secrets: infra.secrets.clone(),
+            bus: infra.bus.clone(),
+            shutdown: shutdown.clone(),
+            memory: infra.memory.clone(),
+            auth_layer: auth_layer.clone(),
+            stream_registry: stream_registry.clone(),
+            config: config.clone(),
+        })
+        .await?;
+        let start_time = std::time::Instant::now();
+
+        // 8. Gateway
+        let gateway_handle =
+            spawn_gateway(&infra, &workspace_registry, &config, shutdown.clone())?;
+
+        // 9. Experience / self-learning service
+        let experience_service = if config.experience.enabled {
+            match create_experience_service(&config) {
+                Ok(svc) => svc,
+                Err(e) => {
+                    warn!(%e, "failed to initialize experience service");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // 10. Agent graph
+        let graph = Arc::new(
+            orka_agent::build_graph_from_config(&config, &workspace_registry)
+                .await
+                .context("failed to build agent graph")?,
+        );
+        info!(graph_id = %graph.id, "agent graph built");
+
+        // 11. Command registry + register with adapters
+        let mut commands = CommandRegistry::new();
+        orka_worker::commands::register_all(
+            &mut commands,
+            skill_bundle.skills.clone(),
+            infra.memory.clone(),
+            skill_bundle.fact_store.clone(),
+            infra.secrets.clone(),
+            workspace_registry.clone(),
+            &config
+                .agents
+                .first()
+                .context("no agents defined after configuration validation")?
+                .config,
+            experience_service.clone(),
+        );
+        let commands = Arc::new(commands);
+        {
+            let cmd_list = commands.list();
+            for adapter in &adapters {
+                if let Err(e) = adapter.register_commands(&cmd_list).await {
+                    warn!(%e, channel = adapter.channel_id(), "failed to register commands with adapter");
+                }
+            }
+        }
+
+        Ok(Self {
+            config,
+            infra,
+            metrics_handle,
+            skill_bundle,
+            llm_client: llm.client,
+            guardrail,
+            workspace_registry,
+            shutdown,
+            adapters,
+            experience_service,
+            graph,
+            commands,
+            gateway_handle,
+            start_time,
+            stream_registry,
+            auth_enabled,
+            _env_watcher: env_watcher,
+        })
+    }
+
+    /// Start the execution layer and run until shutdown.
+    async fn run(self) -> anyhow::Result<()> {
+        // 12. A2A state
+        let agent_directory = Arc::new(orka_a2a::AgentDirectory::new());
+        let a2a_state = build_a2a_state(&self.config, &self.skill_bundle.skills, &self.infra.secrets);
+        spawn_a2a_discovery(&self.config, agent_directory.clone(), self.shutdown.clone());
+
+        let checkpoint_store = build_checkpoint_store(&self.config.redis.url);
+
+        start_http_server(HttpServerDeps {
+            config: &self.config,
+            infra: &self.infra,
+            metrics_handle: self.metrics_handle,
+            skill_bundle: &self.skill_bundle,
+            experience_service: &self.experience_service,
+            workspace_registry: &self.workspace_registry,
+            graph: &self.graph,
+            adapters: &self.adapters,
+            a2a_state,
+            agent_directory,
+            checkpoint_store: checkpoint_store.clone(),
+            start_time: self.start_time,
+            auth_enabled: self.auth_enabled,
+            stream_registry: self.stream_registry.clone(),
+        })
+        .await?;
+
+        // 13. Template registry from default workspace
+        let lock = self.workspace_registry.default_state()
+            .context("default workspace not registered")?;
+        let templates = lock.read().await.templates.clone();
+
+        // 14. Executor + dispatcher + worker pool
+        let memory_for_worker = Arc::clone(&self.infra.memory);
+        let memory_lock = Arc::clone(&self.infra.memory_lock);
+        let executor = Arc::new(orka_agent::GraphExecutor::new(orka_agent::ExecutorDeps {
+            skills: self.skill_bundle.skills.clone(),
+            memory: self.infra.memory.clone(),
+            secrets: self.infra.secrets.clone(),
+            llm: self.llm_client,
+            event_sink: self.infra.event_sink.clone(),
+            stream_registry: self.stream_registry,
+            experience: self.experience_service.clone(),
+            facts: self.skill_bundle.fact_store,
+            soft_skills: self.skill_bundle.soft_skills,
+            templates,
+            coding_runtime: self.skill_bundle.coding_runtime,
+            guardrail: self.guardrail,
+            checkpoint_store,
+            bus: Some(self.infra.bus.clone()),
+        }));
+        let dispatcher = Arc::new(GraphDispatcher::new(
+            executor,
+            self.graph,
+            Some(memory_for_worker),
+            Some(self.commands.clone()),
+        ));
+        let worker_handle = spawn_worker_pool(
+            &self.config, &self.infra, dispatcher, memory_lock, self.shutdown.clone(),
+        );
+
+        // 15. Scheduler loop
+        let _scheduler_handle = spawn_scheduler_loop(
+            &self.config,
+            self.skill_bundle.scheduler_store,
+            &self.skill_bundle.skills,
+            self.shutdown.clone(),
+        );
+
+        // 16. Distillation loop
+        let _distillation_handle = spawn_distillation_loop(
+            self.experience_service.clone(),
+            &self.workspace_registry,
+            &self.infra.event_sink,
+            self.config.experience.distillation_interval_secs,
+            self.shutdown.clone(),
+        );
+
+        // 17. Outbound bridge
+        let outbound_handle = spawn_outbound_bridge(
+            &self.infra.bus,
+            self.adapters.clone(),
+            self.shutdown.clone(),
+        )
+        .await?;
+
+        // 18–19. Ready signal + graceful shutdown
+        wait_for_shutdown(
+            &self.config,
+            self.shutdown,
+            self.adapters,
+            self.infra.queue.clone(),
+            self.gateway_handle,
+            worker_handle,
+            outbound_handle,
+        )
+        .await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
+/// Run the Orka server until SIGINT or SIGTERM.
+pub(crate) async fn run() -> anyhow::Result<()> {
+    Bootstrap::new().await?.run().await
 }

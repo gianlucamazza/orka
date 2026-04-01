@@ -13,7 +13,7 @@ use orka_core::{
     testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
     traits::{MessageBus, PriorityQueue},
 };
-use orka_gateway::Gateway;
+use orka_gateway::{Gateway, GatewayConfig, GatewayDeps};
 use orka_worker::{EchoHandler, HandlerDispatcher, WorkerPool};
 use tokio_util::sync::CancellationToken;
 
@@ -35,14 +35,14 @@ async fn full_message_flow_echo() {
 
     // 4. Start gateway (subscribes to "inbound" topic, processes → queue)
     let gateway = Gateway::new(
-        bus.clone(),
-        sessions.clone(),
-        queue.clone(),
-        workspace,
-        event_sink.clone(),
-        None, // no Redis for dedup in tests
-        0,    // no rate limit
-        3600, // dedup TTL
+        GatewayDeps {
+            bus: bus.clone(),
+            sessions: sessions.clone(),
+            queue: queue.clone(),
+            workspace,
+            event_sink: event_sink.clone(),
+        },
+        GatewayConfig::default(),
     );
     let gateway_cancel = shutdown.clone();
     let gateway_handle = tokio::spawn(async move {
@@ -141,14 +141,17 @@ async fn rate_limited_messages_are_dropped() {
 
     // Gateway with rate_limit=2 (2 messages per 60s window per session)
     let gateway = Gateway::new(
-        bus.clone(),
-        sessions.clone(),
-        queue.clone(),
-        workspace,
-        event_sink.clone(),
-        None,
-        2, // rate limit: 2 per session
-        3600,
+        GatewayDeps {
+            bus: bus.clone(),
+            sessions: sessions.clone(),
+            queue: queue.clone(),
+            workspace,
+            event_sink: event_sink.clone(),
+        },
+        GatewayConfig {
+            rate_limit: 2,
+            ..Default::default()
+        },
     );
     let gateway_cancel = shutdown.clone();
     let gateway_handle = tokio::spawn(async move {

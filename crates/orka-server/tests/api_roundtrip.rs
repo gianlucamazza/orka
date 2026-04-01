@@ -27,7 +27,7 @@ use orka_core::{
     testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
     traits::MessageBus,
 };
-use orka_gateway::Gateway;
+use orka_gateway::{Gateway, GatewayConfig, GatewayDeps};
 use orka_worker::{EchoHandler, HandlerDispatcher, WorkerPool};
 use orka_workspace::WorkspaceLoader;
 use tokio::net::TcpListener;
@@ -55,14 +55,14 @@ async fn start_pipeline() -> common::TestResult<(
     // 1. Start gateway
     let workspace = Arc::new(WorkspaceLoader::new("."));
     let gateway = Gateway::new(
-        bus.clone(),
-        sessions.clone(),
-        queue.clone(),
-        workspace,
-        event_sink.clone(),
-        None, // no Redis dedup
-        0,    // no rate limit
-        3600,
+        GatewayDeps {
+            bus: bus.clone(),
+            sessions: sessions.clone(),
+            queue: queue.clone(),
+            workspace,
+            event_sink: event_sink.clone(),
+        },
+        GatewayConfig::default(),
     );
     tokio::spawn({
         let cancel = shutdown.clone();
