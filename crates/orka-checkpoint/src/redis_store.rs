@@ -56,7 +56,7 @@ impl RedisCheckpointStore {
         let cfg = deadpool_redis::Config::from_url(url);
         let pool = cfg
             .create_pool(Some(deadpool_redis::Runtime::Tokio1))
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "create redis pool"))?;
         Ok(Self { pool, ttl_secs })
     }
 
@@ -73,10 +73,10 @@ impl CheckpointStore for RedisCheckpointStore {
             .pool
             .get()
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "acquire redis connection"))?;
 
         let payload = serde_json::to_string(checkpoint)
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "serialize checkpoint"))?;
 
         let list_k = list_key(&checkpoint.run_id);
         let ckpt_k = ckpt_key(&checkpoint.run_id, &checkpoint.id);
@@ -105,7 +105,7 @@ impl CheckpointStore for RedisCheckpointStore {
 
         pipe.query_async::<()>(&mut *conn)
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "execute redis pipeline"))?;
 
         debug!(
             run_id = %checkpoint.run_id,
@@ -121,13 +121,13 @@ impl CheckpointStore for RedisCheckpointStore {
             .pool
             .get()
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "acquire redis connection"))?;
 
         // LRANGE -1 -1 returns the last element.
         let ids: Vec<String> = conn
             .lrange(list_key(run_id), -1_isize, -1_isize)
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "redis lrange"))?;
 
         let Some(id_str) = ids.into_iter().next() else {
             return Ok(None);
@@ -136,7 +136,7 @@ impl CheckpointStore for RedisCheckpointStore {
         let id = CheckpointId::from(
             id_str
                 .parse::<uuid::Uuid>()
-                .map_err(|e| orka_core::Error::Other(e.to_string()))?,
+                .map_err(|e| orka_core::Error::checkpoint(e, "invalid checkpoint id"))?,
         );
 
         self.load(run_id, &id).await
@@ -147,19 +147,19 @@ impl CheckpointStore for RedisCheckpointStore {
             .pool
             .get()
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "acquire redis connection"))?;
 
         let raw: Option<String> = conn
             .get(ckpt_key(run_id, id))
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "redis get checkpoint"))?;
 
         let Some(payload) = raw else {
             return Ok(None);
         };
 
-        let checkpoint: Checkpoint =
-            serde_json::from_str(&payload).map_err(|e| orka_core::Error::Other(e.to_string()))?;
+        let checkpoint: Checkpoint = serde_json::from_str(&payload)
+            .map_err(|e| orka_core::Error::checkpoint(e, "deserialize checkpoint"))?;
 
         Ok(Some(checkpoint))
     }
@@ -169,12 +169,12 @@ impl CheckpointStore for RedisCheckpointStore {
             .pool
             .get()
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "acquire redis connection"))?;
 
         let ids: Vec<String> = conn
             .lrange(list_key(run_id), 0_isize, -1_isize)
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "redis lrange"))?;
 
         let mut result = Vec::with_capacity(ids.len());
         for id_str in ids {
@@ -191,13 +191,13 @@ impl CheckpointStore for RedisCheckpointStore {
             .pool
             .get()
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "acquire redis connection"))?;
 
         // Load all IDs first so we can delete each checkpoint key.
         let ids: Vec<String> = conn
             .lrange(list_key(run_id), 0_isize, -1_isize)
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "redis lrange"))?;
 
         // Collect all keys to delete in one atomic pipeline.
         let mut keys_to_delete: Vec<String> = ids
@@ -211,7 +211,7 @@ impl CheckpointStore for RedisCheckpointStore {
 
         pipe.query_async::<()>(&mut *conn)
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::checkpoint(e, "execute redis pipeline"))?;
 
         debug!(run_id, deleted = ids.len(), "checkpoint.run_deleted");
         Ok(())

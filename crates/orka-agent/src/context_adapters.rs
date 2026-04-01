@@ -32,7 +32,7 @@ impl orka_prompts::context::ExperienceService for ExperienceServiceAdapter {
             .inner
             .retrieve_principles(query, workspace)
             .await
-            .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+            .map_err(|e| orka_core::Error::experience(e, "failed to retrieve principles"))?;
 
         Ok(principles
             .into_iter()

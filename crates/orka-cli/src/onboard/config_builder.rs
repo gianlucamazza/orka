@@ -112,6 +112,7 @@ impl ConfigBuilder {
     }
 
     /// Parse the current document into an [`OrkaConfig`].
+    #[cfg(test)]
     pub(crate) fn to_orka_config(&self) -> Result<OrkaConfig> {
         toml::from_str(&self.to_toml())
             .map_err(|e| Error::Config(format!("config parse error: {e}")))

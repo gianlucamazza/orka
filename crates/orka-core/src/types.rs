@@ -1243,21 +1243,16 @@ impl Session {
 }
 
 /// Lifecycle state for a product-facing conversation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ConversationStatus {
     /// Conversation is active and can accept more messages.
+    #[default]
     Active,
     /// Conversation is paused waiting for a human or external decision.
     Interrupted,
     /// Conversation completed with an error state.
     Failed,
-}
-
-impl Default for ConversationStatus {
-    fn default() -> Self {
-        Self::Active
-    }
 }
 
 /// Product-facing conversation metadata used by mobile clients.

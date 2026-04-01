@@ -143,8 +143,7 @@ impl ConversationStore for RedisConversationStore {
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
         let start = offset as isize;
         let stop = limit
-            .map(|value| offset.saturating_add(value).saturating_sub(1) as isize)
-            .unwrap_or(-1);
+            .map_or(-1, |value| offset.saturating_add(value).saturating_sub(1) as isize);
         let values: Vec<String> = conn
             .lrange(Self::messages_key(conversation_id), start, stop)
             .await

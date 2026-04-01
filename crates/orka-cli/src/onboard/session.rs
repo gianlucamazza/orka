@@ -257,61 +257,9 @@ impl OnboardSession {
                 Ok(format!("Entry appended to [[{section}]]."))
             }
 
-            "store_secret" => {
-                let path = call
-                    .input
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| Error::Config("store_secret: missing `path`".to_string()))?;
-                let prompt = call
-                    .input
-                    .get("prompt")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Enter secret value");
+            "store_secret" => self.handle_store_secret(call, io).await,
 
-                let value = io.ask_secret(prompt).await?;
-                if value.is_empty() {
-                    return Err(Error::Config("secret value cannot be empty".to_string()));
-                }
-
-                self.secrets
-                    .set_secret(path, &SecretValue::new(value.into_bytes()))
-                    .await?;
-
-                Ok(format!(
-                    "Secret stored at path \"{path}\". \
-                     Reference it in config as `api_key_secret = \"{path}\"` (or the \
-                     appropriate field for this secret type)."
-                ))
-            }
-
-            "ask_user" => {
-                let question = call
-                    .input
-                    .get("question")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| Error::Config("ask_user: missing `question`".to_string()))?;
-                let options: Option<Vec<String>> = call
-                    .input
-                    .get("options")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(str::to_string))
-                            .collect()
-                    });
-                let multi_select = call
-                    .input
-                    .get("multi_select")
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false);
-
-                let answers = io
-                    .ask_input(question, options.as_deref(), multi_select)
-                    .await?;
-
-                Ok(answers.join(", "))
-            }
+            "ask_user" => Self::handle_ask_user(call, io).await,
 
             "validate_config" => match self.config.validate() {
                 Ok(_) => Ok("Config is valid.".to_string()),
@@ -329,6 +277,66 @@ impl OnboardSession {
 
             unknown => Err(Error::Config(format!("unknown tool: {unknown}"))),
         }
+    }
+
+    async fn handle_store_secret(
+        &mut self,
+        call: &ToolCall,
+        io: &mut dyn OnboardIo,
+    ) -> Result<String> {
+        let path = call
+            .input
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| Error::Config("store_secret: missing `path`".to_string()))?;
+        let prompt = call
+            .input
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Enter secret value");
+
+        let value = io.ask_secret(prompt).await?;
+        if value.is_empty() {
+            return Err(Error::Config("secret value cannot be empty".to_string()));
+        }
+
+        self.secrets
+            .set_secret(path, &SecretValue::new(value.into_bytes()))
+            .await?;
+
+        Ok(format!(
+            "Secret stored at path \"{path}\". \
+             Reference it in config as `api_key_secret = \"{path}\"` (or the \
+             appropriate field for this secret type)."
+        ))
+    }
+
+    async fn handle_ask_user(call: &ToolCall, io: &mut dyn OnboardIo) -> Result<String> {
+        let question = call
+            .input
+            .get("question")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| Error::Config("ask_user: missing `question`".to_string()))?;
+        let options: Option<Vec<String>> = call
+            .input
+            .get("options")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            });
+        let multi_select = call
+            .input
+            .get("multi_select")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+
+        let answers = io
+            .ask_input(question, options.as_deref(), multi_select)
+            .await?;
+
+        Ok(answers.join(", "))
     }
 }
 

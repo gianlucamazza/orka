@@ -29,7 +29,6 @@ pub use config::{GitAuthorshipConfig, GitAuthorshipMode, GitConfig, GitWorktreeC
 use orka_core::traits::Skill;
 
 use crate::{
-    error::GitError,
     guard::GitGuard,
     skills::{
         branch::{GitBranchCreateSkill, GitBranchListSkill, GitCheckoutSkill},
@@ -53,15 +52,15 @@ use crate::{
 ///   If `None`, the current working directory is used.
 ///
 /// # Returns
-/// A `Vec<Box<dyn Skill>>` ready to be registered in the `SkillRegistry`.
+/// A `Vec<Arc<dyn Skill>>` ready to be registered in the `SkillRegistry`.
 ///
 /// # Errors
-/// Returns [`GitError`] if the `GitGuard` cannot be initialised (e.g. invalid
-/// glob patterns).
+/// Returns [`orka_core::Error`] if the `GitGuard` cannot be initialised (e.g.
+/// invalid glob patterns).
 pub fn create_git_skills(
     config: &GitConfig,
     repo_root: Option<PathBuf>,
-) -> Result<Vec<Box<dyn Skill>>, GitError> {
+) -> orka_core::Result<Vec<Arc<dyn Skill>>> {
     let guard = Arc::new(GitGuard::from_config(config)?);
 
     let repo_root =
@@ -76,28 +75,28 @@ pub fn create_git_skills(
         config.command_timeout_secs,
     ));
 
-    let skills: Vec<Box<dyn Skill>> = vec![
+    let skills: Vec<Arc<dyn Skill>> = vec![
         // Tier 1: read-only
-        Box::new(GitStatusSkill::new(guard.clone())),
-        Box::new(GitDiffSkill::new(guard.clone())),
-        Box::new(GitLogSkill::new(guard.clone())),
-        Box::new(GitBranchListSkill::new(guard.clone())),
-        Box::new(GitBlameSkill::new(guard.clone())),
-        Box::new(GitGrepSkill::new(guard.clone())),
+        Arc::new(GitStatusSkill::new(guard.clone())),
+        Arc::new(GitDiffSkill::new(guard.clone())),
+        Arc::new(GitLogSkill::new(guard.clone())),
+        Arc::new(GitBranchListSkill::new(guard.clone())),
+        Arc::new(GitBlameSkill::new(guard.clone())),
+        Arc::new(GitGrepSkill::new(guard.clone())),
         // Tier 2: write
-        Box::new(GitCommitSkill::new(guard.clone())),
-        Box::new(GitBranchCreateSkill::new(guard.clone())),
-        Box::new(GitCheckoutSkill::new(guard.clone())),
-        Box::new(GitStashSkill::new(guard.clone())),
+        Arc::new(GitCommitSkill::new(guard.clone())),
+        Arc::new(GitBranchCreateSkill::new(guard.clone())),
+        Arc::new(GitCheckoutSkill::new(guard.clone())),
+        Arc::new(GitStashSkill::new(guard.clone())),
         // Tier 3: remote
-        Box::new(GitFetchSkill::new(guard.clone())),
-        Box::new(GitPullSkill::new(guard.clone())),
-        Box::new(GitPushSkill::new(guard.clone())),
-        Box::new(GitMergeSkill::new(guard.clone())),
+        Arc::new(GitFetchSkill::new(guard.clone())),
+        Arc::new(GitPullSkill::new(guard.clone())),
+        Arc::new(GitPushSkill::new(guard.clone())),
+        Arc::new(GitMergeSkill::new(guard.clone())),
         // Tier 4: worktree
-        Box::new(GitWorktreeCreateSkill::new(guard.clone(), manager.clone())),
-        Box::new(GitWorktreeListSkill::new(guard.clone(), manager.clone())),
-        Box::new(GitWorktreeRemoveSkill::new(guard, manager)),
+        Arc::new(GitWorktreeCreateSkill::new(guard.clone(), manager.clone())),
+        Arc::new(GitWorktreeListSkill::new(guard.clone(), manager.clone())),
+        Arc::new(GitWorktreeRemoveSkill::new(guard, manager)),
     ];
 
     Ok(skills)

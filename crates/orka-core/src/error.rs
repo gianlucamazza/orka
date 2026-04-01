@@ -176,6 +176,26 @@ pub enum Error {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// Checkpoint store operation failure (run history, Redis persistence).
+    #[error("checkpoint error: {context}")]
+    Checkpoint {
+        /// Root cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Human-readable context for the failure.
+        context: String,
+    },
+
+    /// Experience service failure (principle retrieval, trajectory storage).
+    #[error("experience error: {context}")]
+    Experience {
+        /// Root cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Human-readable context for the failure.
+        context: String,
+    },
+
     /// Research campaign or service error.
     #[error("research error: {0}")]
     Research(String),
@@ -363,6 +383,46 @@ impl Error {
     pub fn http_client_msg(msg: impl Into<String>) -> Self {
         let s = msg.into();
         Self::HttpClient {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    /// Create a checkpoint error from a source error and context.
+    pub fn checkpoint(
+        source: impl std::error::Error + Send + Sync + 'static,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::Checkpoint {
+            source: Box::new(source),
+            context: context.into(),
+        }
+    }
+
+    /// Create a checkpoint error from a plain message string.
+    pub fn checkpoint_msg(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Checkpoint {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
+        }
+    }
+
+    /// Create an experience error from a source error and context.
+    pub fn experience(
+        source: impl std::error::Error + Send + Sync + 'static,
+        context: impl Into<String>,
+    ) -> Self {
+        Self::Experience {
+            source: Box::new(source),
+            context: context.into(),
+        }
+    }
+
+    /// Create an experience error from a plain message string.
+    pub fn experience_msg(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Experience {
             source: Box::new(SimpleError(s.clone())),
             context: s,
         }

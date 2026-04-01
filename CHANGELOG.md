@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-04-01
+
+### Added
+
+- `orka_core::Error::Checkpoint` and `Error::Experience` typed variants (with
+  `source` + `context` fields) and their constructor helpers `Error::checkpoint()`,
+  `Error::checkpoint_msg()`, `Error::experience()`, `Error::experience_msg()` —
+  replaces the previous `Error::Other(e.to_string())` fallback across checkpoint and
+  experience call-sites
+
 ### Changed
 
 - **Crate consolidation** — reduced workspace from 46 to 40 members:
@@ -24,6 +34,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   enables all of them for backwards compatibility. Partial builds
   (`cargo check -p orka-config --no-default-features`) now skip all unused
   subsystem crates, reducing incremental compile overhead.
+- **`orka-git`** — `create_git_skills` now returns `Vec<Arc<dyn Skill>>` (was
+  `Vec<Box<dyn Skill>>`) and `orka_core::Error` (was `GitError`), aligning with the
+  rest of the workspace skill factories
+- **`orka-cli` onboard** — `handle_store_secret` and `handle_ask_user` extracted as
+  dedicated methods on `OnboardSession`; `to_orka_config` gated behind `#[cfg(test)]`
+- `ConversationStatus` default now uses `#[derive(Default)]` + `#[default]` attribute
+  instead of a manual `impl Default`
+- `RedisConversationStore::list_messages` pagination uses `map_or` (clippy `map_unwrap_or`)
 
 ### Removed
 

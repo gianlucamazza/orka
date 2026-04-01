@@ -484,7 +484,7 @@ impl<'a> AgentNodeRunner<'a> {
                 warn!(%e, "LLM stream init failed");
                 self.final_response = Some(format!("LLM request failed: {e}"));
                 self.stop_reason = orka_core::stream::AgentStopReason::Error;
-                return Err(orka_core::Error::Other(e.to_string()));
+                return Err(orka_core::Error::llm(e, "llm stream init failed"));
             }
         };
 
@@ -503,7 +503,7 @@ impl<'a> AgentNodeRunner<'a> {
                 warn!(%e, "LLM stream failed");
                 self.final_response = Some(format!("LLM request failed: {e}"));
                 self.stop_reason = orka_core::stream::AgentStopReason::Error;
-                return Err(orka_core::Error::Other(e.to_string()));
+                return Err(orka_core::Error::llm(e, "llm stream failed"));
             }
         };
 
@@ -1782,14 +1782,14 @@ async fn summarize_messages(
     let stream = llm
         .complete_stream_with_tools(&msgs, system, &[], &CompletionOptions::default())
         .await
-        .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+        .map_err(|e| orka_core::Error::llm(e, "llm summarize stream"))?;
 
     // Use a no-op stream registry for the summarization call.
     let registry = orka_core::StreamRegistry::new();
     let session_id = orka_core::SessionId::new();
     let completion = consume_stream(stream, &session_id, &registry, "summarize", None)
         .await
-        .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+        .map_err(|e| orka_core::Error::llm(e, "llm summarize consume"))?;
 
     let text = completion
         .blocks
@@ -1860,11 +1860,11 @@ async fn generate_plan(
     let raw = llm
         .complete_with_options(msgs, system, &opts)
         .await
-        .map_err(|e| orka_core::Error::Other(e.to_string()))?;
+        .map_err(|e| orka_core::Error::llm(e, "llm plan completion"))?;
 
     // Parse response — allow partial structures gracefully
     let raw_plan: RawPlan = serde_json::from_str(&raw)
-        .map_err(|e| orka_core::Error::Other(format!("plan parse error: {e} — raw: {raw}")))?;
+        .map_err(|e| orka_core::Error::llm(e, format!("plan parse error — raw: {raw}")))?;
 
     Ok(Plan {
         goal: raw_plan.goal,
