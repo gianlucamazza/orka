@@ -6,7 +6,11 @@
 //! to avoid leaking sensitive values; set `full_args = true` in config for
 //! debug environments.
 
-use std::{io::Write as _, sync::Mutex, time::SystemTime};
+use std::{
+    io::Write as _,
+    sync::{Arc, Mutex},
+    time::SystemTime,
+};
 
 use async_trait::async_trait;
 use orka_core::{DomainEvent, DomainEventKind, traits::EventSink};
@@ -35,11 +39,11 @@ struct AuditRecord<'a> {
 
 /// Event sink that appends audit records to a JSONL file.
 ///
-/// Thread-safe via an internal `Mutex<File>`. Writes are synchronous and
-/// blocking but happen inside `emit()` which is already `async`, so the
-/// caller controls scheduling.
+/// Thread-safe via an internal `Arc<Mutex<File>>`. Serialization happens on
+/// the calling async task (CPU-only); the blocking `write_all` is offloaded to
+/// [`tokio::task::spawn_blocking`] to avoid stalling the async executor.
 pub struct AuditSink {
-    file: Mutex<std::fs::File>,
+    file: Arc<Mutex<std::fs::File>>,
 }
 
 impl AuditSink {
@@ -50,19 +54,15 @@ impl AuditSink {
             .append(true)
             .open(path)?;
         Ok(Self {
-            file: Mutex::new(file),
+            file: Arc::new(Mutex::new(file)),
         })
     }
 
-    fn write_record(&self, record: &AuditRecord<'_>) {
-        let Ok(mut line) = serde_json::to_string(record) else {
-            return;
-        };
+    /// Serialize a record to a JSONL line (CPU-only, no I/O).
+    fn serialize_record(record: &AuditRecord<'_>) -> Option<String> {
+        let mut line = serde_json::to_string(record).ok()?;
         line.push('\n');
-
-        if let Ok(mut f) = self.file.lock() {
-            let _ = f.write_all(line.as_bytes());
-        }
+        Some(line)
     }
 }
 
@@ -74,7 +74,8 @@ impl EventSink for AuditSink {
             .map(|d| d.as_millis())
             .unwrap_or(0);
 
-        match &event.kind {
+        // Serialize the record on the async task (CPU, no I/O).
+        let line = match &event.kind {
             DomainEventKind::SkillInvoked {
                 skill_name,
                 message_id,
@@ -88,7 +89,7 @@ impl EventSink for AuditSink {
                     Some(sha256_hex(serialized.as_bytes()))
                 };
 
-                self.write_record(&AuditRecord {
+                Self::serialize_record(&AuditRecord {
                     timestamp_ms: now_ms,
                     event: "skill_invoked",
                     skill: skill_name,
@@ -99,7 +100,7 @@ impl EventSink for AuditSink {
                     success: None,
                     output_preview: None,
                     error_message: None,
-                });
+                })
             }
 
             DomainEventKind::SkillCompleted {
@@ -110,23 +111,32 @@ impl EventSink for AuditSink {
                 output_preview,
                 error_message,
                 ..
-            } => {
-                self.write_record(&AuditRecord {
-                    timestamp_ms: now_ms,
-                    event: "skill_completed",
-                    skill: skill_name,
-                    message_id: message_id.to_string(),
-                    caller_id: None,
-                    args_hash: None,
-                    duration_ms: Some(*duration_ms),
-                    success: Some(*success),
-                    output_preview: output_preview.as_deref(),
-                    error_message: error_message.as_deref(),
-                });
-            }
+            } => Self::serialize_record(&AuditRecord {
+                timestamp_ms: now_ms,
+                event: "skill_completed",
+                skill: skill_name,
+                message_id: message_id.to_string(),
+                caller_id: None,
+                args_hash: None,
+                duration_ms: Some(*duration_ms),
+                success: Some(*success),
+                output_preview: output_preview.as_deref(),
+                error_message: error_message.as_deref(),
+            }),
 
-            _ => {}
-        }
+            _ => return,
+        };
+
+        let Some(line) = line else { return };
+
+        // Offload the blocking write to a dedicated thread.
+        let file = Arc::clone(&self.file);
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(mut f) = file.lock() {
+                let _ = f.write_all(line.as_bytes());
+            }
+        })
+        .await;
     }
 }
 
