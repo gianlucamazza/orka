@@ -5,18 +5,19 @@ use std::{future::IntoFuture, sync::Arc};
 
 use anyhow::Context;
 use orka_bus::create_bus;
+use orka_conversation::create_conversation_store;
 use orka_config::{CodingConfig, CodingProvider, CodingSelectionPolicy, OrkaConfig};
 use orka_core::{
     OutboundMessage,
     traits::{
-        DeadLetterQueue, EventSink, Guardrail, MemoryStore, MessageBus, PriorityQueue,
-        SecretManager, SessionLock, SessionStore,
+        ConversationStore, DeadLetterQueue, EventSink, Guardrail, MemoryStore, MessageBus,
+        PriorityQueue, SecretManager, SessionLock, SessionStore,
     },
 };
 use orka_gateway::{Gateway, GatewayConfig, GatewayDeps};
 use orka_queue::{QueueBundle, create_queue};
 use orka_server::router::{
-    BUILD_DATE, GIT_SHA, RouterParams, ServerFeatures, VERSION, build_router,
+    BUILD_DATE, GIT_SHA, MobileEventHub, RouterParams, ServerFeatures, VERSION, build_router,
 };
 use orka_session::create_session_store;
 use orka_worker::{CommandRegistry, GraphDispatcher, WorkerPool};
@@ -42,6 +43,7 @@ use crate::{
 struct InfraBundle {
     bus: Arc<dyn MessageBus>,
     sessions: Arc<dyn SessionStore>,
+    conversations: Arc<dyn ConversationStore>,
     queue: Arc<dyn PriorityQueue>,
     dlq: Arc<dyn DeadLetterQueue>,
     memory: Arc<dyn MemoryStore>,
@@ -79,6 +81,7 @@ struct Bootstrap {
     gateway_handle: JoinHandle<()>,
     start_time: std::time::Instant,
     stream_registry: orka_core::StreamRegistry,
+    mobile_events: MobileEventHub,
     auth_enabled: bool,
     _env_watcher: Option<crate::env_watcher::EnvWatcher>,
 }
@@ -100,6 +103,7 @@ struct HttpServerDeps<'a> {
     start_time: std::time::Instant,
     auth_enabled: bool,
     stream_registry: orka_core::StreamRegistry,
+    mobile_events: MobileEventHub,
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +218,8 @@ fn init_infra(
         create_bus(&config.bus, &config.redis.url).context("failed to create message bus")?;
     let sessions = create_session_store(&config.session, &config.redis.url)
         .context("failed to create session store")?;
+    let conversations = create_conversation_store(&config.redis.url)
+        .context("failed to create conversation store")?;
     let QueueBundle { queue, dlq } =
         create_queue(&config.redis.url).context("failed to create priority queue")?;
     let orka_memory::MemoryBundle {
@@ -239,6 +245,7 @@ fn init_infra(
         InfraBundle {
             bus,
             sessions,
+            conversations,
             queue,
             dlq,
             memory,
@@ -645,8 +652,45 @@ fn build_auth_layer(
 ) -> (bool, Option<orka_auth::AuthLayer>) {
     let enabled = config.auth.jwt.is_some() || !config.auth.api_keys.is_empty();
     if enabled {
-        use orka_auth::{ApiKeyAuthenticator, AuthLayer, middleware::AuthMiddlewareConfig};
-        let authenticator = ApiKeyAuthenticator::new(&config.auth.api_keys);
+        use orka_auth::{
+            ApiKeyAuthenticator, AuthLayer, Authenticator, CompositeAuthenticator,
+            JwtAuthenticator, middleware::AuthMiddlewareConfig,
+        };
+
+        let mut backends: Vec<Arc<dyn Authenticator>> = Vec::new();
+
+        if let Some(jwt) = &config.auth.jwt {
+            let issuer = jwt.issuer.clone().unwrap_or_else(|| "orka".to_string());
+            let audience = jwt.audience.clone();
+
+            if let Some(secret) = &jwt.secret {
+                backends.push(Arc::new(JwtAuthenticator::with_secret(
+                    issuer, audience, secret,
+                )));
+            } else if let Some(public_key_path) = &jwt.public_key_path {
+                match std::fs::read(public_key_path) {
+                    Ok(pem) => match JwtAuthenticator::with_rsa_pem(issuer, audience, &pem) {
+                        Ok(authenticator) => backends.push(Arc::new(authenticator)),
+                        Err(error) => warn!(
+                            %error,
+                            path = %public_key_path,
+                            "failed to initialize JWT authenticator"
+                        ),
+                    },
+                    Err(error) => warn!(
+                        %error,
+                        path = %public_key_path,
+                        "failed to read JWT public key"
+                    ),
+                }
+            }
+        }
+
+        if !config.auth.api_keys.is_empty() {
+            backends.push(Arc::new(ApiKeyAuthenticator::new(&config.auth.api_keys)));
+        }
+
+        let authenticator = CompositeAuthenticator::new(backends);
         let layer = AuthLayer::new(
             Arc::new(authenticator),
             Arc::new(AuthMiddlewareConfig::default()),
@@ -883,22 +927,16 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         orka_web::SearchProviderKind::Searxng => Some("searxng".to_string()),
     };
 
-    let auth_layer = if deps.auth_enabled {
-        let authenticator = orka_auth::ApiKeyAuthenticator::new(&config.auth.api_keys);
-        Some(orka_auth::AuthLayer::new(
-            Arc::new(authenticator),
-            Arc::new(orka_auth::middleware::AuthMiddlewareConfig::default()),
-        ))
-    } else {
-        None
-    };
+    let auth_layer = build_auth_layer(config).1;
 
     RouterParams {
+        bus: deps.infra.bus.clone(),
         queue: deps.infra.queue.clone(),
         dlq: deps.infra.dlq.clone(),
         skills: deps.skill_bundle.skills.clone(),
         soft_skills: deps.skill_bundle.soft_skills.clone(),
         sessions: deps.infra.sessions.clone(),
+        conversations: deps.infra.conversations.clone(),
         scheduler_store: deps.skill_bundle.scheduler_store.clone(),
         checkpoint_store: deps.checkpoint_store,
         workspace_registry: Arc::clone(deps.workspace_registry),
@@ -933,6 +971,8 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         web_search,
         research_service: None,
         stream_registry: deps.stream_registry,
+        mobile_events: deps.mobile_events,
+        mobile_enabled: config.auth.jwt.is_some(),
     }
 }
 
@@ -1030,6 +1070,8 @@ fn spawn_distillation_loop(
 /// adapter by channel ID.
 async fn spawn_outbound_bridge(
     bus: &Arc<dyn MessageBus>,
+    conversations: Arc<dyn ConversationStore>,
+    mobile_events: MobileEventHub,
     adapters: Vec<Arc<dyn orka_core::traits::ChannelAdapter>>,
     shutdown: CancellationToken,
 ) -> anyhow::Result<JoinHandle<()>> {
@@ -1040,6 +1082,56 @@ async fn spawn_outbound_bridge(
                 () = shutdown.cancelled() => break,
                 msg = outbound_rx.recv() => {
                     if let Some(envelope) = msg {
+                        if envelope.channel == "mobile" {
+                            if let orka_core::Payload::Text(text) = &envelope.payload {
+                                let conversation_id = orka_core::ConversationId::from(envelope.session_id);
+                                let message = orka_core::ConversationMessage::new(
+                                    envelope.id,
+                                    conversation_id,
+                                    envelope.session_id,
+                                    orka_core::ConversationMessageRole::Assistant,
+                                    text.clone(),
+                                );
+                                if let Err(error) = conversations.append_message(&message).await {
+                                    error!(%error, conversation_id = %conversation_id, "failed to append mobile assistant message");
+                                    mobile_events
+                                        .publish(
+                                            conversation_id,
+                                            orka_server::router::MobileStreamEvent::MessageFailed {
+                                                conversation_id,
+                                                error: error.to_string(),
+                                            },
+                                        )
+                                        .await;
+                                    continue;
+                                }
+                                match conversations.get_conversation(&conversation_id).await {
+                                    Ok(Some(mut conversation)) => {
+                                        conversation.updated_at = message.created_at;
+                                        conversation.last_message_preview = Some(text.chars().take(60).collect());
+                                        if let Err(error) = conversations.put_conversation(&conversation).await {
+                                            error!(%error, conversation_id = %conversation_id, "failed to update mobile conversation metadata");
+                                        }
+                                    }
+                                    Ok(None) => {
+                                        warn!(conversation_id = %conversation_id, "mobile outbound without conversation metadata");
+                                    }
+                                    Err(error) => {
+                                        error!(%error, conversation_id = %conversation_id, "failed to load mobile conversation metadata");
+                                    }
+                                }
+                                mobile_events
+                                    .publish(
+                                        conversation_id,
+                                        orka_server::router::MobileStreamEvent::MessageCompleted {
+                                            message,
+                                        },
+                                    )
+                                    .await;
+                            }
+                            continue;
+                        }
+
                         let mut outbound = OutboundMessage::new(
                             envelope.channel.clone(),
                             envelope.session_id,
@@ -1177,6 +1269,7 @@ impl Bootstrap {
 
         // 7. Start all adapters
         let stream_registry = orka_core::StreamRegistry::new();
+        let mobile_events = MobileEventHub::new();
         let (_custom_adapter, adapters) = start_all_adapters(AdapterStartArgs {
             secrets: infra.secrets.clone(),
             bus: infra.bus.clone(),
@@ -1216,20 +1309,18 @@ impl Bootstrap {
 
         // 11. Command registry + register with adapters
         let mut commands = CommandRegistry::new();
-        orka_worker::commands::register_all(
-            &mut commands,
-            skill_bundle.skills.clone(),
-            infra.memory.clone(),
-            skill_bundle.fact_store.clone(),
-            infra.secrets.clone(),
-            workspace_registry.clone(),
-            &config
-                .agents
-                .first()
+        let cmd_deps = orka_worker::commands::CommandRegistryDeps {
+            skills: skill_bundle.skills.clone(),
+            memory: infra.memory.clone(),
+            facts: skill_bundle.fact_store.clone(),
+            secrets: infra.secrets.clone(),
+            workspace_registry: workspace_registry.clone(),
+            agent_config: config.agents.first()
                 .context("no agents defined after configuration validation")?
-                .config,
-            experience_service.clone(),
-        );
+                .config.clone(),
+            experience: experience_service.clone(),
+        };
+        orka_worker::commands::register_all(&mut commands, cmd_deps);
         let commands = Arc::new(commands);
         {
             let cmd_list = commands.list();
@@ -1256,6 +1347,7 @@ impl Bootstrap {
             gateway_handle,
             start_time,
             stream_registry,
+            mobile_events,
             auth_enabled,
             _env_watcher: env_watcher,
         })
@@ -1285,6 +1377,7 @@ impl Bootstrap {
             start_time: self.start_time,
             auth_enabled: self.auth_enabled,
             stream_registry: self.stream_registry.clone(),
+            mobile_events: self.mobile_events.clone(),
         })
         .await?;
 
@@ -1342,6 +1435,8 @@ impl Bootstrap {
         // 17. Outbound bridge
         let outbound_handle = spawn_outbound_bridge(
             &self.infra.bus,
+            self.infra.conversations.clone(),
+            self.mobile_events.clone(),
             self.adapters.clone(),
             self.shutdown.clone(),
         )
