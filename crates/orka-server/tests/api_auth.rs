@@ -15,6 +15,8 @@ const PROTECTED: &str = "/api/v1/skills";
 /// The public route (health) which should never require auth.
 const PUBLIC: &str = "/health/live";
 const TEST_KEY: &str = "test-secret-key-abc123";
+const JWT_SECRET: &str = "test-secret-key-at-least-32-bytes-long!";
+const JWT_ISSUER: &str = "orka-tests";
 
 #[tokio::test]
 async fn protected_route_without_key_returns_401() -> common::TestResult {
@@ -59,6 +61,31 @@ async fn public_route_always_ok() -> common::TestResult {
     let req = common::request(Request::builder().uri(PUBLIC), Body::empty())?;
     let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn composite_auth_accepts_api_key_and_jwt() -> common::TestResult {
+    let app = common::test_router_with_composite_auth(TEST_KEY, JWT_SECRET, JWT_ISSUER);
+    let jwt = common::make_jwt(JWT_SECRET, JWT_ISSUER, "user-123", &["chat:read"]);
+
+    let operator_req = common::request(
+        Request::builder()
+            .uri(PROTECTED)
+            .header("X-Api-Key", TEST_KEY),
+        Body::empty(),
+    )?;
+    let operator_resp = app.clone().oneshot(operator_req).await?;
+    assert_eq!(operator_resp.status(), StatusCode::OK);
+
+    let mobile_req = common::request(
+        Request::builder()
+            .uri("/mobile/v1/me")
+            .header("Authorization", format!("Bearer {jwt}")),
+        Body::empty(),
+    )?;
+    let mobile_resp = app.oneshot(mobile_req).await?;
+    assert_eq!(mobile_resp.status(), StatusCode::OK);
     Ok(())
 }
 

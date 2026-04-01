@@ -152,7 +152,12 @@ impl ConversationStore for InMemoryConversationStore {
         Ok(conversations.get(id).cloned())
     }
 
-    async fn list_conversations(&self, user_id: &str, limit: usize) -> Result<Vec<Conversation>> {
+    async fn list_conversations(
+        &self,
+        user_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<Conversation>> {
         let conversations = self.conversations.lock().await;
         let mut result: Vec<_> = conversations
             .values()
@@ -160,7 +165,9 @@ impl ConversationStore for InMemoryConversationStore {
             .cloned()
             .collect();
         result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        result.truncate(limit);
+        let start = offset.min(result.len());
+        let end = start.saturating_add(limit).min(result.len());
+        result = result[start..end].to_vec();
         Ok(result)
     }
 
@@ -177,14 +184,14 @@ impl ConversationStore for InMemoryConversationStore {
         &self,
         conversation_id: &ConversationId,
         limit: Option<usize>,
+        offset: usize,
     ) -> Result<Vec<ConversationMessage>> {
         let messages = self.messages.lock().await;
         let mut result = messages.get(conversation_id).cloned().unwrap_or_default();
-        if let Some(limit) = limit
-            && result.len() > limit
-        {
-            let keep_from = result.len() - limit;
-            result = result.split_off(keep_from);
+        let start = offset.min(result.len());
+        result = result.split_off(start);
+        if let Some(limit) = limit {
+            result.truncate(limit);
         }
         Ok(result)
     }

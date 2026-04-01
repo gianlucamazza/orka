@@ -21,7 +21,9 @@ use orka_a2a::{A2aState, AgentDirectory};
 use orka_agent::AgentGraph;
 use orka_auth::AuthLayer;
 use orka_checkpoint::CheckpointStore;
-use orka_core::traits::{ConversationStore, DeadLetterQueue, MessageBus, PriorityQueue, SessionStore};
+use orka_core::traits::{
+    ConversationStore, DeadLetterQueue, MessageBus, PriorityQueue, SessionStore,
+};
 use orka_experience::ExperienceService;
 use orka_observe::metrics::PrometheusHandle;
 use orka_research::ResearchService;
@@ -55,6 +57,13 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         orka_adapter_custom::routes::handle_health,
         orka_a2a::routes::handle_agent_card,
         orka_a2a::routes::handle_a2a,
+        mobile::handle_me,
+        mobile::handle_list_conversations,
+        mobile::handle_create_conversation,
+        mobile::handle_get_conversation,
+        mobile::handle_list_messages,
+        mobile::handle_send_message,
+        mobile::handle_stream,
     ),
     components(schemas(
         orka_core::Envelope,
@@ -68,6 +77,12 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         orka_core::MediaPayload,
         orka_core::CommandPayload,
         orka_core::EventPayload,
+        orka_core::Conversation,
+        orka_core::ConversationId,
+        orka_core::ConversationMessage,
+        orka_core::ConversationMessageRole,
+        orka_core::ConversationMessageStatus,
+        orka_core::ConversationStatus,
         orka_a2a::AgentCard,
         orka_a2a::AgentSkill,
         orka_a2a::SupportedInterface,
@@ -88,11 +103,18 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         orka_a2a::PushNotificationAuth,
         orka_a2a::ListTasksParams,
         orka_a2a::ListTasksResult,
+        mobile::ApiError,
+        mobile::CreateConversationRequest,
+        mobile::CurrentUserResponse,
+        mobile::SendMessageRequest,
+        mobile::SendMessageResponse,
+        mobile::StreamDonePayload,
     )),
     tags(
         (name = "messages", description = "Message endpoints"),
         (name = "health", description = "Health check endpoints"),
-        (name = "a2a", description = "Agent-to-Agent (A2A) protocol endpoints")
+        (name = "a2a", description = "Agent-to-Agent (A2A) protocol endpoints"),
+        (name = "mobile", description = "Public mobile product API")
     )
 )]
 struct ApiDoc;

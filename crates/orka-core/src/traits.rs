@@ -72,7 +72,12 @@ pub trait ConversationStore: Send + Sync + 'static {
     async fn get_conversation(&self, id: &ConversationId) -> Result<Option<Conversation>>;
 
     /// List recent conversations for a user.
-    async fn list_conversations(&self, user_id: &str, limit: usize) -> Result<Vec<Conversation>>;
+    async fn list_conversations(
+        &self,
+        user_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<Conversation>>;
 
     /// Append a user-facing message to a conversation transcript.
     async fn append_message(&self, message: &ConversationMessage) -> Result<()>;
@@ -82,6 +87,7 @@ pub trait ConversationStore: Send + Sync + 'static {
         &self,
         conversation_id: &ConversationId,
         limit: Option<usize>,
+        offset: usize,
     ) -> Result<Vec<ConversationMessage>>;
 }
 

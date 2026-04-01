@@ -33,6 +33,7 @@ impl Authenticator for CompositeAuthenticator {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| orka_core::Error::Auth("no auth backends configured".into())))
+        Err(last_error
+            .unwrap_or_else(|| orka_core::Error::Auth("no auth backends configured".into())))
     }
 }
