@@ -12,32 +12,41 @@ use serde::Deserialize;
 
 mod runtime;
 
+#[cfg(feature = "a2a")]
 pub use orka_a2a::A2aConfig;
 pub use orka_adapter_custom::CustomAdapterConfig;
+#[cfg(feature = "discord")]
 pub use orka_adapter_discord::DiscordAdapterConfig;
+#[cfg(feature = "slack")]
 pub use orka_adapter_slack::SlackAdapterConfig;
+#[cfg(feature = "telegram")]
 pub use orka_adapter_telegram::TelegramAdapterConfig;
+#[cfg(feature = "whatsapp")]
 pub use orka_adapter_whatsapp::WhatsAppAdapterConfig;
 pub use orka_auth::{ApiKeyEntry, AuthConfig, JwtAuthConfig};
-pub use orka_bus::BusConfig;
+pub use orka_infra::BusConfig;
+#[cfg(feature = "chart")]
 pub use orka_chart::ChartConfig;
 pub use orka_core::{
     MigrationError, MigrationResult,
     config::{AgentConfig, AgentDef, GraphDef, NodeKindDef, defaults},
     inspect_config_issues, migrate_for_write, migrate_if_needed,
 };
+#[cfg(feature = "experience")]
 pub use orka_experience::ExperienceConfig;
 pub use orka_gateway::GatewayConfig;
 pub use orka_git::{GitAuthorshipConfig, GitAuthorshipMode, GitConfig, GitWorktreeConfig};
 pub use orka_guardrails::{
     GuardrailRules, GuardrailsConfig, LlmModerationConfig, ModerationCategory, RedactPattern,
 };
-pub use orka_http::HttpClientConfig;
+pub use orka_web::HttpClientConfig;
+#[cfg(feature = "knowledge")]
 pub use orka_knowledge::{
     ChunkingConfig, EmbeddingProviderKind, EmbeddingsConfig, KnowledgeConfig, RetrievalConfig,
     VectorStoreBackend, VectorStoreConfig,
 };
 pub use orka_llm::{LlmAuthKind, LlmConfig, LlmProviderConfig};
+#[cfg(feature = "mcp")]
 pub use orka_mcp::{McpAuthEntry, McpClientConfig, McpConfig, McpServerEntry};
 pub use orka_memory::MemoryConfig;
 pub use orka_observe::{AuditConfig, ObserveConfig};
@@ -47,11 +56,12 @@ pub use orka_os::{
     SudoConfig,
 };
 pub use orka_prompts::PromptsConfig;
+#[cfg(feature = "research")]
 pub use orka_research::ResearchConfig;
-pub use orka_sandbox::{SandboxConfig, SandboxLimitsConfig};
+pub use orka_wasm::{SandboxConfig, SandboxLimitsConfig};
 pub use orka_scheduler::{ScheduledJob, SchedulerConfig};
 pub use orka_secrets::{SecretBackend, SecretConfig};
-pub use orka_session::SessionConfig;
+pub use orka_infra::SessionConfig;
 pub use orka_skills::{PluginCapabilities, PluginConfig, PluginInstanceConfig, SoftSkillConfig};
 pub use orka_web::{SearchProviderKind, WebConfig};
 pub use runtime::{
@@ -82,12 +92,16 @@ pub struct AdapterConfig {
     /// Custom HTTP adapter configuration.
     pub custom: Option<CustomAdapterConfig>,
     /// Telegram bot adapter configuration.
+    #[cfg(feature = "telegram")]
     pub telegram: Option<TelegramAdapterConfig>,
     /// Discord bot adapter configuration.
+    #[cfg(feature = "discord")]
     pub discord: Option<DiscordAdapterConfig>,
     /// Slack bot adapter configuration.
+    #[cfg(feature = "slack")]
     pub slack: Option<SlackAdapterConfig>,
     /// `WhatsApp` Cloud API adapter configuration.
+    #[cfg(feature = "whatsapp")]
     pub whatsapp: Option<WhatsAppAdapterConfig>,
 }
 
@@ -165,6 +179,7 @@ pub struct OrkaConfig {
     #[serde(default)]
     pub gateway: GatewayConfig,
     /// MCP configuration.
+    #[cfg(feature = "mcp")]
     #[serde(default)]
     pub mcp: McpConfig,
     /// Content guardrails configuration.
@@ -177,9 +192,11 @@ pub struct OrkaConfig {
     #[serde(default)]
     pub os: OsConfig,
     /// Agent-to-Agent protocol configuration.
+    #[cfg(feature = "a2a")]
     #[serde(default)]
     pub a2a: A2aConfig,
     /// Knowledge base and RAG configuration.
+    #[cfg(feature = "knowledge")]
     #[serde(default)]
     pub knowledge: KnowledgeConfig,
     /// Cron-based task scheduler configuration.
@@ -192,6 +209,7 @@ pub struct OrkaConfig {
     #[serde(default)]
     pub prompts: PromptsConfig,
     /// Self-learning experience configuration.
+    #[cfg(feature = "experience")]
     #[serde(default)]
     pub experience: ExperienceConfig,
     /// Git integration configuration.
@@ -204,9 +222,11 @@ pub struct OrkaConfig {
     #[serde(default)]
     pub graph: Option<GraphDef>,
     /// Autonomous research campaign configuration.
+    #[cfg(feature = "research")]
     #[serde(default)]
     pub research: ResearchConfig,
     /// Chart generation skill configuration.
+    #[cfg(feature = "chart")]
     #[serde(default)]
     pub chart: ChartConfig,
 }
@@ -238,20 +258,26 @@ impl Default for OrkaConfig {
             observe: ObserveConfig::default(),
             audit: AuditConfig::default(),
             gateway: GatewayConfig::default(),
+            #[cfg(feature = "mcp")]
             mcp: McpConfig::default(),
             guardrails: GuardrailsConfig::default(),
             web: WebConfig::default(),
             os: OsConfig::default(),
+            #[cfg(feature = "a2a")]
             a2a: A2aConfig::default(),
+            #[cfg(feature = "knowledge")]
             knowledge: KnowledgeConfig::default(),
             scheduler: SchedulerConfig::default(),
             http: HttpClientConfig::default(),
             prompts: PromptsConfig::default(),
+            #[cfg(feature = "experience")]
             experience: ExperienceConfig::default(),
             git: GitConfig::default(),
             agents: Vec::new(),
             graph: None,
+            #[cfg(feature = "research")]
             research: ResearchConfig::default(),
+            #[cfg(feature = "chart")]
             chart: ChartConfig::default(),
         }
     }
@@ -349,12 +375,16 @@ impl OrkaConfig {
         self.secrets.validate()?;
         self.gateway.validate()?;
         self.llm.validate()?;
+        #[cfg(feature = "knowledge")]
         self.knowledge.validate()?;
         self.http.validate()?;
         self.os.validate()?;
+        #[cfg(feature = "experience")]
         self.experience.validate()?;
+        #[cfg(feature = "research")]
         self.research.validate()?;
         self.scheduler.validate()?;
+        #[cfg(feature = "mcp")]
         self.mcp.validate()?;
         self.auth.validate()?;
         self.sandbox.validate()?;
@@ -365,22 +395,28 @@ impl OrkaConfig {
         self.audit.validate()?;
         self.guardrails.validate()?;
         self.web.validate()?;
+        #[cfg(feature = "a2a")]
         self.a2a.validate()?;
         self.prompts.validate()?;
         self.git.validate()?;
+        #[cfg(feature = "chart")]
         self.chart.validate()?;
         if let Some(custom) = &self.adapters.custom {
             custom.validate()?;
         }
+        #[cfg(feature = "telegram")]
         if let Some(tg) = &self.adapters.telegram {
             tg.validate()?;
         }
+        #[cfg(feature = "discord")]
         if let Some(dc) = &self.adapters.discord {
             dc.validate()?;
         }
+        #[cfg(feature = "slack")]
         if let Some(slack) = &self.adapters.slack {
             slack.validate()?;
         }
+        #[cfg(feature = "whatsapp")]
         if let Some(wa) = &self.adapters.whatsapp {
             wa.validate()?;
         }
@@ -526,6 +562,7 @@ mod tests {
         tempfile::tempdir().expect("tempdir")
     }
 
+    #[cfg(feature = "full")]
     #[test]
     fn load_preserves_owner_side_config_sections() {
         let workspace = temp_workspace();

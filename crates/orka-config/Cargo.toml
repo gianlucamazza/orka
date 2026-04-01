@@ -5,35 +5,58 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["full"]
+full = [
+  "telegram",
+  "discord",
+  "slack",
+  "whatsapp",
+  "chart",
+  "research",
+  "a2a",
+  "mcp",
+  "knowledge",
+  "experience",
+]
+telegram = ["dep:orka-adapter-telegram"]
+discord = ["dep:orka-adapter-discord"]
+slack = ["dep:orka-adapter-slack"]
+whatsapp = ["dep:orka-adapter-whatsapp"]
+chart = ["dep:orka-chart"]
+research = ["dep:orka-research"]
+a2a = ["dep:orka-a2a"]
+mcp = ["dep:orka-mcp"]
+knowledge = ["dep:orka-knowledge"]
+experience = ["dep:orka-experience"]
+
 [dependencies]
 orka-auth.workspace = true
-orka-bus.workspace = true
+orka-infra.workspace = true
 orka-os.workspace = true
 orka-scheduler.workspace = true
 orka-gateway.workspace = true
 orka-memory.workspace = true
 orka-observe.workspace = true
-orka-sandbox.workspace = true
+orka-wasm.workspace = true
 orka-secrets.workspace = true
-orka-session.workspace = true
 orka-skills.workspace = true
 orka-core.workspace = true
 orka-adapter-custom.workspace = true
-orka-adapter-discord.workspace = true
-orka-adapter-slack.workspace = true
-orka-adapter-telegram.workspace = true
-orka-adapter-whatsapp.workspace = true
-orka-chart.workspace = true
-orka-experience.workspace = true
+orka-adapter-discord = { workspace = true, optional = true }
+orka-adapter-slack = { workspace = true, optional = true }
+orka-adapter-telegram = { workspace = true, optional = true }
+orka-adapter-whatsapp = { workspace = true, optional = true }
+orka-chart = { workspace = true, optional = true }
+orka-experience = { workspace = true, optional = true }
 orka-git.workspace = true
 orka-guardrails.workspace = true
-orka-http.workspace = true
-orka-knowledge.workspace = true
+orka-knowledge = { workspace = true, optional = true }
 orka-llm.workspace = true
-orka-mcp.workspace = true
+orka-mcp = { workspace = true, optional = true }
 orka-prompts.workspace = true
-orka-research.workspace = true
-orka-a2a.workspace = true
+orka-research = { workspace = true, optional = true }
+orka-a2a = { workspace = true, optional = true }
 orka-web.workspace = true
 config.workspace = true
 serde.workspace = true
