@@ -48,6 +48,33 @@ pub struct WorkspaceHandlerConfig {
     pub default_context_window: u32,
 }
 
+/// Runtime dependencies injected into [`WorkspaceHandler`].
+///
+/// Grouping these behind a single struct keeps the constructor signature
+/// manageable as the set of dependencies grows.
+pub struct WorkspaceHandlerDeps {
+    /// Registry of loaded workspace configurations.
+    pub workspace_registry: Arc<WorkspaceRegistry>,
+    /// Registered skills available to the LLM.
+    pub skills: Arc<SkillRegistry>,
+    /// Persistent memory store for agent recall.
+    pub memory: Arc<dyn MemoryStore>,
+    /// Secret manager for credential lookup.
+    pub secrets: Arc<dyn SecretManager>,
+    /// Optional LLM client; when absent the handler falls back to echo mode.
+    pub llm: Option<Arc<dyn LlmClient>>,
+    /// Domain event sink for observability.
+    pub event_sink: Arc<dyn EventSink>,
+    /// Optional guardrail for input/output safety checks.
+    pub guardrail: Option<Arc<dyn Guardrail>>,
+    /// Registered slash commands.
+    pub commands: Arc<CommandRegistry>,
+    /// Registry for SSE/streaming response channels.
+    pub stream_registry: StreamRegistry,
+    /// Optional experience service for self-learning.
+    pub experience: Option<Arc<ExperienceService>>,
+}
+
 /// Sliding-window rate limiter for slash commands, keyed by `(SessionId,
 /// command_name)`.
 ///
@@ -114,35 +141,22 @@ pub struct WorkspaceHandler {
 }
 
 impl WorkspaceHandler {
-    #[allow(clippy::too_many_arguments)]
     /// Create a handler wired to the given registries and stores.
-    pub fn new(
-        workspace_registry: Arc<WorkspaceRegistry>,
-        skills: Arc<SkillRegistry>,
-        memory: Arc<dyn MemoryStore>,
-        secrets: Arc<dyn SecretManager>,
-        llm: Option<Arc<dyn LlmClient>>,
-        event_sink: Arc<dyn EventSink>,
-        config: WorkspaceHandlerConfig,
-        guardrail: Option<Arc<dyn Guardrail>>,
-        commands: Arc<CommandRegistry>,
-        stream_registry: StreamRegistry,
-        experience: Option<Arc<ExperienceService>>,
-    ) -> Self {
+    pub fn new(deps: WorkspaceHandlerDeps, config: WorkspaceHandlerConfig) -> Self {
         Self {
-            workspace_registry,
-            skills,
-            memory,
-            secrets,
-            llm,
-            event_sink,
+            workspace_registry: deps.workspace_registry,
+            skills: deps.skills,
+            memory: deps.memory,
+            secrets: deps.secrets,
+            llm: deps.llm,
+            event_sink: deps.event_sink,
             agent_config: config.agent_config,
             disabled_tools: config.disabled_tools,
             default_context_window: config.default_context_window,
-            guardrail,
-            commands,
-            stream_registry,
-            experience,
+            guardrail: deps.guardrail,
+            commands: deps.commands,
+            stream_registry: deps.stream_registry,
+            experience: deps.experience,
             command_rate_limiter: CommandRateLimiter::new(10, 60),
             session_cancel_tokens: None,
         }
@@ -883,7 +897,7 @@ impl AgentHandler for WorkspaceHandler {
                     message_id = %envelope.id,
                 );
                 let stream = match llm
-                    .complete_stream_with_tools(&messages, &system_prompt, &tools, options.clone())
+                    .complete_stream_with_tools(&messages, &system_prompt, &tools, &options)
                     .instrument(llm_span.clone())
                     .await
                 {
@@ -1330,21 +1344,23 @@ mod tests {
         let commands = Arc::new(commands);
 
         WorkspaceHandler::new(
-            ws_registry,
-            skills,
-            memory,
-            secrets,
-            None,
-            Arc::new(InMemoryEventSink::new()),
+            WorkspaceHandlerDeps {
+                workspace_registry: ws_registry,
+                skills,
+                memory,
+                secrets,
+                llm: None,
+                event_sink: Arc::new(InMemoryEventSink::new()),
+                guardrail: None,
+                commands,
+                stream_registry: StreamRegistry::new(),
+                experience: None,
+            },
             WorkspaceHandlerConfig {
                 agent_config,
                 disabled_tools: disabled,
                 default_context_window: 128_000,
             },
-            None,
-            commands,
-            StreamRegistry::new(),
-            None,
         )
     }
 

@@ -43,7 +43,7 @@ use orka_core::{
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
-pub use workspace_handler::{WorkspaceHandler, WorkspaceHandlerConfig};
+pub use workspace_handler::{WorkspaceHandler, WorkspaceHandlerConfig, WorkspaceHandlerDeps};
 
 /// Initial TTL for per-session distributed locks.
 ///

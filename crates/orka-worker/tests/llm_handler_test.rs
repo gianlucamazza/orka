@@ -24,6 +24,7 @@ use orka_llm::client::{ChatContent, ChatMessage, LlmClient, Role};
 use orka_skills::SkillRegistry;
 use orka_worker::{
     AgentHandler, CommandRegistry, StreamRegistry, WorkspaceHandler, WorkspaceHandlerConfig,
+    WorkspaceHandlerDeps,
 };
 use orka_workspace::{
     WorkspaceLoader, WorkspaceRegistry, config::SoulFrontmatter, parse::Document,
@@ -92,21 +93,23 @@ async fn make_handler(llm: Option<Arc<dyn LlmClient>>) -> WorkspaceHandler {
     let memory = Arc::new(InMemoryMemoryStore::new());
     let secrets = Arc::new(InMemorySecretManager::new());
     WorkspaceHandler::new(
-        registry,
-        skills,
-        memory,
-        secrets,
-        llm,
-        Arc::new(InMemoryEventSink::new()),
+        WorkspaceHandlerDeps {
+            workspace_registry: registry,
+            skills,
+            memory,
+            secrets,
+            llm,
+            event_sink: Arc::new(InMemoryEventSink::new()),
+            guardrail: None,
+            commands: Arc::new(CommandRegistry::new()),
+            stream_registry: StreamRegistry::new(),
+            experience: None,
+        },
         WorkspaceHandlerConfig {
             agent_config: AgentConfig::default(),
             disabled_tools: HashSet::new(),
             default_context_window: 128_000,
         },
-        None,
-        Arc::new(CommandRegistry::new()),
-        StreamRegistry::new(),
-        None,
     )
 }
 
@@ -154,21 +157,23 @@ async fn multi_turn_conversation_saves_history() {
     let skills = Arc::new(SkillRegistry::new());
     let secrets = Arc::new(InMemorySecretManager::new());
     let handler = WorkspaceHandler::new(
-        registry,
-        skills,
-        memory.clone(),
-        secrets,
-        Some(llm),
-        Arc::new(InMemoryEventSink::new()),
+        WorkspaceHandlerDeps {
+            workspace_registry: registry,
+            skills,
+            memory: memory.clone(),
+            secrets,
+            llm: Some(llm),
+            event_sink: Arc::new(InMemoryEventSink::new()),
+            guardrail: None,
+            commands: Arc::new(CommandRegistry::new()),
+            stream_registry: StreamRegistry::new(),
+            experience: None,
+        },
         WorkspaceHandlerConfig {
             agent_config: AgentConfig::default(),
             disabled_tools: HashSet::new(),
             default_context_window: 128_000,
         },
-        None,
-        Arc::new(CommandRegistry::new()),
-        StreamRegistry::new(),
-        None,
     );
 
     let session = Session::new("custom", "user1");

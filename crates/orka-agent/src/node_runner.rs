@@ -3,12 +3,14 @@
 use std::{collections::HashMap, sync::Arc};
 
 use orka_core::{
-    DomainEvent, DomainEventKind, SkillInput, truncate_tool_result, types::MediaPayload,
+    DomainEvent, DomainEventKind, SkillInput, SkillOutput, truncate_tool_result,
+    traits::{EventSink, GuardrailDecision, SecretManager},
+    types::MediaPayload,
 };
 use orka_llm::{
     client::{
-        ChatContent, ChatMessage, CompletionOptions, ContentBlock, ContentBlockInput, ToolCall,
-        ToolDefinition,
+        ChatContent, ChatMessage, CompletionOptions, CompletionResponse, ContentBlock,
+        ContentBlockInput, ToolCall, ToolDefinition,
     },
     consume_stream,
     context::{
@@ -105,122 +107,822 @@ pub(crate) fn build_tool_error_hint(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Outcome enum for the main loop
+// ---------------------------------------------------------------------------
+
+enum IterationOutcome {
+    Continue,
+    Done,
+    Interrupted(orka_checkpoint::InterruptReason),
+}
+
+// ---------------------------------------------------------------------------
+// Context structs to avoid too-many-parameters
+// ---------------------------------------------------------------------------
+
+struct TriggerContext {
+    trigger_text: String,
+    workspace_name: String,
+    available_workspaces: Vec<String>,
+    cwd: Option<String>,
+    message_id: orka_core::types::MessageId,
+}
+
+// ---------------------------------------------------------------------------
+// Runner struct
+// ---------------------------------------------------------------------------
+
+struct AgentNodeRunner<'a> {
+    agent: &'a Agent,
+    ctx: &'a ExecutionContext,
+    deps: &'a ExecutorDeps,
+    llm: Arc<dyn orka_llm::LlmClient>,
+    message_id: orka_core::types::MessageId,
+    progressive: bool,
+    enabled_categories: std::collections::HashSet<String>,
+    handoff_tools: Vec<ToolDefinition>,
+    plan_tools: Vec<ToolDefinition>,
+    tools: Vec<ToolDefinition>,
+    system_prompt: String,
+    options: CompletionOptions,
+    context_window: u32,
+    output_budget: u32,
+    messages: Vec<ChatMessage>,
+    max_result_chars: usize,
+    skill_timeout: std::time::Duration,
+    tool_error_counts: HashMap<String, u32>,
+    max_tool_retries: u32,
+    iterations: usize,
+    tool_turns: usize,
+    final_response: Option<String>,
+    handoff: Option<Handoff>,
+    stop_reason: orka_core::stream::AgentStopReason,
+    collected_attachments: Vec<MediaPayload>,
+    worktree_cwd: Option<String>,
+}
+
+impl<'a> AgentNodeRunner<'a> {
+    async fn new(
+        agent: &'a Agent,
+        ctx: &'a ExecutionContext,
+        deps: &'a ExecutorDeps,
+        graph: &AgentGraph,
+        llm: Arc<dyn orka_llm::LlmClient>,
+    ) -> orka_core::Result<Self> {
+        let progressive = agent.progressive_disclosure;
+        let enabled_categories = std::collections::HashSet::new();
+
+        let trigger_context = build_trigger_context(agent, ctx);
+        let TriggerContext {
+            trigger_text,
+            workspace_name,
+            available_workspaces,
+            cwd,
+            message_id,
+        } = trigger_context;
+
+        let handoff_tools = build_handoff_tools(agent, graph);
+        let plan_tools = if agent.planning_mode == PlanningMode::Adaptive {
+            planning_tools()
+        } else {
+            vec![]
+        };
+
+        let initial_skill_tools =
+            build_skill_tools(deps, agent, progressive, &enabled_categories);
+        let tools = assemble_tools(
+            progressive,
+            initial_skill_tools,
+            handoff_tools.clone(),
+            plan_tools.clone(),
+        );
+
+        // History summarization (HistoryStrategy::Summarize)
+        maybe_summarize_history(ctx, deps, agent).await;
+
+        let system_prompt = build_agent_system_prompt(
+            agent,
+            ctx,
+            deps,
+            &trigger_text,
+            &workspace_name,
+            &available_workspaces,
+            cwd.as_deref(),
+        )
+        .await;
+
+        let mut options = CompletionOptions::default();
+        options.model = agent.llm_config.model.clone();
+        options.max_tokens = agent.llm_config.max_tokens;
+        options.temperature = agent.llm_config.temperature;
+        options.thinking = agent.llm_config.thinking.clone();
+
+        let context_window = agent.llm_config.context_window.unwrap_or(200_000);
+        let output_budget = agent.llm_config.max_tokens.unwrap_or(4096);
+        let max_tool_retries: u32 = 2;
+        let max_result_chars = agent.tool_result_max_chars;
+        let skill_timeout = std::time::Duration::from_secs(agent.skill_timeout_secs);
+
+        let mut messages = load_history(agent, ctx).await;
+
+        // Input guardrail: modify message if needed (block is handled in run_agent_node).
+        messages = apply_input_guardrail_modify(deps, ctx, &trigger_text, messages).await;
+
+        // PlanningMode::Always — eager plan generation
+        let system_prompt =
+            maybe_generate_plan(agent, ctx, deps, &trigger_text, system_prompt).await;
+
+        Ok(Self {
+            agent,
+            ctx,
+            deps,
+            llm,
+            message_id,
+            progressive,
+            enabled_categories,
+            handoff_tools,
+            plan_tools,
+            tools,
+            system_prompt,
+            options,
+            context_window,
+            output_budget,
+            messages,
+            max_result_chars,
+            skill_timeout,
+            tool_error_counts: HashMap::new(),
+            max_tool_retries,
+            iterations: 0,
+            tool_turns: 0,
+            final_response: None,
+            handoff: None,
+            stop_reason: orka_core::stream::AgentStopReason::Complete,
+            collected_attachments: Vec::new(),
+            worktree_cwd: None,
+        })
+    }
+
+    async fn run(mut self) -> orka_core::Result<AgentNodeResult> {
+        loop {
+            let iteration = self.iterations;
+            self.iterations += 1;
+            let iteration_start = std::time::Instant::now();
+
+            let (sanitized, removed) = sanitize_tool_result_history(self.messages);
+            self.messages = sanitized;
+            if removed > 0 {
+                warn!(
+                    agent = %self.agent.id,
+                    iteration,
+                    removed_tool_results = removed,
+                    "dropped orphaned tool_result blocks before llm call"
+                );
+            }
+
+            self.rebuild_tools();
+            self.manage_context_window(iteration).await;
+
+            let Ok(completion) = self.call_llm(iteration).await else {
+                break;
+            };
+
+            let iteration_tokens =
+                u64::from(completion.usage.input_tokens + completion.usage.output_tokens);
+            let (response_text, tool_calls) =
+                parse_completion_blocks(self.agent, self.deps, &completion, self.message_id).await;
+
+            let mut handoff_call: Option<ToolCall> = None;
+            let mut regular_calls: Vec<ToolCall> = Vec::new();
+            for call in tool_calls {
+                if call.name == "transfer_to_agent" || call.name == "delegate_to_agent" {
+                    handoff_call = Some(call);
+                } else {
+                    regular_calls.push(call);
+                }
+            }
+
+            if regular_calls.is_empty() && handoff_call.is_none() {
+                self.messages
+                    .push(ChatMessage::assistant(response_text.clone()));
+                self.final_response = Some(response_text);
+                emit_iteration_event(
+                    self.deps,
+                    self.message_id,
+                    iteration,
+                    0,
+                    iteration_tokens,
+                    &iteration_start,
+                )
+                .await;
+                break;
+            }
+
+            if let Some(ref hc) = handoff_call {
+                let h = parse_handoff(&self.agent.id, hc);
+                info!(from = %self.agent.id, to = %h.to, mode = ?h.mode, "agent handoff");
+                self.handoff = Some(h);
+                push_handoff_assistant_message(&mut self.messages, &response_text, hc);
+                break;
+            }
+
+            push_tool_call_assistant_message(&mut self.messages, &response_text, &regular_calls);
+
+            match self
+                .dispatch_tool_calls(regular_calls, response_text, iteration, iteration_start)
+                .await?
+            {
+                IterationOutcome::Done => break,
+                IterationOutcome::Interrupted(reason) => {
+                    return Ok(AgentNodeResult {
+                        response: None,
+                        handoff: None,
+                        iterations: self.iterations,
+                        interrupted: Some(reason),
+                        attachments: Vec::new(),
+                        stop_reason: orka_core::stream::AgentStopReason::Interrupted,
+                    });
+                }
+                IterationOutcome::Continue => {}
+            }
+        }
+
+        self.ctx.set_messages(self.messages).await;
+
+        let final_response =
+            apply_output_guardrail(self.agent, self.ctx, self.deps, self.final_response).await;
+
+        Ok(AgentNodeResult {
+            response: final_response,
+            handoff: self.handoff,
+            iterations: self.iterations,
+            interrupted: None,
+            attachments: self.collected_attachments,
+            stop_reason: self.stop_reason,
+        })
+    }
+
+    fn rebuild_tools(&mut self) {
+        if self.progressive {
+            self.tools.clear();
+            self.tools.extend(synthetic_tools());
+            self.tools.extend(build_skill_tools(
+                self.deps,
+                self.agent,
+                self.progressive,
+                &self.enabled_categories,
+            ));
+            self.tools.extend(self.handoff_tools.clone());
+            self.tools.extend(self.plan_tools.clone());
+        }
+    }
+
+    async fn manage_context_window(&mut self, iteration: usize) {
+        let _ = iteration;
+        let hint = TokenizerHint::from_model(self.agent.llm_config.model.as_deref());
+        let envelope = &self.ctx.trigger;
+
+        if let HistoryStrategy::RollingWindow { recent_turns } = self.agent.history_strategy {
+            let turns = orka_llm::context::group_into_turns(&self.messages);
+            if turns.len() > recent_turns {
+                let cutoff = turns.len() - recent_turns;
+                let drop_end = turns[cutoff - 1].end;
+                let to_drop = self.messages[..drop_end].to_vec();
+                if let Some(ref llm_client) = self.deps.llm
+                    && let Ok(summary) = summarize_messages(llm_client.as_ref(), &to_drop).await
+                {
+                    self.ctx.set_conversation_summary(summary).await;
+                }
+                let dropped = drop_end;
+                self.messages = self.messages[drop_end..].to_vec();
+                warn!(
+                    dropped,
+                    remaining = self.messages.len(),
+                    recent_turns,
+                    "rolling window: trimmed history"
+                );
+                let history_tokens: u32 = self
+                    .messages
+                    .iter()
+                    .map(|m| estimate_message_tokens_with_hint(m, hint))
+                    .sum();
+                self.deps.stream_registry.send(orka_core::stream::StreamChunk::new(
+                    self.ctx.session_id,
+                    envelope.channel.clone(),
+                    Some(envelope.id),
+                    orka_core::stream::StreamChunkKind::ContextInfo {
+                        history_tokens,
+                        context_window: self.context_window,
+                        messages_truncated: dropped as u32,
+                        summary_generated: true,
+                    },
+                ));
+            }
+        } else {
+            let budget = available_history_budget_with_hint(
+                self.context_window,
+                self.output_budget,
+                &self.system_prompt,
+                &self.tools,
+                hint,
+            );
+            let (truncated, dropped) =
+                truncate_history_with_hint(self.messages.clone(), budget, hint, true);
+            self.messages = truncated;
+            if dropped > 0 {
+                warn!(
+                    dropped,
+                    remaining = self.messages.len(),
+                    "truncated history to fit context window"
+                );
+                let history_tokens: u32 = self
+                    .messages
+                    .iter()
+                    .map(|m| estimate_message_tokens_with_hint(m, hint))
+                    .sum();
+                self.deps.stream_registry.send(orka_core::stream::StreamChunk::new(
+                    self.ctx.session_id,
+                    envelope.channel.clone(),
+                    Some(envelope.id),
+                    orka_core::stream::StreamChunkKind::ContextInfo {
+                        history_tokens,
+                        context_window: self.context_window,
+                        messages_truncated: dropped as u32,
+                        summary_generated: false,
+                    },
+                ));
+            }
+        }
+    }
+
+    async fn call_llm(
+        &mut self,
+        iteration: usize,
+    ) -> orka_core::Result<orka_llm::CompletionResponse> {
+        let envelope = &self.ctx.trigger;
+        let llm_span = info_span!(
+            "llm.call",
+            agent_id = %self.agent.id,
+            iteration,
+            model = %self.agent.llm_config.model.as_deref().unwrap_or("default"),
+        );
+        let llm_start = std::time::Instant::now();
+
+        let stream = match self
+            .llm
+            .complete_stream_with_tools(
+                &self.messages,
+                &self.system_prompt,
+                &self.tools,
+                &self.options,
+            )
+            .instrument(llm_span.clone())
+            .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(%e, "LLM stream init failed");
+                self.final_response = Some(format!("LLM request failed: {e}"));
+                self.stop_reason = orka_core::stream::AgentStopReason::Error;
+                return Err(orka_core::Error::Other(e.to_string()));
+            }
+        };
+
+        let completion = match consume_stream(
+            stream,
+            &self.ctx.session_id,
+            &self.deps.stream_registry,
+            &envelope.channel,
+            Some(&envelope.id),
+        )
+        .instrument(llm_span)
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(%e, "LLM stream failed");
+                self.final_response = Some(format!("LLM request failed: {e}"));
+                self.stop_reason = orka_core::stream::AgentStopReason::Error;
+                return Err(orka_core::Error::Other(e.to_string()));
+            }
+        };
+
+        if completion.stop_reason == Some(orka_llm::client::StopReason::MaxTokens) {
+            warn!("LLM response truncated (max_tokens reached)");
+            self.stop_reason = orka_core::stream::AgentStopReason::MaxTokens;
+        }
+
+        let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
+        let iteration_tokens =
+            u64::from(completion.usage.input_tokens + completion.usage.output_tokens);
+        self.ctx.add_tokens(iteration_tokens);
+
+        let llm_model = emit_llm_completed_event(
+            self.deps,
+            self.agent,
+            self.message_id,
+            &completion,
+            llm_duration_ms,
+        )
+        .await;
+
+        self.deps.stream_registry.send(orka_core::stream::StreamChunk::new(
+            self.ctx.session_id,
+            envelope.channel.clone(),
+            Some(envelope.id),
+            orka_core::stream::StreamChunkKind::Usage {
+                input_tokens: completion.usage.input_tokens,
+                output_tokens: completion.usage.output_tokens,
+                cache_read_tokens: (completion.usage.cache_read_input_tokens > 0)
+                    .then_some(completion.usage.cache_read_input_tokens),
+                cache_creation_tokens: (completion.usage.cache_creation_input_tokens > 0)
+                    .then_some(completion.usage.cache_creation_input_tokens),
+                reasoning_tokens: (completion.usage.reasoning_tokens > 0)
+                    .then_some(completion.usage.reasoning_tokens),
+                model: llm_model,
+                cost_usd: None,
+            },
+        ));
+
+        Ok(completion)
+    }
+
+    async fn dispatch_tool_calls(
+        &mut self,
+        regular_calls: Vec<ToolCall>,
+        response_text: String,
+        iteration: usize,
+        iteration_start: std::time::Instant,
+    ) -> orka_core::Result<IterationOutcome> {
+        let iteration_tokens = 0u64; // already counted in call_llm
+
+        let mut results_map: HashMap<String, (String, bool)> = HashMap::new();
+        let mut skill_calls: Vec<ToolCall> = Vec::new();
+
+        for call in &regular_calls {
+            if let Some(result) = handle_plan_tool(self.agent, self.ctx, call).await {
+                results_map.insert(call.id.clone(), result);
+            } else if let Some(result) =
+                handle_progressive_tool(call, self.progressive, &mut self.enabled_categories)
+            {
+                results_map.insert(call.id.clone(), result);
+            } else {
+                skill_calls.push(call.clone());
+            }
+        }
+
+        // HITL: interrupt before running any tool requiring approval
+        if let Some(call) = skill_calls
+            .iter()
+            .find(|c| self.agent.interrupt_before_tools.contains(&c.name))
+        {
+            let reason = orka_checkpoint::InterruptReason::HumanApproval {
+                tool_name: call.name.clone(),
+                tool_input: call.input.clone(),
+                agent_id: self.agent.id.to_string(),
+            };
+            return Ok(IterationOutcome::Interrupted(reason));
+        }
+
+        // Apply per-tool guardrail, then run in parallel
+        let (checked_calls, guardrail_blocks) =
+            apply_tool_guardrails(self.agent, self.ctx, self.deps, skill_calls).await;
+        results_map.extend(guardrail_blocks);
+
+        let batch_results = self.execute_skill_batch_parallel(checked_calls).await;
+        for (call_id, content, is_error, attachments) in batch_results {
+            results_map.insert(call_id, (content, is_error));
+            self.collected_attachments.extend(attachments);
+        }
+
+        update_worktree_cwd(&regular_calls, &results_map, &mut self.worktree_cwd);
+
+        let mut result_blocks = build_result_blocks(&regular_calls, &mut results_map);
+
+        for (block, call) in result_blocks.iter().zip(regular_calls.iter()) {
+            if let ContentBlockInput::ToolResult { is_error, .. } = block {
+                if *is_error {
+                    let count = self.tool_error_counts.entry(call.name.clone()).or_insert(0);
+                    *count += 1;
+                } else {
+                    self.tool_error_counts.remove(&call.name);
+                }
+            }
+        }
+
+        if let Some(hint) =
+            build_tool_error_hint(&self.tool_error_counts, self.max_tool_retries)
+        {
+            result_blocks.push(ContentBlockInput::Text { text: hint });
+        }
+
+        self.messages.push(ChatMessage::new(
+            orka_llm::client::Role::User,
+            ChatContent::Blocks(result_blocks),
+        ));
+
+        let _ = response_text;
+        emit_iteration_event(
+            self.deps,
+            self.message_id,
+            iteration,
+            regular_calls.len(),
+            iteration_tokens,
+            &iteration_start,
+        )
+        .await;
+
+        self.tool_turns += 1;
+        if self.tool_turns >= self.agent.max_turns {
+            warn!(max_turns = self.agent.max_turns, "agent reached max tool turns");
+            self.stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
+            return Ok(IterationOutcome::Done);
+        }
+
+        Ok(IterationOutcome::Continue)
+    }
+
+    async fn execute_skill_batch_parallel(
+        &mut self,
+        skill_calls: Vec<ToolCall>,
+    ) -> Vec<(String, String, bool, Vec<MediaPayload>)> {
+        let mut join_set = tokio::task::JoinSet::new();
+
+        for call in &skill_calls {
+            let params = self.prepare_skill_task(call).await;
+            join_set.spawn(invoke_skill_task(params));
+        }
+
+        let mut results = Vec::new();
+        while let Some(res) = join_set.join_next().await {
+            if let Ok(tuple) = res {
+                results.push(tuple);
+            }
+        }
+        results
+    }
+
+    async fn prepare_skill_task(&mut self, call: &ToolCall) -> SkillTaskParams {
+        let message_id = self.message_id;
+        self.deps
+            .event_sink
+            .emit(DomainEvent::new(DomainEventKind::SkillInvoked {
+                skill_name: call.name.clone(),
+                message_id,
+                input_args: match &call.input {
+                    serde_json::Value::Object(map) => {
+                        map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+                    }
+                    _ => HashMap::new(),
+                },
+                caller_id: None,
+            }))
+            .await;
+
+        let user_cwd = self
+            .ctx
+            .trigger
+            .metadata
+            .get("workspace:cwd")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        let progress_tx = maybe_spawn_progress_bridge(
+            &call.name,
+            &self.ctx.trigger.channel,
+            self.deps,
+            self.ctx,
+        );
+
+        SkillTaskParams {
+            call_id: call.id.clone(),
+            call_name: call.name.clone(),
+            call_input: call.input.clone(),
+            skills: self.deps.skills.clone(),
+            event_sink: self.deps.event_sink.clone(),
+            secrets: self.deps.secrets.clone(),
+            skill_max_output_bytes: self.agent.skill_max_output_bytes,
+            skill_max_duration_ms: self.agent.skill_max_duration_ms,
+            skill_timeout: self.skill_timeout,
+            max_result_chars: self.max_result_chars,
+            message_id,
+            user_cwd,
+            worktree_cwd: self.worktree_cwd.clone(),
+            progress_tx,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Skill task execution helpers
+// ---------------------------------------------------------------------------
+
+struct SkillTaskParams {
+    call_id: String,
+    call_name: String,
+    call_input: serde_json::Value,
+    skills: Arc<orka_skills::SkillRegistry>,
+    event_sink: Arc<dyn EventSink>,
+    secrets: Arc<dyn SecretManager>,
+    skill_max_output_bytes: Option<usize>,
+    skill_max_duration_ms: Option<u64>,
+    skill_timeout: std::time::Duration,
+    max_result_chars: usize,
+    message_id: orka_core::types::MessageId,
+    user_cwd: Option<String>,
+    worktree_cwd: Option<String>,
+    progress_tx: Option<tokio::sync::mpsc::UnboundedSender<serde_json::Value>>,
+}
+
+async fn invoke_skill_task(
+    p: SkillTaskParams,
+) -> (String, String, bool, Vec<MediaPayload>) {
+    let args: HashMap<String, serde_json::Value> = match p.call_input {
+        serde_json::Value::Object(map) => map.into_iter().collect(),
+        _ => HashMap::new(),
+    };
+    let start = std::time::Instant::now();
+    let mut skill_ctx = orka_core::SkillContext::new(p.secrets, Some(p.event_sink.clone()))
+        .with_user_cwd(p.user_cwd)
+        .with_worktree_cwd(p.worktree_cwd);
+    if p.skill_max_output_bytes.is_some() || p.skill_max_duration_ms.is_some() {
+        skill_ctx = skill_ctx.with_budget(orka_core::SkillBudget {
+            max_duration_ms: p.skill_max_duration_ms,
+            max_output_bytes: p.skill_max_output_bytes,
+        });
+    }
+    if let Some(tx) = p.progress_tx {
+        skill_ctx = skill_ctx.with_progress(tx);
+    }
+    let skill_input = SkillInput::new(args).with_context(skill_ctx);
+    let result = match tokio::time::timeout(
+        p.skill_timeout,
+        p.skills.invoke(&p.call_name, skill_input),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => Err(orka_core::Error::Skill(format!(
+            "skill '{}' timed out after {}s",
+            p.call_name,
+            p.skill_timeout.as_secs()
+        ))),
+    };
+    let (content, is_error, task_attachments) = extract_skill_result(&result, p.max_result_chars);
+    emit_skill_completed(
+        &p.event_sink,
+        &p.call_name,
+        p.message_id,
+        start.elapsed().as_millis() as u64,
+        is_error,
+        &result,
+    )
+    .await;
+    (p.call_id, content, is_error, task_attachments)
+}
+
+fn extract_skill_result(
+    result: &orka_core::Result<SkillOutput>,
+    max_result_chars: usize,
+) -> (String, bool, Vec<MediaPayload>) {
+    let task_attachments: Vec<MediaPayload> = match result {
+        Ok(output) => output.attachments.clone(),
+        Err(_) => Vec::new(),
+    };
+    let (content, is_error) = match result {
+        Ok(output) => {
+            let raw = output.data.to_string();
+            (truncate_tool_result(&raw, max_result_chars), false)
+        }
+        Err(e) => (format!("Error: {e}"), true),
+    };
+    (content, is_error, task_attachments)
+}
+
+async fn emit_skill_completed(
+    event_sink: &Arc<dyn EventSink>,
+    call_name: &str,
+    message_id: orka_core::types::MessageId,
+    duration_ms: u64,
+    is_error: bool,
+    result: &orka_core::Result<SkillOutput>,
+) {
+    let error_category = match result {
+        Err(e) => Some(e.category()),
+        Ok(_) => None,
+    };
+    let output_preview = match result {
+        Ok(output) => {
+            let s = output.data.to_string();
+            Some(s.chars().take(1024).collect::<String>())
+        }
+        Err(_) => None,
+    };
+    let error_message = match result {
+        Err(e) => Some(e.to_string()),
+        Ok(_) => None,
+    };
+    event_sink
+        .emit(DomainEvent::new(DomainEventKind::SkillCompleted {
+            skill_name: call_name.to_string(),
+            message_id,
+            duration_ms,
+            success: !is_error,
+            error_category,
+            output_preview,
+            error_message,
+        }))
+        .await;
+}
+
+fn maybe_spawn_progress_bridge(
+    call_name: &str,
+    channel: &str,
+    deps: &ExecutorDeps,
+    ctx: &ExecutionContext,
+) -> Option<tokio::sync::mpsc::UnboundedSender<serde_json::Value>> {
+    if call_name != "coding_delegate" || channel == "custom" {
+        return None;
+    }
+    let bus = deps.bus.as_ref()?;
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let bridge_config = orka_core::progress_bridge::ProgressBridgeConfig::default();
+    tokio::spawn(orka_core::progress_bridge::forward_progress_to_chat(
+        rx,
+        bus.clone(),
+        ctx.trigger.channel.clone(),
+        ctx.session_id,
+        ctx.trigger.metadata.clone(),
+        ctx.trigger.id,
+        bridge_config,
+    ));
+    Some(tx)
+}
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
+
 /// Execute a single agent's LLM tool loop.
 ///
 /// This is the core of the agent system, adapted to operate on
 /// `(Agent, ExecutionContext, ExecutorDeps)`.
-#[allow(clippy::too_many_lines)]
 pub(crate) async fn run_agent_node(
     agent: &Agent,
     ctx: &ExecutionContext,
     deps: &ExecutorDeps,
     graph: &AgentGraph,
 ) -> orka_core::Result<AgentNodeResult> {
-    let llm = match &deps.llm {
-        Some(l) => l.clone(),
-        None => {
-            return Ok(AgentNodeResult {
-                response: Some("No LLM provider configured.".into()),
-                handoff: None,
-                iterations: 0,
-                interrupted: None,
-                attachments: Vec::new(),
-                stop_reason: orka_core::stream::AgentStopReason::Error,
-            });
-        }
+    let Some(llm) = deps.llm.as_ref().map(Arc::clone) else {
+        return Ok(AgentNodeResult {
+            response: Some("No LLM provider configured.".into()),
+            handoff: None,
+            iterations: 0,
+            interrupted: None,
+            attachments: Vec::new(),
+            stop_reason: orka_core::stream::AgentStopReason::Error,
+        });
     };
-
-    // B1: Progressive disclosure state
-    let progressive = agent.progressive_disclosure;
-    let mut enabled_categories: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
-
-    // Synthetic tool definitions for progressive disclosure
-    let synthetic_tools = || -> Vec<ToolDefinition> {
-        vec![
-            ToolDefinition::new(
-                "list_tool_categories",
-                "List all available tool categories with their skills. \
-                 Call this first to discover what tools are available before using them.",
-                serde_json::json!({"type": "object", "properties": {}}),
-            ),
-            ToolDefinition::new(
-                "enable_tools",
-                "Enable all tools from a specific category. \
-                 Call list_tool_categories first, then call this to activate a category.",
-                serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "category": {
-                            "type": "string",
-                            "description": "The category name to enable (e.g. \"filesystem\", \"web\")"
-                        }
-                    },
-                    "required": ["category"]
-                }),
-            ),
-        ]
-    };
-
-    // Build the initial tool list
-    let build_skill_tools = |enabled: &std::collections::HashSet<String>| -> Vec<ToolDefinition> {
-        deps.skills
-            .list_available()
-            .iter()
-            .filter(|name| agent.tools.allows(name))
-            .filter_map(|name| deps.skills.get(name))
-            .filter(|skill| !progressive || enabled.contains(skill.category()))
-            .map(|skill| {
-                ToolDefinition::new(skill.name(), skill.description(), skill.schema().parameters)
-            })
-            .collect()
-    };
-
-    let handoff_tools = build_handoff_tools(agent, graph);
-    let plan_tools = if agent.planning_mode == PlanningMode::Adaptive {
-        planning_tools()
-    } else {
-        vec![]
-    };
-
-    let initial_skill_tools = build_skill_tools(&enabled_categories);
-    let mut tools: Vec<ToolDefinition> = if progressive {
-        let mut t = synthetic_tools();
-        t.extend(initial_skill_tools);
-        t.extend(handoff_tools.clone());
-        t.extend(plan_tools.clone());
-        t
-    } else {
-        let mut t = initial_skill_tools;
-        t.extend(handoff_tools.clone());
-        t.extend(plan_tools.clone());
-        t
-    };
-
-    let envelope = &ctx.trigger;
-    let message_id = envelope.id;
-
-    // Extract trigger text once — used for principle retrieval and soft skill
-    // selection.
+    // Check input guardrail before initializing runner.
     let trigger_text = match &ctx.trigger.payload {
         orka_core::Payload::Text(t) => t.clone(),
         _ => String::new(),
     };
+    if let Some(blocked) = check_input_guardrail(agent, ctx, deps, &trigger_text).await {
+        return Ok(blocked);
+    }
+    AgentNodeRunner::new(agent, ctx, deps, graph, llm)
+        .await?
+        .run()
+        .await
+}
 
-    // Get workspace info
+// ---------------------------------------------------------------------------
+// Free helper functions
+// ---------------------------------------------------------------------------
+
+fn build_trigger_context(agent: &Agent, ctx: &ExecutionContext) -> TriggerContext {
+    let _ = agent;
+    let envelope = &ctx.trigger;
+    let message_id = envelope.id;
+    let trigger_text = match &ctx.trigger.payload {
+        orka_core::Payload::Text(t) => t.clone(),
+        _ => String::new(),
+    };
     let workspace_name = ctx
         .trigger
         .metadata
         .get("workspace:name")
         .and_then(|v| v.as_str())
-        .unwrap_or("default");
+        .unwrap_or("default")
+        .to_string();
     let available_workspaces = ctx
         .trigger
         .metadata
         .get("workspace:available")
         .and_then(|v| v.as_array())
         .map_or_else(
-            || vec![workspace_name.to_string()],
+            || vec![workspace_name.clone()],
             |arr| {
                 arr.iter()
                     .filter_map(|v| v.as_str().map(String::from))
@@ -233,1121 +935,793 @@ pub(crate) async fn run_agent_node(
         .get("workspace:cwd")
         .and_then(|v| v.as_str())
         .map(String::from);
+    TriggerContext {
+        trigger_text,
+        workspace_name,
+        available_workspaces,
+        cwd,
+        message_id,
+    }
+}
 
-    // Retrieve principles if experience is available
-    let principles = if let Some(ref exp) = deps.experience {
-        match exp
-            .retrieve_principles(&trigger_text, agent.id.as_str())
-            .await
-        {
-            Ok(principles) if !principles.is_empty() => {
-                // Emit events for principles injection
-                deps.event_sink
-                    .emit(DomainEvent::new(DomainEventKind::PrinciplesInjected {
-                        session_id: ctx.session_id,
-                        count: principles.len(),
-                    }))
-                    .await;
-                deps.stream_registry
-                    .send(orka_core::stream::StreamChunk::new(
-                        ctx.session_id,
-                        envelope.channel.clone(),
-                        Some(envelope.id),
-                        orka_core::stream::StreamChunkKind::PrinciplesUsed {
-                            count: principles.len() as u32,
-                        },
-                    ));
-                // Convert principles to JSON for the pipeline
-                principles
-                    .into_iter()
-                    .map(|p| {
-                        serde_json::json!({
-                            "text": p.text,
-                            "kind": match p.kind {
-                                orka_experience::types::PrincipleKind::Do => "do",
-                                orka_experience::types::PrincipleKind::Avoid => "avoid",
-                            },
-                        })
-                    })
-                    .collect()
-            }
-            Err(e) => {
-                warn!(%e, "failed to retrieve principles");
-                vec![]
-            }
-            _ => vec![],
-        }
+fn synthetic_tools() -> Vec<ToolDefinition> {
+    vec![
+        ToolDefinition::new(
+            "list_tool_categories",
+            "List all available tool categories with their skills. \
+             Call this first to discover what tools are available before using them.",
+            serde_json::json!({"type": "object", "properties": {}}),
+        ),
+        ToolDefinition::new(
+            "enable_tools",
+            "Enable all tools from a specific category. \
+             Call list_tool_categories first, then call this to activate a category.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "The category name to enable (e.g. \"filesystem\", \"web\")"
+                    }
+                },
+                "required": ["category"]
+            }),
+        ),
+    ]
+}
+
+fn build_skill_tools(
+    deps: &ExecutorDeps,
+    agent: &Agent,
+    progressive: bool,
+    enabled: &std::collections::HashSet<String>,
+) -> Vec<ToolDefinition> {
+    deps.skills
+        .list_available()
+        .iter()
+        .filter(|name| agent.tools.allows(name))
+        .filter_map(|name| deps.skills.get(name))
+        .filter(|skill| !progressive || enabled.contains(skill.category()))
+        .map(|skill| {
+            ToolDefinition::new(skill.name(), skill.description(), skill.schema().parameters)
+        })
+        .collect()
+}
+
+fn assemble_tools(
+    progressive: bool,
+    skill_tools: Vec<ToolDefinition>,
+    handoff_tools: Vec<ToolDefinition>,
+    plan_tools: Vec<ToolDefinition>,
+) -> Vec<ToolDefinition> {
+    if progressive {
+        let mut t = synthetic_tools();
+        t.extend(skill_tools);
+        t.extend(handoff_tools);
+        t.extend(plan_tools);
+        t
     } else {
-        vec![]
+        let mut t = skill_tools;
+        t.extend(handoff_tools);
+        t.extend(plan_tools);
+        t
+    }
+}
+
+async fn maybe_summarize_history(ctx: &ExecutionContext, deps: &ExecutorDeps, agent: &Agent) {
+    if agent.history_strategy != HistoryStrategy::Summarize {
+        return;
+    }
+    if ctx.conversation_summary().await.is_some() {
+        return;
+    }
+    let Some(ref llm_client) = deps.llm else {
+        return;
+    };
+    let current_msgs = ctx.messages().await;
+    if current_msgs.is_empty() {
+        return;
+    }
+    let hint = TokenizerHint::from_model(agent.llm_config.model.as_deref());
+    let context_window = agent.llm_config.context_window.unwrap_or(200_000);
+    let output_budget = agent.llm_config.max_tokens.unwrap_or(4096);
+    let rough_budget = context_window.saturating_sub(output_budget);
+    let total: u32 = current_msgs
+        .iter()
+        .map(|m| orka_llm::context::estimate_message_tokens_with_hint(m, hint))
+        .sum();
+    if total <= rough_budget / 2 {
+        return;
+    }
+    let turns = orka_llm::context::group_into_turns(&current_msgs);
+    let cutoff = turns.len() / 2;
+    if cutoff == 0 {
+        return;
+    }
+    let end = turns[cutoff - 1].end;
+    let to_summarise = &current_msgs[..end];
+    match summarize_messages(llm_client.as_ref(), to_summarise).await {
+        Ok(summary) => {
+            debug!(agent = %agent.id, turns_summarized = cutoff, "history.summarized");
+            ctx.set_conversation_summary(summary).await;
+        }
+        Err(e) => {
+            warn!(%e, agent = %agent.id, "history summarization failed");
+        }
+    }
+}
+
+async fn build_agent_system_prompt(
+    agent: &Agent,
+    ctx: &ExecutionContext,
+    deps: &ExecutorDeps,
+    trigger_text: &str,
+    workspace_name: &str,
+    available_workspaces: &[String],
+    cwd: Option<&str>,
+) -> String {
+    use orka_prompts::{context::SessionContext, pipeline::BuildContext};
+
+    let soft_skill_section = build_soft_skill_section(deps, trigger_text);
+    let relevant_facts_section = build_facts_section(deps, trigger_text, workspace_name, ctx).await;
+    let shell_commands = build_shell_commands_section(ctx);
+
+    let mut base_context = BuildContext::new(&agent.display_name)
+        .with_persona(&agent.system_prompt.persona)
+        .with_tool_instructions(&agent.system_prompt.tool_instructions)
+        .with_workspace(workspace_name, available_workspaces.to_vec())
+        .with_config(PipelineConfig::default());
+
+    if let Some(cwd_val) = cwd {
+        base_context = base_context.with_cwd(cwd_val.to_string());
+    }
+    if let Some(ref registry) = deps.templates {
+        base_context = base_context.with_templates(Arc::clone(registry));
+    }
+    if let Some(summary) = ctx.conversation_summary().await {
+        base_context = base_context.with_summary(summary);
+    }
+
+    let session_ctx = SessionContext {
+        session_id: ctx.session_id.to_string(),
+        workspace: workspace_name.to_string(),
+        user_message: trigger_text.to_string(),
+        cwd: cwd.map(String::from),
+        recent_commands: vec![],
+        metadata: ctx.trigger.metadata.clone(),
     };
 
-    let relevant_facts_section = if let Some(ref facts) = deps.facts {
-        match facts.search(&trigger_text, 8, Some(0.6), None).await {
-            Ok(results) => {
-                let filtered: Vec<_> = results
-                    .into_iter()
-                    .filter(|result| {
-                        match result.metadata.get("memory_scope").map(String::as_str) {
-                            Some("session") => result
-                                .metadata
-                                .get("session_id")
-                                .is_some_and(|sid| sid == &ctx.session_id.to_string()),
-                            Some("workspace") => result
-                                .metadata
-                                .get("workspace")
-                                .is_some_and(|ws| ws == workspace_name),
-                            Some("global") | None => true,
-                            Some(_) => false,
-                        }
-                    })
-                    .take(5)
-                    .collect();
+    let mut sections = std::collections::HashMap::new();
+    if !soft_skill_section.is_empty() {
+        sections.insert("soft_skills".to_string(), soft_skill_section);
+    }
+    if !relevant_facts_section.is_empty() {
+        sections.insert("relevant_facts".to_string(), relevant_facts_section);
+    }
+    if !shell_commands.is_empty() {
+        sections.insert("shell_commands".to_string(), shell_commands);
+    }
+    let coordinator = build_coordinator(
+        base_context,
+        deps,
+        workspace_name,
+        available_workspaces,
+        cwd,
+        sections,
+    );
 
-                if filtered.is_empty() {
-                    String::new()
-                } else {
-                    let mut lines = vec!["## Relevant Facts".to_string(), String::new()];
-                    for result in filtered {
-                        lines.push(format!("- {}", result.content));
-                    }
-                    lines.join("\n")
+    match coordinator.build(&session_ctx).await {
+        Ok(build_ctx) => {
+            let pipeline =
+                orka_prompts::pipeline::SystemPromptPipeline::from_config(&build_ctx.config);
+            match pipeline.build(&build_ctx).await {
+                Ok(prompt) => prompt,
+                Err(e) => {
+                    warn!(%e, "failed to build system prompt with pipeline, using fallback");
+                    format!(
+                        "You are {}.\n\n{}",
+                        agent.display_name, agent.system_prompt.persona
+                    )
                 }
             }
-            Err(e) => {
-                warn!(%e, "failed to retrieve semantic facts");
+        }
+        Err(e) => {
+            warn!(%e, "failed to build context with providers, using fallback");
+            format!(
+                "You are {}.\n\n{}",
+                agent.display_name, agent.system_prompt.persona
+            )
+        }
+    }
+}
+
+fn build_soft_skill_section(deps: &ExecutorDeps, trigger_text: &str) -> String {
+    let Some(ref soft_reg) = deps.soft_skills else {
+        return String::new();
+    };
+    if soft_reg.is_empty() {
+        return String::new();
+    }
+    let selected_names: Vec<&str> =
+        if soft_reg.selection_mode == orka_skills::SoftSkillSelectionMode::Keyword {
+            soft_reg.filter_by_message(trigger_text)
+        } else {
+            soft_reg.list()
+        };
+    soft_reg.build_prompt_section(&selected_names)
+}
+
+async fn build_facts_section(
+    deps: &ExecutorDeps,
+    trigger_text: &str,
+    workspace_name: &str,
+    ctx: &ExecutionContext,
+) -> String {
+    let Some(ref facts) = deps.facts else {
+        return String::new();
+    };
+    match facts.search(trigger_text, 8, Some(0.6), None).await {
+        Ok(results) => {
+            let filtered: Vec<_> = results
+                .into_iter()
+                .filter(|result| {
+                    match result.metadata.get("memory_scope").map(String::as_str) {
+                        Some("session") => result
+                            .metadata
+                            .get("session_id")
+                            .is_some_and(|sid| sid == &ctx.session_id.to_string()),
+                        Some("workspace") => result
+                            .metadata
+                            .get("workspace")
+                            .is_some_and(|ws| ws == workspace_name),
+                        Some("global") | None => true,
+                        Some(_) => false,
+                    }
+                })
+                .take(5)
+                .collect();
+            if filtered.is_empty() {
                 String::new()
+            } else {
+                let mut lines = vec!["## Relevant Facts".to_string(), String::new()];
+                for result in filtered {
+                    lines.push(format!("- {}", result.content));
+                }
+                lines.join("\n")
             }
         }
-    } else {
-        String::new()
-    };
-
-    // Get soft skill section
-    let soft_skill_section = if let Some(ref soft_reg) = deps.soft_skills {
-        if soft_reg.is_empty() {
+        Err(e) => {
+            warn!(%e, "failed to retrieve semantic facts");
             String::new()
-        } else {
-            let selected_names: Vec<&str> =
-                if soft_reg.selection_mode == orka_skills::SoftSkillSelectionMode::Keyword {
-                    soft_reg.filter_by_message(&trigger_text)
-                } else {
-                    soft_reg.list()
-                };
-            soft_reg.build_prompt_section(&selected_names)
         }
-    } else {
-        String::new()
-    };
+    }
+}
 
-    // Get shell commands context
-    let shell_commands = ctx
-        .trigger
+fn build_shell_commands_section(ctx: &ExecutionContext) -> String {
+    ctx.trigger
         .metadata
         .get("shell:recent_commands")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| format!("## Recent local shell commands\n{s}"))
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
 
-    // ── History summarization (HistoryStrategy::Summarize) ───────────────────
-    // Before building the system prompt we check if history truncation would
-    // occur.  If so, and if the agent uses the Summarize strategy, we call the
-    // LLM once to summarise the would-be-dropped turns and store the result in
-    // `ctx` so it can be injected into the system prompt and persisted across
-    // checkpoints.
-    if agent.history_strategy == HistoryStrategy::Summarize
-        && ctx.conversation_summary().await.is_none()
-        && let Some(ref llm_client) = deps.llm
-    {
-        {
-            let current_msgs = ctx.messages().await;
-            if !current_msgs.is_empty() {
-                let hint = TokenizerHint::from_model(agent.llm_config.model.as_deref());
-                // Use a conservative budget estimate (no tools/system yet).
-                let context_window = agent.llm_config.context_window.unwrap_or(200_000);
-                let output_budget = agent.llm_config.max_tokens.unwrap_or(4096);
-                let rough_budget = context_window.saturating_sub(output_budget);
-                let total: u32 = current_msgs
-                    .iter()
-                    .map(|m| orka_llm::context::estimate_message_tokens_with_hint(m, hint))
-                    .sum();
-                if total > rough_budget / 2 {
-                    // History is large enough that truncation is likely.
-                    // Summarise oldest half of turns.
-                    let turns = orka_llm::context::group_into_turns(&current_msgs);
-                    let cutoff = turns.len() / 2;
-                    if cutoff > 0 {
-                        let end = turns[cutoff - 1].end;
-                        let to_summarise = &current_msgs[..end];
-                        let summary_result =
-                            summarize_messages(llm_client.as_ref(), to_summarise).await;
-                        match summary_result {
-                            Ok(summary) => {
-                                debug!(
-                                    agent = %agent.id,
-                                    turns_summarized = cutoff,
-                                    "history.summarized"
-                                );
-                                ctx.set_conversation_summary(summary).await;
-                            }
-                            Err(e) => {
-                                warn!(%e, agent = %agent.id, "history summarization failed");
-                            }
-                        }
-                    }
-                }
-            }
-        }
+fn build_coordinator(
+    base_context: orka_prompts::context::BuildContext,
+    deps: &ExecutorDeps,
+    workspace_name: &str,
+    available_workspaces: &[String],
+    cwd: Option<&str>,
+    sections: std::collections::HashMap<String, String>,
+) -> orka_prompts::context::ContextCoordinator {
+    use orka_prompts::context::{
+        ContextCoordinator, ExperienceContextProvider, SectionsContextProvider,
+        ShellContextProvider, SoftSkillsContextProvider, WorkspaceProvider,
+    };
+
+    let mut coordinator = ContextCoordinator::new(base_context);
+
+    if let Some(ref exp) = deps.experience {
+        let adapter = crate::context_adapters::ExperienceServiceAdapter::new(Arc::clone(exp));
+        coordinator = coordinator.with_provider(Box::new(ExperienceContextProvider::new(
+            Arc::new(adapter),
+            workspace_name.to_string(),
+        )));
     }
 
-    // Build system prompt using context providers and pipeline
-    let mut system_prompt = {
-        use orka_prompts::{
-            context::{
-                ContextCoordinator, ExperienceContextProvider, SectionsContextProvider,
-                SessionContext, ShellContextProvider, SoftSkillsContextProvider, WorkspaceProvider,
-            },
-            pipeline::BuildContext,
-        };
+    if let Some(ref soft_reg) = deps.soft_skills {
+        let adapter =
+            crate::context_adapters::SoftSkillRegistryAdapter::new(Arc::clone(soft_reg));
+        let mode = crate::context_adapters::get_soft_skill_selection_mode(soft_reg);
+        coordinator = coordinator.with_provider(Box::new(SoftSkillsContextProvider::new(
+            Arc::new(adapter),
+            mode,
+        )));
+    }
 
-        // 1. Create base context using the unified BuildContext
-        let mut base_context = BuildContext::new(&agent.display_name)
-            .with_persona(&agent.system_prompt.persona)
-            .with_tool_instructions(&agent.system_prompt.tool_instructions)
-            .with_workspace(workspace_name, available_workspaces.clone())
-            .with_config(PipelineConfig::default());
+    coordinator = coordinator
+        .with_provider(Box::new(WorkspaceProvider::new(
+            available_workspaces.to_vec(),
+        )))
+        .with_provider(Box::new(ShellContextProvider::new()));
 
-        if let Some(cwd_val) = cwd.clone() {
-            base_context = base_context.with_cwd(cwd_val);
-        }
-        if !principles.is_empty() {
-            base_context = base_context.with_principles(principles);
-        }
-        if let Some(ref registry) = deps.templates {
-            base_context = base_context.with_templates(Arc::clone(registry));
-        }
-        if let Some(summary) = ctx.conversation_summary().await {
-            base_context = base_context.with_summary(summary);
-        }
+    let mut all_sections = sections;
+    if let Some(coding_runtime) = &deps.coding_runtime {
+        all_sections.insert(
+            "coding_runtime".to_string(),
+            coding_runtime.render_prompt_section(cwd),
+        );
+    }
+    if !all_sections.is_empty() {
+        coordinator =
+            coordinator.with_provider(Box::new(SectionsContextProvider::new(all_sections)));
+    }
 
-        // 2. Create session context
-        let session_ctx = SessionContext {
-            session_id: ctx.session_id.to_string(),
-            workspace: workspace_name.to_string(),
-            user_message: trigger_text.clone(),
-            cwd: cwd.clone(),
-            recent_commands: vec![],
-            metadata: ctx.trigger.metadata.clone(),
-        };
+    coordinator
+}
 
-        // 3. Configure coordinator with providers
-        let mut coordinator = ContextCoordinator::new(base_context);
-
-        // Add experience provider if available
-        if let Some(ref exp) = deps.experience {
-            let adapter = crate::context_adapters::ExperienceServiceAdapter::new(Arc::clone(exp));
-            coordinator = coordinator.with_provider(Box::new(ExperienceContextProvider::new(
-                Arc::new(adapter),
-                workspace_name.to_string(),
-            )));
-        }
-
-        // Add soft skills provider if available
-        if let Some(ref soft_reg) = deps.soft_skills {
-            let adapter =
-                crate::context_adapters::SoftSkillRegistryAdapter::new(Arc::clone(soft_reg));
-            let mode = crate::context_adapters::get_soft_skill_selection_mode(soft_reg);
-            coordinator = coordinator.with_provider(Box::new(SoftSkillsContextProvider::new(
-                Arc::new(adapter),
-                mode,
-            )));
-        }
-
-        // Add workspace and shell providers
-        coordinator = coordinator
-            .with_provider(Box::new(WorkspaceProvider::new(
-                available_workspaces.clone(),
-            )))
-            .with_provider(Box::new(ShellContextProvider::new()));
-
-        // Add dynamic sections provider for soft skills and shell commands
-        let mut sections = std::collections::HashMap::new();
-        if !soft_skill_section.is_empty() {
-            sections.insert("soft_skills".to_string(), soft_skill_section);
-        }
-        if !relevant_facts_section.is_empty() {
-            sections.insert("relevant_facts".to_string(), relevant_facts_section);
-        }
-        if !shell_commands.is_empty() {
-            sections.insert("shell_commands".to_string(), shell_commands);
-        }
-        if let Some(coding_runtime) = &deps.coding_runtime {
-            let user_cwd = ctx
-                .trigger
-                .metadata
-                .get("workspace:cwd")
-                .and_then(|value| value.as_str());
-            sections.insert(
-                "coding_runtime".to_string(),
-                coding_runtime.render_prompt_section(user_cwd),
-            );
-        }
-        if !sections.is_empty() {
-            coordinator =
-                coordinator.with_provider(Box::new(SectionsContextProvider::new(sections)));
-        }
-
-        // 4. Build context and render prompt
-        match coordinator.build(&session_ctx).await {
-            Ok(build_ctx) => {
-                let pipeline =
-                    orka_prompts::pipeline::SystemPromptPipeline::from_config(&build_ctx.config);
-                match pipeline.build(&build_ctx).await {
-                    Ok(prompt) => prompt,
-                    Err(e) => {
-                        warn!(%e, "failed to build system prompt with pipeline, using fallback");
-                        format!(
-                            "You are {}.\n\n{}",
-                            agent.display_name, agent.system_prompt.persona
-                        )
-                    }
-                }
-            }
-            Err(e) => {
-                warn!(%e, "failed to build context with providers, using fallback");
-                format!(
-                    "You are {}.\n\n{}",
-                    agent.display_name, agent.system_prompt.persona
-                )
-            }
-        }
+async fn load_history(agent: &Agent, ctx: &ExecutionContext) -> Vec<ChatMessage> {
+    use orka_core::config::HistoryFilter;
+    let raw = ctx.messages().await;
+    let filtered = match (agent.history_filter, agent.history_filter_n) {
+        (HistoryFilter::None, _) => Vec::new(),
+        (HistoryFilter::LastN, Some(n)) if raw.len() > n => raw[raw.len() - n..].to_vec(),
+        _ => raw,
     };
-
-    let mut options = CompletionOptions::default();
-    options.model = agent.llm_config.model.clone();
-    options.max_tokens = agent.llm_config.max_tokens;
-    options.temperature = agent.llm_config.temperature;
-    options.thinking = agent.llm_config.thinking.clone();
-
-    let context_window = agent.llm_config.context_window.unwrap_or(200_000);
-    let output_budget = agent.llm_config.max_tokens.unwrap_or(4096);
-
-    let max_tool_retries: u32 = 2;
-    let mut tool_error_counts: HashMap<String, u32> = HashMap::new();
-    let max_result_chars: usize = agent.tool_result_max_chars;
-    let skill_timeout = std::time::Duration::from_secs(agent.skill_timeout_secs);
-
-    let mut messages = {
-        use orka_core::config::HistoryFilter;
-        let raw = ctx.messages().await;
-        match (agent.history_filter, agent.history_filter_n) {
-            (HistoryFilter::None, _) => Vec::new(),
-            (HistoryFilter::LastN, Some(n)) if raw.len() > n => raw[raw.len() - n..].to_vec(),
-            _ => raw,
-        }
-    };
-    let (sanitized_messages, removed_tool_results) = sanitize_tool_result_history(messages);
-    messages = sanitized_messages;
-    if removed_tool_results > 0 {
+    let (sanitized, removed) = sanitize_tool_result_history(filtered);
+    if removed > 0 {
         warn!(
             agent = %agent.id,
-            removed_tool_results,
+            removed_tool_results = removed,
             "dropped orphaned tool_result blocks before agent execution"
         );
     }
-    // Input guardrail: check the trigger text before entering the LLM loop.
-    // A Block terminates this node immediately; Modify replaces the trigger.
-    if let Some(ref guardrail) = deps.guardrail {
-        use orka_core::traits::GuardrailDecision;
-        let session = orka_core::Session::new(&ctx.trigger.channel, "");
-        match guardrail.check_input(&trigger_text, &session).await {
-            Ok(GuardrailDecision::Block(reason)) => {
-                warn!(agent = %agent.id, %reason, "input blocked by guardrail");
-                return Ok(AgentNodeResult {
-                    response: Some(format!("Input blocked: {reason}")),
-                    handoff: None,
-                    iterations: 0,
-                    interrupted: None,
-                    attachments: Vec::new(),
-                    stop_reason: orka_core::stream::AgentStopReason::Error,
-                });
-            }
-            Ok(GuardrailDecision::Modify(filtered)) => {
-                // Swap the last user message with the filtered version
-                if let Some(last) = messages.last_mut()
-                    && matches!(last.role, orka_llm::client::Role::User)
-                {
-                    *last = orka_llm::client::ChatMessage::user(filtered);
-                }
-            }
-            _ => {}
-        }
-    }
+    sanitized
+}
 
-    // ── PlanningMode::Always — eager plan generation ──────────────────────────
-    // Before the first iteration, generate a structured plan via a dedicated
-    // LLM call and inject it into the system prompt.  Skip if a plan is
-    // already stored in context (e.g. resumed from checkpoint).
-    if agent.planning_mode == PlanningMode::Always
-        && ctx.get(&SlotKey::shared(PLAN_SLOT)).await.is_none()
-        && let Some(ref llm_client) = deps.llm
-    {
-        let plan_result: orka_core::Result<Plan> =
-            generate_plan(llm_client.as_ref(), &trigger_text, &messages).await;
-        match plan_result {
-            Ok(plan) => {
-                let plan_section = format!("\n\n## Task Plan\n{}", plan.display_summary());
-                system_prompt.push_str(&plan_section);
-                if let Ok(plan_json) = serde_json::to_value(&plan) {
-                    ctx.set(&agent.id, SlotKey::shared(PLAN_SLOT), plan_json)
-                        .await;
-                }
-                debug!(agent = %agent.id, steps = plan.steps.len(), "always plan generated");
-            }
-            Err(e) => {
-                warn!(%e, agent = %agent.id, "PlanningMode::Always plan generation failed, continuing without plan");
-            }
-        }
-    }
-
-    let mut iterations = 0usize;
-    let mut tool_turns = 0usize;
-    let mut final_response: Option<String> = None;
-    let mut handoff: Option<Handoff> = None;
-    let mut stop_reason = orka_core::stream::AgentStopReason::Complete;
-    // Accumulated media attachments from all skill invocations in this node.
-    let mut collected_attachments: Vec<MediaPayload> = Vec::new();
-    // Active worktree path for this agent run. Set when `git_worktree_create`
-    // succeeds; cleared when `git_worktree_remove` is called.  Propagated into
-    // every `SkillContext` so tools operate inside the worktree automatically.
-    let mut worktree_cwd: Option<String> = None;
-
-    loop {
-        let iteration = iterations;
-        iterations += 1;
-        let iteration_start = std::time::Instant::now();
-
-        let (sanitized_messages, removed_tool_results) = sanitize_tool_result_history(messages);
-        messages = sanitized_messages;
-        if removed_tool_results > 0 {
-            warn!(
-                agent = %agent.id,
-                iteration,
-                removed_tool_results,
-                "dropped orphaned tool_result blocks before llm call"
-            );
-        }
-
-        // B1: Rebuild tool list from enabled categories each iteration
-        if progressive {
-            tools.clear();
-            tools.extend(synthetic_tools());
-            tools.extend(build_skill_tools(&enabled_categories));
-            tools.extend(handoff_tools.clone());
-            tools.extend(plan_tools.clone());
-        }
-
-        // Truncate history to fit context window
-        let hint = TokenizerHint::from_model(agent.llm_config.model.as_deref());
-        if let HistoryStrategy::RollingWindow { recent_turns } = agent.history_strategy {
-            // Keep only the last `recent_turns` conversation turns; summarize
-            // the dropped ones incrementally so context is not silently lost.
-            let turns = orka_llm::context::group_into_turns(&messages);
-            if turns.len() > recent_turns {
-                let cutoff = turns.len() - recent_turns;
-                let drop_end = turns[cutoff - 1].end;
-                let to_drop = messages[..drop_end].to_vec();
-                if let Some(ref llm_client) = deps.llm
-                    && let Ok(summary) = summarize_messages(llm_client.as_ref(), &to_drop).await
-                {
-                    ctx.set_conversation_summary(summary).await;
-                }
-                let dropped = drop_end;
-                messages = messages[drop_end..].to_vec();
-                warn!(
-                    dropped,
-                    remaining = messages.len(),
-                    recent_turns,
-                    "rolling window: trimmed history"
-                );
-                let history_tokens: u32 = messages
-                    .iter()
-                    .map(|m| estimate_message_tokens_with_hint(m, hint))
-                    .sum();
-                deps.stream_registry
-                    .send(orka_core::stream::StreamChunk::new(
-                        ctx.session_id,
-                        envelope.channel.clone(),
-                        Some(envelope.id),
-                        orka_core::stream::StreamChunkKind::ContextInfo {
-                            history_tokens,
-                            context_window,
-                            messages_truncated: dropped as u32,
-                            summary_generated: true,
-                        },
-                    ));
-            }
-        } else {
-            let budget = available_history_budget_with_hint(
-                context_window,
-                output_budget,
-                &system_prompt,
-                &tools,
-                hint,
-            );
-            let (truncated, dropped) = truncate_history_with_hint(messages, budget, hint, true);
-            messages = truncated;
-            if dropped > 0 {
-                warn!(
-                    dropped,
-                    remaining = messages.len(),
-                    "truncated history to fit context window"
-                );
-                let history_tokens: u32 = messages
-                    .iter()
-                    .map(|m| estimate_message_tokens_with_hint(m, hint))
-                    .sum();
-                deps.stream_registry
-                    .send(orka_core::stream::StreamChunk::new(
-                        ctx.session_id,
-                        envelope.channel.clone(),
-                        Some(envelope.id),
-                        orka_core::stream::StreamChunkKind::ContextInfo {
-                            history_tokens,
-                            context_window,
-                            messages_truncated: dropped as u32,
-                            summary_generated: false,
-                        },
-                    ));
-            }
-        }
-
-        let llm_span = info_span!(
-            "llm.call",
-            agent_id = %agent.id,
-            iteration,
-            model = %agent.llm_config.model.as_deref().unwrap_or("default"),
-        );
-
-        let llm_start = std::time::Instant::now();
-
-        let stream = match llm
-            .complete_stream_with_tools(&messages, &system_prompt, &tools, options.clone())
-            .instrument(llm_span.clone())
-            .await
-        {
-            Ok(s) => s,
-            Err(e) => {
-                warn!(%e, "LLM stream init failed");
-                final_response = Some(format!("LLM request failed: {e}"));
-                stop_reason = orka_core::stream::AgentStopReason::Error;
-                break;
-            }
-        };
-
-        let completion = match consume_stream(
-            stream,
-            &ctx.session_id,
-            &deps.stream_registry,
-            &envelope.channel,
-            Some(&envelope.id),
-        )
-        .instrument(llm_span)
-        .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                warn!(%e, "LLM stream failed");
-                final_response = Some(format!("LLM request failed: {e}"));
-                stop_reason = orka_core::stream::AgentStopReason::Error;
-                break;
-            }
-        };
-
-        if completion.stop_reason == Some(orka_llm::client::StopReason::MaxTokens) {
-            warn!("LLM response truncated (max_tokens reached)");
-            stop_reason = orka_core::stream::AgentStopReason::MaxTokens;
-        }
-
-        let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
-        let iteration_tokens =
-            u64::from(completion.usage.input_tokens + completion.usage.output_tokens);
-        ctx.add_tokens(iteration_tokens);
-
-        let llm_model = agent
-            .llm_config
-            .model
-            .clone()
-            .unwrap_or_else(|| "default".into());
-
-        deps.event_sink
-            .emit(DomainEvent::new(DomainEventKind::LlmCompleted {
-                message_id,
-                model: llm_model.clone(),
-                provider: infer_provider(&llm_model),
-                input_tokens: completion.usage.input_tokens,
-                output_tokens: completion.usage.output_tokens,
-                reasoning_tokens: completion.usage.reasoning_tokens,
-                duration_ms: llm_duration_ms,
-                estimated_cost_usd: None,
-            }))
-            .await;
-
-        deps.stream_registry
-            .send(orka_core::stream::StreamChunk::new(
-                ctx.session_id,
-                envelope.channel.clone(),
-                Some(envelope.id),
-                orka_core::stream::StreamChunkKind::Usage {
-                    input_tokens: completion.usage.input_tokens,
-                    output_tokens: completion.usage.output_tokens,
-                    cache_read_tokens: (completion.usage.cache_read_input_tokens > 0)
-                        .then_some(completion.usage.cache_read_input_tokens),
-                    cache_creation_tokens: (completion.usage.cache_creation_input_tokens > 0)
-                        .then_some(completion.usage.cache_creation_input_tokens),
-                    reasoning_tokens: (completion.usage.reasoning_tokens > 0)
-                        .then_some(completion.usage.reasoning_tokens),
-                    model: llm_model,
-                    cost_usd: None,
-                },
-            ));
-
-        // Parse response — separate thinking, text, and tool calls
-        let mut thinking_text = String::new();
-        let mut response_text = String::new();
-        let mut tool_calls: Vec<ToolCall> = Vec::new();
-
-        for block in &completion.blocks {
-            match block {
-                ContentBlock::Thinking(t) => thinking_text.push_str(t),
-                ContentBlock::Text(t) => response_text.push_str(t),
-                ContentBlock::ToolUse(call) => tool_calls.push(call.clone()),
-                _ => debug!("unhandled content block"),
-            }
-        }
-
-        // Emit AgentReasoning only when extended thinking produced content
-        if !thinking_text.is_empty() {
-            deps.event_sink
-                .emit(DomainEvent::new(DomainEventKind::AgentReasoning {
-                    message_id,
-                    iteration,
-                    reasoning_text: thinking_text,
-                }))
-                .await;
-        }
-
-        // Check for handoff tool calls first
-        let mut handoff_call: Option<ToolCall> = None;
-        let mut regular_calls: Vec<ToolCall> = Vec::new();
-
-        for call in tool_calls {
-            if call.name == "transfer_to_agent" || call.name == "delegate_to_agent" {
-                handoff_call = Some(call);
-            } else {
-                regular_calls.push(call);
-            }
-        }
-
-        if regular_calls.is_empty() && handoff_call.is_none() {
-            // No tool calls — final response
-            messages.push(ChatMessage::assistant(response_text.clone()));
-            final_response = Some(response_text);
-
-            deps.event_sink
-                .emit(DomainEvent::new(DomainEventKind::AgentIteration {
-                    message_id,
-                    iteration,
-                    tool_count: 0,
-                    tokens_used: iteration_tokens,
-                    elapsed_ms: iteration_start.elapsed().as_millis() as u64,
-                }))
-                .await;
-            break;
-        }
-
-        if let Some(ref hc) = handoff_call {
-            let h = parse_handoff(&agent.id, hc);
-            info!(from = %agent.id, to = %h.to, mode = ?h.mode, "agent handoff");
-            handoff = Some(h);
-
-            // Push the assistant message with the handoff tool call
-            let mut blocks = Vec::new();
-            if !response_text.is_empty() {
-                blocks.push(ContentBlockInput::Text {
-                    text: response_text,
-                });
-            }
-            blocks.push(ContentBlockInput::ToolUse {
-                id: hc.id.clone(),
-                name: hc.name.clone(),
-                input: hc.input.clone(),
-            });
-            if !blocks.is_empty() {
-                messages.push(ChatMessage::new(
-                    orka_llm::client::Role::Assistant,
-                    ChatContent::Blocks(blocks),
-                ));
-            }
-            break;
-        }
-
-        // Execute regular tool calls in parallel
-        {
-            let mut blocks = Vec::new();
-            if !response_text.is_empty() {
-                blocks.push(ContentBlockInput::Text {
-                    text: response_text,
-                });
-            }
-            for call in &regular_calls {
-                blocks.push(ContentBlockInput::ToolUse {
-                    id: call.id.clone(),
-                    name: call.name.clone(),
-                    input: call.input.clone(),
-                });
-            }
-            messages.push(ChatMessage::new(
-                orka_llm::client::Role::Assistant,
-                ChatContent::Blocks(blocks),
-            ));
-        }
-
-        // B1: Intercept synthetic progressive-disclosure tool calls before skill
-        // dispatch
-        let mut results_map: HashMap<String, (String, bool)> = HashMap::new();
-        let mut skill_calls: Vec<&ToolCall> = Vec::new();
-
-        for call in &regular_calls {
-            if call.name == "create_plan" || call.name == "update_plan_step" {
-                let result: (String, bool) = match call.name.as_str() {
-                    "create_plan" => {
-                        let goal = call
-                            .input
-                            .get("goal")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let steps: Vec<PlanStep> = call
-                            .input
-                            .get("steps")
-                            .and_then(|v| v.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|s| {
-                                        let id = s.get("id")?.as_str()?.to_string();
-                                        let description =
-                                            s.get("description")?.as_str()?.to_string();
-                                        Some(PlanStep {
-                                            id,
-                                            description,
-                                            status: StepStatus::Pending,
-                                        })
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-
-                        let plan = Plan { goal, steps };
-                        let summary = plan.display_summary();
-                        if let Ok(json) = serde_json::to_value(&plan) {
-                            ctx.set(&agent.id, SlotKey::shared(PLAN_SLOT), json).await;
-                        }
-                        (format!("Plan created.\n{summary}"), false)
-                    }
-                    "update_plan_step" => {
-                        let step_id = call
-                            .input
-                            .get("step_id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let status_str = call
-                            .input
-                            .get("status")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("completed");
-                        let summary = call
-                            .input
-                            .get("summary")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-
-                        // Load current plan from state, update step, save back.
-                        let plan_key = SlotKey::shared(PLAN_SLOT);
-                        let updated = if let Some(json) = ctx.get(&plan_key).await {
-                            match serde_json::from_value::<Plan>(json) {
-                                Ok(mut plan) => {
-                                    if let Some(step) =
-                                        plan.steps.iter_mut().find(|s| s.id == step_id)
-                                    {
-                                        step.status = match status_str {
-                                            "in_progress" => StepStatus::InProgress,
-                                            "failed" => StepStatus::Failed { summary },
-                                            "skipped" => StepStatus::Skipped { summary },
-                                            _ => StepStatus::Completed { summary },
-                                        };
-                                    }
-                                    let s = plan.display_summary();
-                                    if let Ok(json) = serde_json::to_value(&plan) {
-                                        ctx.set(&agent.id, plan_key, json).await;
-                                    }
-                                    s
-                                }
-                                Err(_) => "Error: plan data is corrupt.".to_string(),
-                            }
-                        } else {
-                            "Error: no active plan. Call create_plan first.".to_string()
-                        };
-                        (updated, false)
-                    }
-                    other => {
-                        tracing::warn!(call_name = %other, "unexpected plan-related tool call — skipped");
-                        (format!("Error: unrecognized plan call '{other}'"), true)
-                    }
-                };
-                results_map.insert(call.id.clone(), result);
-            } else if progressive
-                && (call.name == "list_tool_categories" || call.name == "enable_tools")
-            {
-                let result = match call.name.as_str() {
-                    "list_tool_categories" => {
-                        let categories = deps.skills.list_by_category();
-                        (
-                            serde_json::to_string_pretty(&categories).unwrap_or_default(),
-                            false,
-                        )
-                    }
-                    "enable_tools" => {
-                        let cat = call
-                            .input
-                            .get("category")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        if cat.is_empty() {
-                            ("Error: 'category' parameter is required".to_string(), true)
-                        } else {
-                            enabled_categories.insert(cat.clone());
-                            (format!("Tools in category '{cat}' are now enabled."), false)
-                        }
-                    }
-                    other => {
-                        tracing::warn!(call_name = %other, "unexpected progressive tool call — skipped");
-                        (
-                            format!("Error: unrecognized progressive call '{other}'"),
-                            true,
-                        )
-                    }
-                };
-                results_map.insert(call.id.clone(), result);
-            } else {
-                skill_calls.push(call);
-            }
-        }
-
-        // HITL: if any pending skill call requires human approval, interrupt
-        // before running *any* tool in this batch.
-        if let Some(call) = skill_calls
-            .iter()
-            .find(|c| agent.interrupt_before_tools.contains(&c.name))
-        {
-            let reason = orka_checkpoint::InterruptReason::HumanApproval {
-                tool_name: call.name.clone(),
-                tool_input: call.input.clone(),
-                agent_id: agent.id.to_string(),
-            };
-            return Ok(AgentNodeResult {
-                response: None,
+/// Check if input is blocked by guardrail. Returns `Some(result)` if blocked.
+async fn check_input_guardrail(
+    agent: &Agent,
+    ctx: &ExecutionContext,
+    deps: &ExecutorDeps,
+    trigger_text: &str,
+) -> Option<AgentNodeResult> {
+    let guardrail = deps.guardrail.as_ref()?;
+    let session = orka_core::Session::new(&ctx.trigger.channel, "");
+    match guardrail.check_input(trigger_text, &session).await {
+        Ok(GuardrailDecision::Block(reason)) => {
+            warn!(agent = %agent.id, %reason, "input blocked by guardrail");
+            Some(AgentNodeResult {
+                response: Some(format!("Input blocked: {reason}")),
                 handoff: None,
-                iterations,
-                interrupted: Some(reason),
+                iterations: 0,
+                interrupted: None,
                 attachments: Vec::new(),
-                stop_reason: orka_core::stream::AgentStopReason::Interrupted,
-            });
-        }
-
-        let mut join_set = tokio::task::JoinSet::new();
-
-        for call in &skill_calls {
-            // Tool-input guardrail: check serialized args before execution.
-            // Blocked calls return an error result to the LLM without execution.
-            // `modified_input` holds a guardrail-replaced value when `Modify` is returned.
-            let mut modified_input: Option<serde_json::Value> = None;
-            if let Some(ref guardrail) = deps.guardrail {
-                use orka_core::traits::GuardrailDecision;
-                let session = orka_core::Session::new(&ctx.trigger.channel, "");
-                let input_json = call.input.to_string();
-                match guardrail.check_input(&input_json, &session).await {
-                    Ok(GuardrailDecision::Block(reason)) => {
-                        warn!(skill = %call.name, %reason, "tool input blocked by guardrail");
-                        results_map.insert(
-                            call.id.clone(),
-                            (format!("Tool input blocked by guardrail: {reason}"), true),
-                        );
-                        continue;
-                    }
-                    Ok(GuardrailDecision::Modify(modified)) => {
-                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&modified) {
-                            modified_input = Some(v);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            let call_id = call.id.clone();
-            let call_name = call.name.clone();
-            let call_input = modified_input.unwrap_or_else(|| call.input.clone());
-            let skills = deps.skills.clone();
-            let event_sink = deps.event_sink.clone();
-            let secrets = deps.secrets.clone();
-            let skill_max_output_bytes = agent.skill_max_output_bytes;
-            let skill_max_duration_ms = agent.skill_max_duration_ms;
-
-            deps.event_sink
-                .emit(DomainEvent::new(DomainEventKind::SkillInvoked {
-                    skill_name: call.name.clone(),
-                    message_id,
-                    input_args: match &call.input {
-                        serde_json::Value::Object(map) => {
-                            map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-                        }
-                        _ => HashMap::new(),
-                    },
-                    caller_id: None,
-                }))
-                .await;
-
-            let user_cwd = ctx
-                .trigger
-                .metadata
-                .get("workspace:cwd")
-                .and_then(|v| v.as_str())
-                .map(String::from);
-            let worktree_cwd_for_task = worktree_cwd.clone();
-
-            // For coding_delegate on non-custom channels, spawn a progress
-            // bridge that forwards significant events to the originating chat.
-            let progress_tx_for_spawn = if call_name == "coding_delegate"
-                && ctx.trigger.channel != "custom"
-            {
-                if let Some(ref bus) = deps.bus {
-                    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                    let bridge_config = orka_core::progress_bridge::ProgressBridgeConfig::default();
-                    tokio::spawn(orka_core::progress_bridge::forward_progress_to_chat(
-                        rx,
-                        bus.clone(),
-                        ctx.trigger.channel.clone(),
-                        ctx.session_id,
-                        ctx.trigger.metadata.clone(),
-                        ctx.trigger.id,
-                        bridge_config,
-                    ));
-                    Some(tx)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            join_set.spawn(async move {
-                let args: HashMap<String, serde_json::Value> = match call_input {
-                    serde_json::Value::Object(map) => map.into_iter().collect(),
-                    _ => HashMap::new(),
-                };
-
-                let start = std::time::Instant::now();
-                let mut skill_ctx = orka_core::SkillContext::new(secrets, Some(event_sink.clone()))
-                    .with_user_cwd(user_cwd)
-                    .with_worktree_cwd(worktree_cwd_for_task);
-                if skill_max_output_bytes.is_some() || skill_max_duration_ms.is_some() {
-                    skill_ctx = skill_ctx.with_budget(orka_core::SkillBudget {
-                        max_duration_ms: skill_max_duration_ms,
-                        max_output_bytes: skill_max_output_bytes,
-                    });
-                }
-                if let Some(tx) = progress_tx_for_spawn {
-                    skill_ctx = skill_ctx.with_progress(tx);
-                }
-                let skill_input = SkillInput::new(args).with_context(skill_ctx);
-
-                let result = match tokio::time::timeout(
-                    skill_timeout,
-                    skills.invoke(&call_name, skill_input),
-                )
-                .await
-                {
-                    Ok(r) => r,
-                    Err(_) => Err(orka_core::Error::Skill(format!(
-                        "skill '{call_name}' timed out after {}s",
-                        skill_timeout.as_secs()
-                    ))),
-                };
-
-                let duration_ms = start.elapsed().as_millis() as u64;
-
-                let error_category = match &result {
-                    Err(e) => Some(e.category()),
-                    Ok(_) => None,
-                };
-                let task_attachments: Vec<MediaPayload> = match &result {
-                    Ok(output) => output.attachments.clone(),
-                    Err(_) => Vec::new(),
-                };
-                let (content, is_error) = match &result {
-                    Ok(output) => {
-                        let raw = output.data.to_string();
-                        (truncate_tool_result(&raw, max_result_chars), false)
-                    }
-                    Err(e) => (format!("Error: {e}"), true),
-                };
-
-                let output_preview = match &result {
-                    Ok(output) => {
-                        let s = output.data.to_string();
-                        Some(s.chars().take(1024).collect::<String>())
-                    }
-                    Err(_) => None,
-                };
-                let error_message = match &result {
-                    Err(e) => Some(e.to_string()),
-                    Ok(_) => None,
-                };
-
-                event_sink
-                    .emit(DomainEvent::new(DomainEventKind::SkillCompleted {
-                        skill_name: call_name,
-                        message_id,
-                        duration_ms,
-                        success: !is_error,
-                        error_category,
-                        output_preview,
-                        error_message,
-                    }))
-                    .await;
-
-                (call_id, content, is_error, task_attachments)
-            });
-        }
-
-        while let Some(res) = join_set.join_next().await {
-            if let Ok((call_id, content, is_error, attachments)) = res {
-                results_map.insert(call_id, (content, is_error));
-                collected_attachments.extend(attachments);
-            }
-        }
-
-        // Update worktree context based on successful worktree skill calls.
-        // This enables all subsequent skill calls (coding_delegate, shell_exec,
-        // git_*) to automatically operate inside the correct worktree.
-        for call in &regular_calls {
-            if let Some((content, false)) = results_map.get(&call.id) {
-                match call.name.as_str() {
-                    "git_worktree_create" => {
-                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(content)
-                            && let Some(path) = v.get("path").and_then(|p| p.as_str())
-                        {
-                            worktree_cwd = Some(path.to_string());
-                            debug!(worktree_path = path, "worktree context activated");
-                        }
-                    }
-                    "git_worktree_remove" => {
-                        worktree_cwd = None;
-                        debug!("worktree context cleared");
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        // Build result blocks in original order
-        let mut result_blocks: Vec<ContentBlockInput> = regular_calls
-            .iter()
-            .map(|call| {
-                let (content, is_error) = results_map
-                    .remove(&call.id)
-                    .unwrap_or_else(|| ("Error: task failed".to_string(), true));
-                ContentBlockInput::ToolResult {
-                    tool_use_id: call.id.clone(),
-                    content,
-                    is_error,
-                }
+                stop_reason: orka_core::stream::AgentStopReason::Error,
             })
-            .collect();
+        }
+        _ => None,
+    }
+}
 
-        // Track errors and inject self-correction hints
-        for (block, call) in result_blocks.iter().zip(regular_calls.iter()) {
-            if let ContentBlockInput::ToolResult { is_error, .. } = block {
-                if *is_error {
-                    let count = tool_error_counts.entry(call.name.clone()).or_insert(0);
-                    *count += 1;
-                } else {
-                    tool_error_counts.remove(&call.name);
-                }
+/// Apply guardrail modification to the last user message (Modify decision only).
+async fn apply_input_guardrail_modify(
+    deps: &ExecutorDeps,
+    ctx: &ExecutionContext,
+    trigger_text: &str,
+    mut messages: Vec<ChatMessage>,
+) -> Vec<ChatMessage> {
+    let Some(ref guardrail) = deps.guardrail else {
+        return messages;
+    };
+    let session = orka_core::Session::new(&ctx.trigger.channel, "");
+    if let Ok(GuardrailDecision::Modify(filtered)) =
+        guardrail.check_input(trigger_text, &session).await
+        && let Some(last) = messages.last_mut()
+        && matches!(last.role, orka_llm::client::Role::User)
+    {
+        *last = orka_llm::client::ChatMessage::user(filtered);
+    }
+    messages
+}
+
+async fn maybe_generate_plan(
+    agent: &Agent,
+    ctx: &ExecutionContext,
+    deps: &ExecutorDeps,
+    trigger_text: &str,
+    mut system_prompt: String,
+) -> String {
+    if agent.planning_mode != PlanningMode::Always {
+        return system_prompt;
+    }
+    if ctx.get(&SlotKey::shared(PLAN_SLOT)).await.is_some() {
+        return system_prompt;
+    }
+    let Some(ref llm_client) = deps.llm else {
+        return system_prompt;
+    };
+    // Load messages for plan context
+    let messages = ctx.messages().await;
+    match generate_plan(llm_client.as_ref(), trigger_text, &messages).await {
+        Ok(plan) => {
+            let plan_section = format!("\n\n## Task Plan\n{}", plan.display_summary());
+            system_prompt.push_str(&plan_section);
+            if let Ok(plan_json) = serde_json::to_value(&plan) {
+                ctx.set(&agent.id, SlotKey::shared(PLAN_SLOT), plan_json)
+                    .await;
             }
+            debug!(agent = %agent.id, steps = plan.steps.len(), "always plan generated");
         }
-
-        if let Some(hint) = build_tool_error_hint(&tool_error_counts, max_tool_retries) {
-            result_blocks.push(ContentBlockInput::Text { text: hint });
+        Err(e) => {
+            warn!(%e, agent = %agent.id, "PlanningMode::Always plan generation failed, continuing without plan");
         }
+    }
+    system_prompt
+}
 
-        messages.push(ChatMessage::new(
-            orka_llm::client::Role::User,
-            ChatContent::Blocks(result_blocks),
-        ));
+async fn parse_completion_blocks(
+    agent: &Agent,
+    deps: &ExecutorDeps,
+    completion: &CompletionResponse,
+    message_id: orka_core::types::MessageId,
+) -> (String, Vec<ToolCall>) {
+    let mut thinking_text = String::new();
+    let mut response_text = String::new();
+    let mut tool_calls: Vec<ToolCall> = Vec::new();
 
-        deps.event_sink
-            .emit(DomainEvent::new(DomainEventKind::AgentIteration {
-                message_id,
-                iteration,
-                tool_count: regular_calls.len(),
-                tokens_used: iteration_tokens,
-                elapsed_ms: iteration_start.elapsed().as_millis() as u64,
-            }))
-            .await;
-
-        tool_turns += 1;
-        if tool_turns >= agent.max_turns {
-            warn!(max_turns = agent.max_turns, "agent reached max tool turns");
-            stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
-            break;
+    for block in &completion.blocks {
+        match block {
+            ContentBlock::Thinking(t) => thinking_text.push_str(t),
+            ContentBlock::Text(t) => response_text.push_str(t),
+            ContentBlock::ToolUse(call) => tool_calls.push(call.clone()),
+            _ => debug!("unhandled content block"),
         }
     }
 
-    ctx.set_messages(messages).await;
+    if !thinking_text.is_empty() {
+        deps.event_sink
+            .emit(DomainEvent::new(DomainEventKind::AgentReasoning {
+                message_id,
+                iteration: 0,
+                reasoning_text: thinking_text,
+            }))
+            .await;
+    }
+    let _ = agent;
+    (response_text, tool_calls)
+}
 
-    // Output guardrail: filter the final text response before returning.
-    let final_response = match (final_response, &deps.guardrail) {
-        (Some(text), Some(guardrail)) => {
-            use orka_core::traits::GuardrailDecision;
-            let session = orka_core::Session::new(&ctx.trigger.channel, "");
-            match guardrail.check_output(&text, &session).await {
-                Ok(GuardrailDecision::Allow) | Err(_) => Some(text),
-                Ok(GuardrailDecision::Block(reason)) => {
-                    warn!(agent = %agent.id, %reason, "output blocked by guardrail");
-                    Some(format!("Response blocked by content policy: {reason}"))
+async fn emit_llm_completed_event(
+    deps: &ExecutorDeps,
+    agent: &Agent,
+    message_id: orka_core::types::MessageId,
+    completion: &CompletionResponse,
+    llm_duration_ms: u64,
+) -> String {
+    let llm_model = agent
+        .llm_config
+        .model
+        .clone()
+        .unwrap_or_else(|| "default".into());
+    deps.event_sink
+        .emit(DomainEvent::new(DomainEventKind::LlmCompleted {
+            message_id,
+            model: llm_model.clone(),
+            provider: infer_provider(&llm_model),
+            input_tokens: completion.usage.input_tokens,
+            output_tokens: completion.usage.output_tokens,
+            reasoning_tokens: completion.usage.reasoning_tokens,
+            duration_ms: llm_duration_ms,
+            estimated_cost_usd: None,
+        }))
+        .await;
+    llm_model
+}
+
+async fn emit_iteration_event(
+    deps: &ExecutorDeps,
+    message_id: orka_core::types::MessageId,
+    iteration: usize,
+    tool_count: usize,
+    tokens_used: u64,
+    start: &std::time::Instant,
+) {
+    deps.event_sink
+        .emit(DomainEvent::new(DomainEventKind::AgentIteration {
+            message_id,
+            iteration,
+            tool_count,
+            tokens_used,
+            elapsed_ms: start.elapsed().as_millis() as u64,
+        }))
+        .await;
+}
+
+fn push_handoff_assistant_message(
+    messages: &mut Vec<ChatMessage>,
+    response_text: &str,
+    hc: &ToolCall,
+) {
+    let mut blocks = Vec::new();
+    if !response_text.is_empty() {
+        blocks.push(ContentBlockInput::Text {
+            text: response_text.to_string(),
+        });
+    }
+    blocks.push(ContentBlockInput::ToolUse {
+        id: hc.id.clone(),
+        name: hc.name.clone(),
+        input: hc.input.clone(),
+    });
+    if !blocks.is_empty() {
+        messages.push(ChatMessage::new(
+            orka_llm::client::Role::Assistant,
+            ChatContent::Blocks(blocks),
+        ));
+    }
+}
+
+fn push_tool_call_assistant_message(
+    messages: &mut Vec<ChatMessage>,
+    response_text: &str,
+    regular_calls: &[ToolCall],
+) {
+    let mut blocks = Vec::new();
+    if !response_text.is_empty() {
+        blocks.push(ContentBlockInput::Text {
+            text: response_text.to_string(),
+        });
+    }
+    for call in regular_calls {
+        blocks.push(ContentBlockInput::ToolUse {
+            id: call.id.clone(),
+            name: call.name.clone(),
+            input: call.input.clone(),
+        });
+    }
+    messages.push(ChatMessage::new(
+        orka_llm::client::Role::Assistant,
+        ChatContent::Blocks(blocks),
+    ));
+}
+
+async fn handle_plan_tool(
+    agent: &Agent,
+    ctx: &ExecutionContext,
+    call: &ToolCall,
+) -> Option<(String, bool)> {
+    if call.name != "create_plan" && call.name != "update_plan_step" {
+        return None;
+    }
+    let result = match call.name.as_str() {
+        "create_plan" => {
+            let goal = call
+                .input
+                .get("goal")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let steps: Vec<PlanStep> = call
+                .input
+                .get("steps")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| {
+                            let id = s.get("id")?.as_str()?.to_string();
+                            let description = s.get("description")?.as_str()?.to_string();
+                            Some(PlanStep {
+                                id,
+                                description,
+                                status: StepStatus::Pending,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let plan = Plan { goal, steps };
+            let summary = plan.display_summary();
+            if let Ok(json) = serde_json::to_value(&plan) {
+                ctx.set(&agent.id, SlotKey::shared(PLAN_SLOT), json).await;
+            }
+            (format!("Plan created.\n{summary}"), false)
+        }
+        "update_plan_step" => execute_update_plan_step(agent, ctx, call).await,
+        other => {
+            tracing::warn!(call_name = %other, "unexpected plan-related tool call — skipped");
+            (format!("Error: unrecognized plan call '{other}'"), true)
+        }
+    };
+    Some(result)
+}
+
+async fn execute_update_plan_step(
+    agent: &Agent,
+    ctx: &ExecutionContext,
+    call: &ToolCall,
+) -> (String, bool) {
+    let step_id = call
+        .input
+        .get("step_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let status_str = call
+        .input
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("completed");
+    let summary = call
+        .input
+        .get("summary")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let plan_key = SlotKey::shared(PLAN_SLOT);
+    let updated = if let Some(json) = ctx.get(&plan_key).await {
+        match serde_json::from_value::<Plan>(json) {
+            Ok(mut plan) => {
+                if let Some(step) = plan.steps.iter_mut().find(|s| s.id == step_id) {
+                    step.status = match status_str {
+                        "in_progress" => StepStatus::InProgress,
+                        "failed" => StepStatus::Failed { summary },
+                        "skipped" => StepStatus::Skipped { summary },
+                        _ => StepStatus::Completed { summary },
+                    };
                 }
-                Ok(GuardrailDecision::Modify(filtered)) => Some(filtered),
-                Ok(other) => {
-                    warn!(?other, "unhandled guardrail decision, passing through");
-                    Some(text)
+                let s = plan.display_summary();
+                if let Ok(json) = serde_json::to_value(&plan) {
+                    ctx.set(&agent.id, plan_key, json).await;
                 }
+                s
+            }
+            Err(_) => "Error: plan data is corrupt.".to_string(),
+        }
+    } else {
+        "Error: no active plan. Call create_plan first.".to_string()
+    };
+    (updated, false)
+}
+
+fn handle_progressive_tool(
+    call: &ToolCall,
+    progressive: bool,
+    enabled_categories: &mut std::collections::HashSet<String>,
+) -> Option<(String, bool)> {
+    if !progressive {
+        return None;
+    }
+    if call.name != "list_tool_categories" && call.name != "enable_tools" {
+        return None;
+    }
+    // These are handled inline — no deps needed
+    // Note: list_tool_categories needs deps.skills but we handle it via a
+    // placeholder and let dispatch_tool_calls call it with deps available.
+    // Actually we return None for list_tool_categories to let the caller handle it.
+    // We only handle enable_tools here since it only mutates enabled_categories.
+    if call.name == "enable_tools" {
+        let cat = call
+            .input
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if cat.is_empty() {
+            return Some(("Error: 'category' parameter is required".to_string(), true));
+        }
+        enabled_categories.insert(cat.clone());
+        return Some((format!("Tools in category '{cat}' are now enabled."), false));
+    }
+    None
+}
+
+async fn apply_tool_guardrails(
+    agent: &Agent,
+    ctx: &ExecutionContext,
+    deps: &ExecutorDeps,
+    skill_calls: Vec<ToolCall>,
+) -> (Vec<ToolCall>, HashMap<String, (String, bool)>) {
+    let mut checked = Vec::new();
+    let mut blocked = HashMap::new();
+    let Some(ref guardrail) = deps.guardrail else {
+        return (skill_calls, blocked);
+    };
+    for mut call in skill_calls {
+        let session = orka_core::Session::new(&ctx.trigger.channel, "");
+        let input_json = call.input.to_string();
+        match guardrail.check_input(&input_json, &session).await {
+            Ok(GuardrailDecision::Block(reason)) => {
+                warn!(skill = %call.name, %reason, "tool input blocked by guardrail");
+                blocked.insert(
+                    call.id.clone(),
+                    (format!("Tool input blocked by guardrail: {reason}"), true),
+                );
+            }
+            Ok(GuardrailDecision::Modify(modified)) => {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&modified) {
+                    call.input = v;
+                }
+                checked.push(call);
+            }
+            _ => {
+                checked.push(call);
             }
         }
-        (resp, _) => resp,
-    };
+        let _ = agent;
+    }
+    (checked, blocked)
+}
 
-    Ok(AgentNodeResult {
-        response: final_response,
-        handoff,
-        iterations,
-        interrupted: None,
-        attachments: collected_attachments,
-        stop_reason,
-    })
+fn update_worktree_cwd(
+    regular_calls: &[ToolCall],
+    results_map: &HashMap<String, (String, bool)>,
+    worktree_cwd: &mut Option<String>,
+) {
+    for call in regular_calls {
+        if let Some((content, false)) = results_map.get(&call.id) {
+            match call.name.as_str() {
+                "git_worktree_create" => {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(content)
+                        && let Some(path) = v.get("path").and_then(|p| p.as_str())
+                    {
+                        *worktree_cwd = Some(path.to_string());
+                        debug!(worktree_path = path, "worktree context activated");
+                    }
+                }
+                "git_worktree_remove" => {
+                    *worktree_cwd = None;
+                    debug!("worktree context cleared");
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn build_result_blocks(
+    regular_calls: &[ToolCall],
+    results_map: &mut HashMap<String, (String, bool)>,
+) -> Vec<ContentBlockInput> {
+    regular_calls
+        .iter()
+        .map(|call| {
+            let (content, is_error) = results_map
+                .remove(&call.id)
+                .unwrap_or_else(|| ("Error: task failed".to_string(), true));
+            ContentBlockInput::ToolResult {
+                tool_use_id: call.id.clone(),
+                content,
+                is_error,
+            }
+        })
+        .collect()
+}
+
+async fn apply_output_guardrail(
+    agent: &Agent,
+    ctx: &ExecutionContext,
+    deps: &ExecutorDeps,
+    final_response: Option<String>,
+) -> Option<String> {
+    let text = final_response?;
+    let Some(guardrail) = &deps.guardrail else {
+        return Some(text);
+    };
+    let session = orka_core::Session::new(&ctx.trigger.channel, "");
+    match guardrail.check_output(&text, &session).await {
+        Ok(GuardrailDecision::Allow) | Err(_) => Some(text),
+        Ok(GuardrailDecision::Block(reason)) => {
+            warn!(agent = %agent.id, %reason, "output blocked by guardrail");
+            Some(format!("Response blocked by content policy: {reason}"))
+        }
+        Ok(GuardrailDecision::Modify(filtered)) => Some(filtered),
+        Ok(other) => {
+            warn!(?other, "unhandled guardrail decision, passing through");
+            Some(text)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1406,7 +1780,7 @@ async fn summarize_messages(
     let msgs = vec![ChatMessage::user(prompt)];
 
     let stream = llm
-        .complete_stream_with_tools(&msgs, system, &[], CompletionOptions::default())
+        .complete_stream_with_tools(&msgs, system, &[], &CompletionOptions::default())
         .await
         .map_err(|e| orka_core::Error::Other(e.to_string()))?;
 
@@ -1484,7 +1858,7 @@ async fn generate_plan(
     opts.response_format = Some(ResponseFormat::Json);
 
     let raw = llm
-        .complete_with_options(msgs, system, opts)
+        .complete_with_options(msgs, system, &opts)
         .await
         .map_err(|e| orka_core::Error::Other(e.to_string()))?;
 
