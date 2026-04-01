@@ -13,6 +13,7 @@ members = [
   "crates/orka-bus",
   "crates/orka-queue",
   "crates/orka-session",
+  "crates/orka-conversation",
   "crates/orka-memory",
   "crates/orka-secrets",
   "crates/orka-scheduler",
@@ -266,6 +267,7 @@ orka-test-support = { path = "crates/orka-test-support" }
 orka-bus = { path = "crates/orka-bus" }
 orka-auth = { path = "crates/orka-auth" }
 orka-session = { path = "crates/orka-session" }
+orka-conversation = { path = "crates/orka-conversation" }
 orka-queue = { path = "crates/orka-queue" }
 orka-worker = { path = "crates/orka-worker" }
 orka-sandbox = { path = "crates/orka-sandbox" }
