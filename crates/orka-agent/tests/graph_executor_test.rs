@@ -592,7 +592,10 @@ async fn max_turns_stops_graph_without_rerunning_agent() {
         .await
         .unwrap();
 
-    assert!(result.response.is_empty());
+    // After Fix 2: max_turns now produces a user-visible message instead of
+    // silently returning an empty response.
+    assert!(!result.response.is_empty());
+    assert!(result.response.contains("maximum number of steps"));
     assert_eq!(result.agents_executed, vec!["a"]);
     assert_eq!(
         result.stop_reason,

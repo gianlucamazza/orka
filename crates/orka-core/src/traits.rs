@@ -105,20 +105,13 @@ pub trait ConversationStore: Send + Sync + 'static {
 #[async_trait]
 pub trait ArtifactStore: Send + Sync + 'static {
     /// Store or replace one artifact and its raw bytes.
-    async fn put_artifact(
-        &self,
-        artifact: &ConversationArtifact,
-        bytes: &[u8],
-    ) -> Result<()>;
+    async fn put_artifact(&self, artifact: &ConversationArtifact, bytes: &[u8]) -> Result<()>;
 
     /// Update artifact metadata without replacing the stored bytes.
     async fn update_artifact(&self, artifact: &ConversationArtifact) -> Result<()>;
 
     /// Retrieve artifact metadata by ID.
-    async fn get_artifact(
-        &self,
-        artifact_id: &ArtifactId,
-    ) -> Result<Option<ConversationArtifact>>;
+    async fn get_artifact(&self, artifact_id: &ArtifactId) -> Result<Option<ConversationArtifact>>;
 
     /// Retrieve artifact raw bytes by ID.
     async fn get_artifact_bytes(&self, artifact_id: &ArtifactId) -> Result<Option<Vec<u8>>>;

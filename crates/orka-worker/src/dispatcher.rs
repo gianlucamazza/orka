@@ -115,9 +115,14 @@ fn payload_to_chat_message(payload: &Payload) -> Option<ChatMessage> {
             for attachment in &input.attachments {
                 if attachment.mime_type.starts_with("image/") {
                     let source = if let Some(data) = attachment.data_base64.clone() {
-                        ImageSource::Base64 { media_type: attachment.mime_type.clone(), data }
+                        ImageSource::Base64 {
+                            media_type: attachment.mime_type.clone(),
+                            data,
+                        }
                     } else {
-                        ImageSource::Url { url: attachment.url.clone() }
+                        ImageSource::Url {
+                            url: attachment.url.clone(),
+                        }
                     };
                     blocks.push(ContentBlockInput::Image { source });
                     if let Some(caption) = attachment.caption.clone()
@@ -136,7 +141,10 @@ fn payload_to_chat_message(payload: &Payload) -> Option<ChatMessage> {
             }
 
             if !blocks.is_empty() {
-                Some(ChatMessage::new(orka_llm::client::Role::User, ChatContent::Blocks(blocks)))
+                Some(ChatMessage::new(
+                    orka_llm::client::Role::User,
+                    ChatContent::Blocks(blocks),
+                ))
             } else if !fallback_lines.is_empty() {
                 Some(ChatMessage::user(fallback_lines.join("\n")))
             } else {
@@ -148,7 +156,10 @@ fn payload_to_chat_message(payload: &Payload) -> Option<ChatMessage> {
                 && (!m.url.is_empty() || m.data_base64.is_some()) =>
         {
             let source = if let Some(data) = m.data_base64.clone() {
-                ImageSource::Base64 { media_type: m.mime_type.clone(), data }
+                ImageSource::Base64 {
+                    media_type: m.mime_type.clone(),
+                    data,
+                }
             } else {
                 ImageSource::Url { url: m.url.clone() }
             };
@@ -156,9 +167,14 @@ fn payload_to_chat_message(payload: &Payload) -> Option<ChatMessage> {
             if let Some(ref caption) = m.caption
                 && !caption.is_empty()
             {
-                blocks.push(ContentBlockInput::Text { text: caption.clone() });
+                blocks.push(ContentBlockInput::Text {
+                    text: caption.clone(),
+                });
             }
-            Some(ChatMessage::new(orka_llm::client::Role::User, ChatContent::Blocks(blocks)))
+            Some(ChatMessage::new(
+                orka_llm::client::Role::User,
+                ChatContent::Blocks(blocks),
+            ))
         }
         Payload::Media(m) => {
             let text = m

@@ -264,8 +264,30 @@ impl<'a> AgentNodeRunner<'a> {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn run(mut self) -> orka_core::Result<AgentNodeResult> {
+        let run_start = std::time::Instant::now();
+        let llm_call_timeout = std::time::Duration::from_secs(self.agent.llm_call_timeout_secs);
+
         loop {
+            // Fix 4: wall-clock run timeout
+            if let Some(max_run_secs) = self.agent.max_run_secs {
+                let elapsed = run_start.elapsed().as_secs();
+                if elapsed >= max_run_secs {
+                    warn!(
+                        max_run_secs,
+                        elapsed_secs = elapsed,
+                        "agent run exceeded wall-clock time limit"
+                    );
+                    self.final_response = Some(format!(
+                        "I'm sorry, this request exceeded the maximum allowed time \
+                         ({max_run_secs}s) and was stopped automatically."
+                    ));
+                    self.stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
+                    break;
+                }
+            }
+
             let iteration = self.iterations;
             self.iterations += 1;
             let iteration_start = std::time::Instant::now();
@@ -284,9 +306,25 @@ impl<'a> AgentNodeRunner<'a> {
             self.rebuild_tools();
             self.manage_context_window(iteration).await;
 
-            let Ok(completion) = self.call_llm(iteration).await else {
-                break;
-            };
+            // Fix 1: per-call LLM timeout
+            let completion =
+                match tokio::time::timeout(llm_call_timeout, self.call_llm(iteration)).await {
+                    Ok(Ok(c)) => c,
+                    Ok(Err(_)) => break, // error already handled in call_llm (sets final_response)
+                    Err(_elapsed) => {
+                        warn!(
+                            timeout_secs = self.agent.llm_call_timeout_secs,
+                            iteration, "LLM call timed out"
+                        );
+                        self.final_response = Some(format!(
+                            "I'm sorry, the LLM did not respond within the allowed time \
+                         ({}s) and the request was interrupted.",
+                            self.agent.llm_call_timeout_secs
+                        ));
+                        self.stop_reason = orka_core::stream::AgentStopReason::Error;
+                        break;
+                    }
+                };
 
             let iteration_tokens =
                 u64::from(completion.usage.input_tokens + completion.usage.output_tokens);
@@ -643,6 +681,11 @@ impl<'a> AgentNodeRunner<'a> {
                 max_turns = self.agent.max_turns,
                 "agent reached max tool turns"
             );
+            self.final_response = Some(format!(
+                "I've reached the maximum number of steps ({}) for this request. \
+                 Please try rephrasing or breaking the task into smaller parts.",
+                self.agent.max_turns
+            ));
             self.stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
             return Ok(IterationOutcome::Done);
         }

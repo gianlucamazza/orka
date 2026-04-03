@@ -57,6 +57,16 @@ const SESSION_LOCK_RENEWAL_MS: u64 = SESSION_LOCK_TTL_MS / 3;
 /// Maximum lock renewals before the watchdog gives up (~10 min total).
 const SESSION_LOCK_MAX_RENEWALS: u32 = 60;
 
+/// Maximum times a message can be re-enqueued while waiting for a locked
+/// session before it is sent to the DLQ.
+const SESSION_LOCK_WAIT_MAX: u32 = 30;
+
+/// Base delay (ms) for the first lock-contention re-enqueue.
+const SESSION_LOCK_WAIT_BASE_MS: u64 = 1_000;
+
+/// Maximum per-attempt delay (ms) for lock-contention re-enqueues.
+const SESSION_LOCK_WAIT_MAX_MS: u64 = 60_000;
+
 /// Shared map of per-session cancellation tokens.
 ///
 /// The worker registers a token before each dispatch; the `/cancel` command
@@ -265,26 +275,55 @@ impl WorkerPool {
                                             )
                                             .await
                                     {
-                                        let not_before =
-                                            Utc::now() + ChronoDuration::milliseconds(1000);
-                                        let mut requeue = envelope.clone();
-                                        requeue.metadata.insert(
-                                            "not_before".to_string(),
-                                            serde_json::json!(not_before.to_rfc3339()),
-                                        );
-                                        if let Err(e) = queue.push(&requeue).await {
+                                        let lock_wait_count: u32 = envelope
+                                            .metadata
+                                            .get("lock_wait_count")
+                                            .and_then(serde_json::Value::as_u64)
+                                            .unwrap_or(0) as u32;
+
+                                        if lock_wait_count >= SESSION_LOCK_WAIT_MAX {
                                             error!(
                                                 worker = i,
-                                                %e,
                                                 session_id = %envelope.session_id,
-                                                "failed to re-enqueue locked session"
+                                                lock_wait_count,
+                                                "session lock wait exceeded max retries, sending to DLQ"
                                             );
+                                            if let Some(ref dlq) = dlq
+                                                && let Err(e) = dlq.push(&envelope).await
+                                            {
+                                                error!(%e, "failed to push stuck session message to DLQ");
+                                            }
                                         } else {
-                                            warn!(
-                                                worker = i,
-                                                session_id = %envelope.session_id,
-                                                "session locked by another worker, re-enqueuing with 1s delay"
+                                            let delay_ms = (SESSION_LOCK_WAIT_BASE_MS
+                                                * 2u64.pow(lock_wait_count))
+                                            .min(SESSION_LOCK_WAIT_MAX_MS);
+                                            let not_before = Utc::now()
+                                                + ChronoDuration::milliseconds(delay_ms as i64);
+                                            let mut requeue = envelope.clone();
+                                            requeue.metadata.insert(
+                                                "lock_wait_count".to_string(),
+                                                serde_json::json!(lock_wait_count + 1),
                                             );
+                                            requeue.metadata.insert(
+                                                "not_before".to_string(),
+                                                serde_json::json!(not_before.to_rfc3339()),
+                                            );
+                                            if let Err(e) = queue.push(&requeue).await {
+                                                error!(
+                                                    worker = i,
+                                                    %e,
+                                                    session_id = %envelope.session_id,
+                                                    "failed to re-enqueue locked session"
+                                                );
+                                            } else {
+                                                warn!(
+                                                    worker = i,
+                                                    session_id = %envelope.session_id,
+                                                    lock_wait_count = lock_wait_count + 1,
+                                                    delay_ms,
+                                                    "session locked by another worker, re-enqueuing with backoff"
+                                                );
+                                            }
                                         }
                                         // Clean up the cancel token we registered
                                         if let Ok(mut tokens) = session_cancel_tokens.lock() {

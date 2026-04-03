@@ -242,11 +242,7 @@ impl Default for InMemoryArtifactStore {
 
 #[async_trait]
 impl ArtifactStore for InMemoryArtifactStore {
-    async fn put_artifact(
-        &self,
-        artifact: &ConversationArtifact,
-        bytes: &[u8],
-    ) -> Result<()> {
+    async fn put_artifact(&self, artifact: &ConversationArtifact, bytes: &[u8]) -> Result<()> {
         let mut artifacts = self.artifacts.lock().await;
         artifacts.insert(artifact.id, (artifact.clone(), bytes.to_vec()));
         Ok(())
@@ -260,12 +256,11 @@ impl ArtifactStore for InMemoryArtifactStore {
         Ok(())
     }
 
-    async fn get_artifact(
-        &self,
-        artifact_id: &ArtifactId,
-    ) -> Result<Option<ConversationArtifact>> {
+    async fn get_artifact(&self, artifact_id: &ArtifactId) -> Result<Option<ConversationArtifact>> {
         let artifacts = self.artifacts.lock().await;
-        Ok(artifacts.get(artifact_id).map(|(artifact, _)| artifact.clone()))
+        Ok(artifacts
+            .get(artifact_id)
+            .map(|(artifact, _)| artifact.clone()))
     }
 
     async fn get_artifact_bytes(&self, artifact_id: &ArtifactId) -> Result<Option<Vec<u8>>> {
@@ -905,10 +900,13 @@ mod tests {
 
         let got = store.get_artifact(&artifact.id).await?;
         assert!(got.is_some());
-        assert_eq!(got.unwrap().filename, "photo.png");
+        let got = got.ok_or_else(|| Error::Other("artifact must exist".into()))?;
+        assert_eq!(got.filename, "photo.png");
 
         let got_bytes = store.get_artifact_bytes(&artifact.id).await?;
-        assert_eq!(got_bytes.unwrap(), bytes);
+        let got_bytes =
+            got_bytes.ok_or_else(|| Error::Other("artifact bytes must exist".into()))?;
+        assert_eq!(got_bytes, bytes);
         Ok(())
     }
 
@@ -926,7 +924,10 @@ mod tests {
         artifact.caption = Some("A caption".to_string());
         store.update_artifact(&artifact).await?;
 
-        let got = store.get_artifact(&artifact.id).await?.unwrap();
+        let got = store
+            .get_artifact(&artifact.id)
+            .await?
+            .ok_or_else(|| Error::Other("artifact must exist after update".into()))?;
         assert_eq!(got.caption.as_deref(), Some("A caption"));
         Ok(())
     }

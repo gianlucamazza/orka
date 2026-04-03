@@ -239,6 +239,8 @@ async fn build_agent_from_def(
 
     agent.system_prompt = system_prompt;
     agent.max_turns = cfg.max_turns;
+    agent.llm_call_timeout_secs = cfg.llm_call_timeout_secs;
+    agent.max_run_secs = cfg.max_run_secs;
 
     let thinking = cfg
         .thinking

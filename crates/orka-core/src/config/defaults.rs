@@ -183,6 +183,16 @@ pub const fn default_skill_timeout_secs() -> u64 {
     120
 }
 
+/// Default per-LLM-call timeout in seconds.
+pub const fn default_llm_call_timeout_secs() -> u64 {
+    120
+}
+
+/// Default maximum wall-clock run duration in seconds (None = no limit).
+pub const fn default_max_run_secs() -> Option<u64> {
+    None
+}
+
 /// Default web search provider.
 pub fn default_web_search_provider() -> String {
     "none".to_string()

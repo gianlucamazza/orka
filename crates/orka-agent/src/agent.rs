@@ -228,6 +228,12 @@ pub struct Agent {
     /// Maximum characters kept per tool result before truncation for LLM
     /// context.
     pub tool_result_max_chars: usize,
+    /// Per-LLM-call timeout in seconds. If a single LLM call exceeds this
+    /// limit the agent stops and returns an error message to the user.
+    pub llm_call_timeout_secs: u64,
+    /// Maximum wall-clock run time in seconds across all iterations.
+    /// `None` means no limit beyond `max_turns`.
+    pub max_run_secs: Option<u64>,
 }
 
 impl Agent {
@@ -251,6 +257,8 @@ impl Agent {
             history_strategy: HistoryStrategy::Truncate,
             interrupt_before_tools: HashSet::new(),
             tool_result_max_chars: 50_000,
+            llm_call_timeout_secs: 120,
+            max_run_secs: None,
         }
     }
 }

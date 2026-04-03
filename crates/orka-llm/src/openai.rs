@@ -1073,7 +1073,7 @@ mod tests {
                     },
                     ContentBlockInput::ToolUse {
                         id: "call_empty".into(),
-                        name: "".into(),
+                        name: String::new(),
                         input: json!({}),
                     },
                 ]),

@@ -90,10 +90,8 @@ fn multipart_upload_request(
 
     body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
     body.extend_from_slice(
-        format!(
-            "Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
-        )
-        .as_bytes(),
+        format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
+            .as_bytes(),
     );
     body.extend_from_slice(format!("Content-Type: {content_type}\r\n\r\n").as_bytes());
     body.extend_from_slice(bytes);
@@ -347,8 +345,8 @@ async fn mobile_upload_returns_metadata_and_content() -> common::TestResult {
 }
 
 #[tokio::test]
-async fn mobile_send_with_artifacts_persists_attachment_and_publishes_rich_input() -> common::TestResult
-{
+async fn mobile_send_with_artifacts_persists_attachment_and_publishes_rich_input()
+-> common::TestResult {
     let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
     let conversation = seed_conversation(
         ctx.conversations.as_ref(),
@@ -400,9 +398,15 @@ async fn mobile_send_with_artifacts_persists_attachment_and_publishes_rich_input
             assert_eq!(input.text.as_deref(), Some("hello with file"));
             assert_eq!(input.attachments.len(), 1);
             assert_eq!(input.attachments[0].mime_type, "text/plain");
-            assert_eq!(input.attachments[0].caption.as_deref(), Some("Draft attachment"));
+            assert_eq!(
+                input.attachments[0].caption.as_deref(),
+                Some("Draft attachment")
+            );
             assert_eq!(input.attachments[0].filename.as_deref(), Some("notes.txt"));
-            assert_eq!(input.attachments[0].decode_data(), Some(b"artifact-body".to_vec()));
+            assert_eq!(
+                input.attachments[0].decode_data(),
+                Some(b"artifact-body".to_vec())
+            );
         }
         payload => panic!("expected rich input payload, got {payload:?}"),
     }
@@ -415,15 +419,32 @@ async fn mobile_send_with_artifacts_persists_attachment_and_publishes_rich_input
     assert_eq!(messages[0].text, "hello with file");
     assert_eq!(messages[0].artifacts.len(), 1);
     assert_eq!(messages[0].artifacts[0].filename, "notes.txt");
-    assert_eq!(messages[0].artifacts[0].message_id.unwrap().to_string(), message_id);
+    assert_eq!(
+        messages[0].artifacts[0]
+            .message_id
+            .ok_or("artifact message_id missing")?
+            .to_string(),
+        message_id
+    );
 
     let stored_artifact = ctx
         .artifacts
         .get_artifact(&messages[0].artifacts[0].id)
         .await?
-        .ok_or_else(|| "stored artifact missing".to_string())?;
-    assert_eq!(stored_artifact.conversation_id.unwrap(), conversation.id);
-    assert_eq!(stored_artifact.message_id.unwrap().to_string(), message_id);
+        .ok_or("stored artifact missing")?;
+    assert_eq!(
+        stored_artifact
+            .conversation_id
+            .ok_or("stored artifact conversation_id missing")?,
+        conversation.id
+    );
+    assert_eq!(
+        stored_artifact
+            .message_id
+            .ok_or("stored artifact message_id missing")?
+            .to_string(),
+        message_id
+    );
 
     Ok(())
 }
@@ -537,7 +558,9 @@ async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestRe
         "text/plain",
         "artifact.txt",
     );
-    ctx.artifacts.put_artifact(&artifact, b"artifact-body").await?;
+    ctx.artifacts
+        .put_artifact(&artifact, b"artifact-body")
+        .await?;
     artifact.conversation_id = Some(conversation.id);
     ctx.mobile_events
         .publish(

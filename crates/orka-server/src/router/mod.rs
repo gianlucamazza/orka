@@ -17,6 +17,7 @@ mod schedules;
 
 use std::sync::Arc;
 
+use axum::extract::DefaultBodyLimit;
 pub use mobile::{MobileEventHub, MobileStreamEvent};
 use orka_a2a::{A2aState, AgentDirectory};
 use orka_agent::AgentGraph;
@@ -31,7 +32,6 @@ use orka_research::ResearchService;
 use orka_scheduler::ScheduleStore;
 use orka_skills::{SkillRegistry, SoftSkillRegistry};
 use orka_workspace::WorkspaceRegistry;
-use axum::extract::DefaultBodyLimit;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 

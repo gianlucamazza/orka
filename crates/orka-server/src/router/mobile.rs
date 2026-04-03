@@ -324,8 +324,7 @@ pub(super) fn protected_routes(
         .route("/mobile/v1/pairings/{id}", get(handle_get_pairing_status))
         .route(
             "/mobile/v1/uploads",
-            post(handle_upload_artifact)
-                .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+            post(handle_upload_artifact).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
         )
         .route(
             "/mobile/v1/artifacts/{id}",
@@ -728,7 +727,10 @@ async fn handle_upload_artifact(
                     }
                 };
                 if bytes.len() > MAX_UPLOAD_BYTES {
-                    return error_response(StatusCode::PAYLOAD_TOO_LARGE, "upload exceeds size limit");
+                    return error_response(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "upload exceeds size limit",
+                    );
                 }
                 file_bytes = Some(bytes);
             }
@@ -752,13 +754,19 @@ async fn handle_upload_artifact(
     }
 
     let Some(bytes) = file_bytes else {
-        return error_response(StatusCode::BAD_REQUEST, "multipart body is missing a file field");
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "multipart body is missing a file field",
+        );
     };
 
     let filename = filename.unwrap_or_else(|| "upload.bin".to_string());
     let mime_type = detect_mime_type(&bytes, mime_type.as_deref(), &filename);
     if !is_allowed_upload_mime(&mime_type) {
-        return error_response(StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported artifact media type");
+        return error_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "unsupported artifact media type",
+        );
     }
 
     let mut artifact = ConversationArtifact::new(
@@ -920,7 +928,10 @@ async fn resolve_message_artifacts(
             .await
             .map_err(internal_error)?
         else {
-            return Err(error_response(StatusCode::NOT_FOUND, "artifact content is missing"));
+            return Err(error_response(
+                StatusCode::NOT_FOUND,
+                "artifact content is missing",
+            ));
         };
 
         artifact.conversation_id = Some(conversation_id);
@@ -1359,9 +1370,10 @@ fn preview_text_for_message(text: &str, artifacts: &[ConversationArtifact]) -> S
     if !trimmed.is_empty() {
         return preview_text(trimmed);
     }
-    artifacts
-        .first()
-        .map_or_else(|| "New message".to_string(), |a| format!("[{}] {}", a.mime_type, a.filename))
+    artifacts.first().map_or_else(
+        || "New message".to_string(),
+        |a| format!("[{}] {}", a.mime_type, a.filename),
+    )
 }
 
 fn sanitize_filename(input: &str) -> String {
@@ -1385,7 +1397,11 @@ fn detect_mime_type(bytes: &[u8], provided: Option<&str>, filename: &str) -> Str
     infer::get(bytes)
         .map(|kind| kind.mime_type().to_string())
         .or_else(|| provided.map(ToString::to_string))
-        .or_else(|| mime_guess::from_path(filename).first_raw().map(ToString::to_string))
+        .or_else(|| {
+            mime_guess::from_path(filename)
+                .first_raw()
+                .map(ToString::to_string)
+        })
         .unwrap_or_else(|| "application/octet-stream".to_string())
 }
 
@@ -1447,10 +1463,7 @@ fn build_artifact_content_response(
         HeaderValue::from_str(&format!("inline; filename=\"{}\"", artifact.filename))
             .unwrap_or_else(|_| HeaderValue::from_static("inline")),
     );
-    response_headers.insert(
-        header::ACCEPT_RANGES,
-        HeaderValue::from_static("bytes"),
-    );
+    response_headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     if let Ok(value) = HeaderValue::from_str(&content_length.to_string()) {
         response_headers.insert(header::CONTENT_LENGTH, value);
     }

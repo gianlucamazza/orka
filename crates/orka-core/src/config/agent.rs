@@ -84,6 +84,18 @@ pub struct AgentConfig {
     /// returned to the LLM.
     #[serde(default = "defaults::default_skill_timeout_secs")]
     pub skill_timeout_secs: u64,
+    /// Per-LLM-call timeout in seconds (default: 120).
+    ///
+    /// If a single LLM call (including streaming) exceeds this limit the agent
+    /// stops immediately and returns an error message to the user.
+    #[serde(default = "defaults::default_llm_call_timeout_secs")]
+    pub llm_call_timeout_secs: u64,
+    /// Maximum wall-clock run time in seconds (default: no limit).
+    ///
+    /// If the entire agent run (across all iterations) exceeds this limit the
+    /// agent stops and returns an error message to the user.
+    #[serde(default)]
+    pub max_run_secs: Option<u64>,
     /// Maximum concurrent skill invocations (reserved for future use).
     #[serde(default)]
     pub max_concurrent_skills: Option<usize>,
@@ -108,6 +120,8 @@ impl Default for AgentConfig {
             history_strategy: None,
             interrupt_before_tools: Vec::new(),
             skill_timeout_secs: defaults::default_skill_timeout_secs(),
+            llm_call_timeout_secs: defaults::default_llm_call_timeout_secs(),
+            max_run_secs: None,
             max_concurrent_skills: None,
         }
     }

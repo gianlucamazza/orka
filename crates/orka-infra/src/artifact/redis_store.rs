@@ -6,7 +6,8 @@ use orka_core::{
 use redis::AsyncCommands;
 use uuid::Uuid;
 
-/// TTL for orphaned artifacts (uploaded but not yet attached to a message): 24 hours.
+/// TTL for orphaned artifacts (uploaded but not yet attached to a message): 24
+/// hours.
 const ORPHAN_ARTIFACT_TTL_SECS: u64 = 86_400;
 
 /// Redis implementation of [`ArtifactStore`].
@@ -40,11 +41,7 @@ impl RedisArtifactStore {
 
 #[async_trait]
 impl ArtifactStore for RedisArtifactStore {
-    async fn put_artifact(
-        &self,
-        artifact: &ConversationArtifact,
-        bytes: &[u8],
-    ) -> Result<()> {
+    async fn put_artifact(&self, artifact: &ConversationArtifact, bytes: &[u8]) -> Result<()> {
         let mut conn = self
             .pool
             .get()
@@ -129,10 +126,7 @@ impl ArtifactStore for RedisArtifactStore {
         Ok(())
     }
 
-    async fn get_artifact(
-        &self,
-        artifact_id: &ArtifactId,
-    ) -> Result<Option<ConversationArtifact>> {
+    async fn get_artifact(&self, artifact_id: &ArtifactId) -> Result<Option<ConversationArtifact>> {
         let mut conn = self
             .pool
             .get()

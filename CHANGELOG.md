@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-03
+
+### Added
+
+- `llm_call_timeout_secs` (default: 120 s) and `max_run_secs` (default: none) config fields
+  on `AgentConfig` / `Agent` — allows capping individual LLM calls and total wall-clock run
+  time per agent invocation (`orka-core`, `orka-agent`)
+
+### Changed
+
+- Agent now returns explicit user-visible error messages when a run is interrupted by
+  `max_turns`, LLM-call timeout, or wall-clock timeout instead of silently returning an
+  empty response (`orka-agent`)
+- `sanitize_tool_result_history` now also strips `ToolUse` blocks with empty names (spurious
+  outputs from some LLMs) and removes their orphaned `ToolResult` counterparts (`orka-llm`)
+- Worker session-lock contention now uses exponential backoff (base 1 s, cap 60 s) and
+  sends the message to the DLQ after 30 failed retries instead of re-enqueuing indefinitely
+  with a fixed 1 s delay (`orka-worker`)
+
 ## [1.2.0] - 2026-04-01
 
 ### Added

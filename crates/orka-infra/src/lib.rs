@@ -5,10 +5,10 @@
 
 #![warn(missing_docs)]
 
-/// Message bus backed by Redis Streams.
-pub mod bus;
 /// Artifact store backed by Redis.
 pub mod artifact;
+/// Message bus backed by Redis Streams.
+pub mod bus;
 /// Conversation store backed by Redis.
 pub mod conversation;
 /// Priority queue backed by Redis Sorted Sets.
@@ -17,8 +17,8 @@ pub mod queue;
 pub mod session;
 
 // Flat re-exports for backwards-compatible access.
-pub use bus::{BusBackend, BusConfig, RedisBus, create_bus};
 pub use artifact::{RedisArtifactStore, create_artifact_store};
+pub use bus::{BusBackend, BusConfig, RedisBus, create_bus};
 pub use conversation::{RedisConversationStore, create_conversation_store};
 pub use queue::{QueueBundle, RedisPriorityQueue, create_queue, priority_score};
 pub use session::{RedisSessionStore, SessionConfig, create_session_store};

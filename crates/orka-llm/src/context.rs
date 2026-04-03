@@ -207,32 +207,63 @@ pub fn group_into_turns(messages: &[ChatMessage]) -> Vec<std::ops::Range<usize>>
 }
 
 /// Remove orphaned `tool_result` blocks that no longer have a matching
-/// assistant `tool_use` immediately before them.
+/// assistant `tool_use` immediately before them, and strip `tool_use` blocks
+/// with empty names from assistant messages (which some LLMs emit spuriously).
 ///
-/// Returns (`sanitized_messages`, `removed_tool_results`).
+/// Returns (`sanitized_messages`, `removed_count`).
 pub fn sanitize_tool_result_history(messages: Vec<ChatMessage>) -> (Vec<ChatMessage>, usize) {
     let mut sanitized = Vec::with_capacity(messages.len());
     let mut removed = 0usize;
+    // IDs of empty-name ToolUse blocks stripped from the last assistant
+    // message — used to also drop their matching ToolResult blocks.
+    let mut empty_name_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for mut msg in messages {
         let ChatContent::Blocks(blocks) = &mut msg.content else {
+            empty_name_ids.clear();
             sanitized.push(msg);
             continue;
         };
 
+        if msg.role == Role::Assistant {
+            // Strip ToolUse blocks with empty names; track their IDs so we
+            // can drop the corresponding ToolResult blocks in the next User
+            // message.
+            empty_name_ids.clear();
+            let original_len = blocks.len();
+            blocks.retain(|block| {
+                if let ContentBlockInput::ToolUse { id, name, .. } = block
+                    && name.is_empty()
+                {
+                    empty_name_ids.insert(id.clone());
+                    return false;
+                }
+                true
+            });
+            removed += original_len.saturating_sub(blocks.len());
+            sanitized.push(msg);
+            continue;
+        }
+
         if msg.role != Role::User {
+            empty_name_ids.clear();
             sanitized.push(msg);
             continue;
         }
 
         let prev_msg = sanitized.last();
         let original_len = blocks.len();
+        let removed_ids = &empty_name_ids;
         blocks.retain(|block| match block {
             ContentBlockInput::ToolResult { tool_use_id, .. } => {
-                prev_msg.is_some_and(|prev| assistant_has_tool_use(prev, tool_use_id))
+                // Drop results whose ToolUse was stripped (empty name) or has
+                // no matching ToolUse in the preceding assistant message.
+                !removed_ids.contains(tool_use_id.as_str())
+                    && prev_msg.is_some_and(|prev| assistant_has_tool_use(prev, tool_use_id))
             }
             _ => true,
         });
+        empty_name_ids.clear();
 
         removed += original_len.saturating_sub(blocks.len());
 
@@ -671,6 +702,76 @@ mod tests {
             ChatContent::Blocks(blocks) => {
                 assert_eq!(blocks.len(), 1);
                 assert!(matches!(blocks[0], ContentBlockInput::Text { .. }));
+            }
+            other => panic!("expected blocks, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sanitize_strips_empty_name_tool_use_and_its_result() {
+        // Simulate the real production bug: an assistant message with 4
+        // empty-name ToolUse blocks (returned by gpt-5-mini) that survived in
+        // the checkpoint, plus one valid ToolUse.
+        let messages = vec![
+            ChatMessage {
+                role: Role::User,
+                content: ChatContent::Text("hello".into()),
+            },
+            ChatMessage {
+                role: Role::Assistant,
+                content: ChatContent::Blocks(vec![
+                    ContentBlockInput::ToolUse {
+                        id: "call_empty1".into(),
+                        name: String::new(), // empty name — should be stripped
+                        input: serde_json::json!({}),
+                    },
+                    ContentBlockInput::ToolUse {
+                        id: "call_valid1".into(),
+                        name: "shell_exec".into(), // valid — should be kept
+                        input: serde_json::json!({"cmd": "ls"}),
+                    },
+                ]),
+            },
+            ChatMessage {
+                role: Role::User,
+                content: ChatContent::Blocks(vec![
+                    ContentBlockInput::ToolResult {
+                        tool_use_id: "call_empty1".into(), // orphaned by empty-name removal
+                        content: "result".into(),
+                        is_error: false,
+                    },
+                    ContentBlockInput::ToolResult {
+                        tool_use_id: "call_valid1".into(), // should be kept
+                        content: "output".into(),
+                        is_error: false,
+                    },
+                ]),
+            },
+        ];
+
+        let (sanitized, removed) = sanitize_tool_result_history(messages);
+        // 1 empty ToolUse + 1 matching ToolResult = 2 removed
+        assert_eq!(removed, 2);
+        assert_eq!(sanitized.len(), 3);
+
+        // Assistant message keeps only the valid ToolUse
+        match &sanitized[1].content {
+            ChatContent::Blocks(blocks) => {
+                assert_eq!(blocks.len(), 1);
+                assert!(
+                    matches!(blocks[0], ContentBlockInput::ToolUse { ref name, .. } if name == "shell_exec")
+                );
+            }
+            other => panic!("expected blocks, got {other:?}"),
+        }
+
+        // User message keeps only the valid ToolResult
+        match &sanitized[2].content {
+            ChatContent::Blocks(blocks) => {
+                assert_eq!(blocks.len(), 1);
+                assert!(
+                    matches!(blocks[0], ContentBlockInput::ToolResult { ref tool_use_id, .. } if tool_use_id == "call_valid1")
+                );
             }
             other => panic!("expected blocks, got {other:?}"),
         }
