@@ -72,12 +72,19 @@ pub trait ConversationStore: Send + Sync + 'static {
     async fn get_conversation(&self, id: &ConversationId) -> Result<Option<Conversation>>;
 
     /// List recent conversations for a user.
+    ///
+    /// When `include_archived` is `false` (the default for callers), archived
+    /// conversations are excluded from the result.
     async fn list_conversations(
         &self,
         user_id: &str,
         limit: usize,
         offset: usize,
+        include_archived: bool,
     ) -> Result<Vec<Conversation>>;
+
+    /// Permanently delete a conversation and its transcript.
+    async fn delete_conversation(&self, id: &ConversationId) -> Result<()>;
 
     /// Append a user-facing message to a conversation transcript.
     async fn append_message(&self, message: &ConversationMessage) -> Result<()>;

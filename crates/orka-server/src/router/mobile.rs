@@ -156,6 +156,18 @@ struct PaginationQuery {
     offset: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ConversationListQuery {
+    limit: Option<usize>,
+    offset: Option<usize>,
+    archived: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(super) struct UpdateConversationRequest {
+    archived: bool,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub(super) struct ApiError {
     error: String,
@@ -336,7 +348,9 @@ pub(super) fn protected_routes(
         )
         .route(
             "/mobile/v1/conversations/{id}",
-            get(handle_get_conversation),
+            get(handle_get_conversation)
+                .patch(handle_update_conversation)
+                .delete(handle_delete_conversation),
         )
         .route(
             "/mobile/v1/conversations/{id}/messages",
@@ -533,7 +547,8 @@ pub(super) async fn handle_refresh_session(
     path = "/mobile/v1/conversations",
     params(
         ("limit" = Option<usize>, Query, description = "Page size. Defaults to 20 and is capped at 100."),
-        ("offset" = Option<usize>, Query, description = "Zero-based offset into the recency-sorted conversation list.")
+        ("offset" = Option<usize>, Query, description = "Zero-based offset into the recency-sorted conversation list."),
+        ("archived" = Option<bool>, Query, description = "When true, return only archived conversations. Defaults to false.")
     ),
     responses(
         (status = 200, description = "Recent conversations for the authenticated user", body = [Conversation]),
@@ -548,16 +563,21 @@ pub(super) async fn handle_refresh_session(
 async fn handle_list_conversations(
     State(state): State<ProtectedMobileState>,
     Extension(identity): Extension<AuthIdentity>,
-    Query(params): Query<PaginationQuery>,
+    Query(params): Query<ConversationListQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = match parse_pagination(&params) {
+    let pagination = PaginationQuery {
+        limit: params.limit,
+        offset: params.offset,
+    };
+    let (limit, offset) = match parse_pagination(&pagination) {
         Ok(values) => values,
         Err(response) => return response,
     };
+    let include_archived = params.archived.unwrap_or(false);
 
     match state
         .conversations
-        .list_conversations(&identity.principal, limit, offset)
+        .list_conversations(&identity.principal, limit, offset, include_archived)
         .await
     {
         Ok(conversations) => Json(conversations).into_response(),
@@ -627,6 +647,89 @@ async fn handle_get_conversation(
     match load_owned_conversation(&state, &identity, conversation_id).await {
         Ok(conversation) => Json(conversation).into_response(),
         Err(response) => response,
+    }
+}
+
+#[utoipa::path(
+    patch,
+    path = "/mobile/v1/conversations/{id}",
+    params(
+        ("id" = String, Path, description = "Conversation identifier")
+    ),
+    request_body = UpdateConversationRequest,
+    responses(
+        (status = 200, description = "Conversation updated", body = Conversation),
+        (status = 400, description = "Invalid conversation id", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Conversation not found", body = ApiError),
+        (status = 500, description = "Internal error", body = ApiError)
+    ),
+    tag = "mobile"
+)]
+/// PATCH `/mobile/v1/conversations/{id}` — archive or unarchive a conversation.
+async fn handle_update_conversation(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateConversationRequest>,
+) -> impl IntoResponse {
+    let conversation_id = match parse_conversation_id(&id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+
+    let mut conversation = match load_owned_conversation(&state, &identity, conversation_id).await {
+        Ok(conversation) => conversation,
+        Err(response) => return response,
+    };
+
+    conversation.archived_at = if body.archived {
+        Some(Utc::now())
+    } else {
+        None
+    };
+    conversation.updated_at = Utc::now();
+
+    match state.conversations.put_conversation(&conversation).await {
+        Ok(()) => Json(conversation).into_response(),
+        Err(error) => internal_error(error),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/mobile/v1/conversations/{id}",
+    params(
+        ("id" = String, Path, description = "Conversation identifier")
+    ),
+    responses(
+        (status = 204, description = "Conversation deleted"),
+        (status = 400, description = "Invalid conversation id", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Conversation not found", body = ApiError),
+        (status = 500, description = "Internal error", body = ApiError)
+    ),
+    tag = "mobile"
+)]
+/// DELETE `/mobile/v1/conversations/{id}` — permanently delete a conversation
+/// and its transcript.
+async fn handle_delete_conversation(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let conversation_id = match parse_conversation_id(&id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+
+    if let Err(response) = load_owned_conversation(&state, &identity, conversation_id).await {
+        return response;
+    }
+
+    match state.conversations.delete_conversation(&conversation_id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => internal_error(error),
     }
 }
 

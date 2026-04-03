@@ -80,14 +80,23 @@ impl ConversationStore for RedisConversationStore {
         user_id: &str,
         limit: usize,
         offset: usize,
+        include_archived: bool,
     ) -> Result<Vec<Conversation>> {
         let mut conn = self
             .pool
             .get()
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+
+        // Fetch enough IDs to satisfy the page after filtering. We overfetch
+        // (3x) when excluding archived items to reduce round-trips.
+        let fetch_limit = if include_archived {
+            limit
+        } else {
+            limit.saturating_mul(3).max(limit)
+        };
         let start = offset as isize;
-        let stop = offset.saturating_add(limit).saturating_sub(1) as isize;
+        let stop = offset.saturating_add(fetch_limit).saturating_sub(1) as isize;
         let ids: Vec<String> = redis::cmd("ZREVRANGE")
             .arg(Self::user_index_key(user_id))
             .arg(start)
@@ -109,11 +118,53 @@ impl ConversationStore for RedisConversationStore {
             if let Some(json) = value
                 && let Ok(conversation) = serde_json::from_str::<Conversation>(&json)
             {
-                conversations.push(conversation);
+                if include_archived || conversation.archived_at.is_none() {
+                    conversations.push(conversation);
+                }
+            }
+            if conversations.len() >= limit {
+                break;
             }
         }
 
         Ok(conversations)
+    }
+
+    async fn delete_conversation(&self, id: &ConversationId) -> Result<()> {
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+
+        // Retrieve the user_id needed to remove the sorted-set entry.
+        let conversation_key = Self::conversation_key(id);
+        let value: Option<String> = conn
+            .get(&conversation_key)
+            .await
+            .map_err(|e| Error::bus(format!("redis GET error: {e}")))?;
+
+        if let Some(json) = value {
+            if let Ok(conversation) = serde_json::from_str::<Conversation>(&json) {
+                let _: () = conn
+                    .zrem(
+                        Self::user_index_key(&conversation.user_id),
+                        conversation.id.to_string(),
+                    )
+                    .await
+                    .map_err(|e| Error::bus(format!("redis ZREM error: {e}")))?;
+            }
+            let _: () = conn
+                .del(&conversation_key)
+                .await
+                .map_err(|e| Error::bus(format!("redis DEL error: {e}")))?;
+            let _: () = conn
+                .del(Self::messages_key(id))
+                .await
+                .map_err(|e| Error::bus(format!("redis DEL error: {e}")))?;
+        }
+
+        Ok(())
     }
 
     async fn append_message(&self, message: &ConversationMessage) -> Result<()> {

@@ -157,11 +157,12 @@ impl ConversationStore for InMemoryConversationStore {
         user_id: &str,
         limit: usize,
         offset: usize,
+        include_archived: bool,
     ) -> Result<Vec<Conversation>> {
         let conversations = self.conversations.lock().await;
         let mut result: Vec<_> = conversations
             .values()
-            .filter(|conversation| conversation.user_id == user_id)
+            .filter(|c| c.user_id == user_id && (include_archived || c.archived_at.is_none()))
             .cloned()
             .collect();
         result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -169,6 +170,14 @@ impl ConversationStore for InMemoryConversationStore {
         let end = start.saturating_add(limit).min(result.len());
         result = result[start..end].to_vec();
         Ok(result)
+    }
+
+    async fn delete_conversation(&self, id: &ConversationId) -> Result<()> {
+        let mut conversations = self.conversations.lock().await;
+        conversations.remove(id);
+        let mut messages = self.messages.lock().await;
+        messages.remove(id);
+        Ok(())
     }
 
     async fn append_message(&self, message: &ConversationMessage) -> Result<()> {

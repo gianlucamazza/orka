@@ -1331,6 +1331,9 @@ pub struct Conversation {
     pub last_message_preview: Option<String>,
     /// Lifecycle state shown to clients.
     pub status: ConversationStatus,
+    /// When this conversation was archived, or `None` if active.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<DateTime<Utc>>,
     /// Conversation creation time.
     pub created_at: DateTime<Utc>,
     /// Last update time.
@@ -1428,6 +1431,7 @@ impl Conversation {
             title: title.into(),
             last_message_preview: None,
             status: ConversationStatus::Active,
+            archived_at: None,
             created_at: now,
             updated_at: now,
         }

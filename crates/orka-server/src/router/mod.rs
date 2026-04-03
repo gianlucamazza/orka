@@ -62,6 +62,8 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         mobile::handle_list_conversations,
         mobile::handle_create_conversation,
         mobile::handle_get_conversation,
+        mobile::handle_update_conversation,
+        mobile::handle_delete_conversation,
         mobile::handle_upload_artifact,
         mobile::handle_get_artifact,
         mobile::handle_delete_artifact,

@@ -792,5 +792,222 @@ async fn openapi_spec_includes_mobile_paths() -> common::TestResult {
     assert!(json["paths"]["/mobile/v1/uploads"].is_object());
     assert!(json["paths"]["/mobile/v1/artifacts/{id}"].is_object());
     assert!(json["paths"]["/mobile/v1/artifacts/{id}/content"].is_object());
+    assert!(json["paths"]["/mobile/v1/conversations/{id}"].as_object().is_some_and(|o| o.contains_key("patch")));
+    assert!(json["paths"]["/mobile/v1/conversations/{id}"].as_object().is_some_and(|o| o.contains_key("delete")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn mobile_conversation_archive_and_unarchive() -> common::TestResult {
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let conversation = seed_conversation(
+        ctx.conversations.as_ref(),
+        "user-a",
+        "to archive",
+        chrono::Utc::now(),
+    )
+    .await?;
+    let auth = bearer("user-a", &["chat:read", "chat:write"]);
+    let id = conversation.id.to_string();
+
+    // Archive the conversation.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/mobile/v1/conversations/{id}"))
+                .header("Authorization", auth.clone())
+                .header("content-type", "application/json"),
+            Body::from(r#"{"archived":true}"#),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = common::json_body(resp).await?;
+    assert!(json["archived_at"].is_string(), "archived_at should be set");
+
+    // Default list should exclude it.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .uri("/mobile/v1/conversations")
+                .header("Authorization", auth.clone()),
+            Body::empty(),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let list = common::json_body(resp).await?;
+    let array = common::json_array(&list)?;
+    assert!(
+        array.iter().all(|c| c["id"] != id),
+        "archived conversation must not appear in default list"
+    );
+
+    // Archived list should include it.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .uri("/mobile/v1/conversations?archived=true")
+                .header("Authorization", auth.clone()),
+            Body::empty(),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let list = common::json_body(resp).await?;
+    let array = common::json_array(&list)?;
+    assert!(
+        array.iter().any(|c| c["id"] == id),
+        "archived conversation must appear in archived list"
+    );
+
+    // Unarchive.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/mobile/v1/conversations/{id}"))
+                .header("Authorization", auth.clone())
+                .header("content-type", "application/json"),
+            Body::from(r#"{"archived":false}"#),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = common::json_body(resp).await?;
+    assert!(json["archived_at"].is_null() || !json.get("archived_at").is_some_and(|v| v.is_string()),
+        "archived_at should be absent or null after unarchive");
+
+    // Default list should include it again.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .uri("/mobile/v1/conversations")
+                .header("Authorization", auth.clone()),
+            Body::empty(),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let list = common::json_body(resp).await?;
+    let array = common::json_array(&list)?;
+    assert!(
+        array.iter().any(|c| c["id"] == id),
+        "unarchived conversation must appear in default list again"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn mobile_conversation_delete() -> common::TestResult {
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let conversation = seed_conversation(
+        ctx.conversations.as_ref(),
+        "user-a",
+        "to delete",
+        chrono::Utc::now(),
+    )
+    .await?;
+    let auth = bearer("user-a", &["chat:read", "chat:write"]);
+    let id = conversation.id.to_string();
+
+    // Delete.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/mobile/v1/conversations/{id}"))
+                .header("Authorization", auth.clone()),
+            Body::empty(),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // GET should return 404.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .uri(format!("/mobile/v1/conversations/{id}"))
+                .header("Authorization", auth.clone()),
+            Body::empty(),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    // Should not appear in the list.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .uri("/mobile/v1/conversations")
+                .header("Authorization", auth.clone()),
+            Body::empty(),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let list = common::json_body(resp).await?;
+    let array = common::json_array(&list)?;
+    assert!(
+        array.iter().all(|c| c["id"] != id),
+        "deleted conversation must not appear in list"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn mobile_conversation_archive_delete_ownership() -> common::TestResult {
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let conversation = seed_conversation(
+        ctx.conversations.as_ref(),
+        "user-a",
+        "owned by a",
+        chrono::Utc::now(),
+    )
+    .await?;
+    let auth_b = bearer("user-b", &["chat:read", "chat:write"]);
+    let id = conversation.id.to_string();
+
+    // user-b tries to archive user-a's conversation — should get 404.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/mobile/v1/conversations/{id}"))
+                .header("Authorization", auth_b.clone())
+                .header("content-type", "application/json"),
+            Body::from(r#"{"archived":true}"#),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    // user-b tries to delete user-a's conversation — should get 404.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/mobile/v1/conversations/{id}"))
+                .header("Authorization", auth_b.clone()),
+            Body::empty(),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
     Ok(())
 }
