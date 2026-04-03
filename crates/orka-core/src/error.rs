@@ -208,6 +208,16 @@ pub enum Error {
     #[error("research conflict: {0}")]
     ResearchConflict(String),
 
+    /// Artifact storage operation failure.
+    #[error("artifact error: {context}")]
+    Artifact {
+        /// Root cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Human-readable context for the failure.
+        context: String,
+    },
+
     /// Catch-all for unclassified errors.
     #[error("{0}")]
     Other(String),
@@ -436,6 +446,15 @@ impl Error {
         Self::Llm {
             source: Box::new(source),
             context: context.into(),
+        }
+    }
+
+    /// Create an artifact error from a message string.
+    pub fn artifact(msg: impl Into<String>) -> Self {
+        let s = msg.into();
+        Self::Artifact {
+            source: Box::new(SimpleError(s.clone())),
+            context: s,
         }
     }
 

@@ -23,7 +23,7 @@ use orka_agent::AgentGraph;
 use orka_auth::AuthLayer;
 use orka_checkpoint::CheckpointStore;
 use orka_core::traits::{
-    ConversationStore, DeadLetterQueue, MessageBus, PriorityQueue, SessionStore,
+    ArtifactStore, ConversationStore, DeadLetterQueue, MessageBus, PriorityQueue, SessionStore,
 };
 use orka_experience::ExperienceService;
 use orka_observe::metrics::PrometheusHandle;
@@ -31,7 +31,7 @@ use orka_research::ResearchService;
 use orka_scheduler::ScheduleStore;
 use orka_skills::{SkillRegistry, SoftSkillRegistry};
 use orka_workspace::WorkspaceRegistry;
-use tower_http::limit::RequestBodyLimitLayer;
+use axum::extract::DefaultBodyLimit;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -62,6 +62,10 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         mobile::handle_list_conversations,
         mobile::handle_create_conversation,
         mobile::handle_get_conversation,
+        mobile::handle_upload_artifact,
+        mobile::handle_get_artifact,
+        mobile::handle_delete_artifact,
+        mobile::handle_get_artifact_content,
         mobile::handle_list_messages,
         mobile::handle_send_message,
         mobile::handle_stream,
@@ -83,6 +87,8 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         orka_core::CommandPayload,
         orka_core::EventPayload,
         orka_core::Conversation,
+        orka_core::ConversationArtifact,
+        orka_core::ConversationArtifactOrigin,
         orka_core::ConversationId,
         orka_core::ConversationMessage,
         orka_core::ConversationMessageRole,
@@ -120,6 +126,7 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         mobile::MobileSessionResponse,
         mobile::SendMessageRequest,
         mobile::SendMessageResponse,
+        mobile::UploadArtifactResponse,
     )),
     tags(
         (name = "messages", description = "Message endpoints"),
@@ -228,6 +235,8 @@ pub struct RouterParams {
     pub sessions: Arc<dyn SessionStore>,
     /// Product-facing conversation store.
     pub conversations: Arc<dyn ConversationStore>,
+    /// Product-facing artifact store.
+    pub artifacts: Arc<dyn ArtifactStore>,
     /// Schedule store (for /api/v1/schedules*; `None` = scheduler disabled).
     pub scheduler_store: Option<Arc<dyn ScheduleStore>>,
     /// Checkpoint store (for /api/v1/runs*; `None` = checkpointing disabled).
@@ -305,6 +314,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         soft_skills,
         sessions,
         conversations,
+        artifacts,
         scheduler_store,
         checkpoint_store,
         workspace_registry,
@@ -423,6 +433,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
     let api_routes = if mobile_enabled {
         api_routes.merge(mobile::protected_routes(
             conversations,
+            artifacts,
             bus,
             stream_registry,
             mobile_events,
@@ -464,5 +475,5 @@ pub fn build_router(p: RouterParams) -> axum::Router {
             doc
         }))
         .layer(axum::middleware::from_fn(security_headers))
-        .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
+        .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
 }

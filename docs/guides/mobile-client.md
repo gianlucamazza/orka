@@ -31,6 +31,10 @@ Base path: `/mobile/v1`
 | `GET` | `/conversations` | List recent conversations for the current user |
 | `POST` | `/conversations` | Create an empty conversation |
 | `GET` | `/conversations/{id}` | Fetch conversation metadata |
+| `POST` | `/uploads` | Upload a pending artifact owned by the current user |
+| `GET` | `/artifacts/{id}` | Fetch artifact metadata |
+| `DELETE` | `/artifacts/{id}` | Delete an unattached uploaded artifact |
+| `GET` | `/artifacts/{id}/content` | Fetch artifact bytes with bearer auth |
 | `GET` | `/conversations/{id}/messages` | Fetch transcript messages |
 | `POST` | `/conversations/{id}/messages` | Append a user message and enqueue Orka processing |
 | `GET` | `/conversations/{id}/stream` | Stream assistant progress and completion events as SSE |
@@ -60,6 +64,8 @@ The stream endpoint emits Server-Sent Events with these event names:
 
 - `message_delta`
   Data: `{ "conversation_id", "reply_to"?, "delta" }`
+- `artifact_ready`
+  Data: `{ "conversation_id", "artifact": ConversationArtifact }`
 - `message_completed`
   Data: `{ "message": ConversationMessage }`
 - `message_failed`
@@ -68,15 +74,19 @@ The stream endpoint emits Server-Sent Events with these event names:
   Data: `{ "conversation_id" }`
 
 `message_delta` carries incremental assistant text while the model is
-responding. `message_completed` is emitted only after the assistant message has
-been persisted to the conversation transcript. `message_failed` indicates a
-terminal generation failure. `stream_done` only indicates that the transport
-stream finished; it does not imply success.
+responding. `artifact_ready` is emitted when an assistant output artifact has
+been durably persisted and can already be fetched through the content endpoint.
+`message_completed` is emitted only after the assistant message has been
+persisted to the conversation transcript. `message_failed` indicates a terminal
+generation failure. `stream_done` only indicates that the transport stream
+finished; it does not imply success.
 
 Client rules:
 
 - Treat transcript reload as the source of truth after reconnect, app resume,
   or any missing terminal event.
+- Treat artifact metadata as transcript data and binary content as a separate
+  authenticated fetch through `/artifacts/{id}/content`.
 - If `message_failed` is received, refresh both conversation metadata and the
   transcript.
 - If `stream_done` arrives without `message_completed`, reload the transcript
@@ -94,6 +104,8 @@ Client rules:
   - `active` for normal operation
   - `interrupted` when Orka paused for human or external input
   - `failed` when the last generation terminated with an error
+- `ConversationMessage.artifacts` is the durable attachment list associated
+  with that message. Artifact bytes are never inlined into transcript payloads.
 
 ## Examples
 
@@ -118,7 +130,8 @@ Client rules:
 
 ```json
 {
-  "text": "Continue from the last checkpoint."
+  "text": "Continue from the last checkpoint.",
+  "artifact_ids": ["0195f640-3a61-75df-933f-c366d6c1d2a5"]
 }
 ```
 
@@ -136,6 +149,34 @@ Client rules:
 {
   "conversation_id": "0a8d3f4b-0c3c-4837-98b4-bc2a71ee2cd1",
   "error": "agent execution terminated with error"
+}
+```
+
+`POST /mobile/v1/uploads`
+
+```text
+multipart/form-data
+  file=<binary>
+  caption?=<optional string>
+```
+
+```json
+{
+  "artifact": {
+    "id": "0195f640-3a61-75df-933f-c366d6c1d2a5",
+    "owner_user_id": "user-123",
+    "conversation_id": null,
+    "message_id": null,
+    "origin": "user_upload",
+    "mime_type": "application/pdf",
+    "filename": "spec.pdf",
+    "caption": "Latest draft",
+    "size_bytes": 48213,
+    "width": null,
+    "height": null,
+    "duration_ms": null,
+    "created_at": "2026-04-03T10:20:00Z"
+  }
 }
 ```
 

@@ -11,7 +11,8 @@ use axum::{body::Body, response::Response};
 use orka_a2a::AgentDirectory;
 use orka_agent::{Agent, AgentGraph, AgentId, GraphNode, NodeKind, TerminationPolicy};
 use orka_core::testing::{
-    InMemoryBus, InMemoryConversationStore, InMemoryQueue, InMemorySessionStore,
+    InMemoryArtifactStore, InMemoryBus, InMemoryConversationStore, InMemoryQueue,
+    InMemorySessionStore,
 };
 use orka_server::{
     mobile_auth::{InMemoryMobileAuthService, MobileAuthConfig, MobileAuthService},
@@ -181,6 +182,7 @@ pub(crate) fn test_router() -> axum::Router {
     let q = Arc::new(InMemoryQueue::new());
     let bus = Arc::new(InMemoryBus::new());
     let conversations = Arc::new(InMemoryConversationStore::new());
+    let artifacts = Arc::new(InMemoryArtifactStore::new());
     build_router(RouterParams {
         bus,
         queue: q.clone(),
@@ -189,6 +191,7 @@ pub(crate) fn test_router() -> axum::Router {
         soft_skills: None,
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations,
+        artifacts,
         scheduler_store: None,
         checkpoint_store: None,
         workspace_registry: test_workspace_registry(),
@@ -263,6 +266,7 @@ pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::R
     let q = Arc::new(InMemoryQueue::new());
     let bus = Arc::new(InMemoryBus::new());
     let conversations = Arc::new(InMemoryConversationStore::new());
+    let artifacts = Arc::new(InMemoryArtifactStore::new());
     build_router(RouterParams {
         bus,
         queue: q.clone(),
@@ -271,6 +275,7 @@ pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::R
         soft_skills: None,
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations,
+        artifacts,
         scheduler_store: None,
         checkpoint_store: None,
         workspace_registry: test_workspace_registry(),
@@ -324,6 +329,7 @@ pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
     let q = Arc::new(InMemoryQueue::new());
     let bus = Arc::new(InMemoryBus::new());
     let conversations = Arc::new(InMemoryConversationStore::new());
+    let artifacts = Arc::new(InMemoryArtifactStore::new());
     build_router(RouterParams {
         bus,
         queue: q.clone(),
@@ -332,6 +338,7 @@ pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
         soft_skills: None,
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations,
+        artifacts,
         scheduler_store: None,
         checkpoint_store: None,
         workspace_registry: test_workspace_registry(),
@@ -399,6 +406,7 @@ pub(crate) fn test_router_with_research() -> axum::Router {
     let q = Arc::new(InMemoryQueue::new());
     let bus = Arc::new(InMemoryBus::new());
     let conversations = Arc::new(InMemoryConversationStore::new());
+    let artifacts = Arc::new(InMemoryArtifactStore::new());
     build_router(RouterParams {
         bus,
         queue: q.clone(),
@@ -407,6 +415,7 @@ pub(crate) fn test_router_with_research() -> axum::Router {
         soft_skills: None,
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations,
+        artifacts,
         scheduler_store: None,
         checkpoint_store: None,
         workspace_registry: test_workspace_registry(),
@@ -449,6 +458,7 @@ pub(crate) fn test_router_with_research() -> axum::Router {
 
 pub(crate) struct MobileTestContext {
     pub app: axum::Router,
+    pub artifacts: Arc<InMemoryArtifactStore>,
     pub bus: Arc<InMemoryBus>,
     pub conversations: Arc<InMemoryConversationStore>,
     pub stream_registry: orka_core::StreamRegistry,
@@ -462,6 +472,7 @@ pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileT
     skills.register(Arc::new(EchoSkill));
 
     let bus = Arc::new(InMemoryBus::new());
+    let artifacts = Arc::new(InMemoryArtifactStore::new());
     let conversations = Arc::new(InMemoryConversationStore::new());
     let stream_registry = orka_core::StreamRegistry::new();
     let mobile_events = MobileEventHub::new();
@@ -482,6 +493,7 @@ pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileT
         soft_skills: None,
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations: conversations.clone(),
+        artifacts: artifacts.clone(),
         scheduler_store: None,
         checkpoint_store: None,
         workspace_registry: test_workspace_registry(),
@@ -515,6 +527,7 @@ pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileT
 
     MobileTestContext {
         app,
+        artifacts,
         bus,
         conversations,
         stream_registry,
@@ -552,6 +565,7 @@ pub(crate) fn test_router_with_composite_auth(
 
     let bus = Arc::new(InMemoryBus::new());
     let conversations = Arc::new(InMemoryConversationStore::new());
+    let artifacts = Arc::new(InMemoryArtifactStore::new());
     let q = Arc::new(InMemoryQueue::new());
     build_router(RouterParams {
         bus,
@@ -561,6 +575,7 @@ pub(crate) fn test_router_with_composite_auth(
         soft_skills: None,
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations,
+        artifacts,
         scheduler_store: None,
         checkpoint_store: None,
         workspace_registry: test_workspace_registry(),

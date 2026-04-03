@@ -886,6 +886,7 @@ pub(crate) async fn run_agent_node(
     // Check input guardrail before initializing runner.
     let trigger_text = match &ctx.trigger.payload {
         orka_core::Payload::Text(t) => t.clone(),
+        orka_core::Payload::RichInput(input) => input.text.clone().unwrap_or_default(),
         _ => String::new(),
     };
     if let Some(blocked) = check_input_guardrail(agent, ctx, deps, &trigger_text).await {
@@ -907,6 +908,7 @@ fn build_trigger_context(agent: &Agent, ctx: &ExecutionContext) -> TriggerContex
     let message_id = envelope.id;
     let trigger_text = match &ctx.trigger.payload {
         orka_core::Payload::Text(t) => t.clone(),
+        orka_core::Payload::RichInput(input) => input.text.clone().unwrap_or_default(),
         _ => String::new(),
     };
     let workspace_name = ctx

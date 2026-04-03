@@ -117,17 +117,59 @@ impl ConversationStore for RedisConversationStore {
     }
 
     async fn append_message(&self, message: &ConversationMessage) -> Result<()> {
+        self.upsert_message(message).await
+    }
+
+    async fn upsert_message(&self, message: &ConversationMessage) -> Result<()> {
         let mut conn = self
             .pool
             .get()
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
-        let json = serde_json::to_string(message)?;
-        let _: () = conn
-            .rpush(Self::messages_key(&message.conversation_id), json)
+        let key = Self::messages_key(&message.conversation_id);
+        let values: Vec<String> = conn
+            .lrange(&key, 0, -1)
             .await
-            .map_err(|e| Error::bus(format!("redis RPUSH error: {e}")))?;
+            .map_err(|e| Error::bus(format!("redis LRANGE error: {e}")))?;
+        let replacement = serde_json::to_string(message)?;
+        if let Some((index, _)) = values
+            .iter()
+            .enumerate()
+            .find(|(_, json)| serde_json::from_str::<ConversationMessage>(json).ok().is_some_and(|item| item.id == message.id))
+        {
+            let _: () = conn
+                .lset(&key, index as isize, replacement)
+                .await
+                .map_err(|e| Error::bus(format!("redis LSET error: {e}")))?;
+        } else {
+            let _: () = conn
+                .rpush(&key, replacement)
+                .await
+                .map_err(|e| Error::bus(format!("redis RPUSH error: {e}")))?;
+        }
         Ok(())
+    }
+
+    async fn get_message(
+        &self,
+        conversation_id: &ConversationId,
+        message_id: &orka_core::MessageId,
+    ) -> Result<Option<ConversationMessage>> {
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+        let values: Vec<String> = conn
+            .lrange(Self::messages_key(conversation_id), 0, -1)
+            .await
+            .map_err(|e| Error::bus(format!("redis LRANGE error: {e}")))?;
+
+        Ok(values.into_iter().find_map(|json| {
+            serde_json::from_str::<ConversationMessage>(&json)
+                .ok()
+                .filter(|item| &item.id == message_id)
+        }))
     }
 
     async fn list_messages(

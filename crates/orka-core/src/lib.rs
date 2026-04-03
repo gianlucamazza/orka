@@ -71,11 +71,12 @@ pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry, forward_delegate_progress};
 pub use traits::NoopEventSink;
 pub use types::{
-    CommandArgs, CommandPayload, Conversation, ConversationId, ConversationMessage,
-    ConversationMessageRole, ConversationMessageStatus, ConversationStatus, DomainEvent,
-    DomainEventKind, Envelope, ErrorCategory, EventId, EventPayload, MediaPayload, MemoryEntry,
-    MemoryKind, MemoryScope, MessageId, MessageSink, MessageStream, OutboundMessage, Payload,
-    Priority, RunId, SecretStr, SecretValue, Session, SessionId, SkillBudget, SkillContext,
-    SkillInput, SkillOutput, SkillSchema, TraceContext, backoff_delay,
+    ArtifactId, CommandArgs, CommandPayload, Conversation, ConversationArtifact,
+    ConversationArtifactOrigin, ConversationId, ConversationMessage, ConversationMessageRole,
+    ConversationMessageStatus, ConversationStatus, DomainEvent, DomainEventKind, Envelope,
+    ErrorCategory, EventId, EventPayload, MediaPayload, MemoryEntry, MemoryKind, MemoryScope,
+    MessageId, MessageSink, MessageStream, OutboundMessage, Payload, Priority, RichInputPayload,
+    RunId, SecretStr, SecretValue, Session, SessionId, SkillBudget, SkillContext, SkillInput,
+    SkillOutput, SkillSchema, TraceContext, backoff_delay,
 };
 pub use util::truncate_tool_result;

@@ -20,6 +20,10 @@ impl AgentHandler for EchoHandler {
     ) -> Result<Vec<OutboundMessage>> {
         let reply_text = match &envelope.payload {
             Payload::Text(t) => format!("echo: {t}"),
+            Payload::RichInput(input) => format!(
+                "echo: {}",
+                input.text.clone().unwrap_or_else(|| "[rich input]".into())
+            ),
             _ => "echo: [non-text payload]".into(),
         };
 

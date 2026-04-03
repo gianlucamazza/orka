@@ -507,6 +507,10 @@ impl AgentHandler for WorkspaceHandler {
 
         let text = match &envelope.payload {
             Payload::Text(t) => t.clone(),
+            Payload::RichInput(input) => input
+                .text
+                .clone()
+                .unwrap_or_else(|| "[rich input without text]".into()),
             _ => {
                 return Ok(vec![Self::make_reply(
                     envelope,

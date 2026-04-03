@@ -4,7 +4,7 @@ use std::{path::Path, sync::Arc, time::Instant};
 
 use orka_checkpoint::{CheckpointStore, RunStatus};
 use orka_core::{
-    DomainEvent, DomainEventKind, OutboundMessage, Payload,
+    DomainEvent, DomainEventKind, MessageId, OutboundMessage, Payload,
     stream::{StreamChunk, StreamChunkKind},
     traits::{EventSink, Guardrail, MemoryStore, SecretManager},
     types::MediaPayload,
@@ -202,6 +202,7 @@ impl ExecutionResult {
     /// additional message per media attachment generated during execution.
     pub fn into_outbound_messages(self, ctx: &ExecutionContext) -> Vec<OutboundMessage> {
         let mut out: Vec<OutboundMessage> = Vec::new();
+        let assistant_message_id = MessageId::new();
 
         if !self.response.is_empty() {
             let mut msg = OutboundMessage::text(
@@ -214,6 +215,10 @@ impl ExecutionResult {
             msg.metadata
                 .entry("source_channel".into())
                 .or_insert_with(|| serde_json::Value::String(ctx.trigger.channel.clone()));
+            msg.metadata.insert(
+                "assistant_message_id".into(),
+                serde_json::json!(assistant_message_id.to_string()),
+            );
             if self.stop_reason != orka_core::stream::AgentStopReason::Complete {
                 msg.metadata.insert(
                     "stop_reason".into(),
@@ -235,6 +240,10 @@ impl ExecutionResult {
                 .metadata
                 .entry("source_channel".into())
                 .or_insert_with(|| serde_json::Value::String(ctx.trigger.channel.clone()));
+            media_msg.metadata.insert(
+                "assistant_message_id".into(),
+                serde_json::json!(assistant_message_id.to_string()),
+            );
             out.push(media_msg);
         }
 
@@ -431,6 +440,7 @@ impl GraphExecutor {
         // Add initial user message to context if not already present
         let trigger_text = match &ctx.trigger.payload {
             Payload::Text(t) => t.clone(),
+            Payload::RichInput(input) => input.text.clone().unwrap_or_default(),
             Payload::Command(cmd) => format!("/{}", cmd.name),
             _ => String::new(),
         };

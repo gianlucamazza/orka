@@ -158,6 +158,40 @@ impl std::fmt::Display for ConversationId {
     }
 }
 
+/// Unique identifier for a product-facing conversation artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ArtifactId(Uuid);
+
+impl ArtifactId {
+    /// Create a new unique artifact ID (UUID v7).
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// Return the underlying UUID.
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl Default for ArtifactId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<Uuid> for ArtifactId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl std::fmt::Display for ArtifactId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Unique identifier for a graph execution run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RunId(Uuid);
@@ -657,6 +691,17 @@ pub struct SkillSchema {
     pub parameters: serde_json::Value,
 }
 
+/// Product-facing rich input payload combining text with media attachments.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RichInputPayload {
+    /// Optional user-authored text accompanying the attachments.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Media attachments submitted in the same turn.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<MediaPayload>,
+}
+
 /// Message priority for queue routing.
 #[derive(
     Debug,
@@ -690,6 +735,8 @@ pub enum Priority {
 pub enum Payload {
     /// Plain text message content.
     Text(String),
+    /// Rich user input combining text and attachments in a single turn.
+    RichInput(RichInputPayload),
     /// File or media attachment.
     Media(MediaPayload),
     /// Structured slash command from a user or internal system.
@@ -706,6 +753,9 @@ pub struct MediaPayload {
     pub mime_type: String,
     /// URL or path where the media can be retrieved. Empty for inline payloads.
     pub url: String,
+    /// Suggested filename when materialized as a file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
     /// Optional human-readable description of the media.
     pub caption: Option<String>,
     /// File size in bytes, if known.
@@ -941,6 +991,7 @@ impl MediaPayload {
         Self {
             mime_type: mime_type.into(),
             url: url.into(),
+            filename: None,
             caption: None,
             size_bytes: None,
             data_base64: None,
@@ -962,6 +1013,7 @@ impl MediaPayload {
         Self {
             mime_type: mime_type.into(),
             url: String::new(),
+            filename: None,
             caption: caption.into(),
             size_bytes: Some(size),
             data_base64: Some(base64::engine::general_purpose::STANDARD.encode(data)),
@@ -974,6 +1026,13 @@ impl MediaPayload {
         self.data_base64
             .as_deref()
             .and_then(|s| base64::engine::general_purpose::STANDARD.decode(s).ok())
+    }
+
+    /// Set the suggested filename for this payload.
+    #[must_use]
+    pub fn with_filename(mut self, filename: impl Into<String>) -> Self {
+        self.filename = Some(filename.into());
+        self
     }
 }
 
@@ -1278,6 +1337,81 @@ pub struct Conversation {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Source of a conversation artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ConversationArtifactOrigin {
+    /// Uploaded by the end user from the client device.
+    UserUpload,
+    /// Produced by Orka during assistant execution.
+    AssistantOutput,
+}
+
+/// Product-facing artifact metadata associated with a conversation.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[non_exhaustive]
+pub struct ConversationArtifact {
+    /// Stable artifact identifier.
+    pub id: ArtifactId,
+    /// Owning authenticated user.
+    pub owner_user_id: String,
+    /// Owning conversation, if already attached to one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<ConversationId>,
+    /// Owning message, if already attached to one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<MessageId>,
+    /// Where the artifact originated.
+    pub origin: ConversationArtifactOrigin,
+    /// MIME type of the content.
+    pub mime_type: String,
+    /// Suggested filename for downloads and previews.
+    pub filename: String,
+    /// Optional caption or user-provided note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+    /// Byte size, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
+    /// Width in pixels for visual media, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// Height in pixels for visual media, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    /// Duration in milliseconds for timed media, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Artifact creation time.
+    pub created_at: DateTime<Utc>,
+}
+
+impl ConversationArtifact {
+    /// Create a new conversation artifact metadata record.
+    pub fn new(
+        owner_user_id: impl Into<String>,
+        origin: ConversationArtifactOrigin,
+        mime_type: impl Into<String>,
+        filename: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: ArtifactId::new(),
+            owner_user_id: owner_user_id.into(),
+            conversation_id: None,
+            message_id: None,
+            origin,
+            mime_type: mime_type.into(),
+            filename: filename.into(),
+            caption: None,
+            size_bytes: None,
+            width: None,
+            height: None,
+            duration_ms: None,
+            created_at: Utc::now(),
+        }
+    }
+}
+
 impl Conversation {
     /// Create a new active conversation.
     pub fn new(
@@ -1336,6 +1470,9 @@ pub struct ConversationMessage {
     pub role: ConversationMessageRole,
     /// Message text content.
     pub text: String,
+    /// Associated artifacts for this message.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<ConversationArtifact>,
     /// Persistence / delivery state.
     pub status: ConversationMessageStatus,
     /// Message creation time.
@@ -1361,6 +1498,7 @@ impl ConversationMessage {
             session_id,
             role,
             text: text.into(),
+            artifacts: Vec::new(),
             status: ConversationMessageStatus::Completed,
             created_at: now,
             finalized_at: Some(now),

@@ -8,9 +8,9 @@ use axum::body::{Body, Bytes};
 use futures_util::StreamExt;
 use http::{Request, StatusCode};
 use orka_core::{
-    Conversation, ConversationId, ConversationMessage, ConversationMessageRole, MessageId,
+    Conversation, ConversationId, ConversationMessage, ConversationMessageRole, MessageId, Payload,
     SessionId, StreamChunk, StreamChunkKind,
-    traits::{ConversationStore, MessageBus},
+    traits::{ArtifactStore, ConversationStore, MessageBus},
 };
 use orka_server::router::MobileStreamEvent;
 use tower::ServiceExt;
@@ -75,6 +75,50 @@ fn parse_sse_frame(frame: &str) -> common::TestResult<(String, serde_json::Value
         event.ok_or_else(|| "missing SSE event name".to_string())?,
         data.ok_or_else(|| "missing SSE data".to_string())?,
     ))
+}
+
+fn multipart_upload_request(
+    path: &str,
+    authorization: String,
+    filename: &str,
+    content_type: &str,
+    bytes: &[u8],
+    caption: Option<&str>,
+) -> common::TestResult<Request<Body>> {
+    let boundary = "orka-mobile-test-boundary";
+    let mut body = Vec::new();
+
+    body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    body.extend_from_slice(
+        format!(
+            "Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(format!("Content-Type: {content_type}\r\n\r\n").as_bytes());
+    body.extend_from_slice(bytes);
+    body.extend_from_slice(b"\r\n");
+
+    if let Some(caption) = caption {
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(b"Content-Disposition: form-data; name=\"caption\"\r\n\r\n");
+        body.extend_from_slice(caption.as_bytes());
+        body.extend_from_slice(b"\r\n");
+    }
+
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+
+    common::request(
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("Authorization", authorization)
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            ),
+        Body::from(body),
+    )
 }
 
 #[tokio::test]
@@ -226,6 +270,204 @@ async fn mobile_send_persists_user_message_and_publishes_inbound_envelope() -> c
 }
 
 #[tokio::test]
+async fn mobile_upload_returns_metadata_and_content() -> common::TestResult {
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let file_bytes = b"artifact-body";
+    let upload_req = multipart_upload_request(
+        "/mobile/v1/uploads",
+        bearer("user-a", &["chat:write"]),
+        "notes.txt",
+        "text/plain",
+        file_bytes,
+        Some("Field notes"),
+    )?;
+
+    let upload_resp = ctx.app.clone().oneshot(upload_req).await?;
+    assert_eq!(upload_resp.status(), StatusCode::CREATED);
+    let upload_json = common::json_body(upload_resp).await?;
+    let artifact_id = upload_json["artifact"]["id"]
+        .as_str()
+        .ok_or_else(|| "artifact id missing".to_string())?;
+    assert_eq!(upload_json["artifact"]["mime_type"], "text/plain");
+    assert_eq!(upload_json["artifact"]["filename"], "notes.txt");
+    assert_eq!(upload_json["artifact"]["caption"], "Field notes");
+    assert_eq!(upload_json["artifact"]["size_bytes"], file_bytes.len());
+
+    let metadata_req = common::request(
+        Request::builder()
+            .uri(format!("/mobile/v1/artifacts/{artifact_id}"))
+            .header("Authorization", bearer("user-a", &["chat:read"])),
+        Body::empty(),
+    )?;
+    let metadata_resp = ctx.app.clone().oneshot(metadata_req).await?;
+    assert_eq!(metadata_resp.status(), StatusCode::OK);
+    let metadata_json = common::json_body(metadata_resp).await?;
+    assert_eq!(metadata_json["id"], artifact_id);
+    assert_eq!(metadata_json["conversation_id"], serde_json::Value::Null);
+    assert_eq!(metadata_json["message_id"], serde_json::Value::Null);
+
+    let content_req = common::request(
+        Request::builder()
+            .uri(format!("/mobile/v1/artifacts/{artifact_id}/content"))
+            .header("Authorization", bearer("user-a", &["chat:read"])),
+        Body::empty(),
+    )?;
+    let content_resp = ctx.app.clone().oneshot(content_req).await?;
+    assert_eq!(content_resp.status(), StatusCode::OK);
+    assert_eq!(
+        content_resp
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/plain")
+    );
+    let content_body = axum::body::to_bytes(content_resp.into_body(), usize::MAX).await?;
+    assert_eq!(content_body.as_ref(), file_bytes);
+
+    let range_req = common::request(
+        Request::builder()
+            .uri(format!("/mobile/v1/artifacts/{artifact_id}/content"))
+            .header("Authorization", bearer("user-a", &["chat:read"]))
+            .header("Range", "bytes=0-6"),
+        Body::empty(),
+    )?;
+    let range_resp = ctx.app.clone().oneshot(range_req).await?;
+    assert_eq!(range_resp.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(
+        range_resp
+            .headers()
+            .get("content-range")
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes 0-6/13")
+    );
+    let range_body = axum::body::to_bytes(range_resp.into_body(), usize::MAX).await?;
+    assert_eq!(range_body.as_ref(), b"artifac");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn mobile_send_with_artifacts_persists_attachment_and_publishes_rich_input() -> common::TestResult
+{
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let conversation = seed_conversation(
+        ctx.conversations.as_ref(),
+        "user-a",
+        "thread",
+        chrono::Utc::now(),
+    )
+    .await?;
+    let upload_req = multipart_upload_request(
+        "/mobile/v1/uploads",
+        bearer("user-a", &["chat:write"]),
+        "notes.txt",
+        "text/plain",
+        b"artifact-body",
+        Some("Draft attachment"),
+    )?;
+    let upload_resp = ctx.app.clone().oneshot(upload_req).await?;
+    let upload_json = common::json_body(upload_resp).await?;
+    let artifact_id = upload_json["artifact"]["id"]
+        .as_str()
+        .ok_or_else(|| "artifact id missing".to_string())?;
+
+    let mut inbound = ctx.bus.subscribe("inbound").await?;
+    let send_req = common::request(
+        Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/mobile/v1/conversations/{}/messages",
+                conversation.id
+            ))
+            .header("Authorization", bearer("user-a", &["chat:write"]))
+            .header("content-type", "application/json"),
+        Body::from(format!(
+            r#"{{"text":"hello with file","artifact_ids":["{artifact_id}"]}}"#
+        )),
+    )?;
+    let send_resp = ctx.app.clone().oneshot(send_req).await?;
+    assert_eq!(send_resp.status(), StatusCode::ACCEPTED);
+    let send_json = common::json_body(send_resp).await?;
+    let message_id = send_json["message_id"]
+        .as_str()
+        .ok_or_else(|| "message id missing".to_string())?;
+
+    let envelope = tokio::time::timeout(Duration::from_secs(1), inbound.recv())
+        .await?
+        .ok_or_else(|| "missing inbound envelope".to_string())?;
+    match &envelope.payload {
+        Payload::RichInput(input) => {
+            assert_eq!(input.text.as_deref(), Some("hello with file"));
+            assert_eq!(input.attachments.len(), 1);
+            assert_eq!(input.attachments[0].mime_type, "text/plain");
+            assert_eq!(input.attachments[0].caption.as_deref(), Some("Draft attachment"));
+            assert_eq!(input.attachments[0].filename.as_deref(), Some("notes.txt"));
+            assert_eq!(input.attachments[0].decode_data(), Some(b"artifact-body".to_vec()));
+        }
+        payload => panic!("expected rich input payload, got {payload:?}"),
+    }
+
+    let messages = ctx
+        .conversations
+        .list_messages(&conversation.id, None, 0)
+        .await?;
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].text, "hello with file");
+    assert_eq!(messages[0].artifacts.len(), 1);
+    assert_eq!(messages[0].artifacts[0].filename, "notes.txt");
+    assert_eq!(messages[0].artifacts[0].message_id.unwrap().to_string(), message_id);
+
+    let stored_artifact = ctx
+        .artifacts
+        .get_artifact(&messages[0].artifacts[0].id)
+        .await?
+        .ok_or_else(|| "stored artifact missing".to_string())?;
+    assert_eq!(stored_artifact.conversation_id.unwrap(), conversation.id);
+    assert_eq!(stored_artifact.message_id.unwrap().to_string(), message_id);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn mobile_delete_artifact_removes_unattached_upload() -> common::TestResult {
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let upload_req = multipart_upload_request(
+        "/mobile/v1/uploads",
+        bearer("user-a", &["chat:write"]),
+        "notes.txt",
+        "text/plain",
+        b"artifact-body",
+        None,
+    )?;
+    let upload_resp = ctx.app.clone().oneshot(upload_req).await?;
+    let upload_json = common::json_body(upload_resp).await?;
+    let artifact_id = upload_json["artifact"]["id"]
+        .as_str()
+        .ok_or_else(|| "artifact id missing".to_string())?;
+
+    let delete_req = common::request(
+        Request::builder()
+            .method("DELETE")
+            .uri(format!("/mobile/v1/artifacts/{artifact_id}"))
+            .header("Authorization", bearer("user-a", &["chat:write"])),
+        Body::empty(),
+    )?;
+    let delete_resp = ctx.app.clone().oneshot(delete_req).await?;
+    assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);
+
+    let metadata_req = common::request(
+        Request::builder()
+            .uri(format!("/mobile/v1/artifacts/{artifact_id}"))
+            .header("Authorization", bearer("user-a", &["chat:read"])),
+        Body::empty(),
+    )?;
+    let metadata_resp = ctx.app.clone().oneshot(metadata_req).await?;
+    assert_eq!(metadata_resp.status(), StatusCode::NOT_FOUND);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn mobile_routes_hide_other_users_conversations() -> common::TestResult {
     let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
     let conversation = seed_conversation(
@@ -288,6 +530,27 @@ async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestRe
     let (event, data) = parse_sse_frame(&next_sse_frame(&mut stream, &mut buffer).await?)?;
     assert_eq!(event, "message_delta");
     assert_eq!(data["delta"], "partial");
+
+    let mut artifact = orka_core::ConversationArtifact::new(
+        "user-a",
+        orka_core::ConversationArtifactOrigin::AssistantOutput,
+        "text/plain",
+        "artifact.txt",
+    );
+    ctx.artifacts.put_artifact(&artifact, b"artifact-body").await?;
+    artifact.conversation_id = Some(conversation.id);
+    ctx.mobile_events
+        .publish(
+            conversation.id,
+            MobileStreamEvent::ArtifactReady {
+                conversation_id: conversation.id,
+                artifact: artifact.clone(),
+            },
+        )
+        .await;
+    let (event, data) = parse_sse_frame(&next_sse_frame(&mut stream, &mut buffer).await?)?;
+    assert_eq!(event, "artifact_ready");
+    assert_eq!(data["artifact"]["filename"], "artifact.txt");
 
     let message = ConversationMessage::new(
         MessageId::new(),
@@ -503,5 +766,8 @@ async fn openapi_spec_includes_mobile_paths() -> common::TestResult {
     assert!(json["paths"]["/mobile/v1/me"].is_object());
     assert!(json["paths"]["/mobile/v1/conversations"].is_object());
     assert!(json["paths"]["/mobile/v1/conversations/{id}/messages"].is_object());
+    assert!(json["paths"]["/mobile/v1/uploads"].is_object());
+    assert!(json["paths"]["/mobile/v1/artifacts/{id}"].is_object());
+    assert!(json["paths"]["/mobile/v1/artifacts/{id}/content"].is_object());
     Ok(())
 }

@@ -124,12 +124,78 @@ impl Dispatcher for GraphDispatcher {
             Payload::Text(t) => {
                 ctx.push_message(ChatMessage::user(t.clone())).await;
             }
-            Payload::Media(m) if m.mime_type.starts_with("image/") && !m.url.is_empty() => {
-                // Build a vision message with an image block + optional caption.
+            Payload::RichInput(input) => {
+                // Build a single user turn that preserves text plus image
+                // attachments when possible, and degrades non-image files to
+                // textual placeholders.
                 use orka_llm::client::{ChatContent, ContentBlockInput, ImageSource};
-                let mut blocks = vec![ContentBlockInput::Image {
-                    source: ImageSource::Url { url: m.url.clone() },
-                }];
+                let mut blocks = Vec::new();
+                let mut fallback_lines = Vec::new();
+
+                if let Some(text) = input.text.clone()
+                    && !text.trim().is_empty()
+                {
+                    blocks.push(ContentBlockInput::Text {
+                        text: text.clone(),
+                    });
+                    fallback_lines.push(text);
+                }
+
+                for attachment in &input.attachments {
+                    if attachment.mime_type.starts_with("image/") {
+                        if let Some(data) = attachment.data_base64.clone() {
+                            blocks.push(ContentBlockInput::Image {
+                                source: ImageSource::Base64 {
+                                    media_type: attachment.mime_type.clone(),
+                                    data,
+                                },
+                            });
+                        } else if !attachment.url.is_empty() {
+                            blocks.push(ContentBlockInput::Image {
+                                source: ImageSource::Url {
+                                    url: attachment.url.clone(),
+                                },
+                            });
+                        }
+                        if let Some(caption) = attachment.caption.clone()
+                            && !caption.is_empty()
+                        {
+                            blocks.push(ContentBlockInput::Text { text: caption });
+                        }
+                    } else {
+                        let label = attachment
+                            .caption
+                            .clone()
+                            .or_else(|| attachment.filename.clone())
+                            .unwrap_or_else(|| format!("[attachment: {}]", attachment.mime_type));
+                        fallback_lines.push(label);
+                    }
+                }
+
+                if !blocks.is_empty() {
+                    ctx.push_message(ChatMessage::new(
+                        orka_llm::client::Role::User,
+                        ChatContent::Blocks(blocks),
+                    ))
+                    .await;
+                } else if !fallback_lines.is_empty() {
+                    ctx.push_message(ChatMessage::user(fallback_lines.join("\n"))).await;
+                }
+            }
+            Payload::Media(m)
+                if m.mime_type.starts_with("image/")
+                    && (!m.url.is_empty() || m.data_base64.is_some()) =>
+            {
+                use orka_llm::client::{ChatContent, ContentBlockInput, ImageSource};
+                let source = if let Some(data) = m.data_base64.clone() {
+                    ImageSource::Base64 {
+                        media_type: m.mime_type.clone(),
+                        data,
+                    }
+                } else {
+                    ImageSource::Url { url: m.url.clone() }
+                };
+                let mut blocks = vec![ContentBlockInput::Image { source }];
                 if let Some(ref caption) = m.caption
                     && !caption.is_empty()
                 {
@@ -147,6 +213,7 @@ impl Dispatcher for GraphDispatcher {
                 let text = m
                     .caption
                     .clone()
+                    .or_else(|| m.filename.clone())
                     .unwrap_or_else(|| format!("[media: {}]", m.mime_type));
                 ctx.push_message(ChatMessage::user(text)).await;
             }

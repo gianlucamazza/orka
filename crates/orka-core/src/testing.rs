@@ -4,12 +4,12 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::{
-    Conversation, ConversationId, ConversationMessage, DomainEvent, Envelope, Error, MemoryEntry,
-    MessageId, MessageStream, Priority, Result, SecretValue, Session, SessionId, SkillInput,
-    SkillOutput, SkillSchema,
+    ArtifactId, Conversation, ConversationArtifact, ConversationId, ConversationMessage,
+    DomainEvent, Envelope, Error, MemoryEntry, MessageId, MessageStream, Priority, Result,
+    SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
     traits::{
-        ConversationStore, DeadLetterQueue, EventSink, MemoryStore, MessageBus, PriorityQueue,
-        SecretManager, SessionLock, SessionStore, Skill,
+        ArtifactStore, ConversationStore, DeadLetterQueue, EventSink, MemoryStore, MessageBus,
+        PriorityQueue, SecretManager, SessionLock, SessionStore, Skill,
     },
 };
 
@@ -172,12 +172,29 @@ impl ConversationStore for InMemoryConversationStore {
     }
 
     async fn append_message(&self, message: &ConversationMessage) -> Result<()> {
+        self.upsert_message(message).await
+    }
+
+    async fn upsert_message(&self, message: &ConversationMessage) -> Result<()> {
         let mut messages = self.messages.lock().await;
-        messages
-            .entry(message.conversation_id)
-            .or_default()
-            .push(message.clone());
+        let items = messages.entry(message.conversation_id).or_default();
+        if let Some(existing) = items.iter_mut().find(|item| item.id == message.id) {
+            *existing = message.clone();
+        } else {
+            items.push(message.clone());
+        }
         Ok(())
+    }
+
+    async fn get_message(
+        &self,
+        conversation_id: &ConversationId,
+        message_id: &MessageId,
+    ) -> Result<Option<ConversationMessage>> {
+        let messages = self.messages.lock().await;
+        Ok(messages
+            .get(conversation_id)
+            .and_then(|items| items.iter().find(|item| &item.id == message_id).cloned()))
     }
 
     async fn list_messages(
@@ -193,6 +210,86 @@ impl ConversationStore for InMemoryConversationStore {
         if let Some(limit) = limit {
             result.truncate(limit);
         }
+        Ok(result)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// InMemoryArtifactStore
+// ---------------------------------------------------------------------------
+
+type ArtifactMap = Arc<Mutex<HashMap<ArtifactId, (ConversationArtifact, Vec<u8>)>>>;
+
+/// In-memory [`ArtifactStore`] implementation for use in tests.
+pub struct InMemoryArtifactStore {
+    artifacts: ArtifactMap,
+}
+
+impl InMemoryArtifactStore {
+    /// Create a new empty artifact store.
+    pub fn new() -> Self {
+        Self {
+            artifacts: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+impl Default for InMemoryArtifactStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl ArtifactStore for InMemoryArtifactStore {
+    async fn put_artifact(
+        &self,
+        artifact: &ConversationArtifact,
+        bytes: &[u8],
+    ) -> Result<()> {
+        let mut artifacts = self.artifacts.lock().await;
+        artifacts.insert(artifact.id, (artifact.clone(), bytes.to_vec()));
+        Ok(())
+    }
+
+    async fn update_artifact(&self, artifact: &ConversationArtifact) -> Result<()> {
+        let mut artifacts = self.artifacts.lock().await;
+        if let Some((stored, _)) = artifacts.get_mut(&artifact.id) {
+            *stored = artifact.clone();
+        }
+        Ok(())
+    }
+
+    async fn get_artifact(
+        &self,
+        artifact_id: &ArtifactId,
+    ) -> Result<Option<ConversationArtifact>> {
+        let artifacts = self.artifacts.lock().await;
+        Ok(artifacts.get(artifact_id).map(|(artifact, _)| artifact.clone()))
+    }
+
+    async fn get_artifact_bytes(&self, artifact_id: &ArtifactId) -> Result<Option<Vec<u8>>> {
+        let artifacts = self.artifacts.lock().await;
+        Ok(artifacts.get(artifact_id).map(|(_, bytes)| bytes.clone()))
+    }
+
+    async fn delete_artifact(&self, artifact_id: &ArtifactId) -> Result<()> {
+        let mut artifacts = self.artifacts.lock().await;
+        artifacts.remove(artifact_id);
+        Ok(())
+    }
+
+    async fn list_artifacts_by_conversation(
+        &self,
+        conversation_id: &ConversationId,
+    ) -> Result<Vec<ConversationArtifact>> {
+        let artifacts = self.artifacts.lock().await;
+        let mut result: Vec<ConversationArtifact> = artifacts
+            .values()
+            .filter(|(a, _)| a.conversation_id.as_ref() == Some(conversation_id))
+            .map(|(a, _)| a.clone())
+            .collect();
+        result.sort_by_key(|a| a.created_at);
         Ok(result)
     }
 }
@@ -791,6 +888,101 @@ mod tests {
         };
         let output = skill.execute(input).await?;
         assert_eq!(output.data, serde_json::json!({"greeting": "hello"}));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn in_memory_artifact_store_put_get() -> Result<()> {
+        let store = InMemoryArtifactStore::new();
+        let artifact = ConversationArtifact::new(
+            "user1",
+            crate::ConversationArtifactOrigin::UserUpload,
+            "image/png",
+            "photo.png",
+        );
+        let bytes = b"fake-png-data";
+        store.put_artifact(&artifact, bytes).await?;
+
+        let got = store.get_artifact(&artifact.id).await?;
+        assert!(got.is_some());
+        assert_eq!(got.unwrap().filename, "photo.png");
+
+        let got_bytes = store.get_artifact_bytes(&artifact.id).await?;
+        assert_eq!(got_bytes.unwrap(), bytes);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn in_memory_artifact_store_update() -> Result<()> {
+        let store = InMemoryArtifactStore::new();
+        let mut artifact = ConversationArtifact::new(
+            "user1",
+            crate::ConversationArtifactOrigin::UserUpload,
+            "image/png",
+            "photo.png",
+        );
+        store.put_artifact(&artifact, b"bytes").await?;
+
+        artifact.caption = Some("A caption".to_string());
+        store.update_artifact(&artifact).await?;
+
+        let got = store.get_artifact(&artifact.id).await?.unwrap();
+        assert_eq!(got.caption.as_deref(), Some("A caption"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn in_memory_artifact_store_delete() -> Result<()> {
+        let store = InMemoryArtifactStore::new();
+        let artifact = ConversationArtifact::new(
+            "user1",
+            crate::ConversationArtifactOrigin::UserUpload,
+            "image/png",
+            "photo.png",
+        );
+        store.put_artifact(&artifact, b"bytes").await?;
+        store.delete_artifact(&artifact.id).await?;
+        assert!(store.get_artifact(&artifact.id).await?.is_none());
+        assert!(store.get_artifact_bytes(&artifact.id).await?.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn in_memory_artifact_store_list_by_conversation() -> Result<()> {
+        let store = InMemoryArtifactStore::new();
+        let conv_id = ConversationId::new();
+
+        let mut a1 = ConversationArtifact::new(
+            "user1",
+            crate::ConversationArtifactOrigin::UserUpload,
+            "image/png",
+            "a1.png",
+        );
+        a1.conversation_id = Some(conv_id);
+        store.put_artifact(&a1, b"bytes1").await?;
+
+        let mut a2 = ConversationArtifact::new(
+            "user1",
+            crate::ConversationArtifactOrigin::UserUpload,
+            "image/jpeg",
+            "a2.jpg",
+        );
+        a2.conversation_id = Some(conv_id);
+        store.put_artifact(&a2, b"bytes2").await?;
+
+        // Artifact belonging to another conversation — must not appear
+        let a3 = ConversationArtifact::new(
+            "user1",
+            crate::ConversationArtifactOrigin::UserUpload,
+            "text/plain",
+            "other.txt",
+        );
+        store.put_artifact(&a3, b"bytes3").await?;
+
+        let listed = store.list_artifacts_by_conversation(&conv_id).await?;
+        assert_eq!(listed.len(), 2);
+        assert!(listed.iter().any(|a| a.filename == "a1.png"));
+        assert!(listed.iter().any(|a| a.filename == "a2.jpg"));
         Ok(())
     }
 }

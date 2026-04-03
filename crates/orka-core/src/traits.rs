@@ -3,9 +3,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 
 use crate::{
-    Conversation, ConversationId, ConversationMessage, DomainEvent, Envelope, MemoryEntry,
-    MessageId, MessageSink, MessageStream, OutboundMessage, Result, SecretValue, Session,
-    SessionId, SkillInput, SkillOutput, SkillSchema,
+    ArtifactId, Conversation, ConversationArtifact, ConversationId, ConversationMessage,
+    DomainEvent, Envelope, MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage,
+    Result, SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
 };
 
 /// Adapter for an external messaging channel (Telegram, Discord, etc.).
@@ -82,6 +82,16 @@ pub trait ConversationStore: Send + Sync + 'static {
     /// Append a user-facing message to a conversation transcript.
     async fn append_message(&self, message: &ConversationMessage) -> Result<()>;
 
+    /// Insert or replace a user-facing message in the transcript.
+    async fn upsert_message(&self, message: &ConversationMessage) -> Result<()>;
+
+    /// Retrieve one transcript message by ID.
+    async fn get_message(
+        &self,
+        conversation_id: &ConversationId,
+        message_id: &MessageId,
+    ) -> Result<Option<ConversationMessage>>;
+
     /// List transcript messages for a conversation in ascending order.
     async fn list_messages(
         &self,
@@ -89,6 +99,38 @@ pub trait ConversationStore: Send + Sync + 'static {
         limit: Option<usize>,
         offset: usize,
     ) -> Result<Vec<ConversationMessage>>;
+}
+
+/// Persistent artifact metadata and content storage for product-facing clients.
+#[async_trait]
+pub trait ArtifactStore: Send + Sync + 'static {
+    /// Store or replace one artifact and its raw bytes.
+    async fn put_artifact(
+        &self,
+        artifact: &ConversationArtifact,
+        bytes: &[u8],
+    ) -> Result<()>;
+
+    /// Update artifact metadata without replacing the stored bytes.
+    async fn update_artifact(&self, artifact: &ConversationArtifact) -> Result<()>;
+
+    /// Retrieve artifact metadata by ID.
+    async fn get_artifact(
+        &self,
+        artifact_id: &ArtifactId,
+    ) -> Result<Option<ConversationArtifact>>;
+
+    /// Retrieve artifact raw bytes by ID.
+    async fn get_artifact_bytes(&self, artifact_id: &ArtifactId) -> Result<Option<Vec<u8>>>;
+
+    /// Delete artifact metadata and raw bytes by ID.
+    async fn delete_artifact(&self, artifact_id: &ArtifactId) -> Result<()>;
+
+    /// List all artifacts attached to a conversation, ordered by creation time.
+    async fn list_artifacts_by_conversation(
+        &self,
+        conversation_id: &crate::ConversationId,
+    ) -> Result<Vec<ConversationArtifact>>;
 }
 
 /// Key-value memory store with TTL and search.

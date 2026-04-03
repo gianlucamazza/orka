@@ -6,17 +6,19 @@ use std::{future::IntoFuture, sync::Arc};
 use anyhow::Context;
 use orka_config::{CodingConfig, CodingProvider, CodingSelectionPolicy, OrkaConfig};
 use orka_core::{
-    ConversationMessage, ConversationMessageRole, ConversationMessageStatus, ConversationStatus,
-    Envelope, OutboundMessage,
+    ConversationArtifact, ConversationArtifactOrigin, ConversationMessage, ConversationMessageRole,
+    ConversationMessageStatus, ConversationStatus, Envelope, MediaPayload, MessageId,
+    OutboundMessage,
     stream::AgentStopReason,
     traits::{
-        ConversationStore, DeadLetterQueue, EventSink, Guardrail, MemoryStore, MessageBus,
-        PriorityQueue, SecretManager, SessionLock, SessionStore,
+        ArtifactStore, ConversationStore, DeadLetterQueue, EventSink, Guardrail, MemoryStore,
+        MessageBus, PriorityQueue, SecretManager, SessionLock, SessionStore,
     },
 };
 use orka_gateway::{Gateway, GatewayConfig, GatewayDeps};
 use orka_infra::{
-    QueueBundle, create_bus, create_conversation_store, create_queue, create_session_store,
+    QueueBundle, create_artifact_store, create_bus, create_conversation_store, create_queue,
+    create_session_store,
 };
 use orka_server::{
     mobile_auth::{MobileAuthConfig, MobileAuthService, RedisMobileAuthService},
@@ -48,6 +50,7 @@ struct InfraBundle {
     bus: Arc<dyn MessageBus>,
     sessions: Arc<dyn SessionStore>,
     conversations: Arc<dyn ConversationStore>,
+    artifacts: Arc<dyn ArtifactStore>,
     queue: Arc<dyn PriorityQueue>,
     dlq: Arc<dyn DeadLetterQueue>,
     memory: Arc<dyn MemoryStore>,
@@ -223,6 +226,8 @@ fn init_infra(
         .context("failed to create session store")?;
     let conversations = create_conversation_store(&config.redis.url)
         .context("failed to create conversation store")?;
+    let artifacts = create_artifact_store(&config.redis.url)
+        .context("failed to create artifact store")?;
     let QueueBundle { queue, dlq } =
         create_queue(&config.redis.url).context("failed to create priority queue")?;
     let orka_memory::MemoryBundle {
@@ -249,6 +254,7 @@ fn init_infra(
             bus,
             sessions,
             conversations,
+            artifacts,
             queue,
             dlq,
             memory,
@@ -960,6 +966,7 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         soft_skills: deps.skill_bundle.soft_skills.clone(),
         sessions: deps.infra.sessions.clone(),
         conversations: deps.infra.conversations.clone(),
+        artifacts: deps.infra.artifacts.clone(),
         scheduler_store: deps.skill_bundle.scheduler_store.clone(),
         checkpoint_store: deps.checkpoint_store,
         workspace_registry: Arc::clone(deps.workspace_registry),
@@ -1094,6 +1101,7 @@ fn spawn_distillation_loop(
 async fn spawn_outbound_bridge(
     bus: &Arc<dyn MessageBus>,
     conversations: Arc<dyn ConversationStore>,
+    artifacts: Arc<dyn ArtifactStore>,
     mobile_events: MobileEventHub,
     adapters: Vec<Arc<dyn orka_core::traits::ChannelAdapter>>,
     shutdown: CancellationToken,
@@ -1108,6 +1116,7 @@ async fn spawn_outbound_bridge(
                         if envelope.channel == "mobile" {
                             if let Err(error) = persist_mobile_outbound(
                                 conversations.as_ref(),
+                                artifacts.as_ref(),
                                 &mobile_events,
                                 &envelope,
                             ).await {
@@ -1151,31 +1160,129 @@ async fn spawn_outbound_bridge(
 
 async fn persist_mobile_outbound(
     conversations: &dyn ConversationStore,
+    artifacts: &dyn ArtifactStore,
     mobile_events: &MobileEventHub,
     envelope: &Envelope,
 ) -> anyhow::Result<()> {
     let conversation_id = orka_core::ConversationId::from(envelope.session_id);
     let stop_reason = mobile_stop_reason(envelope);
-    let text = match &envelope.payload {
-        orka_core::Payload::Text(text) => Some(text.as_str()),
-        _ => None,
-    };
 
     let Some(mut conversation) = conversations.get_conversation(&conversation_id).await? else {
         warn!(conversation_id = %conversation_id, "mobile outbound without conversation metadata");
         return Ok(());
     };
 
-    let message = text
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| mobile_assistant_message(envelope, conversation_id, value, stop_reason));
+    let assistant_message_id = mobile_assistant_message_id(envelope);
+    let mut completed_message: Option<ConversationMessage> = None;
 
-    if let Some(message) = &message {
-        conversations.append_message(message).await?;
-        conversation.updated_at = message.created_at;
-        conversation.last_message_preview = Some(preview_text(&message.text));
-    } else {
-        conversation.updated_at = chrono::Utc::now();
+    match &envelope.payload {
+        orka_core::Payload::Text(text) if !text.trim().is_empty() => {
+            let existing = conversations
+                .get_message(&conversation_id, &assistant_message_id)
+                .await?;
+            let mut message =
+                mobile_assistant_message(envelope, conversation_id, assistant_message_id, text, stop_reason);
+            if let Some(existing) = existing {
+                message.artifacts = existing.artifacts;
+                message.created_at = existing.created_at;
+            }
+            conversations.upsert_message(&message).await?;
+            conversation.updated_at = message.created_at;
+            conversation.last_message_preview = Some(preview_text(&message.text));
+            completed_message = Some(message);
+        }
+        orka_core::Payload::Media(media) => {
+            let mut artifact = persist_mobile_assistant_artifact(
+                artifacts,
+                &conversation,
+                assistant_message_id,
+                media,
+            )
+            .await?;
+            let mut message = conversations
+                .get_message(&conversation_id, &assistant_message_id)
+                .await?
+                .unwrap_or_else(|| {
+                    mobile_assistant_message(
+                        envelope,
+                        conversation_id,
+                        assistant_message_id,
+                        "",
+                        stop_reason,
+                    )
+                });
+            artifact.message_id = Some(message.id);
+            artifacts.update_artifact(&artifact).await?;
+            message.artifacts.push(artifact.clone());
+            conversations.upsert_message(&message).await?;
+            conversation.updated_at = chrono::Utc::now();
+            if message.text.trim().is_empty() {
+                conversation.last_message_preview = Some(format!(
+                    "[{}] {}",
+                    artifact.mime_type, artifact.filename
+                ));
+            }
+            mobile_events
+                .publish(
+                    conversation_id,
+                    orka_server::router::MobileStreamEvent::ArtifactReady {
+                        conversation_id,
+                        artifact,
+                    },
+                )
+                .await;
+        }
+        orka_core::Payload::RichInput(input) => {
+            let text = input.text.as_deref().unwrap_or("").trim();
+            let existing = conversations
+                .get_message(&conversation_id, &assistant_message_id)
+                .await?;
+            let mut message = mobile_assistant_message(
+                envelope,
+                conversation_id,
+                assistant_message_id,
+                text,
+                stop_reason,
+            );
+            if let Some(existing) = existing {
+                message.artifacts = existing.artifacts;
+                message.created_at = existing.created_at;
+            }
+
+            for media in &input.attachments {
+                let mut artifact = persist_mobile_assistant_artifact(
+                    artifacts,
+                    &conversation,
+                    assistant_message_id,
+                    media,
+                )
+                .await?;
+                artifact.message_id = Some(message.id);
+                artifacts.update_artifact(&artifact).await?;
+                message.artifacts.push(artifact.clone());
+                mobile_events
+                    .publish(
+                        conversation_id,
+                        orka_server::router::MobileStreamEvent::ArtifactReady {
+                            conversation_id,
+                            artifact,
+                        },
+                    )
+                    .await;
+            }
+
+            conversations.upsert_message(&message).await?;
+            conversation.updated_at = message.created_at;
+            conversation.last_message_preview = if !text.is_empty() {
+                Some(preview_text(text))
+            } else {
+                message.artifacts.first().map(|a| format!("[{}] {}", a.mime_type, a.filename))
+            };
+            completed_message = Some(message);
+        }
+        _ => {
+            conversation.updated_at = chrono::Utc::now();
+        }
     }
 
     conversation.status = match stop_reason {
@@ -1187,7 +1294,7 @@ async fn persist_mobile_outbound(
 
     match stop_reason {
         Some(AgentStopReason::Error) => {
-            let error_text = message
+            let error_text = completed_message
                 .as_ref()
                 .map(|item| item.text.clone())
                 .filter(|value| !value.trim().is_empty())
@@ -1203,7 +1310,7 @@ async fn persist_mobile_outbound(
                 .await;
         }
         _ => {
-            if let Some(message) = message {
+            if let Some(message) = completed_message {
                 mobile_events
                     .publish(
                         conversation_id,
@@ -1220,11 +1327,12 @@ async fn persist_mobile_outbound(
 fn mobile_assistant_message(
     envelope: &Envelope,
     conversation_id: orka_core::ConversationId,
+    message_id: MessageId,
     text: &str,
     stop_reason: Option<AgentStopReason>,
 ) -> ConversationMessage {
     let mut message = ConversationMessage::new(
-        envelope.id,
+        message_id,
         conversation_id,
         envelope.session_id,
         ConversationMessageRole::Assistant,
@@ -1235,6 +1343,43 @@ fn mobile_assistant_message(
         message.finalized_at = None;
     }
     message
+}
+
+async fn persist_mobile_assistant_artifact(
+    artifacts: &dyn ArtifactStore,
+    conversation: &orka_core::Conversation,
+    message_id: MessageId,
+    media: &MediaPayload,
+) -> anyhow::Result<ConversationArtifact> {
+    let bytes = media
+        .decode_data()
+        .ok_or_else(|| anyhow::anyhow!("mobile assistant artifacts require inline data"))?;
+    let mut artifact = ConversationArtifact::new(
+        conversation.user_id.clone(),
+        ConversationArtifactOrigin::AssistantOutput,
+        media.mime_type.clone(),
+        media
+            .filename
+            .clone()
+            .unwrap_or_else(|| default_filename_for_mime(&media.mime_type)),
+    );
+    artifact.conversation_id = Some(conversation.id);
+    artifact.message_id = Some(message_id);
+    artifact.caption = media.caption.clone();
+    artifact.size_bytes = media.size_bytes.or(Some(bytes.len() as u64));
+    artifacts.put_artifact(&artifact, &bytes).await?;
+    Ok(artifact)
+}
+
+fn mobile_assistant_message_id(envelope: &Envelope) -> MessageId {
+    envelope
+        .metadata
+        .get("assistant_message_id")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<String>(value).ok())
+        .and_then(|value| uuid::Uuid::parse_str(&value).ok())
+        .map(MessageId::from)
+        .unwrap_or(envelope.id)
 }
 
 fn mobile_stop_reason(envelope: &Envelope) -> Option<AgentStopReason> {
@@ -1254,6 +1399,15 @@ fn preview_text(text: &str) -> String {
     } else {
         truncated
     }
+}
+
+fn default_filename_for_mime(mime: &str) -> String {
+    if let Some(exts) = mime_guess::get_mime_extensions_str(mime)
+        && let Some(ext) = exts.first()
+    {
+        return format!("artifact.{ext}");
+    }
+    "artifact.bin".to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -1560,6 +1714,7 @@ impl Bootstrap {
         let outbound_handle = spawn_outbound_bridge(
             &self.infra.bus,
             self.infra.conversations.clone(),
+            self.infra.artifacts.clone(),
             self.mobile_events.clone(),
             self.adapters.clone(),
             self.shutdown.clone(),
@@ -1603,6 +1758,7 @@ mod tests {
 
     #[tokio::test]
     async fn mobile_outbound_error_sets_failed_state_and_emits_failure() {
+        let artifacts = Arc::new(orka_core::testing::InMemoryArtifactStore::new());
         let store = Arc::new(InMemoryConversationStore::new());
         let mobile_events = MobileEventHub::new();
         let conversation_id = ConversationId::new();
@@ -1618,7 +1774,7 @@ mod tests {
         );
 
         let mut events = mobile_events.subscribe(conversation_id).await;
-        persist_mobile_outbound(store.as_ref(), &mobile_events, &envelope)
+        persist_mobile_outbound(store.as_ref(), artifacts.as_ref(), &mobile_events, &envelope)
             .await
             .unwrap();
 
@@ -1649,7 +1805,8 @@ mod tests {
                 assert_eq!(event_conversation_id, conversation_id);
                 assert_eq!(error, "tool execution failed");
             }
-            other @ orka_server::router::MobileStreamEvent::MessageCompleted { .. } => {
+            other @ orka_server::router::MobileStreamEvent::MessageCompleted { .. }
+            | other @ orka_server::router::MobileStreamEvent::ArtifactReady { .. } => {
                 panic!("unexpected mobile event: {other:?}")
             }
         }
@@ -1657,6 +1814,7 @@ mod tests {
 
     #[tokio::test]
     async fn mobile_outbound_interrupted_sets_interrupted_state_and_emits_completed_message() {
+        let artifacts = Arc::new(orka_core::testing::InMemoryArtifactStore::new());
         let store = Arc::new(InMemoryConversationStore::new());
         let mobile_events = MobileEventHub::new();
         let conversation_id = ConversationId::new();
@@ -1672,7 +1830,7 @@ mod tests {
         );
 
         let mut events = mobile_events.subscribe(conversation_id).await;
-        persist_mobile_outbound(store.as_ref(), &mobile_events, &envelope)
+        persist_mobile_outbound(store.as_ref(), artifacts.as_ref(), &mobile_events, &envelope)
             .await
             .unwrap();
 
@@ -1700,7 +1858,8 @@ mod tests {
                 assert_eq!(message.id, envelope.id);
                 assert_eq!(message.text, "Paused for approval.");
             }
-            other @ orka_server::router::MobileStreamEvent::MessageFailed { .. } => {
+            other @ orka_server::router::MobileStreamEvent::MessageFailed { .. }
+            | other @ orka_server::router::MobileStreamEvent::ArtifactReady { .. } => {
                 panic!("unexpected mobile event: {other:?}")
             }
         }

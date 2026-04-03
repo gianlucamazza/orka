@@ -2,10 +2,11 @@ use std::{collections::HashMap, convert::Infallible, sync::Arc};
 
 use axum::{
     Extension, Json, Router,
-    extract::{Path, Query, State},
-    http::StatusCode,
+    body::Body,
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{
-        IntoResponse,
+        IntoResponse, Response,
         sse::{Event, Sse},
     },
     routing::{get, post},
@@ -13,9 +14,10 @@ use axum::{
 use chrono::{DateTime, Utc};
 use orka_auth::AuthIdentity;
 use orka_core::{
-    Conversation, ConversationId, ConversationMessage, ConversationMessageRole, ConversationStatus,
-    MessageId, SessionId, StreamChunkKind, StreamRegistry,
-    traits::{ConversationStore, MessageBus},
+    ArtifactId, Conversation, ConversationArtifact, ConversationArtifactOrigin, ConversationId,
+    ConversationMessage, ConversationMessageRole, ConversationStatus, MediaPayload, MessageId,
+    Payload, RichInputPayload, SessionId, StreamChunkKind, StreamRegistry,
+    traits::{ArtifactStore, ConversationStore, MessageBus},
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, mpsc};
@@ -30,6 +32,8 @@ use crate::mobile_auth::{
 
 const DEFAULT_PAGE_SIZE: usize = 20;
 const MAX_PAGE_SIZE: usize = 100;
+const MAX_UPLOAD_BYTES: usize = 25 * 1024 * 1024;
+const MAX_ARTIFACTS_PER_MESSAGE: usize = 10;
 
 /// Realtime event pushed to mobile clients after transcript persistence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +50,13 @@ pub enum MobileStreamEvent {
         conversation_id: ConversationId,
         /// Human-readable error string.
         error: String,
+    },
+    /// A new artifact became available for the conversation.
+    ArtifactReady {
+        /// Conversation that owns the artifact.
+        conversation_id: ConversationId,
+        /// Persisted artifact metadata.
+        artifact: ConversationArtifact,
     },
 }
 
@@ -89,6 +100,7 @@ impl MobileEventHub {
 #[derive(Clone)]
 pub(super) struct ProtectedMobileState {
     conversations: Arc<dyn ConversationStore>,
+    artifacts: Arc<dyn ArtifactStore>,
     bus: Arc<dyn MessageBus>,
     stream_registry: StreamRegistry,
     mobile_events: MobileEventHub,
@@ -112,7 +124,15 @@ pub(super) struct CreatePairingRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub(super) struct SendMessageRequest {
+    #[serde(default)]
     text: String,
+    #[serde(default)]
+    artifact_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct UploadArtifactResponse {
+    artifact: ConversationArtifact,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -281,6 +301,7 @@ pub(super) fn public_routes(mobile_auth: Option<Arc<dyn MobileAuthService>>) -> 
 /// Build the protected mobile product API routes.
 pub(super) fn protected_routes(
     conversations: Arc<dyn ConversationStore>,
+    artifacts: Arc<dyn ArtifactStore>,
     bus: Arc<dyn MessageBus>,
     stream_registry: StreamRegistry,
     mobile_events: MobileEventHub,
@@ -288,6 +309,7 @@ pub(super) fn protected_routes(
 ) -> Router {
     let state = ProtectedMobileState {
         conversations,
+        artifacts,
         bus,
         stream_registry,
         mobile_events,
@@ -300,6 +322,19 @@ pub(super) fn protected_routes(
         .route("/mobile/v1/conversations", post(handle_create_conversation))
         .route("/mobile/v1/pairings", post(handle_create_pairing))
         .route("/mobile/v1/pairings/{id}", get(handle_get_pairing_status))
+        .route(
+            "/mobile/v1/uploads",
+            post(handle_upload_artifact)
+                .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+        )
+        .route(
+            "/mobile/v1/artifacts/{id}",
+            get(handle_get_artifact).delete(handle_delete_artifact),
+        )
+        .route(
+            "/mobile/v1/artifacts/{id}/content",
+            get(handle_get_artifact_content),
+        )
         .route(
             "/mobile/v1/conversations/{id}",
             get(handle_get_conversation),
@@ -645,6 +680,206 @@ async fn handle_list_messages(
 
 #[utoipa::path(
     post,
+    path = "/mobile/v1/uploads",
+    responses(
+        (status = 201, description = "Artifact uploaded", body = UploadArtifactResponse),
+        (status = 400, description = "Invalid multipart upload", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 413, description = "Upload too large", body = ApiError),
+        (status = 415, description = "Unsupported media type", body = ApiError)
+    ),
+    tag = "mobile"
+)]
+async fn handle_upload_artifact(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut filename: Option<String> = None;
+    let mut mime_type: Option<String> = None;
+    let mut caption: Option<String> = None;
+
+    loop {
+        let next_field = match multipart.next_field().await {
+            Ok(value) => value,
+            Err(error) => {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    &format!("invalid multipart body: {error}"),
+                );
+            }
+        };
+        let Some(field) = next_field else {
+            break;
+        };
+
+        match field.name() {
+            Some("file") => {
+                filename = field.file_name().map(sanitize_filename);
+                mime_type = field.content_type().map(ToString::to_string);
+                let bytes = match field.bytes().await {
+                    Ok(bytes) => bytes.to_vec(),
+                    Err(error) => {
+                        return error_response(
+                            StatusCode::BAD_REQUEST,
+                            &format!("failed to read file body: {error}"),
+                        );
+                    }
+                };
+                if bytes.len() > MAX_UPLOAD_BYTES {
+                    return error_response(StatusCode::PAYLOAD_TOO_LARGE, "upload exceeds size limit");
+                }
+                file_bytes = Some(bytes);
+            }
+            Some("caption") => {
+                let text = match field.text().await {
+                    Ok(text) => text,
+                    Err(error) => {
+                        return error_response(
+                            StatusCode::BAD_REQUEST,
+                            &format!("failed to read caption: {error}"),
+                        );
+                    }
+                };
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    caption = Some(trimmed.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let Some(bytes) = file_bytes else {
+        return error_response(StatusCode::BAD_REQUEST, "multipart body is missing a file field");
+    };
+
+    let filename = filename.unwrap_or_else(|| "upload.bin".to_string());
+    let mime_type = detect_mime_type(&bytes, mime_type.as_deref(), &filename);
+    if !is_allowed_upload_mime(&mime_type) {
+        return error_response(StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported artifact media type");
+    }
+
+    let mut artifact = ConversationArtifact::new(
+        identity.principal.clone(),
+        ConversationArtifactOrigin::UserUpload,
+        mime_type,
+        filename,
+    );
+    artifact.caption = caption;
+    artifact.size_bytes = Some(bytes.len() as u64);
+
+    match state.artifacts.put_artifact(&artifact, &bytes).await {
+        Ok(()) => (
+            StatusCode::CREATED,
+            Json(UploadArtifactResponse { artifact }),
+        )
+            .into_response(),
+        Err(error) => internal_error(error),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/mobile/v1/artifacts/{id}",
+    responses(
+        (status = 200, description = "Artifact metadata", body = ConversationArtifact),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Artifact not found", body = ApiError)
+    ),
+    tag = "mobile"
+)]
+async fn handle_get_artifact(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let artifact_id = match parse_artifact_id(&id) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+
+    match load_owned_artifact(&state, &identity, artifact_id).await {
+        Ok(artifact) => Json(artifact).into_response(),
+        Err(response) => response,
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/mobile/v1/artifacts/{id}",
+    responses(
+        (status = 204, description = "Artifact deleted"),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Artifact not found", body = ApiError),
+        (status = 409, description = "Artifact is already attached to a message", body = ApiError)
+    ),
+    tag = "mobile"
+)]
+async fn handle_delete_artifact(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let artifact_id = match parse_artifact_id(&id) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let artifact = match load_owned_artifact(&state, &identity, artifact_id).await {
+        Ok(artifact) => artifact,
+        Err(response) => return response,
+    };
+    if artifact.message_id.is_some() {
+        return error_response(
+            StatusCode::CONFLICT,
+            "artifact is already attached to a message",
+        );
+    }
+
+    match state.artifacts.delete_artifact(&artifact.id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => internal_error(error),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/mobile/v1/artifacts/{id}/content",
+    responses(
+        (status = 200, description = "Artifact content"),
+        (status = 206, description = "Partial artifact content"),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Artifact not found", body = ApiError)
+    ),
+    tag = "mobile"
+)]
+async fn handle_get_artifact_content(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let artifact_id = match parse_artifact_id(&id) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let artifact = match load_owned_artifact(&state, &identity, artifact_id).await {
+        Ok(artifact) => artifact,
+        Err(response) => return response,
+    };
+    let Some(bytes) = (match state.artifacts.get_artifact_bytes(&artifact.id).await {
+        Ok(value) => value,
+        Err(error) => return internal_error(error),
+    }) else {
+        return error_response(StatusCode::NOT_FOUND, "artifact not found");
+    };
+
+    build_artifact_content_response(&artifact, bytes, headers)
+}
+
+#[utoipa::path(
+    post,
     path = "/mobile/v1/conversations/{id}/messages",
     params(
         ("id" = String, Path, description = "Conversation identifier")
@@ -677,23 +912,83 @@ async fn handle_send_message(
     };
 
     let text = body.text.trim();
-    if text.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "text must not be empty");
+    if text.is_empty() && body.artifact_ids.is_empty() {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "message must include text or at least one artifact",
+        );
+    }
+    if body.artifact_ids.len() > MAX_ARTIFACTS_PER_MESSAGE {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            &format!("message may not include more than {MAX_ARTIFACTS_PER_MESSAGE} artifacts"),
+        );
     }
 
-    let user_message = ConversationMessage::new(
+    let user_message_id = MessageId::new();
+    let mut artifacts = Vec::with_capacity(body.artifact_ids.len());
+    let mut rich_attachments = Vec::with_capacity(body.artifact_ids.len());
+    for raw_id in &body.artifact_ids {
+        let artifact_id = match parse_artifact_id(raw_id) {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+
+        let Some(mut artifact) = (match state.artifacts.get_artifact(&artifact_id).await {
+            Ok(value) => value,
+            Err(error) => return internal_error(error),
+        }) else {
+            return error_response(StatusCode::NOT_FOUND, "artifact not found");
+        };
+        if artifact.owner_user_id != identity.principal {
+            return error_response(StatusCode::NOT_FOUND, "artifact not found");
+        }
+        if artifact.message_id.is_some() {
+            return error_response(StatusCode::CONFLICT, "artifact is already attached to a message");
+        }
+        let Some(bytes) = (match state.artifacts.get_artifact_bytes(&artifact_id).await {
+            Ok(value) => value,
+            Err(error) => return internal_error(error),
+        }) else {
+            return error_response(StatusCode::NOT_FOUND, "artifact content is missing");
+        };
+
+        artifact.conversation_id = Some(conversation.id);
+        artifact.message_id = Some(user_message_id);
+        if let Err(error) = state.artifacts.update_artifact(&artifact).await {
+            return internal_error(error);
+        }
+
+        let mut media = MediaPayload::inline(
+            artifact.mime_type.clone(),
+            bytes,
+            artifact.caption.clone(),
+        )
+        .with_filename(artifact.filename.clone());
+        media.size_bytes = artifact.size_bytes;
+        artifacts.push(artifact);
+        rich_attachments.push(media);
+    }
+
+    let mut user_message = ConversationMessage::new(
         MessageId::new(),
         conversation.id,
         conversation.session_id,
         ConversationMessageRole::User,
         text,
     );
+    user_message.id = user_message_id;
+    user_message.artifacts = artifacts.clone();
 
     conversation.updated_at = user_message.created_at;
     conversation.status = ConversationStatus::Active;
-    conversation.last_message_preview = Some(preview_text(text));
+    conversation.last_message_preview = Some(preview_text_for_message(text, &artifacts));
     if conversation.title == "New conversation" {
-        conversation.title = derive_title(text);
+        conversation.title = if text.is_empty() {
+            preview_text_for_message(text, &artifacts)
+        } else {
+            derive_title(text)
+        };
     }
 
     if let Err(error) = state.conversations.append_message(&user_message).await {
@@ -703,7 +998,24 @@ async fn handle_send_message(
         return internal_error(error);
     }
 
-    let mut envelope = orka_core::Envelope::text("mobile", conversation.session_id, text);
+    let payload = if rich_attachments.is_empty() {
+        Payload::Text(text.to_string())
+    } else {
+        Payload::RichInput(RichInputPayload {
+            text: if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            },
+            attachments: rich_attachments,
+        })
+    };
+    let mut envelope = orka_core::Envelope::with_payload(
+        "mobile",
+        conversation.session_id,
+        payload,
+        &orka_core::Envelope::text("mobile", conversation.session_id, ""),
+    );
     envelope.id = user_message.id;
     envelope
         .metadata
@@ -787,6 +1099,13 @@ async fn handle_stream(
                                 "error": error,
                             }).to_string(),
                         ),
+                        MobileStreamEvent::ArtifactReady { conversation_id, artifact } => (
+                            "artifact_ready",
+                            serde_json::json!({
+                                "conversation_id": conversation_id,
+                                "artifact": artifact,
+                            }).to_string(),
+                        ),
                     };
                     if tx.send(SseFrame { event: name, data }).is_err() {
                         break;
@@ -828,11 +1147,36 @@ async fn load_owned_conversation(
     Ok(conversation)
 }
 
+async fn load_owned_artifact(
+    state: &ProtectedMobileState,
+    identity: &AuthIdentity,
+    artifact_id: ArtifactId,
+) -> Result<ConversationArtifact, axum::response::Response> {
+    let artifact = match state.artifacts.get_artifact(&artifact_id).await {
+        Ok(Some(artifact)) => artifact,
+        Ok(None) => return Err(error_response(StatusCode::NOT_FOUND, "artifact not found")),
+        Err(error) => return Err(internal_error(error)),
+    };
+
+    if artifact.owner_user_id != identity.principal {
+        return Err(error_response(StatusCode::NOT_FOUND, "artifact not found"));
+    }
+
+    Ok(artifact)
+}
+
 #[allow(clippy::result_large_err)]
 fn parse_conversation_id(id: &str) -> Result<ConversationId, axum::response::Response> {
     Uuid::parse_str(id)
         .map(ConversationId::from)
         .map_err(|_| error_response(StatusCode::BAD_REQUEST, "invalid conversation id"))
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_artifact_id(id: &str) -> Result<ArtifactId, axum::response::Response> {
+    Uuid::parse_str(id)
+        .map(ArtifactId::from)
+        .map_err(|_| error_response(StatusCode::BAD_REQUEST, "invalid artifact id"))
 }
 
 #[allow(clippy::result_large_err)]
@@ -975,4 +1319,125 @@ fn preview_text(text: &str) -> String {
     } else {
         truncated
     }
+}
+
+fn preview_text_for_message(text: &str, artifacts: &[ConversationArtifact]) -> String {
+    let trimmed = text.trim();
+    if !trimmed.is_empty() {
+        return preview_text(trimmed);
+    }
+    artifacts
+        .first()
+        .map(|artifact| format!("[{}] {}", artifact.mime_type, artifact.filename))
+        .unwrap_or_else(|| "New message".to_string())
+}
+
+fn sanitize_filename(input: &str) -> String {
+    let trimmed = input.trim();
+    let sanitized: String = trimmed
+        .chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' | '\0' => '_',
+            _ if ch.is_control() => '_',
+            _ => ch,
+        })
+        .collect();
+    if sanitized.is_empty() {
+        "upload.bin".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn detect_mime_type(bytes: &[u8], provided: Option<&str>, filename: &str) -> String {
+    infer::get(bytes)
+        .map(|kind| kind.mime_type().to_string())
+        .or_else(|| provided.map(ToString::to_string))
+        .or_else(|| mime_guess::from_path(filename).first_raw().map(ToString::to_string))
+        .unwrap_or_else(|| "application/octet-stream".to_string())
+}
+
+fn is_allowed_upload_mime(mime: &str) -> bool {
+    mime.starts_with("image/")
+        || mime.starts_with("audio/")
+        || mime.starts_with("video/")
+        || mime.starts_with("text/")
+        || matches!(
+            mime,
+            "application/pdf"
+                | "application/json"
+                | "application/zip"
+                | "application/gzip"
+                | "application/x-tar"
+                | "application/msword"
+                | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                | "application/vnd.ms-excel"
+                | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                | "application/vnd.ms-powerpoint"
+                | "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                | "application/octet-stream"
+        )
+}
+
+fn build_artifact_content_response(
+    artifact: &ConversationArtifact,
+    bytes: Vec<u8>,
+    headers: HeaderMap,
+) -> Response {
+    let total_len = bytes.len();
+    let (status, content_range, body_bytes) = match headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(parse_range_header)
+    {
+        Some((start, end)) if start < total_len && start <= end => {
+            let bounded_end = end.min(total_len.saturating_sub(1));
+            (
+                StatusCode::PARTIAL_CONTENT,
+                Some(format!("bytes {start}-{bounded_end}/{total_len}")),
+                bytes[start..=bounded_end].to_vec(),
+            )
+        }
+        _ => (StatusCode::OK, None, bytes),
+    };
+
+    let content_length = body_bytes.len();
+    let mut response = Response::new(Body::from(body_bytes));
+    *response.status_mut() = status;
+    let response_headers = response.headers_mut();
+    response_headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&artifact.mime_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    response_headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("inline; filename=\"{}\"", artifact.filename))
+            .unwrap_or_else(|_| HeaderValue::from_static("inline")),
+    );
+    response_headers.insert(
+        header::ACCEPT_RANGES,
+        HeaderValue::from_static("bytes"),
+    );
+    if let Ok(value) = HeaderValue::from_str(&content_length.to_string()) {
+        response_headers.insert(header::CONTENT_LENGTH, value);
+    }
+    if let Some(range) = content_range
+        && let Ok(value) = HeaderValue::from_str(&range)
+    {
+        response_headers.insert(header::CONTENT_RANGE, value);
+    }
+    response
+}
+
+fn parse_range_header(value: &str) -> Option<(usize, usize)> {
+    let range = value.strip_prefix("bytes=")?;
+    let (start, end) = range.split_once('-')?;
+    let start = start.parse::<usize>().ok()?;
+    let end = if end.is_empty() {
+        usize::MAX
+    } else {
+        end.parse::<usize>().ok()?
+    };
+    Some((start, end))
 }
