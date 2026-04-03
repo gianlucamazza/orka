@@ -285,97 +285,129 @@ impl OpenAiClient {
 
     fn build_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         let mut out = Vec::new();
+        // Track tool call IDs emitted in the last assistant message so that orphaned
+        // ToolResult blocks (whose corresponding ToolUse was dropped, e.g. empty name)
+        // can be filtered out before they trigger an OpenAI 400 error.
+        let mut last_emitted_tool_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         for m in messages {
             match &m.content {
                 ChatContent::Text(t) => {
                     out.push(json!({"role": m.role, "content": t}));
                 }
                 ChatContent::Blocks(blocks) => {
-                    // User messages with image blocks → OpenAI vision content array.
                     let has_image = blocks
                         .iter()
                         .any(|b| matches!(b, crate::client::ContentBlockInput::Image { .. }));
                     if m.role == crate::client::Role::User && has_image {
-                        let mut content_parts: Vec<serde_json::Value> = Vec::new();
-                        for block in blocks {
-                            match block {
-                                crate::client::ContentBlockInput::Text { text } => {
-                                    content_parts.push(json!({"type": "text", "text": text}));
-                                }
-                                crate::client::ContentBlockInput::Image { source } => {
-                                    let url = match source {
-                                        crate::client::ImageSource::Url { url } => url.clone(),
-                                        crate::client::ImageSource::Base64 { media_type, data } => {
-                                            format!("data:{media_type};base64,{data}")
-                                        }
-                                    };
-                                    content_parts.push(json!({
-                                        "type": "image_url",
-                                        "image_url": {"url": url}
-                                    }));
-                                }
-                                _ => {}
-                            }
-                        }
-                        out.push(json!({"role": "user", "content": content_parts}));
+                        out.push(Self::build_vision_message(blocks));
                         continue;
                     }
-                    // Collect text and tool_use blocks into a single assistant message,
-                    // and tool_result blocks into separate tool messages.
-                    let mut text_parts = Vec::new();
-                    let mut tool_calls = Vec::new();
-                    for block in blocks {
-                        match block {
-                            crate::client::ContentBlockInput::Text { text } => {
-                                text_parts.push(text.clone());
-                            }
-                            crate::client::ContentBlockInput::ToolUse { id, name, input } => {
-                                // Skip tool calls with empty names — OpenAI rejects them
-                                if name.is_empty() {
-                                    tracing::warn!(id, "skipping tool call with empty name");
-                                    continue;
-                                }
-                                tool_calls.push(json!({
-                                    "id": id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": name,
-                                        "arguments": serde_json::to_string(input).unwrap_or_default(),
-                                    }
-                                }));
-                            }
-                            crate::client::ContentBlockInput::ToolResult {
-                                tool_use_id,
-                                content,
-                                ..
-                            } => {
-                                out.push(json!({
-                                    "role": "tool",
-                                    "tool_call_id": tool_use_id,
-                                    "content": content,
-                                }));
-                            }
-                            // Thinking and Image blocks are handled above; skip for this path.
-                            crate::client::ContentBlockInput::Thinking { .. }
-                            | crate::client::ContentBlockInput::Image { .. }
-                            | crate::client::ContentBlockInput::Unknown => {}
-                        }
-                    }
-                    // Emit assistant message with text and/or tool_calls
-                    if !text_parts.is_empty() || !tool_calls.is_empty() {
-                        let mut msg = json!({"role": "assistant"});
-                        if !text_parts.is_empty() {
-                            msg["content"] = json!(text_parts.join("\n"));
-                        }
-                        if !tool_calls.is_empty() {
-                            msg["tool_calls"] = json!(tool_calls);
-                        }
-                        out.push(msg);
-                    }
+                    Self::build_blocks_message(blocks, &mut last_emitted_tool_ids, &mut out);
                 }
             }
         }
         out
+    }
+
+    fn build_vision_message(blocks: &[crate::client::ContentBlockInput]) -> serde_json::Value {
+        let mut content_parts: Vec<serde_json::Value> = Vec::new();
+        for block in blocks {
+            match block {
+                crate::client::ContentBlockInput::Text { text } => {
+                    content_parts.push(json!({"type": "text", "text": text}));
+                }
+                crate::client::ContentBlockInput::Image { source } => {
+                    let url = match source {
+                        crate::client::ImageSource::Url { url } => url.clone(),
+                        crate::client::ImageSource::Base64 { media_type, data } => {
+                            format!("data:{media_type};base64,{data}")
+                        }
+                    };
+                    content_parts.push(json!({
+                        "type": "image_url",
+                        "image_url": {"url": url}
+                    }));
+                }
+                _ => {}
+            }
+        }
+        json!({"role": "user", "content": content_parts})
+    }
+
+    fn build_blocks_message(
+        blocks: &[crate::client::ContentBlockInput],
+        last_emitted_tool_ids: &mut std::collections::HashSet<String>,
+        out: &mut Vec<serde_json::Value>,
+    ) {
+        let mut text_parts = Vec::new();
+        let mut tool_calls = Vec::new();
+        let mut has_tool_results = false;
+        for block in blocks {
+            match block {
+                crate::client::ContentBlockInput::Text { text } => {
+                    text_parts.push(text.clone());
+                }
+                crate::client::ContentBlockInput::ToolUse { id, name, input } => {
+                    // Skip tool calls with empty names — OpenAI rejects them
+                    if name.is_empty() {
+                        tracing::warn!(id, "skipping tool call with empty name");
+                        continue;
+                    }
+                    last_emitted_tool_ids.insert(id.clone());
+                    tool_calls.push(json!({
+                        "id": id,
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": serde_json::to_string(input).unwrap_or_default(),
+                        }
+                    }));
+                }
+                crate::client::ContentBlockInput::ToolResult {
+                    tool_use_id,
+                    content,
+                    ..
+                } => {
+                    has_tool_results = true;
+                    // Drop orphaned results: if the previous assistant message had tool calls
+                    // but this result's ID is not among them, OpenAI would return 400.
+                    if !last_emitted_tool_ids.is_empty()
+                        && !last_emitted_tool_ids.contains(tool_use_id)
+                    {
+                        tracing::warn!(
+                            tool_use_id,
+                            "dropping orphaned tool result with no matching tool call"
+                        );
+                        continue;
+                    }
+                    out.push(json!({
+                        "role": "tool",
+                        "tool_call_id": tool_use_id,
+                        "content": content,
+                    }));
+                }
+                // Thinking and Image blocks are not applicable here.
+                crate::client::ContentBlockInput::Thinking { .. }
+                | crate::client::ContentBlockInput::Image { .. }
+                | crate::client::ContentBlockInput::Unknown => {}
+            }
+        }
+        // After consuming tool results, reset the tracked IDs so they don't bleed into
+        // subsequent turns.
+        if has_tool_results {
+            last_emitted_tool_ids.clear();
+        }
+        if !text_parts.is_empty() || !tool_calls.is_empty() {
+            let mut msg = json!({"role": "assistant"});
+            if !text_parts.is_empty() {
+                msg["content"] = json!(text_parts.join("\n"));
+            }
+            if !tool_calls.is_empty() {
+                msg["tool_calls"] = json!(tool_calls);
+            }
+            out.push(msg);
+        }
     }
 
     fn build_tools(tools: &[ToolDefinition]) -> Vec<serde_json::Value> {
@@ -657,7 +689,9 @@ impl LlmClient for OpenAiClient {
                                     let index = tc["index"].as_u64().unwrap_or(0);
                                     let func = &tc["function"];
 
-                                    if let Some(name) = func["name"].as_str() {
+                                    if let Some(name) = func["name"].as_str()
+                                        && !name.is_empty()
+                                    {
                                         // First chunk for this tool call
                                         let id = tc["id"].as_str().unwrap_or("").to_string();
                                         events.push(StreamEvent::ToolUseStart {
@@ -671,6 +705,12 @@ impl LlmClient for OpenAiClient {
                                                 _name: name.to_string(),
                                                 arguments: String::new(),
                                             },
+                                        );
+                                    } else if func["name"].as_str().is_some_and(str::is_empty) {
+                                        let id = tc["id"].as_str().unwrap_or("").to_string();
+                                        tracing::warn!(
+                                            id,
+                                            "ignoring tool call with empty function name in stream"
                                         );
                                     }
 
@@ -1014,5 +1054,86 @@ mod tests {
             body["temperature"] = json!(temp);
         }
         assert!(body.get("temperature").is_none());
+    }
+
+    #[test]
+    fn build_messages_drops_empty_name_tool_use_and_orphaned_result() {
+        use crate::client::{ChatContent, ChatMessage, ContentBlockInput, Role};
+
+        // Simulate an assistant message that has a valid tool call and an empty-name
+        // one
+        let messages = vec![
+            ChatMessage {
+                role: Role::Assistant,
+                content: ChatContent::Blocks(vec![
+                    ContentBlockInput::ToolUse {
+                        id: "call_good".into(),
+                        name: "shell_exec".into(),
+                        input: json!({"cmd": "whoami"}),
+                    },
+                    ContentBlockInput::ToolUse {
+                        id: "call_empty".into(),
+                        name: "".into(),
+                        input: json!({}),
+                    },
+                ]),
+            },
+            // Results for both calls — the orphaned one should be dropped
+            ChatMessage {
+                role: Role::User,
+                content: ChatContent::Blocks(vec![
+                    ContentBlockInput::ToolResult {
+                        tool_use_id: "call_good".into(),
+                        content: "root".into(),
+                        is_error: false,
+                    },
+                    ContentBlockInput::ToolResult {
+                        tool_use_id: "call_empty".into(),
+                        content: "orphaned".into(),
+                        is_error: false,
+                    },
+                ]),
+            },
+        ];
+
+        let built = OpenAiClient::build_messages(&messages);
+
+        // First message: assistant with only the valid tool call
+        let asst = &built[0];
+        assert_eq!(asst["role"], "assistant");
+        let tool_calls = asst["tool_calls"].as_array().expect("tool_calls array");
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0]["id"], "call_good");
+
+        // Second message: only the non-orphaned tool result
+        let tool_msg = &built[1];
+        assert_eq!(tool_msg["role"], "tool");
+        assert_eq!(tool_msg["tool_call_id"], "call_good");
+
+        // No orphaned result emitted
+        assert_eq!(built.len(), 2);
+    }
+
+    #[test]
+    fn build_messages_keeps_results_when_no_tool_use_in_message() {
+        use crate::client::{ChatContent, ChatMessage, ContentBlockInput, Role};
+
+        // A message containing only ToolResult blocks (no ToolUse to filter against).
+        // All results should be kept — the safety net only activates when there are
+        // ToolUse blocks in the same message (i.e., emitted_tool_ids is
+        // non-empty).
+        let messages = vec![ChatMessage {
+            role: Role::User,
+            content: ChatContent::Blocks(vec![ContentBlockInput::ToolResult {
+                tool_use_id: "call_standalone".into(),
+                content: "ok".into(),
+                is_error: false,
+            }]),
+        }];
+
+        let built = OpenAiClient::build_messages(&messages);
+        assert_eq!(built.len(), 1);
+        assert_eq!(built[0]["role"], "tool");
+        assert_eq!(built[0]["tool_call_id"], "call_standalone");
     }
 }
