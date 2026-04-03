@@ -92,6 +92,96 @@ impl GraphDispatcher {
     }
 }
 
+/// Build the initial user-turn [`ChatMessage`] from an inbound [`Payload`].
+///
+/// Returns `None` for payloads that carry no user-visible content (e.g. bare
+/// [`Payload::Event`]).
+fn payload_to_chat_message(payload: &Payload) -> Option<ChatMessage> {
+    use orka_llm::client::{ChatContent, ContentBlockInput, ImageSource};
+
+    match payload {
+        Payload::Text(t) => Some(ChatMessage::user(t.clone())),
+        Payload::RichInput(input) => {
+            let mut blocks = Vec::new();
+            let mut fallback_lines = Vec::new();
+
+            if let Some(text) = input.text.clone()
+                && !text.trim().is_empty()
+            {
+                blocks.push(ContentBlockInput::Text { text: text.clone() });
+                fallback_lines.push(text);
+            }
+
+            for attachment in &input.attachments {
+                if attachment.mime_type.starts_with("image/") {
+                    let source = if let Some(data) = attachment.data_base64.clone() {
+                        ImageSource::Base64 { media_type: attachment.mime_type.clone(), data }
+                    } else {
+                        ImageSource::Url { url: attachment.url.clone() }
+                    };
+                    blocks.push(ContentBlockInput::Image { source });
+                    if let Some(caption) = attachment.caption.clone()
+                        && !caption.is_empty()
+                    {
+                        blocks.push(ContentBlockInput::Text { text: caption });
+                    }
+                } else {
+                    let label = attachment
+                        .caption
+                        .clone()
+                        .or_else(|| attachment.filename.clone())
+                        .unwrap_or_else(|| format!("[attachment: {}]", attachment.mime_type));
+                    fallback_lines.push(label);
+                }
+            }
+
+            if !blocks.is_empty() {
+                Some(ChatMessage::new(orka_llm::client::Role::User, ChatContent::Blocks(blocks)))
+            } else if !fallback_lines.is_empty() {
+                Some(ChatMessage::user(fallback_lines.join("\n")))
+            } else {
+                None
+            }
+        }
+        Payload::Media(m)
+            if m.mime_type.starts_with("image/")
+                && (!m.url.is_empty() || m.data_base64.is_some()) =>
+        {
+            let source = if let Some(data) = m.data_base64.clone() {
+                ImageSource::Base64 { media_type: m.mime_type.clone(), data }
+            } else {
+                ImageSource::Url { url: m.url.clone() }
+            };
+            let mut blocks = vec![ContentBlockInput::Image { source }];
+            if let Some(ref caption) = m.caption
+                && !caption.is_empty()
+            {
+                blocks.push(ContentBlockInput::Text { text: caption.clone() });
+            }
+            Some(ChatMessage::new(orka_llm::client::Role::User, ChatContent::Blocks(blocks)))
+        }
+        Payload::Media(m) => {
+            let text = m
+                .caption
+                .clone()
+                .or_else(|| m.filename.clone())
+                .unwrap_or_else(|| format!("[media: {}]", m.mime_type));
+            Some(ChatMessage::user(text))
+        }
+        Payload::Command(c) => {
+            let mut text = format!("/{}", c.name);
+            if let Some(rest) = c.args.get("text").and_then(|v| v.as_str())
+                && !rest.is_empty()
+            {
+                text.push(' ');
+                text.push_str(rest);
+            }
+            Some(ChatMessage::user(text))
+        }
+        Payload::Event(_) | _ => None,
+    }
+}
+
 #[async_trait]
 impl Dispatcher for GraphDispatcher {
     async fn dispatch(
@@ -120,114 +210,8 @@ impl Dispatcher for GraphDispatcher {
         }
 
         // Append current user message so the graph sees the live input
-        match &envelope.payload {
-            Payload::Text(t) => {
-                ctx.push_message(ChatMessage::user(t.clone())).await;
-            }
-            Payload::RichInput(input) => {
-                // Build a single user turn that preserves text plus image
-                // attachments when possible, and degrades non-image files to
-                // textual placeholders.
-                use orka_llm::client::{ChatContent, ContentBlockInput, ImageSource};
-                let mut blocks = Vec::new();
-                let mut fallback_lines = Vec::new();
-
-                if let Some(text) = input.text.clone()
-                    && !text.trim().is_empty()
-                {
-                    blocks.push(ContentBlockInput::Text {
-                        text: text.clone(),
-                    });
-                    fallback_lines.push(text);
-                }
-
-                for attachment in &input.attachments {
-                    if attachment.mime_type.starts_with("image/") {
-                        if let Some(data) = attachment.data_base64.clone() {
-                            blocks.push(ContentBlockInput::Image {
-                                source: ImageSource::Base64 {
-                                    media_type: attachment.mime_type.clone(),
-                                    data,
-                                },
-                            });
-                        } else if !attachment.url.is_empty() {
-                            blocks.push(ContentBlockInput::Image {
-                                source: ImageSource::Url {
-                                    url: attachment.url.clone(),
-                                },
-                            });
-                        }
-                        if let Some(caption) = attachment.caption.clone()
-                            && !caption.is_empty()
-                        {
-                            blocks.push(ContentBlockInput::Text { text: caption });
-                        }
-                    } else {
-                        let label = attachment
-                            .caption
-                            .clone()
-                            .or_else(|| attachment.filename.clone())
-                            .unwrap_or_else(|| format!("[attachment: {}]", attachment.mime_type));
-                        fallback_lines.push(label);
-                    }
-                }
-
-                if !blocks.is_empty() {
-                    ctx.push_message(ChatMessage::new(
-                        orka_llm::client::Role::User,
-                        ChatContent::Blocks(blocks),
-                    ))
-                    .await;
-                } else if !fallback_lines.is_empty() {
-                    ctx.push_message(ChatMessage::user(fallback_lines.join("\n"))).await;
-                }
-            }
-            Payload::Media(m)
-                if m.mime_type.starts_with("image/")
-                    && (!m.url.is_empty() || m.data_base64.is_some()) =>
-            {
-                use orka_llm::client::{ChatContent, ContentBlockInput, ImageSource};
-                let source = if let Some(data) = m.data_base64.clone() {
-                    ImageSource::Base64 {
-                        media_type: m.mime_type.clone(),
-                        data,
-                    }
-                } else {
-                    ImageSource::Url { url: m.url.clone() }
-                };
-                let mut blocks = vec![ContentBlockInput::Image { source }];
-                if let Some(ref caption) = m.caption
-                    && !caption.is_empty()
-                {
-                    blocks.push(ContentBlockInput::Text {
-                        text: caption.clone(),
-                    });
-                }
-                ctx.push_message(ChatMessage::new(
-                    orka_llm::client::Role::User,
-                    ChatContent::Blocks(blocks),
-                ))
-                .await;
-            }
-            Payload::Media(m) => {
-                let text = m
-                    .caption
-                    .clone()
-                    .or_else(|| m.filename.clone())
-                    .unwrap_or_else(|| format!("[media: {}]", m.mime_type));
-                ctx.push_message(ChatMessage::user(text)).await;
-            }
-            Payload::Command(c) => {
-                let mut text = format!("/{}", c.name);
-                if let Some(rest) = c.args.get("text").and_then(|v| v.as_str())
-                    && !rest.is_empty()
-                {
-                    text.push(' ');
-                    text.push_str(rest);
-                }
-                ctx.push_message(ChatMessage::user(text)).await;
-            }
-            Payload::Event(_) | _ => {}
+        if let Some(msg) = payload_to_chat_message(&envelope.payload) {
+            ctx.push_message(msg).await;
         }
 
         // Execute graph — or resume if this envelope carries a resume token.

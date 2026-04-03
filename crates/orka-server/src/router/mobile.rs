@@ -706,7 +706,7 @@ async fn handle_upload_artifact(
             Err(error) => {
                 return error_response(
                     StatusCode::BAD_REQUEST,
-                    &format!("invalid multipart body: {error}"),
+                    format!("invalid multipart body: {error}"),
                 );
             }
         };
@@ -723,7 +723,7 @@ async fn handle_upload_artifact(
                     Err(error) => {
                         return error_response(
                             StatusCode::BAD_REQUEST,
-                            &format!("failed to read file body: {error}"),
+                            format!("failed to read file body: {error}"),
                         );
                     }
                 };
@@ -738,7 +738,7 @@ async fn handle_upload_artifact(
                     Err(error) => {
                         return error_response(
                             StatusCode::BAD_REQUEST,
-                            &format!("failed to read caption: {error}"),
+                            format!("failed to read caption: {error}"),
                         );
                     }
                 };
@@ -875,7 +875,71 @@ async fn handle_get_artifact_content(
         return error_response(StatusCode::NOT_FOUND, "artifact not found");
     };
 
-    build_artifact_content_response(&artifact, bytes, headers)
+    build_artifact_content_response(&artifact, bytes, &headers)
+}
+
+/// Resolve a list of artifact IDs for an outgoing message.
+///
+/// Validates ownership, attachment status, and loads bytes. Returns the
+/// updated [`ConversationArtifact`] list and the corresponding
+/// [`MediaPayload`] list ready for inclusion in the envelope.
+#[allow(clippy::result_large_err)]
+async fn resolve_message_artifacts(
+    state: &ProtectedMobileState,
+    owner: &str,
+    conversation_id: ConversationId,
+    message_id: MessageId,
+    raw_ids: &[String],
+) -> Result<(Vec<ConversationArtifact>, Vec<MediaPayload>), axum::response::Response> {
+    let mut artifacts = Vec::with_capacity(raw_ids.len());
+    let mut rich_attachments = Vec::with_capacity(raw_ids.len());
+
+    for raw_id in raw_ids {
+        let artifact_id = parse_artifact_id(raw_id)?;
+
+        let Some(mut artifact) = state
+            .artifacts
+            .get_artifact(&artifact_id)
+            .await
+            .map_err(internal_error)?
+        else {
+            return Err(error_response(StatusCode::NOT_FOUND, "artifact not found"));
+        };
+        if artifact.owner_user_id != owner {
+            return Err(error_response(StatusCode::NOT_FOUND, "artifact not found"));
+        }
+        if artifact.message_id.is_some() {
+            return Err(error_response(
+                StatusCode::CONFLICT,
+                "artifact is already attached to a message",
+            ));
+        }
+        let Some(bytes) = state
+            .artifacts
+            .get_artifact_bytes(&artifact_id)
+            .await
+            .map_err(internal_error)?
+        else {
+            return Err(error_response(StatusCode::NOT_FOUND, "artifact content is missing"));
+        };
+
+        artifact.conversation_id = Some(conversation_id);
+        artifact.message_id = Some(message_id);
+        state
+            .artifacts
+            .update_artifact(&artifact)
+            .await
+            .map_err(internal_error)?;
+
+        let mut media =
+            MediaPayload::inline(artifact.mime_type.clone(), bytes, artifact.caption.clone())
+                .with_filename(artifact.filename.clone());
+        media.size_bytes = artifact.size_bytes;
+        artifacts.push(artifact);
+        rich_attachments.push(media);
+    }
+
+    Ok((artifacts, rich_attachments))
 }
 
 #[utoipa::path(
@@ -921,54 +985,23 @@ async fn handle_send_message(
     if body.artifact_ids.len() > MAX_ARTIFACTS_PER_MESSAGE {
         return error_response(
             StatusCode::BAD_REQUEST,
-            &format!("message may not include more than {MAX_ARTIFACTS_PER_MESSAGE} artifacts"),
+            format!("message may not include more than {MAX_ARTIFACTS_PER_MESSAGE} artifacts"),
         );
     }
 
     let user_message_id = MessageId::new();
-    let mut artifacts = Vec::with_capacity(body.artifact_ids.len());
-    let mut rich_attachments = Vec::with_capacity(body.artifact_ids.len());
-    for raw_id in &body.artifact_ids {
-        let artifact_id = match parse_artifact_id(raw_id) {
-            Ok(value) => value,
-            Err(response) => return response,
-        };
-
-        let Some(mut artifact) = (match state.artifacts.get_artifact(&artifact_id).await {
-            Ok(value) => value,
-            Err(error) => return internal_error(error),
-        }) else {
-            return error_response(StatusCode::NOT_FOUND, "artifact not found");
-        };
-        if artifact.owner_user_id != identity.principal {
-            return error_response(StatusCode::NOT_FOUND, "artifact not found");
-        }
-        if artifact.message_id.is_some() {
-            return error_response(StatusCode::CONFLICT, "artifact is already attached to a message");
-        }
-        let Some(bytes) = (match state.artifacts.get_artifact_bytes(&artifact_id).await {
-            Ok(value) => value,
-            Err(error) => return internal_error(error),
-        }) else {
-            return error_response(StatusCode::NOT_FOUND, "artifact content is missing");
-        };
-
-        artifact.conversation_id = Some(conversation.id);
-        artifact.message_id = Some(user_message_id);
-        if let Err(error) = state.artifacts.update_artifact(&artifact).await {
-            return internal_error(error);
-        }
-
-        let mut media = MediaPayload::inline(
-            artifact.mime_type.clone(),
-            bytes,
-            artifact.caption.clone(),
-        )
-        .with_filename(artifact.filename.clone());
-        media.size_bytes = artifact.size_bytes;
-        artifacts.push(artifact);
-        rich_attachments.push(media);
-    }
+    let (artifacts, rich_attachments) = match resolve_message_artifacts(
+        &state,
+        &identity.principal,
+        conversation.id,
+        user_message_id,
+        &body.artifact_ids,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
 
     let mut user_message = ConversationMessage::new(
         MessageId::new(),
@@ -1328,8 +1361,7 @@ fn preview_text_for_message(text: &str, artifacts: &[ConversationArtifact]) -> S
     }
     artifacts
         .first()
-        .map(|artifact| format!("[{}] {}", artifact.mime_type, artifact.filename))
-        .unwrap_or_else(|| "New message".to_string())
+        .map_or_else(|| "New message".to_string(), |a| format!("[{}] {}", a.mime_type, a.filename))
 }
 
 fn sanitize_filename(input: &str) -> String {
@@ -1382,7 +1414,7 @@ fn is_allowed_upload_mime(mime: &str) -> bool {
 fn build_artifact_content_response(
     artifact: &ConversationArtifact,
     bytes: Vec<u8>,
-    headers: HeaderMap,
+    headers: &HeaderMap,
 ) -> Response {
     let total_len = bytes.len();
     let (status, content_range, body_bytes) = match headers

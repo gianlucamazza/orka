@@ -1158,6 +1158,84 @@ async fn spawn_outbound_bridge(
     }))
 }
 
+/// Result of applying one outbound payload to the transcript.
+struct OutboundPayloadResult {
+    completed_message: Option<ConversationMessage>,
+    last_message_preview: Option<String>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Persist one outbound payload and return the fields that must be written
+/// back to `conversation`.  SSE artifact events are emitted directly.
+async fn apply_outbound_payload(
+    envelope: &Envelope,
+    conversation: &orka_core::Conversation,
+    assistant_message_id: MessageId,
+    stop_reason: Option<AgentStopReason>,
+    conversations: &dyn ConversationStore,
+    artifacts: &dyn ArtifactStore,
+    mobile_events: &MobileEventHub,
+) -> anyhow::Result<OutboundPayloadResult> {
+    let payload = &envelope.payload;
+    let conversation_id = orka_core::ConversationId::from(envelope.session_id);
+    let now = chrono::Utc::now();
+    match payload {
+        orka_core::Payload::Text(text) if !text.trim().is_empty() => {
+            let existing = conversations.get_message(&conversation_id, &assistant_message_id).await?;
+            let mut message = mobile_assistant_message(
+                envelope, conversation_id, assistant_message_id, text, stop_reason,
+            );
+            if let Some(existing) = existing {
+                message.artifacts = existing.artifacts;
+                message.created_at = existing.created_at;
+            }
+            conversations.upsert_message(&message).await?;
+            let preview = Some(preview_text(&message.text));
+            let updated_at = message.created_at;
+            Ok(OutboundPayloadResult { completed_message: Some(message), last_message_preview: preview, updated_at })
+        }
+        orka_core::Payload::Media(media) => {
+            let mut artifact = persist_mobile_assistant_artifact(artifacts, conversation, assistant_message_id, media).await?;
+            let mut message = conversations
+                .get_message(&conversation_id, &assistant_message_id)
+                .await?
+                .unwrap_or_else(|| mobile_assistant_message(envelope, conversation_id, assistant_message_id, "", stop_reason));
+            artifact.message_id = Some(message.id);
+            artifacts.update_artifact(&artifact).await?;
+            message.artifacts.push(artifact.clone());
+            conversations.upsert_message(&message).await?;
+            let preview = message.text.trim().is_empty().then(|| format!("[{}] {}", artifact.mime_type, artifact.filename));
+            mobile_events.publish(conversation_id, orka_server::router::MobileStreamEvent::ArtifactReady { conversation_id, artifact }).await;
+            Ok(OutboundPayloadResult { completed_message: None, last_message_preview: preview, updated_at: now })
+        }
+        orka_core::Payload::RichInput(input) => {
+            let text = input.text.as_deref().unwrap_or("").trim();
+            let existing = conversations.get_message(&conversation_id, &assistant_message_id).await?;
+            let mut message = mobile_assistant_message(envelope, conversation_id, assistant_message_id, text, stop_reason);
+            if let Some(existing) = existing {
+                message.artifacts = existing.artifacts;
+                message.created_at = existing.created_at;
+            }
+            for media in &input.attachments {
+                let mut artifact = persist_mobile_assistant_artifact(artifacts, conversation, assistant_message_id, media).await?;
+                artifact.message_id = Some(message.id);
+                artifacts.update_artifact(&artifact).await?;
+                message.artifacts.push(artifact.clone());
+                mobile_events.publish(conversation_id, orka_server::router::MobileStreamEvent::ArtifactReady { conversation_id, artifact }).await;
+            }
+            conversations.upsert_message(&message).await?;
+            let preview = if text.is_empty() {
+                message.artifacts.first().map(|a| format!("[{}] {}", a.mime_type, a.filename))
+            } else {
+                Some(preview_text(text))
+            };
+            let updated_at = message.created_at;
+            Ok(OutboundPayloadResult { completed_message: Some(message), last_message_preview: preview, updated_at })
+        }
+        _ => Ok(OutboundPayloadResult { completed_message: None, last_message_preview: None, updated_at: now }),
+    }
+}
+
 async fn persist_mobile_outbound(
     conversations: &dyn ConversationStore,
     artifacts: &dyn ArtifactStore,
@@ -1173,118 +1251,16 @@ async fn persist_mobile_outbound(
     };
 
     let assistant_message_id = mobile_assistant_message_id(envelope);
-    let mut completed_message: Option<ConversationMessage> = None;
+    let result = apply_outbound_payload(
+        envelope, &conversation,
+        assistant_message_id, stop_reason, conversations, artifacts, mobile_events,
+    )
+    .await?;
 
-    match &envelope.payload {
-        orka_core::Payload::Text(text) if !text.trim().is_empty() => {
-            let existing = conversations
-                .get_message(&conversation_id, &assistant_message_id)
-                .await?;
-            let mut message =
-                mobile_assistant_message(envelope, conversation_id, assistant_message_id, text, stop_reason);
-            if let Some(existing) = existing {
-                message.artifacts = existing.artifacts;
-                message.created_at = existing.created_at;
-            }
-            conversations.upsert_message(&message).await?;
-            conversation.updated_at = message.created_at;
-            conversation.last_message_preview = Some(preview_text(&message.text));
-            completed_message = Some(message);
-        }
-        orka_core::Payload::Media(media) => {
-            let mut artifact = persist_mobile_assistant_artifact(
-                artifacts,
-                &conversation,
-                assistant_message_id,
-                media,
-            )
-            .await?;
-            let mut message = conversations
-                .get_message(&conversation_id, &assistant_message_id)
-                .await?
-                .unwrap_or_else(|| {
-                    mobile_assistant_message(
-                        envelope,
-                        conversation_id,
-                        assistant_message_id,
-                        "",
-                        stop_reason,
-                    )
-                });
-            artifact.message_id = Some(message.id);
-            artifacts.update_artifact(&artifact).await?;
-            message.artifacts.push(artifact.clone());
-            conversations.upsert_message(&message).await?;
-            conversation.updated_at = chrono::Utc::now();
-            if message.text.trim().is_empty() {
-                conversation.last_message_preview = Some(format!(
-                    "[{}] {}",
-                    artifact.mime_type, artifact.filename
-                ));
-            }
-            mobile_events
-                .publish(
-                    conversation_id,
-                    orka_server::router::MobileStreamEvent::ArtifactReady {
-                        conversation_id,
-                        artifact,
-                    },
-                )
-                .await;
-        }
-        orka_core::Payload::RichInput(input) => {
-            let text = input.text.as_deref().unwrap_or("").trim();
-            let existing = conversations
-                .get_message(&conversation_id, &assistant_message_id)
-                .await?;
-            let mut message = mobile_assistant_message(
-                envelope,
-                conversation_id,
-                assistant_message_id,
-                text,
-                stop_reason,
-            );
-            if let Some(existing) = existing {
-                message.artifacts = existing.artifacts;
-                message.created_at = existing.created_at;
-            }
-
-            for media in &input.attachments {
-                let mut artifact = persist_mobile_assistant_artifact(
-                    artifacts,
-                    &conversation,
-                    assistant_message_id,
-                    media,
-                )
-                .await?;
-                artifact.message_id = Some(message.id);
-                artifacts.update_artifact(&artifact).await?;
-                message.artifacts.push(artifact.clone());
-                mobile_events
-                    .publish(
-                        conversation_id,
-                        orka_server::router::MobileStreamEvent::ArtifactReady {
-                            conversation_id,
-                            artifact,
-                        },
-                    )
-                    .await;
-            }
-
-            conversations.upsert_message(&message).await?;
-            conversation.updated_at = message.created_at;
-            conversation.last_message_preview = if !text.is_empty() {
-                Some(preview_text(text))
-            } else {
-                message.artifacts.first().map(|a| format!("[{}] {}", a.mime_type, a.filename))
-            };
-            completed_message = Some(message);
-        }
-        _ => {
-            conversation.updated_at = chrono::Utc::now();
-        }
+    conversation.updated_at = result.updated_at;
+    if let Some(preview) = result.last_message_preview {
+        conversation.last_message_preview = Some(preview);
     }
-
     conversation.status = match stop_reason {
         Some(AgentStopReason::Error) => ConversationStatus::Failed,
         Some(AgentStopReason::Interrupted) => ConversationStatus::Interrupted,
@@ -1294,29 +1270,16 @@ async fn persist_mobile_outbound(
 
     match stop_reason {
         Some(AgentStopReason::Error) => {
-            let error_text = completed_message
+            let error_text = result.completed_message
                 .as_ref()
                 .map(|item| item.text.clone())
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| "agent execution terminated with error".to_string());
-            mobile_events
-                .publish(
-                    conversation_id,
-                    orka_server::router::MobileStreamEvent::MessageFailed {
-                        conversation_id,
-                        error: error_text,
-                    },
-                )
-                .await;
+            mobile_events.publish(conversation_id, orka_server::router::MobileStreamEvent::MessageFailed { conversation_id, error: error_text }).await;
         }
         _ => {
-            if let Some(message) = completed_message {
-                mobile_events
-                    .publish(
-                        conversation_id,
-                        orka_server::router::MobileStreamEvent::MessageCompleted { message },
-                    )
-                    .await;
+            if let Some(message) = result.completed_message {
+                mobile_events.publish(conversation_id, orka_server::router::MobileStreamEvent::MessageCompleted { message }).await;
             }
         }
     }
@@ -1378,8 +1341,7 @@ fn mobile_assistant_message_id(envelope: &Envelope) -> MessageId {
         .cloned()
         .and_then(|value| serde_json::from_value::<String>(value).ok())
         .and_then(|value| uuid::Uuid::parse_str(&value).ok())
-        .map(MessageId::from)
-        .unwrap_or(envelope.id)
+        .map_or(envelope.id, MessageId::from)
 }
 
 fn mobile_stop_reason(envelope: &Envelope) -> Option<AgentStopReason> {
