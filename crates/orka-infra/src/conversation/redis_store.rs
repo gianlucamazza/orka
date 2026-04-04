@@ -117,10 +117,9 @@ impl ConversationStore for RedisConversationStore {
                 .map_err(|e| Error::bus(format!("redis GET error: {e}")))?;
             if let Some(json) = value
                 && let Ok(conversation) = serde_json::from_str::<Conversation>(&json)
+                && (include_archived || conversation.archived_at.is_none())
             {
-                if include_archived || conversation.archived_at.is_none() {
-                    conversations.push(conversation);
-                }
+                conversations.push(conversation);
             }
             if conversations.len() >= limit {
                 break;
