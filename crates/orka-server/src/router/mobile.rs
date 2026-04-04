@@ -41,7 +41,7 @@ const MAX_ARTIFACTS_PER_MESSAGE: usize = 10;
 pub(super) type MobileRateLimiter =
     RateLimiter<String, DefaultKeyedStateStore<String>, governor::clock::DefaultClock>;
 
-/// A pair of per-user rate limiters: (read_limiter, write_limiter).
+/// A pair of per-user rate limiters: (`read_limiter`, `write_limiter`).
 ///
 /// Read-only methods (GET, HEAD) use the first limiter; mutating methods
 /// (POST, PATCH, PUT, DELETE) use the second.

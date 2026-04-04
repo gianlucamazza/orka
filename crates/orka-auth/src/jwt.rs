@@ -117,6 +117,31 @@ mod tests {
     use super::*;
 
     #[derive(Serialize)]
+    struct Rs256Claims<'a> {
+        sub: &'a str,
+        scope: &'a str,
+        iss: &'a str,
+        exp: u64,
+    }
+
+    #[derive(Serialize)]
+    struct AudClaims {
+        sub: String,
+        scope: String,
+        iss: String,
+        aud: String,
+        exp: u64,
+    }
+
+    #[derive(Serialize)]
+    struct ArrayScopesClaims {
+        sub: String,
+        scopes: Vec<String>,
+        iss: String,
+        exp: u64,
+    }
+
+    #[derive(Serialize)]
     struct TestClaims {
         sub: String,
         scope: String,
@@ -249,13 +274,6 @@ swIDAQAB
         )
         .unwrap();
 
-        #[derive(Serialize)]
-        struct Rs256Claims<'a> {
-            sub: &'a str,
-            scope: &'a str,
-            iss: &'a str,
-            exp: u64,
-        }
         let claims = Rs256Claims {
             sub: "rsa-user",
             scope: "admin",
@@ -294,14 +312,6 @@ swIDAQAB
             secret,
         );
 
-        #[derive(Serialize)]
-        struct AudClaims {
-            sub: String,
-            scope: String,
-            iss: String,
-            aud: String,
-            exp: u64,
-        }
         let claims = AudClaims {
             sub: "user1".into(),
             scope: "read".into(),
@@ -332,14 +342,6 @@ swIDAQAB
             secret,
         );
 
-        #[derive(Serialize)]
-        struct AudClaims {
-            sub: String,
-            scope: String,
-            iss: String,
-            aud: String,
-            exp: u64,
-        }
         let claims = AudClaims {
             sub: "user1".into(),
             scope: "read".into(),
@@ -363,13 +365,6 @@ swIDAQAB
         let secret = "test-secret-key-at-least-32-bytes-long!";
         let auth = JwtAuthenticator::with_secret("test-issuer".into(), None, secret);
 
-        #[derive(Serialize)]
-        struct ArrayScopesClaims {
-            sub: String,
-            scopes: Vec<String>, // array, not space-separated string
-            iss: String,
-            exp: u64,
-        }
         let claims = ArrayScopesClaims {
             sub: "user2".into(),
             scopes: vec!["read".into(), "write".into(), "admin".into()],
