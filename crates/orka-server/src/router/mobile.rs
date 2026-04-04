@@ -442,10 +442,7 @@ pub(super) fn protected_routes(
             "/mobile/v1/conversations/{id}/messages",
             get(handle_list_messages).post(handle_send_message),
         )
-        .route(
-            "/mobile/v1/conversations/{id}/read",
-            post(handle_mark_read),
-        )
+        .route("/mobile/v1/conversations/{id}/read", post(handle_mark_read))
         .route("/mobile/v1/conversations/{id}/stream", get(handle_stream))
         .with_state(state)
 }

@@ -565,10 +565,20 @@ mod tests {
         let c1 = MessageCursor::from_message(&all[1]);
         let c3 = MessageCursor::from_message(&all[3]);
 
-        store.set_read_watermark("user1", &conv_id, &c1).await.unwrap();
-        store.set_read_watermark("user1", &conv_id, &c3).await.unwrap();
+        store
+            .set_read_watermark("user1", &conv_id, &c1)
+            .await
+            .unwrap();
+        store
+            .set_read_watermark("user1", &conv_id, &c3)
+            .await
+            .unwrap();
 
-        let got = store.get_read_watermark("user1", &conv_id).await.unwrap().unwrap();
+        let got = store
+            .get_read_watermark("user1", &conv_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(got, c3);
     }
 
@@ -583,10 +593,20 @@ mod tests {
         let c3 = MessageCursor::from_message(&all[3]);
         let c1 = MessageCursor::from_message(&all[1]);
 
-        store.set_read_watermark("user1", &conv_id, &c3).await.unwrap();
-        store.set_read_watermark("user1", &conv_id, &c1).await.unwrap(); // older — should be ignored
+        store
+            .set_read_watermark("user1", &conv_id, &c3)
+            .await
+            .unwrap();
+        store
+            .set_read_watermark("user1", &conv_id, &c1)
+            .await
+            .unwrap(); // older — should be ignored
 
-        let got = store.get_read_watermark("user1", &conv_id).await.unwrap().unwrap();
+        let got = store
+            .get_read_watermark("user1", &conv_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(got, c3);
     }
 
@@ -594,7 +614,13 @@ mod tests {
     async fn watermark_none_when_unset() {
         let store = InMemoryConversationStore::new();
         let conv_id = ConversationId::new();
-        assert!(store.get_read_watermark("user1", &conv_id).await.unwrap().is_none());
+        assert!(
+            store
+                .get_read_watermark("user1", &conv_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -612,7 +638,10 @@ mod tests {
 
         // Mark first 2 as read.
         let watermark = MessageCursor::from_message(&all[1]);
-        store.set_read_watermark("user1", &conv_id, &watermark).await.unwrap();
+        store
+            .set_read_watermark("user1", &conv_id, &watermark)
+            .await
+            .unwrap();
 
         let wm = store.get_read_watermark("user1", &conv_id).await.unwrap();
         let unread = store
