@@ -32,3 +32,6 @@ dist/
 
 # Research worktrees (created at runtime)
 .orka-worktrees/
+
+# Demo pipeline staging artifacts
+demo/.build/

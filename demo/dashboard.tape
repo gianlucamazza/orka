@@ -1,12 +1,12 @@
-Output demo/orka-dashboard.gif
+Output demo/orka-dashboard.mp4
 Set Theme "Catppuccin Mocha"
 Set Width 960
 Set Height 600
 Set FontSize 14
 Set TypingSpeed 50ms
 
-# Requires: orka-server running with observe.backend = "otel"
-Type "orka dashboard --interval 3"
+# Requires ORKA_SERVER_URL to point at a live backend with observability enabled.
+Type "orka dashboard --interval 2"
 Enter
 Sleep 4s
 

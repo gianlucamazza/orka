@@ -36,6 +36,8 @@ Orka routes messages from Telegram, Discord, Slack, WhatsApp, and HTTP through a
 
 </details>
 
+Demo assets are regenerated with `just demo-check`, `just demo`, or `./scripts/demo.sh build <scenario>`. The asset contract and environment setup live in [demo/README.md](demo/README.md).
+
 ## Architecture
 
 ```mermaid

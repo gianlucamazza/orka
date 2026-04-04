@@ -36,6 +36,7 @@ internal snapshots, and repo companion docs are listed separately on purpose.
 
 ### Companion Docs
 *   **[Examples](../examples/README.md)**: Runnable examples covering bots, custom skills, WASM plugins, and multi-agent flows.
+*   **[Demo Pipeline](../demo/README.md)**: How public GIF/MP4/WebM demo assets are recorded, rendered, and verified.
 *   **[Packaging](../packaging/README.md)**: Native packaging support matrix and distro-specific packaging notes.
 *   **[Plugin SDK](../sdk/orka-plugin-sdk/README.md)**: Low-level SDK reference for building WASM plugins.
 *   **[Tooling Layout](../tools/README.md)**: Helper utilities that live outside the Rust workspace.

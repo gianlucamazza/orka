@@ -147,5 +147,6 @@ The workspace is organized into specialized crates in the `crates/` directory:
     - `orka config migrate`: Migrate configuration.
 - **`just`:**
     - `just ci`: Run full CI suite locally.
-    - `just demo`: Record demos using VHS.
+    - `just demo-check`: Validate demo prerequisites and remote backend health.
+    - `just demo`: Rebuild public demo assets.
     - `just install`: Install systemd services.

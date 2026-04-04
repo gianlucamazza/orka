@@ -251,16 +251,34 @@ docs:
 changelog:
     git-cliff --output CHANGELOG.md
 
-# Record all demo GIFs (requires VHS + a running orka-server)
-demo:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for tape in demo/*.tape; do
-        echo "Recording ${tape}..."
-        vhs "$tape"
-    done
-    echo "All demos recorded."
+# Validate demo prerequisites and live backend reachability
+demo-check:
+    ./scripts/demo.sh check
 
-# Record a single demo GIF  (usage: just demo-one dashboard)
-demo-one tape:
-    vhs demo/{{tape}}.tape
+# List known public demo scenarios
+demo-list:
+    ./scripts/demo.sh list
+
+# Record all public demo assets (requires VHS, ffmpeg, and a live backend)
+demo:
+    ./scripts/demo.sh build
+
+# Record master videos only (usage: just demo-record dashboard)
+demo-record scenario="all":
+    ./scripts/demo.sh record {{scenario}}
+
+# Render GIF/MP4/WebM assets from master recordings
+demo-render scenario="all":
+    ./scripts/demo.sh render {{scenario}}
+
+# Verify generated demo assets and README references
+demo-verify scenario="all":
+    ./scripts/demo.sh verify {{scenario}}
+
+# Remove staged master recordings
+demo-clean:
+    ./scripts/demo.sh clean
+
+# Rebuild a single public demo scenario (usage: just demo-one chat)
+demo-one scenario:
+    ./scripts/demo.sh build {{scenario}}
