@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-04-04
+
+### Added
+
+- Mobile API: `POST /mobile/v1/conversations/{id}/cancel` — cancels an in-progress
+  generation by signalling the shared `SessionCancelTokens` map; worker pool and HTTP
+  router now share the same token map via a new `WorkerPool::with_session_cancel_tokens`
+  builder method
+- Mobile API: `DELETE /mobile/v1/conversations/{id}/messages/{message_id}` — removes a
+  single message from a conversation transcript; backed by a new `delete_message` method
+  on the `ConversationStore` trait with Redis (LRANGE→filter→DEL+RPUSH) and in-memory
+  implementations
+- Mobile API: `POST /mobile/v1/conversations/{id}/retry` — retries the last failed
+  generation: verifies `status == Failed`, removes trailing assistant messages, and
+  re-publishes the last user message to the inbound bus
+- `Conversation` now carries `pinned: bool` and `tags: Vec<String>` fields; both use
+  `#[serde(default)]` so existing stored conversations deserialize without migration
+- `PATCH /mobile/v1/conversations/{id}` extended to accept `title`, `pinned`, and `tags`
+  in addition to `archived`; all fields are optional, at least one must be present
+- `POST /mobile/v1/conversations/{id}/read` registered in the OpenAPI spec with a
+  `#[utoipa::path]` annotation and schema for `MarkReadRequest`
+
+### Changed
+
+- OpenAPI annotation on `GET /mobile/v1/conversations/{id}/messages` corrected to reflect
+  cursor-based pagination (`after`, `before`, `limit`) instead of the stale `offset` docs;
+  `x-next-cursor` and `x-prev-cursor` response headers are now documented
+- `docs/guides/mobile-client.md` updated: cursor pagination semantics, full table of new
+  endpoints, and all 10 SSE event types with payload shapes (`typing_started`,
+  `thinking_delta`, `tool_exec_start`, `tool_exec_end`, `agent_switch` were missing)
+- Integration test `mobile_message_list_supports_limit_and_offset` replaced with
+  `mobile_message_list_cursor_pagination` which covers forward and backward cursor traversal
+
 ## [1.4.0] - 2026-04-04
 
 ### Added
