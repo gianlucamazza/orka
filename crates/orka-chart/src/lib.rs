@@ -37,6 +37,12 @@ pub enum Error {
     Render(String),
 }
 
+impl From<Error> for orka_core::Error {
+    fn from(e: Error) -> Self {
+        orka_core::Error::Skill(e.to_string())
+    }
+}
+
 /// Build all chart skills.
 ///
 /// Returns a `Vec<Arc<dyn Skill>>` ready to be registered in the

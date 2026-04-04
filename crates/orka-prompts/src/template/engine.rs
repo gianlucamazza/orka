@@ -1,67 +1,30 @@
-use std::fmt;
-
 use handlebars::{Handlebars, RenderError, TemplateError as HandlebarsError};
 use serde::Serialize;
+use thiserror::Error;
 
 /// Error type for template operations.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum TemplateError {
     /// Template compilation failed.
-    Compilation(HandlebarsError),
+    #[error("template compilation failed: {0}")]
+    Compilation(#[from] HandlebarsError),
     /// Template rendering failed.
-    Rendering(RenderError),
+    #[error("template rendering failed: {0}")]
+    Rendering(#[from] RenderError),
     /// Template not found.
+    #[error("template not found: {0}")]
     NotFound(String),
     /// Invalid template name.
+    #[error("invalid template name: {0}")]
     InvalidName(String),
     /// Filesystem watcher error.
-    Watch(notify::Error),
-}
-
-impl fmt::Display for TemplateError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TemplateError::Compilation(e) => write!(f, "template compilation failed: {e}"),
-            TemplateError::Rendering(e) => write!(f, "template rendering failed: {e}"),
-            TemplateError::NotFound(name) => write!(f, "template not found: {name}"),
-            TemplateError::InvalidName(name) => write!(f, "invalid template name: {name}"),
-            TemplateError::Watch(e) => write!(f, "template watcher error: {e}"),
-        }
-    }
+    #[error("template watcher error: {0}")]
+    Watch(#[from] notify::Error),
 }
 
 impl From<TemplateError> for orka_core::Error {
     fn from(e: TemplateError) -> Self {
         orka_core::Error::Other(format!("template error: {e}"))
-    }
-}
-
-impl std::error::Error for TemplateError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            TemplateError::Compilation(e) => Some(e),
-            TemplateError::Rendering(e) => Some(e),
-            TemplateError::Watch(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<HandlebarsError> for TemplateError {
-    fn from(e: HandlebarsError) -> Self {
-        TemplateError::Compilation(e)
-    }
-}
-
-impl From<RenderError> for TemplateError {
-    fn from(e: RenderError) -> Self {
-        TemplateError::Rendering(e)
-    }
-}
-
-impl From<notify::Error> for TemplateError {
-    fn from(e: notify::Error) -> Self {
-        TemplateError::Watch(e)
     }
 }
 

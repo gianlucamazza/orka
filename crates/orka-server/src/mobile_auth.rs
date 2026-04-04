@@ -2,6 +2,8 @@
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
+use thiserror::Error;
+
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
@@ -17,40 +19,34 @@ use uuid::Uuid;
 const MOBILE_SCOPE: &str = "mobile:chat";
 
 /// Service errors for mobile auth and first-device pairing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum MobileAuthError {
     /// Pairing/refresh is unavailable because token signing is not configured.
+    #[error("mobile pairing is unavailable on this server")]
     Disabled,
     /// The caller provided invalid or malformed input.
+    #[error("{0}")]
     InvalidRequest(String),
     /// The requested pairing session does not exist.
+    #[error("pairing session not found")]
     NotFound,
     /// The requested pairing session belongs to another authenticated caller.
+    /// Returns the same message as `NotFound` to avoid leaking resource existence.
+    #[error("pairing session not found")]
     Forbidden,
     /// The pairing session or refresh token has expired.
+    #[error("pairing session has expired")]
     Expired,
     /// The pairing session was already completed.
+    #[error("pairing session has already been used")]
     AlreadyUsed,
     /// The provided secret/token does not match a valid record.
+    #[error("invalid pairing or refresh token")]
     Unauthorized,
     /// Unexpected infrastructure failure.
+    #[error("{0}")]
     Internal(String),
 }
-
-impl fmt::Display for MobileAuthError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Disabled => write!(f, "mobile pairing is unavailable on this server"),
-            Self::InvalidRequest(message) | Self::Internal(message) => write!(f, "{message}"),
-            Self::NotFound | Self::Forbidden => write!(f, "pairing session not found"),
-            Self::Expired => write!(f, "pairing session has expired"),
-            Self::AlreadyUsed => write!(f, "pairing session has already been used"),
-            Self::Unauthorized => write!(f, "invalid pairing or refresh token"),
-        }
-    }
-}
-
-impl std::error::Error for MobileAuthError {}
 
 /// Configuration for issuing Orka-managed mobile sessions.
 #[derive(Debug, Clone)]

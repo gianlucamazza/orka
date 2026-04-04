@@ -235,6 +235,38 @@ impl std::fmt::Display for SimpleError {
 
 impl std::error::Error for SimpleError {}
 
+/// Generates factory methods on [`Error`] for structured `{ source, context }` variants.
+///
+/// Two forms are supported:
+/// - `msg: fn_name => Variant` — wraps a plain string in a `SimpleError`.
+/// - `src: fn_name => Variant` — takes a real `impl Error + Send + Sync + 'static` source.
+macro_rules! error_factory {
+    // msg-only: wraps a plain string as both source and context.
+    (msg: $(#[$attr:meta])* $fn_name:ident => $variant:ident) => {
+        $(#[$attr])*
+        pub fn $fn_name(msg: impl Into<String>) -> Self {
+            let s = msg.into();
+            Self::$variant {
+                source: Box::new(SimpleError(s.clone())),
+                context: s,
+            }
+        }
+    };
+    // src: takes a typed source error + a separate context string.
+    (src: $(#[$attr:meta])* $fn_name:ident => $variant:ident) => {
+        $(#[$attr])*
+        pub fn $fn_name(
+            source: impl std::error::Error + Send + Sync + 'static,
+            context: impl Into<String>,
+        ) -> Self {
+            Self::$variant {
+                source: Box::new(source),
+                context: context.into(),
+            }
+        }
+    };
+}
+
 impl Error {
     /// Extract the error category, if available.
     ///
@@ -254,218 +286,74 @@ impl Error {
         }
     }
 
-    /// Create a bus error from a message string.
-    pub fn bus(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Bus {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
+    error_factory!(msg: /// Create a bus error from a message string.
+                        bus => Bus);
+    error_factory!(msg: /// Create a queue error from a message string.
+                        queue => Queue);
+    error_factory!(msg: /// Create a memory error from a message string.
+                        memory => Memory);
+    error_factory!(msg: /// Create a secret error from a message string.
+                        secret => Secret);
+    error_factory!(msg: /// Create an adapter error from a message string.
+                        adapter => Adapter);
+    error_factory!(msg: /// Create an artifact error from a message string.
+                        artifact => Artifact);
 
-    /// Create a queue error from a message string.
-    pub fn queue(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Queue {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
+    error_factory!(src: /// Create a worker error from a source error and context.
+                        worker => Worker);
+    error_factory!(msg: /// Create a worker error from a plain message string.
+                        worker_msg => Worker);
 
-    /// Create a memory error from a message string.
-    pub fn memory(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Memory {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
+    error_factory!(src:
+        /// Create a sandbox error from a source error and context.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use orka_core::Error;
+        ///
+        /// let io_err = std::io::Error::other("process killed");
+        /// let e = Error::sandbox(io_err, "wasm execution failed");
+        /// assert!(e.to_string().contains("sandbox error"));
+        /// ```
+        sandbox => Sandbox);
+    error_factory!(msg:
+        /// Create a sandbox error from a plain message string.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use orka_core::Error;
+        ///
+        /// let e = Error::sandbox_msg("permission denied");
+        /// assert!(e.to_string().contains("sandbox error"));
+        /// ```
+        sandbox_msg => Sandbox);
 
-    /// Create a secret error from a message string.
-    pub fn secret(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Secret {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
+    error_factory!(src: /// Create an observe error from a source error and context.
+                        observe => Observe);
+    error_factory!(msg: /// Create an observe error from a plain message string.
+                        observe_msg => Observe);
 
-    /// Create an adapter error from a message string.
-    pub fn adapter(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Adapter {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
+    error_factory!(src: /// Create an HTTP client error from a source error and context.
+                        http_client => HttpClient);
+    error_factory!(msg: /// Create an HTTP client error from a plain message string.
+                        http_client_msg => HttpClient);
 
-    /// Create a worker error from a source error and context.
-    pub fn worker(
-        source: impl std::error::Error + Send + Sync + 'static,
-        context: impl Into<String>,
-    ) -> Self {
-        Self::Worker {
-            source: Box::new(source),
-            context: context.into(),
-        }
-    }
+    error_factory!(src: /// Create a checkpoint error from a source error and context.
+                        checkpoint => Checkpoint);
+    error_factory!(msg: /// Create a checkpoint error from a plain message string.
+                        checkpoint_msg => Checkpoint);
 
-    /// Create a worker error from a plain message string.
-    pub fn worker_msg(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Worker {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
+    error_factory!(src: /// Create an experience error from a source error and context.
+                        experience => Experience);
+    error_factory!(msg: /// Create an experience error from a plain message string.
+                        experience_msg => Experience);
 
-    /// Create a sandbox error from a source error and context.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use orka_core::Error;
-    ///
-    /// let io_err = std::io::Error::other("process killed");
-    /// let e = Error::sandbox(io_err, "wasm execution failed");
-    /// assert!(e.to_string().contains("sandbox error"));
-    /// ```
-    pub fn sandbox(
-        source: impl std::error::Error + Send + Sync + 'static,
-        context: impl Into<String>,
-    ) -> Self {
-        Self::Sandbox {
-            source: Box::new(source),
-            context: context.into(),
-        }
-    }
-
-    /// Create a sandbox error from a plain message string.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use orka_core::Error;
-    ///
-    /// let e = Error::sandbox_msg("permission denied");
-    /// assert!(e.to_string().contains("sandbox error"));
-    /// ```
-    pub fn sandbox_msg(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Sandbox {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
-
-    /// Create an observe error from a source error and context.
-    pub fn observe(
-        source: impl std::error::Error + Send + Sync + 'static,
-        context: impl Into<String>,
-    ) -> Self {
-        Self::Observe {
-            source: Box::new(source),
-            context: context.into(),
-        }
-    }
-
-    /// Create an observe error from a plain message string.
-    pub fn observe_msg(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Observe {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
-
-    /// Create an HTTP client error from a source error and context.
-    pub fn http_client(
-        source: impl std::error::Error + Send + Sync + 'static,
-        context: impl Into<String>,
-    ) -> Self {
-        Self::HttpClient {
-            source: Box::new(source),
-            context: context.into(),
-        }
-    }
-
-    /// Create an HTTP client error from a plain message string.
-    pub fn http_client_msg(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::HttpClient {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
-
-    /// Create a checkpoint error from a source error and context.
-    pub fn checkpoint(
-        source: impl std::error::Error + Send + Sync + 'static,
-        context: impl Into<String>,
-    ) -> Self {
-        Self::Checkpoint {
-            source: Box::new(source),
-            context: context.into(),
-        }
-    }
-
-    /// Create a checkpoint error from a plain message string.
-    pub fn checkpoint_msg(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Checkpoint {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
-
-    /// Create an experience error from a source error and context.
-    pub fn experience(
-        source: impl std::error::Error + Send + Sync + 'static,
-        context: impl Into<String>,
-    ) -> Self {
-        Self::Experience {
-            source: Box::new(source),
-            context: context.into(),
-        }
-    }
-
-    /// Create an experience error from a plain message string.
-    pub fn experience_msg(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Experience {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
-
-    /// Create an LLM error from a source error and context.
-    pub fn llm(
-        source: impl std::error::Error + Send + Sync + 'static,
-        context: impl Into<String>,
-    ) -> Self {
-        Self::Llm {
-            source: Box::new(source),
-            context: context.into(),
-        }
-    }
-
-    /// Create an artifact error from a message string.
-    pub fn artifact(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Artifact {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
-
-    /// Create an LLM error from a plain message string.
-    pub fn llm_msg(msg: impl Into<String>) -> Self {
-        let s = msg.into();
-        Self::Llm {
-            source: Box::new(SimpleError(s.clone())),
-            context: s,
-        }
-    }
+    error_factory!(src: /// Create an LLM error from a source error and context.
+                        llm => Llm);
+    error_factory!(msg: /// Create an LLM error from a plain message string.
+                        llm_msg => Llm);
 }
 
 /// Convenience alias used throughout the Orka crate ecosystem.
