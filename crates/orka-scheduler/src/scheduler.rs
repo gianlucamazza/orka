@@ -371,7 +371,12 @@ mod tests {
         // Add 5 tasks all due now
         for i in 0..5u32 {
             store
-                .add(&make_schedule(&format!("s{i}"), &format!("task-{i}"), "echo", 0))
+                .add(&make_schedule(
+                    &format!("s{i}"),
+                    &format!("task-{i}"),
+                    "echo",
+                    0,
+                ))
                 .await
                 .unwrap();
         }
