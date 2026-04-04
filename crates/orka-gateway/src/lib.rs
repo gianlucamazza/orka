@@ -524,7 +524,8 @@ mod tests {
         gw.process(trigger_env).await.unwrap();
 
         let counters = gw.rate_counters.lock().await;
-        // All 10_001 stale entries should be pruned; fresh-session + the trigger session remain
+        // All 10_001 stale entries should be pruned; fresh-session + the trigger
+        // session remain
         assert!(
             counters.len() <= 5,
             "expected stale entries pruned, got {} entries",
