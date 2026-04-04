@@ -12,8 +12,8 @@ use axum::{
     },
     routing::{get, post},
 };
-use governor::{Quota, RateLimiter, state::keyed::DefaultKeyedStateStore};
 use chrono::{DateTime, Utc};
+use governor::{Quota, RateLimiter, state::keyed::DefaultKeyedStateStore};
 use orka_auth::AuthIdentity;
 use orka_core::{
     ArtifactId, Conversation, ConversationArtifact, ConversationArtifactOrigin, ConversationId,
@@ -69,12 +69,13 @@ pub(super) fn new_mobile_rate_limiter_per_minute(reqs_per_minute: u32) -> Arc<Mo
 
 /// Axum middleware: enforce per-user rate limiting on protected mobile routes.
 ///
-/// The rate limit key is the authenticated user's `principal` (JWT `sub` claim).
-/// Per-user keying is intentional: keying by `device_id` is not possible because
-/// the device ID is not carried in JWT access token claims.
+/// The rate limit key is the authenticated user's `principal` (JWT `sub`
+/// claim). Per-user keying is intentional: keying by `device_id` is not
+/// possible because the device ID is not carried in JWT access token claims.
 ///
-/// Read-only requests (GET, HEAD) consume from the read limiter (300/min by default);
-/// mutating requests (POST, PATCH, PUT, DELETE) consume from the write limiter (60/min).
+/// Read-only requests (GET, HEAD) consume from the read limiter (300/min by
+/// default); mutating requests (POST, PATCH, PUT, DELETE) consume from the
+/// write limiter (60/min).
 ///
 /// Returns HTTP 429 when the limit is exceeded.
 pub(super) async fn rate_limit_middleware(
@@ -794,7 +795,11 @@ async fn handle_delete_conversation(
         return response;
     }
 
-    match state.conversations.delete_conversation(&conversation_id).await {
+    match state
+        .conversations
+        .delete_conversation(&conversation_id)
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => internal_error(error),
     }

@@ -300,12 +300,14 @@ pub struct RouterParams {
     pub mobile_auth: Option<Arc<dyn MobileAuthService>>,
     /// Whether the mobile product API should be exposed.
     pub mobile_enabled: bool,
-    /// Override the mobile API read (GET) rate limit (requests per minute per user).
+    /// Override the mobile API read (GET) rate limit (requests per minute per
+    /// user).
     ///
     /// Defaults to 300 when `None`. Set to a low value in tests to exercise
     /// the 429 path without sending hundreds of requests.
     pub mobile_read_rate_limit_per_minute: Option<u32>,
-    /// Override the mobile API write (POST/PATCH/DELETE) rate limit (requests per minute per user).
+    /// Override the mobile API write (POST/PATCH/DELETE) rate limit (requests
+    /// per minute per user).
     ///
     /// Defaults to 60 when `None`. Set to a low value in tests to exercise
     /// the 429 path without sending hundreds of requests.

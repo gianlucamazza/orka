@@ -792,8 +792,16 @@ async fn openapi_spec_includes_mobile_paths() -> common::TestResult {
     assert!(json["paths"]["/mobile/v1/uploads"].is_object());
     assert!(json["paths"]["/mobile/v1/artifacts/{id}"].is_object());
     assert!(json["paths"]["/mobile/v1/artifacts/{id}/content"].is_object());
-    assert!(json["paths"]["/mobile/v1/conversations/{id}"].as_object().is_some_and(|o| o.contains_key("patch")));
-    assert!(json["paths"]["/mobile/v1/conversations/{id}"].as_object().is_some_and(|o| o.contains_key("delete")));
+    assert!(
+        json["paths"]["/mobile/v1/conversations/{id}"]
+            .as_object()
+            .is_some_and(|o| o.contains_key("patch"))
+    );
+    assert!(
+        json["paths"]["/mobile/v1/conversations/{id}"]
+            .as_object()
+            .is_some_and(|o| o.contains_key("delete"))
+    );
     Ok(())
 }
 
@@ -880,8 +888,13 @@ async fn mobile_conversation_archive_and_unarchive() -> common::TestResult {
         .await?;
     assert_eq!(resp.status(), StatusCode::OK);
     let json = common::json_body(resp).await?;
-    assert!(json["archived_at"].is_null() || !json.get("archived_at").is_some_and(|v| v.is_string()),
-        "archived_at should be absent or null after unarchive");
+    assert!(
+        json["archived_at"].is_null()
+            || !json
+                .get("archived_at")
+                .is_some_and(serde_json::Value::is_string),
+        "archived_at should be absent or null after unarchive"
+    );
 
     // Default list should include it again.
     let resp = ctx
@@ -1058,21 +1071,39 @@ async fn mobile_rate_limit_different_users_are_independent() -> common::TestResu
     let auth_b = bearer("user-beta", &["chat:read"]);
 
     // Exhaust user-a's limit.
-    let _ = ctx.app.clone().oneshot(common::request(
-        Request::builder().uri("/mobile/v1/me").header("Authorization", auth_a.clone()),
-        Body::empty(),
-    )?).await?;
-    let resp_a = ctx.app.clone().oneshot(common::request(
-        Request::builder().uri("/mobile/v1/me").header("Authorization", auth_a),
-        Body::empty(),
-    )?).await?;
+    let _ = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .uri("/mobile/v1/me")
+                .header("Authorization", auth_a.clone()),
+            Body::empty(),
+        )?)
+        .await?;
+    let resp_a = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .uri("/mobile/v1/me")
+                .header("Authorization", auth_a),
+            Body::empty(),
+        )?)
+        .await?;
     assert_eq!(resp_a.status(), StatusCode::TOO_MANY_REQUESTS);
 
     // user-b's first request should still pass.
-    let resp_b = ctx.app.clone().oneshot(common::request(
-        Request::builder().uri("/mobile/v1/me").header("Authorization", auth_b),
-        Body::empty(),
-    )?).await?;
+    let resp_b = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .uri("/mobile/v1/me")
+                .header("Authorization", auth_b),
+            Body::empty(),
+        )?)
+        .await?;
     assert_eq!(resp_b.status(), StatusCode::OK);
 
     Ok(())
