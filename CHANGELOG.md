@@ -12,13 +12,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 - Redis-backed observe sink configuration and metrics, plus Redis pool retry helpers and
   integration coverage for gateway dedup/rate limiting and scheduler stores
-- Per-user mobile API rate limiting with explicit 429 coverage in the mobile test suite
+- Per-user mobile API rate limiting with explicit 429 coverage in the mobile test suite;
+  read (GET/HEAD) and write (POST/PATCH/PUT/DELETE) requests now use separate buckets —
+  300 req/min and 60 req/min respectively (previously a single 120 req/min bucket)
 - JWT/authenticator validation coverage, including RSA/RS256 verification tests
+- Test coverage for `create_experience_service` initialization (enabled/disabled paths),
+  gateway stale rate-counter cleanup at the 10 000-entry threshold, `RedisEventSink`
+  interval-triggered flush when buffer is below batch size, and scheduler `max_concurrent`
+  semaphore enforcement under parallel load
 - A repeatable public demo pipeline that records live scenarios and renders `gif`, `mp4`,
   and `webm` assets through `just demo*` and `scripts/demo.sh`
 
 ### Changed
 
+- Replaced deprecated `serde_yaml 0.9` with `serde_yml 0.0.12` across the workspace
+  (`orka-skills`, `orka-workspace`); the API is a drop-in rename of `from_str`
 - Config loading now has narrower subsystem boundaries and a dedicated
   `orka-config::subsystem_config` surface, reducing cross-crate coupling in server/bootstrap
   and agent graph wiring
@@ -34,6 +42,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   agent parsing now drops empty tool-call names before skill dispatch
 - Experience service initialization now respects the configured vector-store backend instead
   of always forcing Qdrant
+
+### Fixed
+
+- Resolved all outstanding clippy warnings: `assigning_clones` (use `clone_from` in CLI and
+  bootstrap converters), `items_after_statements` (elevate test-only structs in `jwt.rs`),
+  `match_wildcard_for_single_variants` (explicit `VectorStoreBackend::Qdrant` arm), and
+  replaced `unwrap_err()` with `is_err_and` in auth config tests
 
 ## [1.3.0] - 2026-04-03
 
