@@ -159,9 +159,11 @@ mod tests {
             token_url: None,
             auth_url: None,
         };
-        assert!(config
-            .validate()
-            .is_err_and(|e| e.to_string().contains("name must not be empty")));
+        assert!(
+            config
+                .validate()
+                .is_err_and(|e| e.to_string().contains("name must not be empty"))
+        );
     }
 
     #[test]
@@ -175,9 +177,11 @@ mod tests {
             token_url: None,
             auth_url: None,
         };
-        assert!(config
-            .validate()
-            .is_err_and(|e| e.to_string().contains("not unique")));
+        assert!(
+            config
+                .validate()
+                .is_err_and(|e| e.to_string().contains("not unique"))
+        );
     }
 
     #[test]
@@ -188,9 +192,11 @@ mod tests {
             token_url: None,
             auth_url: None,
         };
-        assert!(config
-            .validate()
-            .is_err_and(|e| e.to_string().contains("empty key_hash")));
+        assert!(
+            config
+                .validate()
+                .is_err_and(|e| e.to_string().contains("empty key_hash"))
+        );
     }
 
     #[test]

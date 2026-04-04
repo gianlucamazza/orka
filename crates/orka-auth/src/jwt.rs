@@ -298,19 +298,15 @@ swIDAQAB
 
     #[tokio::test]
     async fn rsa_invalid_pem_returns_error() {
-        let result =
-            JwtAuthenticator::with_rsa_pem("test-issuer".into(), None, b"not-a-pem");
+        let result = JwtAuthenticator::with_rsa_pem("test-issuer".into(), None, b"not-a-pem");
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn jwt_with_valid_audience_passes() {
         let secret = "test-secret-key-at-least-32-bytes-long!";
-        let auth = JwtAuthenticator::with_secret(
-            "test-issuer".into(),
-            Some("my-app".into()),
-            secret,
-        );
+        let auth =
+            JwtAuthenticator::with_secret("test-issuer".into(), Some("my-app".into()), secret);
 
         let claims = AudClaims {
             sub: "user1".into(),
@@ -336,11 +332,8 @@ swIDAQAB
     #[tokio::test]
     async fn jwt_with_wrong_audience_rejected() {
         let secret = "test-secret-key-at-least-32-bytes-long!";
-        let auth = JwtAuthenticator::with_secret(
-            "test-issuer".into(),
-            Some("my-app".into()),
-            secret,
-        );
+        let auth =
+            JwtAuthenticator::with_secret("test-issuer".into(), Some("my-app".into()), secret);
 
         let claims = AudClaims {
             sub: "user1".into(),
