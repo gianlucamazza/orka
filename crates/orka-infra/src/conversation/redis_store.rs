@@ -1,9 +1,11 @@
 use async_trait::async_trait;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
 use orka_core::{
-    Conversation, ConversationId, ConversationMessage, Error, Result, traits::ConversationStore,
+    Conversation, ConversationId, ConversationMessage, Error, Result,
+    traits::{ConversationStore, MessageCursor, apply_message_cursors},
 };
 use redis::AsyncCommands;
+use serde::{Deserialize, Serialize};
 
 /// Redis implementation of [`ConversationStore`].
 pub struct RedisConversationStore {
@@ -31,6 +33,16 @@ impl RedisConversationStore {
     fn messages_key(id: &ConversationId) -> String {
         format!("orka:conversation_messages:{id}")
     }
+
+    fn read_receipts_key(user_id: &str) -> String {
+        format!("orka:read_receipts:{user_id}")
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct WatermarkRecord {
+    created_at_ms: i64,
+    message_id: String,
 }
 
 #[async_trait]
@@ -213,26 +225,89 @@ impl ConversationStore for RedisConversationStore {
     async fn list_messages(
         &self,
         conversation_id: &ConversationId,
-        limit: Option<usize>,
-        offset: usize,
+        after: Option<&MessageCursor>,
+        before: Option<&MessageCursor>,
+        limit: usize,
     ) -> Result<Vec<ConversationMessage>> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
-        let start = offset as isize;
-        let stop = limit.map_or(-1, |value| {
-            offset.saturating_add(value).saturating_sub(1) as isize
-        });
         let values: Vec<String> = conn
-            .lrange(Self::messages_key(conversation_id), start, stop)
+            .lrange(Self::messages_key(conversation_id), 0, -1)
             .await
             .map_err(|e| Error::bus(format!("redis LRANGE error: {e}")))?;
 
-        let messages = values
+        let mut all = values
             .into_iter()
             .filter_map(|json| serde_json::from_str::<ConversationMessage>(&json).ok())
             .collect::<Vec<_>>();
+        all.sort_by_key(|m| (m.created_at, m.id.as_uuid()));
 
-        Ok(messages)
+        Ok(apply_message_cursors(all, after, before, limit))
+    }
+
+    async fn set_read_watermark(
+        &self,
+        user_id: &str,
+        conversation_id: &ConversationId,
+        cursor: &MessageCursor,
+    ) -> Result<()> {
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
+            .await
+            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+        let key = Self::read_receipts_key(user_id);
+        let field = conversation_id.to_string();
+
+        // Only advance — never move backward.
+        let existing: Option<String> = conn
+            .hget(&key, &field)
+            .await
+            .map_err(|e| Error::bus(format!("redis HGET error: {e}")))?;
+        let should_update = existing.map_or(true, |json| {
+            serde_json::from_str::<WatermarkRecord>(&json).map_or(true, |rec| {
+                cursor.created_at_ms > rec.created_at_ms
+                    || (cursor.created_at_ms == rec.created_at_ms
+                        && cursor.message_id.to_string() > rec.message_id)
+            })
+        });
+        if should_update {
+            let record = WatermarkRecord {
+                created_at_ms: cursor.created_at_ms,
+                message_id: cursor.message_id.to_string(),
+            };
+            let json = serde_json::to_string(&record)?;
+            let _: () = conn
+                .hset(&key, &field, json)
+                .await
+                .map_err(|e| Error::bus(format!("redis HSET error: {e}")))?;
+        }
+        Ok(())
+    }
+
+    async fn get_read_watermark(
+        &self,
+        user_id: &str,
+        conversation_id: &ConversationId,
+    ) -> Result<Option<MessageCursor>> {
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
+            .await
+            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+        let value: Option<String> = conn
+            .hget(
+                Self::read_receipts_key(user_id),
+                conversation_id.to_string(),
+            )
+            .await
+            .map_err(|e| Error::bus(format!("redis HGET error: {e}")))?;
+        let Some(json) = value else {
+            return Ok(None);
+        };
+        let record: WatermarkRecord = serde_json::from_str(&json)?;
+        let message_id = uuid::Uuid::parse_str(&record.message_id)
+            .map_err(|e| Error::Other(format!("invalid watermark uuid: {e}")))?;
+        Ok(Some(MessageCursor {
+            created_at_ms: record.created_at_ms,
+            message_id,
+        }))
     }
 }

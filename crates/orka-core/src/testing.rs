@@ -8,8 +8,9 @@ use crate::{
     DomainEvent, Envelope, Error, MemoryEntry, MessageId, MessageStream, Priority, Result,
     SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
     traits::{
-        ArtifactStore, ConversationStore, DeadLetterQueue, EventSink, MemoryStore, MessageBus,
-        PriorityQueue, SecretManager, SessionLock, SessionStore, Skill,
+        ArtifactStore, ConversationStore, DeadLetterQueue, EventSink, Guardrail, GuardrailDecision,
+        MemoryStore, MessageBus, MessageCursor, PriorityQueue, SecretManager, SessionLock,
+        SessionStore, Skill, apply_message_cursors,
     },
 };
 
@@ -121,6 +122,7 @@ impl SessionStore for InMemorySessionStore {
 pub struct InMemoryConversationStore {
     conversations: Arc<Mutex<HashMap<ConversationId, Conversation>>>,
     messages: Arc<Mutex<HashMap<ConversationId, Vec<ConversationMessage>>>>,
+    read_watermarks: Arc<Mutex<HashMap<(String, ConversationId), MessageCursor>>>,
 }
 
 impl InMemoryConversationStore {
@@ -129,6 +131,7 @@ impl InMemoryConversationStore {
         Self {
             conversations: Arc::new(Mutex::new(HashMap::new())),
             messages: Arc::new(Mutex::new(HashMap::new())),
+            read_watermarks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -209,17 +212,44 @@ impl ConversationStore for InMemoryConversationStore {
     async fn list_messages(
         &self,
         conversation_id: &ConversationId,
-        limit: Option<usize>,
-        offset: usize,
+        after: Option<&MessageCursor>,
+        before: Option<&MessageCursor>,
+        limit: usize,
     ) -> Result<Vec<ConversationMessage>> {
         let messages = self.messages.lock().await;
-        let mut result = messages.get(conversation_id).cloned().unwrap_or_default();
-        let start = offset.min(result.len());
-        result = result.split_off(start);
-        if let Some(limit) = limit {
-            result.truncate(limit);
+        let mut all = messages.get(conversation_id).cloned().unwrap_or_default();
+        all.sort_by_key(|m| (m.created_at, m.id.as_uuid()));
+        Ok(apply_message_cursors(all, after, before, limit))
+    }
+
+    async fn set_read_watermark(
+        &self,
+        user_id: &str,
+        conversation_id: &ConversationId,
+        cursor: &MessageCursor,
+    ) -> Result<()> {
+        let mut watermarks = self.read_watermarks.lock().await;
+        let key = (user_id.to_string(), *conversation_id);
+        let should_update = watermarks.get(&key).is_none_or(|existing| {
+            cursor.created_at_ms > existing.created_at_ms
+                || (cursor.created_at_ms == existing.created_at_ms
+                    && cursor.message_id > existing.message_id)
+        });
+        if should_update {
+            watermarks.insert(key, cursor.clone());
         }
-        Ok(result)
+        Ok(())
+    }
+
+    async fn get_read_watermark(
+        &self,
+        user_id: &str,
+        conversation_id: &ConversationId,
+    ) -> Result<Option<MessageCursor>> {
+        let watermarks = self.read_watermarks.lock().await;
+        Ok(watermarks
+            .get(&(user_id.to_string(), *conversation_id))
+            .cloned())
     }
 }
 
@@ -649,6 +679,42 @@ impl Skill for EchoSkill {
         Ok(SkillOutput::new(
             serde_json::to_value(input.args).map_err(|e| Error::Skill(e.to_string()))?,
         ))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Guardrail test doubles
+// ---------------------------------------------------------------------------
+
+/// [`Guardrail`] that always allows all input and output content.
+///
+/// Use in tests where guardrails must be present but should never block.
+pub struct AlwaysPassGuardrail;
+
+#[async_trait]
+impl Guardrail for AlwaysPassGuardrail {
+    async fn check_input(&self, _input: &str, _session: &Session) -> Result<GuardrailDecision> {
+        Ok(GuardrailDecision::Allow)
+    }
+
+    async fn check_output(&self, _output: &str, _session: &Session) -> Result<GuardrailDecision> {
+        Ok(GuardrailDecision::Allow)
+    }
+}
+
+/// [`Guardrail`] that always blocks all content with a fixed reason.
+///
+/// Use in tests that verify behavior when a guardrail fires.
+pub struct AlwaysBlockGuardrail;
+
+#[async_trait]
+impl Guardrail for AlwaysBlockGuardrail {
+    async fn check_input(&self, _input: &str, _session: &Session) -> Result<GuardrailDecision> {
+        Ok(GuardrailDecision::Block("blocked by test guardrail".into()))
+    }
+
+    async fn check_output(&self, _output: &str, _session: &Session) -> Result<GuardrailDecision> {
+        Ok(GuardrailDecision::Block("blocked by test guardrail".into()))
     }
 }
 
