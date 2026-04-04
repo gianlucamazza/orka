@@ -1120,6 +1120,8 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         mobile_events: deps.mobile_events,
         mobile_auth,
         mobile_enabled: config.auth.jwt.is_some(),
+        mobile_read_rate_limit_per_minute: None,
+        mobile_write_rate_limit_per_minute: None,
     }
 }
 
@@ -2049,5 +2051,192 @@ mod tests {
                 panic!("unexpected mobile event: {other:?}")
             }
         }
+    }
+
+    // --- select_coding_backend ---
+
+    fn coding_cfg(
+        default_provider: CodingProvider,
+        policy: CodingSelectionPolicy,
+    ) -> CodingConfig {
+        let mut cfg = CodingConfig::default();
+        cfg.default_provider = default_provider;
+        cfg.selection_policy = policy;
+        cfg
+    }
+
+    #[test]
+    fn select_coding_claude_available() {
+        let cfg = coding_cfg(CodingProvider::ClaudeCode, CodingSelectionPolicy::Availability);
+        assert_eq!(
+            select_coding_backend(&cfg, true, false, false),
+            Some(CodingProvider::ClaudeCode)
+        );
+    }
+
+    #[test]
+    fn select_coding_claude_unavailable_returns_none() {
+        let cfg = coding_cfg(CodingProvider::ClaudeCode, CodingSelectionPolicy::Availability);
+        assert_eq!(select_coding_backend(&cfg, false, true, true), None);
+    }
+
+    #[test]
+    fn select_coding_codex_explicit() {
+        let cfg = coding_cfg(CodingProvider::Codex, CodingSelectionPolicy::Availability);
+        assert_eq!(
+            select_coding_backend(&cfg, false, true, false),
+            Some(CodingProvider::Codex)
+        );
+    }
+
+    #[test]
+    fn select_coding_auto_availability_prefers_claude_then_codex() {
+        let cfg = coding_cfg(CodingProvider::Auto, CodingSelectionPolicy::Availability);
+        // claude available: picks claude
+        assert_eq!(
+            select_coding_backend(&cfg, true, true, true),
+            Some(CodingProvider::ClaudeCode)
+        );
+        // claude not available, codex available: picks codex
+        assert_eq!(
+            select_coding_backend(&cfg, false, true, true),
+            Some(CodingProvider::Codex)
+        );
+        // only opencode
+        assert_eq!(
+            select_coding_backend(&cfg, false, false, true),
+            Some(CodingProvider::OpenCode)
+        );
+        // nothing available
+        assert_eq!(select_coding_backend(&cfg, false, false, false), None);
+    }
+
+    #[test]
+    fn select_coding_auto_prefer_codex_picks_codex_first() {
+        let cfg = coding_cfg(CodingProvider::Auto, CodingSelectionPolicy::PreferCodex);
+        assert_eq!(
+            select_coding_backend(&cfg, true, true, false),
+            Some(CodingProvider::Codex)
+        );
+        // codex unavailable falls back to claude
+        assert_eq!(
+            select_coding_backend(&cfg, true, false, false),
+            Some(CodingProvider::ClaudeCode)
+        );
+    }
+
+    #[test]
+    fn select_coding_auto_prefer_opencode_picks_opencode_first() {
+        let cfg = coding_cfg(CodingProvider::Auto, CodingSelectionPolicy::PreferOpenCode);
+        assert_eq!(
+            select_coding_backend(&cfg, true, true, true),
+            Some(CodingProvider::OpenCode)
+        );
+    }
+
+    // --- to_runtime_observe_config ---
+
+    #[test]
+    fn to_runtime_observe_maps_all_fields() {
+        let mut src = orka_config::ObserveConfig::default();
+        src.enabled = true;
+        src.backend = "prometheus".to_string();
+        src.otlp_endpoint = Some("http://otel:4317".to_string());
+        src.batch_size = 42;
+        src.flush_interval_ms = 500;
+        src.service_name = "my-service".to_string();
+        src.service_version = "1.2.3".to_string();
+        let dst = to_runtime_observe_config(&src);
+        assert!(dst.enabled);
+        assert_eq!(dst.backend, "prometheus");
+        assert_eq!(dst.otlp_endpoint.as_deref(), Some("http://otel:4317"));
+        assert_eq!(dst.batch_size, 42);
+        assert_eq!(dst.flush_interval_ms, 500);
+        assert_eq!(dst.service_name, "my-service");
+        assert_eq!(dst.service_version, "1.2.3");
+    }
+
+    // --- to_runtime_audit_config ---
+
+    #[test]
+    fn to_runtime_audit_maps_all_fields() {
+        let mut src = orka_config::AuditConfig::default();
+        src.enabled = true;
+        src.output = "redis".to_string();
+        src.path = Some("/tmp/audit.log".into());
+        src.redis_key = Some("orka:audit".to_string());
+        let dst = to_runtime_audit_config(&src);
+        assert!(dst.enabled);
+        assert_eq!(dst.output, "redis");
+        assert_eq!(dst.path.as_deref(), Some(std::path::Path::new("/tmp/audit.log")));
+        assert_eq!(dst.redis_key.as_deref(), Some("orka:audit"));
+    }
+
+    // --- to_runtime_memory_config ---
+
+    #[test]
+    fn to_runtime_memory_maps_max_entries() {
+        let mut src = orka_config::MemoryConfig::default();
+        src.max_entries = 250;
+        let dst = to_runtime_memory_config(&src);
+        assert_eq!(dst.max_entries, 250);
+    }
+
+    #[test]
+    fn to_runtime_memory_maps_redis_backend() {
+        let mut src = orka_config::MemoryConfig::default();
+        src.backend = MemoryBackend::Redis;
+        let dst = to_runtime_memory_config(&src);
+        assert!(matches!(dst.backend, orka_memory::config::MemoryBackend::Redis));
+    }
+
+    #[test]
+    fn to_runtime_memory_maps_memory_backend() {
+        let mut src = orka_config::MemoryConfig::default();
+        src.backend = MemoryBackend::Memory;
+        let dst = to_runtime_memory_config(&src);
+        assert!(matches!(dst.backend, orka_memory::config::MemoryBackend::Memory));
+    }
+
+    // --- to_runtime_secret_config ---
+
+    #[test]
+    fn to_runtime_secret_maps_file_path() {
+        let mut src = orka_config::SecretConfig::default();
+        src.file_path = Some("/etc/orka/secrets.json".to_string());
+        let dst = to_runtime_secret_config(&src);
+        assert_eq!(dst.file_path.as_deref(), Some("/etc/orka/secrets.json"));
+    }
+
+    #[test]
+    fn to_runtime_secret_maps_encryption_key_path() {
+        let mut src = orka_config::SecretConfig::default();
+        src.encryption_key_path = Some("/etc/orka/key.pem".to_string());
+        let dst = to_runtime_secret_config(&src);
+        assert_eq!(dst.encryption_key_path.as_deref(), Some("/etc/orka/key.pem"));
+    }
+
+    // --- to_runtime_sandbox_config ---
+
+    #[test]
+    fn to_runtime_sandbox_maps_backend_and_limits() {
+        let mut src = orka_config::SandboxConfig::default();
+        src.backend = "wasmtime".to_string();
+        src.limits.timeout_secs = 10;
+        src.limits.max_memory_bytes = 64 * 1024 * 1024;
+        let dst = to_runtime_sandbox_config(&src);
+        assert_eq!(dst.backend, "wasmtime");
+        assert_eq!(dst.limits.timeout_secs, 10);
+        assert_eq!(dst.limits.max_memory_bytes, 64 * 1024 * 1024);
+    }
+
+    #[test]
+    fn to_runtime_sandbox_maps_allowed_denied_paths() {
+        let mut src = orka_config::SandboxConfig::default();
+        src.allowed_paths = vec!["/tmp".to_string(), "/data".to_string()];
+        src.denied_paths = vec!["/etc".to_string()];
+        let dst = to_runtime_sandbox_config(&src);
+        assert_eq!(dst.allowed_paths, vec!["/tmp", "/data"]);
+        assert_eq!(dst.denied_paths, vec!["/etc"]);
     }
 }

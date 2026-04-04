@@ -1,16 +1,18 @@
-use std::{collections::HashMap, convert::Infallible, sync::Arc};
+use std::{collections::HashMap, convert::Infallible, num::NonZeroU32, sync::Arc};
 
 use axum::{
     Extension, Json, Router,
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
+    middleware::Next,
     response::{
         IntoResponse, Response,
         sse::{Event, Sse},
     },
     routing::{get, post},
 };
+use governor::{Quota, RateLimiter, state::keyed::DefaultKeyedStateStore};
 use chrono::{DateTime, Utc};
 use orka_auth::AuthIdentity;
 use orka_core::{
@@ -34,6 +36,71 @@ const DEFAULT_PAGE_SIZE: usize = 20;
 const MAX_PAGE_SIZE: usize = 100;
 const MAX_UPLOAD_BYTES: usize = 25 * 1024 * 1024;
 const MAX_ARTIFACTS_PER_MESSAGE: usize = 10;
+
+/// Per-user rate limiter backed by `governor`'s `DashMap` store.
+pub(super) type MobileRateLimiter =
+    RateLimiter<String, DefaultKeyedStateStore<String>, governor::clock::DefaultClock>;
+
+/// A pair of per-user rate limiters: (read_limiter, write_limiter).
+///
+/// Read-only methods (GET, HEAD) use the first limiter; mutating methods
+/// (POST, PATCH, PUT, DELETE) use the second.
+pub(super) type MobileRateLimiters = (Arc<MobileRateLimiter>, Arc<MobileRateLimiter>);
+
+/// Create per-user mobile rate limiters with custom quotas.
+pub(super) fn new_mobile_rate_limiters_per_minute(
+    read_rpm: u32,
+    write_rpm: u32,
+) -> MobileRateLimiters {
+    (
+        new_mobile_rate_limiter_per_minute(read_rpm),
+        new_mobile_rate_limiter_per_minute(write_rpm),
+    )
+}
+
+/// Create a rate limiter with a custom requests-per-minute limit.
+pub(super) fn new_mobile_rate_limiter_per_minute(reqs_per_minute: u32) -> Arc<MobileRateLimiter> {
+    #[allow(clippy::expect_used)]
+    let quota = Quota::per_minute(
+        NonZeroU32::new(reqs_per_minute).expect("reqs_per_minute must be non-zero"),
+    );
+    Arc::new(RateLimiter::dashmap(quota))
+}
+
+/// Axum middleware: enforce per-user rate limiting on protected mobile routes.
+///
+/// The rate limit key is the authenticated user's `principal` (JWT `sub` claim).
+/// Per-user keying is intentional: keying by `device_id` is not possible because
+/// the device ID is not carried in JWT access token claims.
+///
+/// Read-only requests (GET, HEAD) consume from the read limiter (300/min by default);
+/// mutating requests (POST, PATCH, PUT, DELETE) consume from the write limiter (60/min).
+///
+/// Returns HTTP 429 when the limit is exceeded.
+pub(super) async fn rate_limit_middleware(
+    State((read_limiter, write_limiter)): State<MobileRateLimiters>,
+    Extension(identity): Extension<AuthIdentity>,
+    request: axum::http::Request<Body>,
+    next: Next,
+) -> Response {
+    let limiter = if request.method() == axum::http::Method::GET
+        || request.method() == axum::http::Method::HEAD
+    {
+        &read_limiter
+    } else {
+        &write_limiter
+    };
+    match limiter.check_key(&identity.principal) {
+        Ok(()) => next.run(request).await,
+        Err(_) => (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(ApiError {
+                error: "Rate limit exceeded. Please slow down.".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
 
 /// Realtime event pushed to mobile clients after transcript persistence.
 #[derive(Debug, Clone, Serialize, Deserialize)]

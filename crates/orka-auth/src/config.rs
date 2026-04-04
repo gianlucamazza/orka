@@ -102,4 +102,97 @@ mod tests {
         assert_eq!(entry.name, "test-key");
         assert_eq!(entry.scopes.len(), 2);
     }
+
+    #[test]
+    fn validate_jwt_requires_secret_or_key_path() {
+        let config = AuthConfig {
+            jwt: Some(JwtAuthConfig {
+                secret: None,
+                public_key_path: None,
+                audience: None,
+                issuer: None,
+            }),
+            api_keys: vec![],
+            token_url: None,
+            auth_url: None,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_jwt_with_secret_passes() {
+        let config = AuthConfig {
+            jwt: Some(JwtAuthConfig {
+                secret: Some("my-secret".into()),
+                public_key_path: None,
+                audience: None,
+                issuer: None,
+            }),
+            api_keys: vec![],
+            token_url: None,
+            auth_url: None,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_jwt_with_key_path_passes() {
+        let config = AuthConfig {
+            jwt: Some(JwtAuthConfig {
+                secret: None,
+                public_key_path: Some("/path/to/key.pem".into()),
+                audience: None,
+                issuer: None,
+            }),
+            api_keys: vec![],
+            token_url: None,
+            auth_url: None,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_empty_key_name() {
+        let config = AuthConfig {
+            jwt: None,
+            api_keys: vec![ApiKeyEntry::new("", "hash123", vec![])],
+            token_url: None,
+            auth_url: None,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("name must not be empty"));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_key_names() {
+        let config = AuthConfig {
+            jwt: None,
+            api_keys: vec![
+                ApiKeyEntry::new("my-key", "hash1", vec![]),
+                ApiKeyEntry::new("my-key", "hash2", vec![]),
+            ],
+            token_url: None,
+            auth_url: None,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("not unique"));
+    }
+
+    #[test]
+    fn validate_rejects_empty_key_hash() {
+        let config = AuthConfig {
+            jwt: None,
+            api_keys: vec![ApiKeyEntry::new("my-key", "", vec![])],
+            token_url: None,
+            auth_url: None,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("empty key_hash"));
+    }
+
+    #[test]
+    fn validate_no_auth_configured_passes() {
+        let config = AuthConfig::default();
+        assert!(config.validate().is_ok());
+    }
 }

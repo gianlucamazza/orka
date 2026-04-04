@@ -396,3 +396,39 @@ async fn record_then_distill_flow() {
     let count = svc.distill("default").await.unwrap();
     assert_eq!(count, 1);
 }
+
+// ---------------------------------------------------------------------------
+// create_experience_service initialization tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn create_experience_service_returns_some_when_enabled() {
+    let embeddings: Arc<dyn EmbeddingProvider> = Arc::new(MockEmbeddings);
+    let vector_store: Arc<dyn orka_knowledge::vector_store::VectorStore> =
+        Arc::new(MockVectorStore::new());
+    let llm: Arc<dyn LlmClient> = Arc::new(MockLlm {
+        response: "[]".to_string(),
+    });
+
+    let mut config = orka_experience::ExperienceConfig::default();
+    config.enabled = true;
+
+    let result = orka_experience::create_experience_service(&config, embeddings, vector_store, llm)
+        .unwrap();
+    assert!(result.is_some(), "expected Some when experience is enabled");
+}
+
+#[test]
+fn create_experience_service_returns_none_when_disabled() {
+    let embeddings: Arc<dyn EmbeddingProvider> = Arc::new(MockEmbeddings);
+    let vector_store: Arc<dyn orka_knowledge::vector_store::VectorStore> =
+        Arc::new(MockVectorStore::new());
+    let llm: Arc<dyn LlmClient> = Arc::new(MockLlm {
+        response: "[]".to_string(),
+    });
+
+    let config = orka_experience::ExperienceConfig::default(); // enabled=false by default
+    let result = orka_experience::create_experience_service(&config, embeddings, vector_store, llm)
+        .unwrap();
+    assert!(result.is_none(), "expected None when experience is disabled");
+}

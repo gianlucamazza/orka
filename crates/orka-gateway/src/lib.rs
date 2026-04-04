@@ -502,4 +502,37 @@ mod tests {
         let msg = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
         assert!(msg.trace_context.trace_id.is_some());
     }
+
+    #[tokio::test]
+    async fn stale_rate_counters_pruned_after_threshold() {
+        // rate_limit=100 so process() doesn't drop the trigger message
+        let (gw, _, _, _) = test_gateway(100);
+
+        // Pre-populate rate_counters with 10_001 stale entries (window_start 300s ago)
+        let stale_time = Utc::now() - chrono::Duration::seconds(300);
+        {
+            let mut counters = gw.rate_counters.lock().await;
+            for i in 0..10_001u32 {
+                counters.insert(format!("stale-session-{i}"), (1, stale_time));
+            }
+            // Insert one fresh entry that must survive the cleanup
+            counters.insert("fresh-session".to_string(), (1, Utc::now()));
+        }
+
+        // process() calls check_rate_limit() which triggers cleanup when len > 10_000
+        let trigger_env = Envelope::text("ch", SessionId::new(), "trigger");
+        gw.process(trigger_env).await.unwrap();
+
+        let counters = gw.rate_counters.lock().await;
+        // All 10_001 stale entries should be pruned; fresh-session + the trigger session remain
+        assert!(
+            counters.len() <= 5,
+            "expected stale entries pruned, got {} entries",
+            counters.len()
+        );
+        assert!(
+            counters.contains_key("fresh-session"),
+            "fresh entry should survive cleanup"
+        );
+    }
 }

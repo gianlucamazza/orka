@@ -21,8 +21,14 @@ cron.workspace = true
 tokio-util.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["test-util", "macros"] }
+tokio = { workspace = true, features = [
+  "test-util",
+  "macros",
+  "rt-multi-thread",
+] }
 insta.workspace = true
+orka-test-support.workspace = true
+serial_test.workspace = true
 
 [lints]
 workspace = true

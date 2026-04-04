@@ -13,6 +13,8 @@ pub mod bus;
 pub mod conversation;
 /// Priority queue backed by Redis Sorted Sets.
 pub mod queue;
+/// Retry utilities for transient Redis pool errors.
+pub mod retry;
 /// Session store backed by Redis.
 pub mod session;
 

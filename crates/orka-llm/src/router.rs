@@ -14,6 +14,9 @@ use crate::client::{
 ///
 /// Each provider is protected by a circuit breaker that trips on consecutive
 /// failures (default: 5 failures, 30s open duration).
+///
+/// When a provider's circuit breaker is open, the router can optionally try
+/// a list of fallback providers in order before returning an error.
 pub struct LlmRouter {
     /// Default provider used when no prefix matches.
     default_provider: Arc<dyn LlmClient>,
@@ -28,6 +31,9 @@ pub struct LlmRouter {
     default_breaker: Arc<CircuitBreaker>,
     /// Circuit breaker config used for new providers.
     breaker_config: CircuitBreakerConfig,
+    /// Ordered list of provider names to try when the primary provider's
+    /// circuit breaker is open.  Empty means no fallback (default).
+    fallback_providers: Vec<String>,
 }
 
 impl LlmRouter {
@@ -42,7 +48,19 @@ impl LlmRouter {
             breakers: HashMap::new(),
             default_breaker,
             breaker_config: config,
+            fallback_providers: Vec::new(),
         }
+    }
+
+    /// Set an ordered list of provider names to try when the primary
+    /// provider's circuit breaker is open.
+    ///
+    /// When the resolved provider is unavailable, the router tries each
+    /// fallback in order and returns the first successful response.
+    #[must_use]
+    pub fn with_fallback_providers(mut self, providers: Vec<String>) -> Self {
+        self.fallback_providers = providers;
+        self
     }
 
     /// Set a custom circuit breaker config. Affects subsequently added
@@ -128,6 +146,12 @@ fn map_cb_err(e: CircuitBreakerError<orka_core::Error>) -> orka_core::Error {
     }
 }
 
+/// Returns `true` if the error indicates the circuit breaker was open (as
+/// opposed to an actual call failure).
+fn is_cb_open<E>(e: &CircuitBreakerError<E>) -> bool {
+    matches!(e, CircuitBreakerError::Open)
+}
+
 #[async_trait]
 impl LlmClient for LlmRouter {
     async fn complete(&self, messages: Vec<ChatMessage>, system: &str) -> Result<String> {
@@ -150,29 +174,38 @@ impl LlmClient for LlmRouter {
         system: &str,
         options: &CompletionOptions,
     ) -> Result<String> {
-        let (provider, breaker) = self.resolve(options.model.as_deref());
-        let provider: Arc<dyn LlmClient> = self
-            .providers
-            .values()
-            .find(|p| std::ptr::eq(std::ptr::from_ref(p.as_ref()), std::ptr::from_ref(provider)))
-            .cloned()
-            .unwrap_or_else(|| self.default_provider.clone());
+        let candidates = self.ordered_providers(options.model.as_deref());
         let system = system.to_string();
         let options = options.clone();
-        breaker
-            .call(|| {
-                let provider = provider.clone();
-                let messages = messages.clone();
-                let system = system.clone();
-                let options = options.clone();
-                async move {
-                    provider
-                        .complete_with_options(messages, &system, &options)
-                        .await
+
+        let mut last_err = None;
+        for (provider, breaker) in candidates {
+            let result = breaker
+                .call(|| {
+                    let provider = provider.clone();
+                    let messages = messages.clone();
+                    let system = system.clone();
+                    let options = options.clone();
+                    async move {
+                        provider
+                            .complete_with_options(messages, &system, &options)
+                            .await
+                    }
+                })
+                .await;
+
+            match result {
+                Ok(r) => return Ok(r),
+                Err(ref e) if is_cb_open(e) => {
+                    warn!("LLM provider circuit breaker open, trying next fallback");
+                    last_err = Some(result.map(|_| unreachable!()).map_err(map_cb_err));
                 }
-            })
-            .await
-            .map_err(map_cb_err)
+                Err(e) => return Err(map_cb_err(e)),
+            }
+        }
+        last_err.unwrap_or_else(|| {
+            Err(orka_core::Error::llm_msg("all LLM providers unavailable"))
+        })
     }
 
     async fn complete_stream(&self, messages: Vec<ChatMessage>, system: &str) -> Result<LlmStream> {
@@ -196,28 +229,41 @@ impl LlmClient for LlmRouter {
         tools: &[ToolDefinition],
         options: &CompletionOptions,
     ) -> Result<CompletionResponse> {
-        let (_, breaker) = self.resolve(options.model.as_deref());
-        let breaker = breaker.clone();
-        let provider = self.resolve_provider_arc(options.model.as_deref());
+        let candidates = self.ordered_providers(options.model.as_deref());
         let system = system.to_string();
         let tools = tools.to_vec();
         let messages = messages.to_vec();
         let options = options.clone();
-        breaker
-            .call(|| {
-                let provider = provider.clone();
-                let messages = messages.clone();
-                let system = system.clone();
-                let tools = tools.clone();
-                let options = options.clone();
-                async move {
-                    provider
-                        .complete_with_tools(&messages, &system, &tools, &options)
-                        .await
+
+        let mut last_err = None;
+        for (provider, breaker) in candidates {
+            let result = breaker
+                .call(|| {
+                    let provider = provider.clone();
+                    let messages = messages.clone();
+                    let system = system.clone();
+                    let tools = tools.clone();
+                    let options = options.clone();
+                    async move {
+                        provider
+                            .complete_with_tools(&messages, &system, &tools, &options)
+                            .await
+                    }
+                })
+                .await;
+
+            match result {
+                Ok(r) => return Ok(r),
+                Err(ref e) if is_cb_open(e) => {
+                    warn!("LLM provider circuit breaker open, trying next fallback");
+                    last_err = Some(result.map(|_| unreachable!()).map_err(map_cb_err));
                 }
-            })
-            .await
-            .map_err(map_cb_err)
+                Err(e) => return Err(map_cb_err(e)),
+            }
+        }
+        last_err.unwrap_or_else(|| {
+            Err(orka_core::Error::llm_msg("all LLM providers unavailable"))
+        })
     }
 
     async fn complete_stream_with_tools(
@@ -227,32 +273,68 @@ impl LlmClient for LlmRouter {
         tools: &[ToolDefinition],
         options: &CompletionOptions,
     ) -> Result<LlmToolStream> {
-        let (_, breaker) = self.resolve(options.model.as_deref());
-        let breaker = breaker.clone();
-        let provider = self.resolve_provider_arc(options.model.as_deref());
+        let candidates = self.ordered_providers(options.model.as_deref());
         let system = system.to_string();
         let tools = tools.to_vec();
         let messages = messages.to_vec();
         let options = options.clone();
-        breaker
-            .call(|| {
-                let provider = provider.clone();
-                let messages = messages.clone();
-                let system = system.clone();
-                let tools = tools.clone();
-                let options = options.clone();
-                async move {
-                    provider
-                        .complete_stream_with_tools(&messages, &system, &tools, &options)
-                        .await
+
+        let mut last_err = None;
+        for (provider, breaker) in candidates {
+            let result = breaker
+                .call(|| {
+                    let provider = provider.clone();
+                    let messages = messages.clone();
+                    let system = system.clone();
+                    let tools = tools.clone();
+                    let options = options.clone();
+                    async move {
+                        provider
+                            .complete_stream_with_tools(&messages, &system, &tools, &options)
+                            .await
+                    }
+                })
+                .await;
+
+            match result {
+                Ok(r) => return Ok(r),
+                Err(ref e) if is_cb_open(e) => {
+                    warn!("LLM provider circuit breaker open, trying next fallback");
+                    last_err = Some(result.map(|_| unreachable!()).map_err(map_cb_err));
                 }
-            })
-            .await
-            .map_err(map_cb_err)
+                Err(e) => return Err(map_cb_err(e)),
+            }
+        }
+        last_err.unwrap_or_else(|| {
+            Err(orka_core::Error::llm_msg("all LLM providers unavailable"))
+        })
     }
 }
 
 impl LlmRouter {
+    /// Build an ordered list of `(provider, breaker)` pairs to try for a
+    /// request: primary provider first, then any configured fallbacks.
+    fn ordered_providers(
+        &self,
+        model: Option<&str>,
+    ) -> Vec<(Arc<dyn LlmClient>, Arc<CircuitBreaker>)> {
+        let primary = self.resolve_provider_arc(model);
+        let (_, primary_breaker) = self.resolve(model);
+        let mut list = vec![(primary, primary_breaker.clone())];
+
+        for name in &self.fallback_providers {
+            if let Some(client) = self.providers.get(name) {
+                let breaker = self
+                    .breakers
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| self.default_breaker.clone());
+                list.push((client.clone(), breaker));
+            }
+        }
+        list
+    }
+
     /// Resolve the provider as an Arc for use in async closures.
     fn resolve_provider_arc(&self, model: Option<&str>) -> Arc<dyn LlmClient> {
         if let Some(model_name) = model {
@@ -333,6 +415,74 @@ mod tests {
             err_msg.contains("circuit breaker"),
             "expected circuit breaker error, got: {err_msg}"
         );
+    }
+
+    #[tokio::test]
+    async fn fallback_provider_used_when_primary_cb_is_open() {
+        let config = CircuitBreakerConfig {
+            failure_threshold: 2,
+            quality_failure_threshold: 5,
+            success_threshold: 1,
+            open_duration: Duration::from_secs(60),
+        };
+        // Primary fails to trip the CB, secondary always succeeds.
+        let primary = Arc::new(MockLlm::new(100)); // always fails
+        let secondary = Arc::new(MockLlm::new(0)); // always succeeds
+
+        let router = LlmRouter::new(primary)
+            .with_circuit_breaker_config(config)
+            .add_provider("secondary", secondary, vec!["secondary/".into()])
+            .with_fallback_providers(vec!["secondary".into()]);
+
+        // Trip the default breaker (primary)
+        for _ in 0..2 {
+            let _ = router.complete(vec![], "").await;
+        }
+
+        // Primary CB is open; fallback should be used.
+        // `complete_with_options` with no model → uses primary + fallback chain.
+        let opts = CompletionOptions::default();
+        let result = router.complete_with_options(vec![], "", &opts).await;
+        assert!(result.is_ok(), "fallback should succeed when primary CB is open");
+    }
+
+    #[tokio::test]
+    async fn all_providers_open_returns_error() {
+        let config = CircuitBreakerConfig {
+            failure_threshold: 2,
+            quality_failure_threshold: 5,
+            success_threshold: 1,
+            open_duration: Duration::from_secs(60),
+        };
+        let primary = Arc::new(MockLlm::new(100));
+        let secondary = Arc::new(MockLlm::new(100));
+
+        let router = LlmRouter::new(primary.clone())
+            .with_circuit_breaker_config(config.clone())
+            .add_provider(
+                "secondary",
+                secondary.clone(),
+                vec!["secondary/".into()],
+            )
+            .with_fallback_providers(vec!["secondary".into()]);
+
+        // Trip primary CB
+        for _ in 0..2 {
+            let _ = router.complete(vec![], "").await;
+        }
+        // Trip secondary CB by calling it directly with options
+        let opts = CompletionOptions {
+            model: Some("secondary/model".into()),
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            let _ = router.complete_with_options(vec![], "", &opts).await;
+        }
+
+        // Both CBs open: error with descriptive message
+        let default_opts = CompletionOptions::default();
+        let result = router.complete_with_options(vec![], "", &default_opts).await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]

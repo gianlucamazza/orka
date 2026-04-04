@@ -328,4 +328,70 @@ mod tests {
         assert_eq!(schedules.len(), 1);
         assert!(schedules[0].next_run > 0); // Updated to future
     }
+
+    /// Skill registry that tracks concurrent executions via atomics.
+    struct ConcurrencyTrackingRegistry {
+        current: Arc<std::sync::atomic::AtomicUsize>,
+        max_observed: Arc<std::sync::atomic::AtomicUsize>,
+        invocations: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl SkillRegistry for ConcurrencyTrackingRegistry {
+        async fn invoke(
+            &self,
+            _name: &str,
+            _input: orka_core::SkillInput,
+        ) -> orka_core::Result<orka_core::SkillOutput> {
+            use std::sync::atomic::Ordering;
+            let c = self.current.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_observed.fetch_max(c, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            self.current.fetch_sub(1, Ordering::SeqCst);
+            self.invocations.fetch_add(1, Ordering::SeqCst);
+            Ok(orka_core::SkillOutput::new(serde_json::json!({"ok": true})))
+        }
+    }
+
+    #[tokio::test]
+    async fn max_concurrent_limits_parallel_execution() {
+        use std::sync::atomic::Ordering;
+
+        let store = Arc::new(InMemoryScheduleStore::new());
+        let current = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let max_observed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let invocations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        let skills = Arc::new(ConcurrencyTrackingRegistry {
+            current: current.clone(),
+            max_observed: max_observed.clone(),
+            invocations: invocations.clone(),
+        });
+
+        // Add 5 tasks all due now
+        for i in 0..5u32 {
+            store
+                .add(&make_schedule(&format!("s{i}"), &format!("task-{i}"), "echo", 0))
+                .await
+                .unwrap();
+        }
+
+        // max_concurrent=2: at most 2 tasks may run at the same time
+        let scheduler = Scheduler::new(store.clone(), skills, 1, 2);
+        scheduler.poll_and_execute().await.unwrap();
+
+        // Wait for all spawned tasks to finish (each sleeps 100ms)
+        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+
+        assert_eq!(
+            invocations.load(Ordering::SeqCst),
+            5,
+            "all 5 tasks should have been invoked"
+        );
+        assert!(
+            max_observed.load(Ordering::SeqCst) <= 2,
+            "max concurrent {} exceeded limit 2",
+            max_observed.load(Ordering::SeqCst)
+        );
+    }
 }

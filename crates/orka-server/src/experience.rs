@@ -158,16 +158,20 @@ pub(crate) fn create_experience_service(
         }
     };
 
-    // Create vector store
-    let vector_store: Arc<dyn VectorStore> =
-        Arc::new(orka_knowledge::vector_store::qdrant::QdrantStore::new(
+    // Create vector store — respect the configured backend
+    let vector_store: Arc<dyn VectorStore> = match config.knowledge.vector_store.backend {
+        orka_knowledge::VectorStoreBackend::Memory => {
+            Arc::new(orka_knowledge::vector_store::memory::InMemoryVectorStore::new())
+        }
+        _ => Arc::new(orka_knowledge::vector_store::qdrant::QdrantStore::new(
             config
                 .knowledge
                 .vector_store
                 .url
                 .as_deref()
                 .unwrap_or(&orka_knowledge::default_qdrant_url()),
-        ));
+        )),
+    };
 
     let service = orka_experience::create_experience_service(
         &config.experience,

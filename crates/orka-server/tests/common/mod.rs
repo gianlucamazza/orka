@@ -221,6 +221,8 @@ pub(crate) fn test_router() -> axum::Router {
         mobile_events: MobileEventHub::new(),
         mobile_auth: None,
         mobile_enabled: false,
+        mobile_read_rate_limit_per_minute: None,
+        mobile_write_rate_limit_per_minute: None,
     })
 }
 
@@ -305,6 +307,8 @@ pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::R
         mobile_events: MobileEventHub::new(),
         mobile_auth: None,
         mobile_enabled: false,
+        mobile_read_rate_limit_per_minute: None,
+        mobile_write_rate_limit_per_minute: None,
     })
 }
 
@@ -368,6 +372,8 @@ pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
         mobile_events: MobileEventHub::new(),
         mobile_auth: None,
         mobile_enabled: false,
+        mobile_read_rate_limit_per_minute: None,
+        mobile_write_rate_limit_per_minute: None,
     })
 }
 
@@ -453,6 +459,8 @@ pub(crate) fn test_router_with_research() -> axum::Router {
         mobile_events: MobileEventHub::new(),
         mobile_auth: None,
         mobile_enabled: false,
+        mobile_read_rate_limit_per_minute: None,
+        mobile_write_rate_limit_per_minute: None,
     })
 }
 
@@ -523,6 +531,82 @@ pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileT
         mobile_events: mobile_events.clone(),
         mobile_auth: Some(test_mobile_auth_service()),
         mobile_enabled: true,
+        mobile_read_rate_limit_per_minute: None,
+        mobile_write_rate_limit_per_minute: None,
+    });
+
+    MobileTestContext {
+        app,
+        artifacts,
+        bus,
+        conversations,
+        stream_registry,
+        mobile_events,
+    }
+}
+
+/// Build the mobile router with a very low rate limit (1 req/min) to exercise
+/// the 429 path in tests without sending 120 requests.
+pub(crate) fn test_mobile_router_low_rate_limit(secret: &str, issuer: &str) -> MobileTestContext {
+    use orka_auth::{AuthLayer, JwtAuthenticator, middleware::AuthMiddlewareConfig};
+
+    let mut skills = SkillRegistry::new();
+    skills.register(Arc::new(EchoSkill));
+
+    let bus = Arc::new(InMemoryBus::new());
+    let artifacts = Arc::new(InMemoryArtifactStore::new());
+    let conversations = Arc::new(InMemoryConversationStore::new());
+    let stream_registry = orka_core::StreamRegistry::new();
+    let mobile_events = MobileEventHub::new();
+    let auth_cfg = Arc::new(AuthMiddlewareConfig::default());
+    let authenticator = Arc::new(JwtAuthenticator::with_secret(
+        issuer.to_string(),
+        None,
+        secret,
+    ));
+    let auth_layer = Some(AuthLayer::new(authenticator, auth_cfg));
+    let q = Arc::new(InMemoryQueue::new());
+
+    let app = build_router(RouterParams {
+        bus: bus.clone(),
+        queue: q.clone(),
+        dlq: q,
+        skills: Arc::new(skills),
+        soft_skills: None,
+        sessions: Arc::new(InMemorySessionStore::new()),
+        conversations: conversations.clone(),
+        artifacts: artifacts.clone(),
+        scheduler_store: None,
+        checkpoint_store: None,
+        workspace_registry: test_workspace_registry(),
+        graph: test_graph(),
+        experience_service: None,
+        start_time: std::time::Instant::now(),
+        concurrency: 1,
+        redis_url: "redis://127.0.0.1:6379".to_string(),
+        qdrant_url: None,
+        auth_layer,
+        a2a_state: None,
+        a2a_auth_enabled: false,
+        agent_directory: Arc::new(AgentDirectory::new()),
+        metrics_handle: None,
+        agent_name: "Test Agent".to_string(),
+        agent_model: "claude-sonnet-4-6".to_string(),
+        mcp_server_count: 0,
+        features: test_features(),
+        thinking: None,
+        agent_count: 1,
+        auth_enabled: true,
+        adapters: vec![],
+        coding_backend: None,
+        web_search: None,
+        research_service: None,
+        stream_registry: stream_registry.clone(),
+        mobile_events: mobile_events.clone(),
+        mobile_auth: Some(test_mobile_auth_service()),
+        mobile_enabled: true,
+        mobile_read_rate_limit_per_minute: Some(1),
+        mobile_write_rate_limit_per_minute: Some(1),
     });
 
     MobileTestContext {
@@ -605,6 +689,8 @@ pub(crate) fn test_router_with_composite_auth(
         mobile_events: MobileEventHub::new(),
         mobile_auth: Some(test_mobile_auth_service()),
         mobile_enabled: true,
+        mobile_read_rate_limit_per_minute: None,
+        mobile_write_rate_limit_per_minute: None,
     })
 }
 

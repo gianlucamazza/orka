@@ -116,3 +116,117 @@ impl EventSink for RedisEventSink {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::time::Duration;
+
+    use orka_core::{DomainEvent, DomainEventKind, MessageId, SessionId, traits::EventSink};
+    use orka_test_support::RedisService;
+    use tokio::time::sleep;
+
+    use super::*;
+
+    #[serial_test::serial]
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires Redis"]
+    async fn sink_flushes_single_event_to_stream() {
+        let redis = RedisService::discover().await.unwrap();
+
+        // batch_size=1 flushes after every event
+        let sink = RedisEventSink::new(redis.url(), 1, 5_000).unwrap();
+
+        let event = DomainEvent::new(DomainEventKind::MessageReceived {
+            message_id: MessageId::new(),
+            channel: "test-channel".to_string(),
+            session_id: SessionId::new(),
+        });
+        sink.emit(event).await;
+
+        // Allow background task to flush
+        sleep(Duration::from_millis(200)).await;
+
+        let client = redis::Client::open(redis.url()).unwrap();
+        let mut conn = client
+            .get_multiplexed_async_connection()
+            .await
+            .unwrap();
+        let len: i64 = redis::cmd("XLEN")
+            .arg(STREAM_KEY)
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        assert!(len >= 1, "expected ≥1 entry in stream, got {len}");
+    }
+
+    #[serial_test::serial]
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires Redis"]
+    async fn sink_flushes_on_interval_when_below_batch_size() {
+        let redis = RedisService::discover().await.unwrap();
+
+        // Large batch (100), short flush interval (100ms) — interval fires before batch is full
+        let sink = RedisEventSink::new(redis.url(), 100, 100).unwrap();
+
+        // Emit 2 events — well below batch_size, so only the interval can flush them
+        for _ in 0..2u32 {
+            sink.emit(DomainEvent::new(DomainEventKind::MessageReceived {
+                message_id: MessageId::new(),
+                channel: "interval-test".to_string(),
+                session_id: SessionId::new(),
+            }))
+            .await;
+        }
+
+        // Wait long enough for the 100ms interval to tick
+        sleep(Duration::from_millis(350)).await;
+
+        let client = redis::Client::open(redis.url()).unwrap();
+        let mut conn = client
+            .get_multiplexed_async_connection()
+            .await
+            .unwrap();
+        let len: i64 = redis::cmd("XLEN")
+            .arg(STREAM_KEY)
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        assert!(len >= 2, "expected >=2 entries from interval flush, got {len}");
+    }
+
+    #[serial_test::serial]
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires Redis"]
+    async fn sink_batches_events_and_flushes_at_batch_size() {
+        let redis = RedisService::discover().await.unwrap();
+
+        // batch_size=4, long flush interval: only flush when 4 events arrive
+        let sink = RedisEventSink::new(redis.url(), 4, 60_000).unwrap();
+
+        let mid = MessageId::new();
+        for i in 0..4u32 {
+            sink.emit(DomainEvent::new(DomainEventKind::SkillInvoked {
+                skill_name: format!("skill_{i}"),
+                message_id: mid,
+                input_args: std::collections::HashMap::new(),
+                caller_id: None,
+            }))
+            .await;
+        }
+
+        sleep(Duration::from_millis(300)).await;
+
+        let client = redis::Client::open(redis.url()).unwrap();
+        let mut conn = client
+            .get_multiplexed_async_connection()
+            .await
+            .unwrap();
+        let len: i64 = redis::cmd("XLEN")
+            .arg(STREAM_KEY)
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        assert!(len >= 4, "expected ≥4 entries in stream, got {len}");
+    }
+}

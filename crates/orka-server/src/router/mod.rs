@@ -300,6 +300,16 @@ pub struct RouterParams {
     pub mobile_auth: Option<Arc<dyn MobileAuthService>>,
     /// Whether the mobile product API should be exposed.
     pub mobile_enabled: bool,
+    /// Override the mobile API read (GET) rate limit (requests per minute per user).
+    ///
+    /// Defaults to 300 when `None`. Set to a low value in tests to exercise
+    /// the 429 path without sending hundreds of requests.
+    pub mobile_read_rate_limit_per_minute: Option<u32>,
+    /// Override the mobile API write (POST/PATCH/DELETE) rate limit (requests per minute per user).
+    ///
+    /// Defaults to 60 when `None`. Set to a low value in tests to exercise
+    /// the 429 path without sending hundreds of requests.
+    pub mobile_write_rate_limit_per_minute: Option<u32>,
 }
 
 /// Build the complete server `Router` from the given parameters.
@@ -346,6 +356,8 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         mobile_events,
         mobile_auth,
         mobile_enabled,
+        mobile_read_rate_limit_per_minute,
+        mobile_write_rate_limit_per_minute,
     } = p;
 
     // --- Public routes (no auth) ---
@@ -433,14 +445,23 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         .merge(research::routes(research_service, stream_registry.clone()));
 
     let api_routes = if mobile_enabled {
-        api_routes.merge(mobile::protected_routes(
+        let rate_limiters = mobile::new_mobile_rate_limiters_per_minute(
+            mobile_read_rate_limit_per_minute.unwrap_or(300),
+            mobile_write_rate_limit_per_minute.unwrap_or(60),
+        );
+        let mobile_routes = mobile::protected_routes(
             conversations,
             artifacts,
             bus,
             stream_registry,
             mobile_events,
             mobile_auth,
-        ))
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            rate_limiters,
+            mobile::rate_limit_middleware,
+        ));
+        api_routes.merge(mobile_routes)
     } else {
         api_routes
     };

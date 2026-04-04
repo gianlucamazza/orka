@@ -137,3 +137,157 @@ impl AuditConfig {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- ObserveConfig::validate ---
+
+    #[test]
+    fn observe_default_config_is_valid() {
+        assert!(ObserveConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn observe_batch_size_zero_is_invalid() {
+        let cfg = ObserveConfig {
+            batch_size: 0,
+            ..ObserveConfig::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn observe_flush_interval_zero_is_invalid() {
+        let cfg = ObserveConfig {
+            flush_interval_ms: 0,
+            ..ObserveConfig::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn observe_otlp_backend_without_endpoint_is_invalid() {
+        let cfg = ObserveConfig {
+            backend: "otlp".to_string(),
+            otlp_endpoint: None,
+            ..ObserveConfig::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn observe_otlp_backend_with_endpoint_is_valid() {
+        let cfg = ObserveConfig {
+            backend: "otlp".to_string(),
+            otlp_endpoint: Some("http://localhost:4317".to_string()),
+            ..ObserveConfig::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn observe_otlp_backend_with_empty_endpoint_is_invalid() {
+        let cfg = ObserveConfig {
+            backend: "otlp".to_string(),
+            otlp_endpoint: Some(String::new()),
+            ..ObserveConfig::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    // --- AuditConfig::validate ---
+
+    #[test]
+    fn audit_disabled_is_always_valid() {
+        for output in &["file", "redis", "stdout", "unknown"] {
+            let cfg = AuditConfig {
+                enabled: false,
+                output: (*output).to_string(),
+                path: None,
+                redis_key: None,
+            };
+            assert!(
+                cfg.validate().is_ok(),
+                "should be valid when disabled: {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn audit_enabled_stdout_is_valid() {
+        let cfg = AuditConfig {
+            enabled: true,
+            output: "stdout".to_string(),
+            ..AuditConfig::default()
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn audit_enabled_file_without_path_is_invalid() {
+        let cfg = AuditConfig {
+            enabled: true,
+            output: "file".to_string(),
+            path: None,
+            redis_key: None,
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn audit_enabled_file_with_path_is_valid() {
+        let cfg = AuditConfig {
+            enabled: true,
+            output: "file".to_string(),
+            path: Some("/var/log/audit.log".into()),
+            redis_key: None,
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn audit_enabled_redis_without_key_is_invalid() {
+        let cfg = AuditConfig {
+            enabled: true,
+            output: "redis".to_string(),
+            path: None,
+            redis_key: None,
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn audit_enabled_redis_with_empty_key_is_invalid() {
+        let cfg = AuditConfig {
+            enabled: true,
+            output: "redis".to_string(),
+            path: None,
+            redis_key: Some(String::new()),
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn audit_enabled_redis_with_key_is_valid() {
+        let cfg = AuditConfig {
+            enabled: true,
+            output: "redis".to_string(),
+            path: None,
+            redis_key: Some("orka:audit".to_string()),
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn audit_enabled_unknown_output_is_invalid() {
+        let cfg = AuditConfig {
+            enabled: true,
+            output: "kafka".to_string(),
+            path: None,
+            redis_key: None,
+        };
+        assert!(cfg.validate().is_err());
+    }
+}

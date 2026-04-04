@@ -141,6 +141,7 @@ pub fn record_event(event: &DomainEvent) {
 
 #[cfg(test)]
 mod tests {
+    use metrics_exporter_prometheus::PrometheusBuilder;
     use orka_core::types::{MessageId, SessionId};
 
     use super::*;
@@ -191,5 +192,37 @@ mod tests {
         for kind in edge_cases {
             record_event(&make_event(kind));
         }
+    }
+
+    #[test]
+    fn record_event_increments_prometheus_counters() {
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+
+        let mid = MessageId::new();
+        let sid = SessionId::new();
+
+        // Use with_local_recorder to scope the recorder to this test without
+        // touching the global singleton (safe to run in parallel).
+        metrics::with_local_recorder(&recorder, || {
+            let event = make_event(DomainEventKind::MessageReceived {
+                message_id: mid,
+                channel: "test-chan".to_string(),
+                session_id: sid,
+            });
+            record_event(&event);
+            record_event(&event); // twice — counter must reach 2
+        });
+
+        let output = handle.render();
+        assert!(
+            output.contains("orka_messages_received_total"),
+            "expected counter in output, got:\n{output}"
+        );
+        // Prometheus text format: metric{labels} value
+        assert!(
+            output.contains(r#"channel="test-chan""#),
+            "expected channel label in output, got:\n{output}"
+        );
     }
 }

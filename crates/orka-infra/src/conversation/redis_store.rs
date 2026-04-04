@@ -36,9 +36,7 @@ impl RedisConversationStore {
 #[async_trait]
 impl ConversationStore for RedisConversationStore {
     async fn put_conversation(&self, conversation: &Conversation) -> Result<()> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
 
@@ -60,9 +58,7 @@ impl ConversationStore for RedisConversationStore {
     }
 
     async fn get_conversation(&self, id: &ConversationId) -> Result<Option<Conversation>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
         let value: Option<String> = conn
@@ -82,9 +78,7 @@ impl ConversationStore for RedisConversationStore {
         offset: usize,
         include_archived: bool,
     ) -> Result<Vec<Conversation>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
 
@@ -130,9 +124,7 @@ impl ConversationStore for RedisConversationStore {
     }
 
     async fn delete_conversation(&self, id: &ConversationId) -> Result<()> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
 
@@ -171,9 +163,7 @@ impl ConversationStore for RedisConversationStore {
     }
 
     async fn upsert_message(&self, message: &ConversationMessage) -> Result<()> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
         let key = Self::messages_key(&message.conversation_id);
@@ -205,9 +195,7 @@ impl ConversationStore for RedisConversationStore {
         conversation_id: &ConversationId,
         message_id: &orka_core::MessageId,
     ) -> Result<Option<ConversationMessage>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
         let values: Vec<String> = conn
@@ -228,9 +216,7 @@ impl ConversationStore for RedisConversationStore {
         limit: Option<usize>,
         offset: usize,
     ) -> Result<Vec<ConversationMessage>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
         let start = offset as isize;

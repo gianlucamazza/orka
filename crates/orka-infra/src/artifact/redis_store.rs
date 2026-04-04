@@ -42,9 +42,7 @@ impl RedisArtifactStore {
 #[async_trait]
 impl ArtifactStore for RedisArtifactStore {
     async fn put_artifact(&self, artifact: &ConversationArtifact, bytes: &[u8]) -> Result<()> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::artifact(format!("redis pool error: {e}")))?;
 
@@ -84,9 +82,7 @@ impl ArtifactStore for RedisArtifactStore {
     }
 
     async fn update_artifact(&self, artifact: &ConversationArtifact) -> Result<()> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::artifact(format!("redis pool error: {e}")))?;
 
@@ -127,9 +123,7 @@ impl ArtifactStore for RedisArtifactStore {
     }
 
     async fn get_artifact(&self, artifact_id: &ArtifactId) -> Result<Option<ConversationArtifact>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::artifact(format!("redis pool error: {e}")))?;
         let value: Option<String> = conn
@@ -143,9 +137,7 @@ impl ArtifactStore for RedisArtifactStore {
     }
 
     async fn get_artifact_bytes(&self, artifact_id: &ArtifactId) -> Result<Option<Vec<u8>>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::artifact(format!("redis pool error: {e}")))?;
         let value: Option<Vec<u8>> = conn
@@ -156,9 +148,7 @@ impl ArtifactStore for RedisArtifactStore {
     }
 
     async fn delete_artifact(&self, artifact_id: &ArtifactId) -> Result<()> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::artifact(format!("redis pool error: {e}")))?;
 
@@ -203,9 +193,7 @@ impl ArtifactStore for RedisArtifactStore {
         &self,
         conversation_id: &ConversationId,
     ) -> Result<Vec<ConversationArtifact>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::artifact(format!("redis pool error: {e}")))?;
 

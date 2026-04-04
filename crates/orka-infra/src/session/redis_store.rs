@@ -30,9 +30,7 @@ impl RedisSessionStore {
 #[async_trait]
 impl SessionStore for RedisSessionStore {
     async fn get(&self, id: &SessionId) -> Result<Option<Session>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
 
@@ -52,9 +50,7 @@ impl SessionStore for RedisSessionStore {
     }
 
     async fn put(&self, session: &Session) -> Result<()> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
 
@@ -72,9 +68,7 @@ impl SessionStore for RedisSessionStore {
     }
 
     async fn delete(&self, id: &SessionId) -> Result<()> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
 
@@ -88,9 +82,7 @@ impl SessionStore for RedisSessionStore {
     }
 
     async fn list(&self, limit: usize) -> Result<Vec<Session>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
 

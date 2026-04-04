@@ -56,9 +56,7 @@ fn data_key(message_id: &str) -> String {
 #[async_trait]
 impl PriorityQueue for RedisPriorityQueue {
     async fn push(&self, envelope: &Envelope) -> Result<()> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::queue(format!("pool error: {e}")))?;
 
@@ -85,9 +83,7 @@ impl PriorityQueue for RedisPriorityQueue {
     }
 
     async fn pop(&self, timeout: Duration) -> Result<Option<Envelope>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::queue(format!("pool error: {e}")))?;
 
@@ -158,9 +154,7 @@ impl PriorityQueue for RedisPriorityQueue {
     }
 
     async fn len(&self) -> Result<usize> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::queue(format!("pool error: {e}")))?;
 
@@ -176,9 +170,7 @@ impl PriorityQueue for RedisPriorityQueue {
 #[async_trait]
 impl DeadLetterQueue for RedisPriorityQueue {
     async fn push(&self, envelope: &Envelope) -> Result<()> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::queue(format!("pool error: {e}")))?;
 
@@ -197,9 +189,7 @@ impl DeadLetterQueue for RedisPriorityQueue {
     }
 
     async fn list(&self) -> Result<Vec<Envelope>> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::queue(format!("pool error: {e}")))?;
 
@@ -220,9 +210,7 @@ impl DeadLetterQueue for RedisPriorityQueue {
     }
 
     async fn purge(&self) -> Result<usize> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::queue(format!("pool error: {e}")))?;
 
@@ -240,9 +228,7 @@ impl DeadLetterQueue for RedisPriorityQueue {
     }
 
     async fn replay(&self, id: &MessageId) -> Result<bool> {
-        let mut conn = self
-            .pool
-            .get()
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::queue(format!("pool error: {e}")))?;
 

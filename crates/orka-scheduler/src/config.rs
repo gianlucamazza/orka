@@ -105,3 +105,76 @@ const fn default_scheduler_max_concurrent() -> usize {
 const fn default_job_enabled() -> bool {
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_job(name: &str, command: &str, schedule: &str) -> ScheduledJob {
+        ScheduledJob {
+            name: name.to_string(),
+            schedule: schedule.to_string(),
+            command: command.to_string(),
+            workspace: None,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn default_config_is_valid() {
+        assert!(SchedulerConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn poll_interval_zero_is_invalid() {
+        let cfg = SchedulerConfig {
+            poll_interval_secs: 0,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn max_concurrent_zero_is_invalid() {
+        let cfg = SchedulerConfig {
+            max_concurrent: 0,
+            ..Default::default()
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn job_with_empty_name_is_invalid() {
+        let mut cfg = SchedulerConfig::default();
+        cfg.jobs.push(make_job("", "do_something", "0 * * * * *"));
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn job_with_empty_command_is_invalid() {
+        let mut cfg = SchedulerConfig::default();
+        cfg.jobs.push(make_job("my-job", "", "0 * * * * *"));
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn job_with_invalid_cron_is_invalid() {
+        let mut cfg = SchedulerConfig::default();
+        cfg.jobs.push(make_job("my-job", "run_it", "not-a-cron"));
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn job_with_empty_schedule_is_valid_oneshot() {
+        let mut cfg = SchedulerConfig::default();
+        cfg.jobs.push(make_job("oneshot", "do_it", ""));
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn job_with_valid_cron_is_valid() {
+        let mut cfg = SchedulerConfig::default();
+        cfg.jobs.push(make_job("daily", "report", "0 0 9 * * *"));
+        assert!(cfg.validate().is_ok());
+    }
+}

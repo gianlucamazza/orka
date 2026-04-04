@@ -1011,3 +1011,69 @@ async fn mobile_conversation_archive_delete_ownership() -> common::TestResult {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn mobile_rate_limit_returns_429() -> common::TestResult {
+    // Use a router with a 1-req/min limit so the 2nd request triggers 429.
+    let ctx = common::test_mobile_router_low_rate_limit(JWT_SECRET, JWT_ISSUER);
+    let auth = bearer("rate-test-user", &["chat:read"]);
+
+    // First request — within limit.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .uri("/mobile/v1/me")
+                .header("Authorization", auth.clone()),
+            Body::empty(),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Second request — should be rate limited.
+    let resp = ctx
+        .app
+        .clone()
+        .oneshot(common::request(
+            Request::builder()
+                .uri("/mobile/v1/me")
+                .header("Authorization", auth.clone()),
+            Body::empty(),
+        )?)
+        .await?;
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let json = common::json_body(resp).await?;
+    assert!(json["error"].as_str().is_some_and(|s| !s.is_empty()));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn mobile_rate_limit_different_users_are_independent() -> common::TestResult {
+    // Each user has their own bucket — user-b should not be blocked by user-a.
+    let ctx = common::test_mobile_router_low_rate_limit(JWT_SECRET, JWT_ISSUER);
+    let auth_a = bearer("user-alpha", &["chat:read"]);
+    let auth_b = bearer("user-beta", &["chat:read"]);
+
+    // Exhaust user-a's limit.
+    let _ = ctx.app.clone().oneshot(common::request(
+        Request::builder().uri("/mobile/v1/me").header("Authorization", auth_a.clone()),
+        Body::empty(),
+    )?).await?;
+    let resp_a = ctx.app.clone().oneshot(common::request(
+        Request::builder().uri("/mobile/v1/me").header("Authorization", auth_a),
+        Body::empty(),
+    )?).await?;
+    assert_eq!(resp_a.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // user-b's first request should still pass.
+    let resp_b = ctx.app.clone().oneshot(common::request(
+        Request::builder().uri("/mobile/v1/me").header("Authorization", auth_b),
+        Body::empty(),
+    )?).await?;
+    assert_eq!(resp_b.status(), StatusCode::OK);
+
+    Ok(())
+}
