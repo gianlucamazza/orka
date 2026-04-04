@@ -263,7 +263,7 @@ impl ConversationStore for RedisConversationStore {
             .hget(&key, &field)
             .await
             .map_err(|e| Error::bus(format!("redis HGET error: {e}")))?;
-        let should_update = existing.map_or(true, |json| {
+        let should_update = existing.is_none_or(|json| {
             serde_json::from_str::<WatermarkRecord>(&json).map_or(true, |rec| {
                 cursor.created_at_ms > rec.created_at_ms
                     || (cursor.created_at_ms == rec.created_at_ms

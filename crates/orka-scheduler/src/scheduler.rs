@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use chrono::Utc;
 use orka_core::{DomainEvent, DomainEventKind, traits::EventSink};
@@ -49,6 +49,7 @@ impl Scheduler {
 
     /// Attach an [`EventSink`] to emit [`DomainEventKind::ScheduleTriggered`]
     /// events when tasks fire.
+    #[must_use]
     pub fn with_event_sink(mut self, sink: Arc<dyn EventSink>) -> Self {
         self.event_sink = Some(sink);
         self
@@ -125,83 +126,7 @@ impl Scheduler {
 
             tokio::spawn(async move {
                 let _permit = permit;
-
-                if let Some(ref sink) = event_sink {
-                    sink.emit(DomainEvent::new(DomainEventKind::ScheduleTriggered {
-                        schedule_name: schedule.name.clone(),
-                        workspace: None,
-                        skill_name: schedule.skill.clone(),
-                    }))
-                    .await;
-                }
-
-                // Execute the scheduled skill
-                if let Some(ref skill_name) = schedule.skill {
-                    let input = orka_core::SkillInput::new(
-                        schedule
-                            .args
-                            .clone()
-                            .unwrap_or_default()
-                            .into_iter()
-                            .collect(),
-                    );
-
-                    match skills.invoke(skill_name, input).await {
-                        Ok(_) => {
-                            info!(
-                                schedule_name = %schedule.name,
-                                skill = %skill_name,
-                                "scheduled task completed"
-                            );
-                        }
-                        Err(e) => {
-                            error!(
-                                schedule_name = %schedule.name,
-                                skill = %skill_name,
-                                %e,
-                                "scheduled task failed"
-                            );
-                        }
-                    }
-                }
-
-                // Handle next run: if cron, compute next; if one-shot, remove.
-                // Release the execution lock after updating/removing so the
-                // full critical section (fetch → execute → reschedule) is
-                // covered, preventing a second instance from re-picking the
-                // same run.
-                if let Some(ref cron_expr) = schedule.cron {
-                    match cron::Schedule::from_str(cron_expr) {
-                        Ok(cron_schedule) => {
-                            if let Some(next) = cron_schedule.upcoming(Utc).next() {
-                                let mut updated = schedule.clone();
-                                updated.next_run = next.timestamp();
-                                if let Err(e) = store.update_next_run(&schedule.id, &updated).await
-                                {
-                                    error!(%e, "failed to update next run");
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!(cron = cron_expr, %e, "invalid cron expression");
-                        }
-                    }
-                } else {
-                    // One-shot: remove from sorted set
-                    if let Err(e) = store.remove(&schedule.id).await {
-                        error!(%e, "failed to remove completed one-shot schedule");
-                    }
-                }
-
-                // Explicitly release the lock so it is freed before the TTL
-                // expires.  Errors here are non-fatal — the TTL acts as a
-                // safety net.
-                if let Err(e) = store
-                    .release_execution_lock(&schedule.id, schedule.next_run)
-                    .await
-                {
-                    warn!(%e, id = %schedule.id, "failed to release execution lock");
-                }
+                execute_scheduled_task(store, skills, event_sink, schedule).await;
             });
         }
 
@@ -209,9 +134,91 @@ impl Scheduler {
     }
 }
 
+async fn execute_scheduled_task(
+    store: Arc<dyn ScheduleStore>,
+    skills: Arc<dyn SkillRegistry>,
+    event_sink: Option<Arc<dyn EventSink>>,
+    schedule: crate::types::Schedule,
+) {
+    use std::str::FromStr;
+
+    if let Some(ref sink) = event_sink {
+        sink.emit(DomainEvent::new(DomainEventKind::ScheduleTriggered {
+            schedule_name: schedule.name.clone(),
+            workspace: None,
+            skill_name: schedule.skill.clone(),
+        }))
+        .await;
+    }
+
+    if let Some(ref skill_name) = schedule.skill {
+        let input = orka_core::SkillInput::new(
+            schedule
+                .args
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+        );
+
+        match skills.invoke(skill_name, input).await {
+            Ok(_) => {
+                info!(
+                    schedule_name = %schedule.name,
+                    skill = %skill_name,
+                    "scheduled task completed"
+                );
+            }
+            Err(e) => {
+                error!(
+                    schedule_name = %schedule.name,
+                    skill = %skill_name,
+                    %e,
+                    "scheduled task failed"
+                );
+            }
+        }
+    }
+
+    // Handle next run: if cron, compute next; if one-shot, remove.
+    // Release the execution lock after updating/removing so the
+    // full critical section (fetch → execute → reschedule) is
+    // covered, preventing a second instance from re-picking the
+    // same run.
+    if let Some(ref cron_expr) = schedule.cron {
+        match cron::Schedule::from_str(cron_expr) {
+            Ok(cron_schedule) => {
+                if let Some(next) = cron_schedule.upcoming(Utc).next() {
+                    let mut updated = schedule.clone();
+                    updated.next_run = next.timestamp();
+                    if let Err(e) = store.update_next_run(&schedule.id, &updated).await {
+                        error!(%e, "failed to update next run");
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(cron = cron_expr, %e, "invalid cron expression");
+            }
+        }
+    } else if let Err(e) = store.remove(&schedule.id).await {
+        error!(%e, "failed to remove completed one-shot schedule");
+    }
+
+    // Explicitly release the lock so it is freed before the TTL expires.
+    // Errors here are non-fatal — the TTL acts as a safety net.
+    if let Err(e) = store
+        .release_execution_lock(&schedule.id, schedule.next_run)
+        .await
+    {
+        warn!(%e, id = %schedule.id, "failed to release execution lock");
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::similar_names)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]

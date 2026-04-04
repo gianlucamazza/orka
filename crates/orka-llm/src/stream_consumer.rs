@@ -21,6 +21,15 @@ pub async fn consume_stream(
     channel: &str,
     reply_to: Option<&MessageId>,
 ) -> Result<CompletionResponse> {
+    let send = |kind| {
+        stream_registry.send(StreamChunk::new(
+            *session_id,
+            channel.to_string(),
+            reply_to.copied(),
+            kind,
+        ));
+    };
+
     let mut text = String::new();
     let mut thinking = String::new();
     let mut tool_calls: Vec<ToolCall> = Vec::new();
@@ -34,43 +43,23 @@ pub async fn consume_stream(
     while let Some(event) = stream.next().await {
         if !generation_started {
             generation_started = true;
-            stream_registry.send(StreamChunk::new(
-                *session_id,
-                channel.to_string(),
-                reply_to.copied(),
-                StreamChunkKind::GenerationStarted,
-            ));
+            send(StreamChunkKind::GenerationStarted);
         }
         let event = event?;
         match event {
             StreamEvent::ThinkingDelta(delta) => {
-                stream_registry.send(StreamChunk::new(
-                    *session_id,
-                    channel.to_string(),
-                    reply_to.copied(),
-                    StreamChunkKind::ThinkingDelta(delta.clone()),
-                ));
+                send(StreamChunkKind::ThinkingDelta(delta.clone()));
                 thinking.push_str(&delta);
             }
             StreamEvent::TextDelta(delta) => {
-                stream_registry.send(StreamChunk::new(
-                    *session_id,
-                    channel.to_string(),
-                    reply_to.copied(),
-                    StreamChunkKind::Delta(delta.clone()),
-                ));
+                send(StreamChunkKind::Delta(delta.clone()));
                 text.push_str(&delta);
             }
             StreamEvent::ToolUseStart { id, name } => {
-                stream_registry.send(StreamChunk::new(
-                    *session_id,
-                    channel.to_string(),
-                    reply_to.copied(),
-                    StreamChunkKind::ToolStart {
-                        name: name.clone(),
-                        id: id.clone(),
-                    },
-                ));
+                send(StreamChunkKind::ToolStart {
+                    name: name.clone(),
+                    id: id.clone(),
+                });
                 current_tool_id = Some(id);
                 current_tool_name = Some(name);
                 current_tool_input.clear();
@@ -88,15 +77,10 @@ pub async fn consume_stream(
                 } else {
                     input
                 };
-                stream_registry.send(StreamChunk::new(
-                    *session_id,
-                    channel.to_string(),
-                    reply_to.copied(),
-                    StreamChunkKind::ToolEnd {
-                        id: id.clone(),
-                        success: true,
-                    },
-                ));
+                send(StreamChunkKind::ToolEnd {
+                    id: id.clone(),
+                    success: true,
+                });
                 tool_calls.push(ToolCall::new(id, name, final_input));
                 current_tool_id = None;
                 current_tool_input.clear();
@@ -108,12 +92,7 @@ pub async fn consume_stream(
 
     // If we were mid-tool when the stream ended, treat it as incomplete.
     if let Some(id) = current_tool_id {
-        stream_registry.send(StreamChunk::new(
-            *session_id,
-            channel.to_string(),
-            reply_to.copied(),
-            StreamChunkKind::ToolEnd { id, success: false },
-        ));
+        send(StreamChunkKind::ToolEnd { id, success: false });
     }
 
     let mut blocks = Vec::new();
