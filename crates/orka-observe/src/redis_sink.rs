@@ -148,10 +148,7 @@ mod tests {
         sleep(Duration::from_millis(200)).await;
 
         let client = redis::Client::open(redis.url()).unwrap();
-        let mut conn = client
-            .get_multiplexed_async_connection()
-            .await
-            .unwrap();
+        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
         let len: i64 = redis::cmd("XLEN")
             .arg(STREAM_KEY)
             .query_async(&mut conn)
@@ -166,7 +163,8 @@ mod tests {
     async fn sink_flushes_on_interval_when_below_batch_size() {
         let redis = RedisService::discover().await.unwrap();
 
-        // Large batch (100), short flush interval (100ms) — interval fires before batch is full
+        // Large batch (100), short flush interval (100ms) — interval fires before batch
+        // is full
         let sink = RedisEventSink::new(redis.url(), 100, 100).unwrap();
 
         // Emit 2 events — well below batch_size, so only the interval can flush them
@@ -183,16 +181,16 @@ mod tests {
         sleep(Duration::from_millis(350)).await;
 
         let client = redis::Client::open(redis.url()).unwrap();
-        let mut conn = client
-            .get_multiplexed_async_connection()
-            .await
-            .unwrap();
+        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
         let len: i64 = redis::cmd("XLEN")
             .arg(STREAM_KEY)
             .query_async(&mut conn)
             .await
             .unwrap();
-        assert!(len >= 2, "expected >=2 entries from interval flush, got {len}");
+        assert!(
+            len >= 2,
+            "expected >=2 entries from interval flush, got {len}"
+        );
     }
 
     #[serial_test::serial]
@@ -218,10 +216,7 @@ mod tests {
         sleep(Duration::from_millis(300)).await;
 
         let client = redis::Client::open(redis.url()).unwrap();
-        let mut conn = client
-            .get_multiplexed_async_connection()
-            .await
-            .unwrap();
+        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
         let len: i64 = redis::cmd("XLEN")
             .arg(STREAM_KEY)
             .query_async(&mut conn)
