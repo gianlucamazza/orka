@@ -172,44 +172,48 @@ fn to_runtime_secret_config(config: &orka_config::SecretConfig) -> orka_secrets:
     };
     let mut runtime = orka_secrets::SecretConfig::default();
     runtime.backend = backend;
-    runtime.file_path = config.file_path.clone();
-    runtime.encryption_key_path = config.encryption_key_path.clone();
-    runtime.encryption_key_env = config.encryption_key_env.clone();
-    runtime.redis.url = config.redis.url.clone();
+    runtime.file_path.clone_from(&config.file_path);
+    runtime
+        .encryption_key_path
+        .clone_from(&config.encryption_key_path);
+    runtime
+        .encryption_key_env
+        .clone_from(&config.encryption_key_env);
+    runtime.redis.url.clone_from(&config.redis.url);
     runtime
 }
 
 fn to_runtime_observe_config(config: &orka_config::ObserveConfig) -> orka_observe::ObserveConfig {
     let mut runtime = orka_observe::ObserveConfig::default();
     runtime.enabled = config.enabled;
-    runtime.backend = config.backend.clone();
-    runtime.otlp_endpoint = config.otlp_endpoint.clone();
+    runtime.backend.clone_from(&config.backend);
+    runtime.otlp_endpoint.clone_from(&config.otlp_endpoint);
     runtime.batch_size = config.batch_size;
     runtime.flush_interval_ms = config.flush_interval_ms;
-    runtime.service_name = config.service_name.clone();
-    runtime.service_version = config.service_version.clone();
+    runtime.service_name.clone_from(&config.service_name);
+    runtime.service_version.clone_from(&config.service_version);
     runtime
 }
 
 fn to_runtime_audit_config(config: &orka_config::AuditConfig) -> orka_observe::AuditConfig {
     let mut runtime = orka_observe::AuditConfig::default();
     runtime.enabled = config.enabled;
-    runtime.output = config.output.clone();
-    runtime.path = config.path.clone();
-    runtime.redis_key = config.redis_key.clone();
+    runtime.output.clone_from(&config.output);
+    runtime.path.clone_from(&config.path);
+    runtime.redis_key.clone_from(&config.redis_key);
     runtime
 }
 
 fn to_runtime_sandbox_config(config: &orka_config::SandboxConfig) -> orka_wasm::SandboxConfig {
     let mut runtime = orka_wasm::SandboxConfig::default();
-    runtime.backend = config.backend.clone();
+    runtime.backend.clone_from(&config.backend);
     runtime.limits.timeout_secs = config.limits.timeout_secs;
     runtime.limits.max_memory_bytes = config.limits.max_memory_bytes;
     runtime.limits.max_output_bytes = config.limits.max_output_bytes;
     runtime.limits.max_open_files = config.limits.max_open_files;
     runtime.limits.max_pids = config.limits.max_pids;
-    runtime.allowed_paths = config.allowed_paths.clone();
-    runtime.denied_paths = config.denied_paths.clone();
+    runtime.allowed_paths.clone_from(&config.allowed_paths);
+    runtime.denied_paths.clone_from(&config.denied_paths);
     runtime
 }
 
@@ -238,17 +242,17 @@ fn to_runtime_http_config(config: &orka_config::HttpClientConfig) -> orka_web::H
     let mut runtime = orka_web::HttpClientConfig::default();
     runtime.timeout_secs = config.timeout_secs;
     runtime.max_redirects = config.max_redirects;
-    runtime.user_agent = config.user_agent.clone();
-    runtime.default_headers = config.default_headers.clone();
+    runtime.user_agent.clone_from(&config.user_agent);
+    runtime.default_headers.clone_from(&config.default_headers);
     runtime.webhooks = config
         .webhooks
         .iter()
         .map(|webhook| {
             let mut runtime_webhook = orka_web::WebhookConfig::default();
-            runtime_webhook.name = webhook.name.clone();
-            runtime_webhook.url = webhook.url.clone();
-            runtime_webhook.method = webhook.method.clone();
-            runtime_webhook.secret = webhook.secret.clone();
+            runtime_webhook.name.clone_from(&webhook.name);
+            runtime_webhook.url.clone_from(&webhook.url);
+            runtime_webhook.method.clone_from(&webhook.method);
+            runtime_webhook.secret.clone_from(&webhook.secret);
             runtime_webhook.retry.max_retries = webhook.retry.max_retries;
             runtime_webhook.retry.delay_secs = webhook.retry.delay_secs;
             runtime_webhook
@@ -614,8 +618,7 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
 
     // 4b. Sandbox + SandboxSkill
     let sandbox_config = to_runtime_sandbox_config(&config.sandbox);
-    let sandbox =
-        orka_wasm::create_sandbox(&sandbox_config).context("failed to create sandbox")?;
+    let sandbox = orka_wasm::create_sandbox(&sandbox_config).context("failed to create sandbox")?;
     skills.register(Arc::new(orka_wasm::SandboxSkill::new(sandbox)));
 
     // 4c. Shared WASM engine + WASM plugins
@@ -1764,8 +1767,8 @@ impl Bootstrap {
                 &config.llm,
                 &workspace_registry,
             )
-                .await
-                .context("failed to build agent graph")?,
+            .await
+            .context("failed to build agent graph")?,
         );
         info!(graph_id = %graph.id, "agent graph built");
 
@@ -2055,10 +2058,7 @@ mod tests {
 
     // --- select_coding_backend ---
 
-    fn coding_cfg(
-        default_provider: CodingProvider,
-        policy: CodingSelectionPolicy,
-    ) -> CodingConfig {
+    fn coding_cfg(default_provider: CodingProvider, policy: CodingSelectionPolicy) -> CodingConfig {
         let mut cfg = CodingConfig::default();
         cfg.default_provider = default_provider;
         cfg.selection_policy = policy;
@@ -2067,7 +2067,10 @@ mod tests {
 
     #[test]
     fn select_coding_claude_available() {
-        let cfg = coding_cfg(CodingProvider::ClaudeCode, CodingSelectionPolicy::Availability);
+        let cfg = coding_cfg(
+            CodingProvider::ClaudeCode,
+            CodingSelectionPolicy::Availability,
+        );
         assert_eq!(
             select_coding_backend(&cfg, true, false, false),
             Some(CodingProvider::ClaudeCode)
@@ -2076,7 +2079,10 @@ mod tests {
 
     #[test]
     fn select_coding_claude_unavailable_returns_none() {
-        let cfg = coding_cfg(CodingProvider::ClaudeCode, CodingSelectionPolicy::Availability);
+        let cfg = coding_cfg(
+            CodingProvider::ClaudeCode,
+            CodingSelectionPolicy::Availability,
+        );
         assert_eq!(select_coding_backend(&cfg, false, true, true), None);
     }
 
@@ -2168,7 +2174,10 @@ mod tests {
         let dst = to_runtime_audit_config(&src);
         assert!(dst.enabled);
         assert_eq!(dst.output, "redis");
-        assert_eq!(dst.path.as_deref(), Some(std::path::Path::new("/tmp/audit.log")));
+        assert_eq!(
+            dst.path.as_deref(),
+            Some(std::path::Path::new("/tmp/audit.log"))
+        );
         assert_eq!(dst.redis_key.as_deref(), Some("orka:audit"));
     }
 
@@ -2187,7 +2196,10 @@ mod tests {
         let mut src = orka_config::MemoryConfig::default();
         src.backend = MemoryBackend::Redis;
         let dst = to_runtime_memory_config(&src);
-        assert!(matches!(dst.backend, orka_memory::config::MemoryBackend::Redis));
+        assert!(matches!(
+            dst.backend,
+            orka_memory::config::MemoryBackend::Redis
+        ));
     }
 
     #[test]
@@ -2195,7 +2207,10 @@ mod tests {
         let mut src = orka_config::MemoryConfig::default();
         src.backend = MemoryBackend::Memory;
         let dst = to_runtime_memory_config(&src);
-        assert!(matches!(dst.backend, orka_memory::config::MemoryBackend::Memory));
+        assert!(matches!(
+            dst.backend,
+            orka_memory::config::MemoryBackend::Memory
+        ));
     }
 
     // --- to_runtime_secret_config ---
@@ -2213,7 +2228,10 @@ mod tests {
         let mut src = orka_config::SecretConfig::default();
         src.encryption_key_path = Some("/etc/orka/key.pem".to_string());
         let dst = to_runtime_secret_config(&src);
-        assert_eq!(dst.encryption_key_path.as_deref(), Some("/etc/orka/key.pem"));
+        assert_eq!(
+            dst.encryption_key_path.as_deref(),
+            Some("/etc/orka/key.pem")
+        );
     }
 
     // --- to_runtime_sandbox_config ---
