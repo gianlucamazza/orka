@@ -2,8 +2,6 @@
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
-use thiserror::Error;
-
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
@@ -12,6 +10,7 @@ use jsonwebtoken::{EncodingKey, Header, encode};
 use rand::TryRngCore as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
 use uuid::Uuid;
@@ -31,7 +30,8 @@ pub enum MobileAuthError {
     #[error("pairing session not found")]
     NotFound,
     /// The requested pairing session belongs to another authenticated caller.
-    /// Returns the same message as `NotFound` to avoid leaking resource existence.
+    /// Returns the same message as `NotFound` to avoid leaking resource
+    /// existence.
     #[error("pairing session not found")]
     Forbidden,
     /// The pairing session or refresh token has expired.

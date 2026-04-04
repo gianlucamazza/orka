@@ -356,10 +356,7 @@ fn strip_line_continuations(s: &str) -> String {
     s.replace("\\\n", "")
 }
 
-fn should_attach_workspace_cwd(
-    client: &OrkaClient,
-    include_workspace_cwd: bool,
-) -> bool {
+fn should_attach_workspace_cwd(client: &OrkaClient, include_workspace_cwd: bool) -> bool {
     include_workspace_cwd && client.targets_localhost()
 }
 

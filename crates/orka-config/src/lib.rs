@@ -63,8 +63,7 @@ pub use runtime::{
 };
 pub use subsystem_config::{
     AuditConfig, GatewayConfig, HttpClientConfig, MemoryBackend, MemoryConfig, ObserveConfig,
-    SandboxConfig, SandboxLimitsConfig, SearchProviderKind, SecretBackend, SecretConfig,
-    WebConfig,
+    SandboxConfig, SandboxLimitsConfig, SearchProviderKind, SecretBackend, SecretConfig, WebConfig,
 };
 
 /// Tool enable/disable configuration.

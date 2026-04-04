@@ -44,7 +44,9 @@ pub async fn build_graph_from_config(
         let kind = match agent_def.kind {
             NodeKindDef::Agent => NodeKind::Agent,
             NodeKindDef::Router => NodeKind::Router,
-            NodeKindDef::FanOut => NodeKind::FanOut { max_concurrency: None },
+            NodeKindDef::FanOut => NodeKind::FanOut {
+                max_concurrency: None,
+            },
             NodeKindDef::FanIn => NodeKind::FanIn,
         };
         graph.add_node(GraphNode { agent, kind });
@@ -120,7 +122,9 @@ pub async fn build_graph_from_config(
                 // Auto-generate FanOut: entry dispatches all other agents in parallel.
                 // Mark the entry node as FanOut kind.
                 if let Some(node) = graph.get_node_mut(&entry_id) {
-                    node.kind = NodeKind::FanOut { max_concurrency: None };
+                    node.kind = NodeKind::FanOut {
+                        max_concurrency: None,
+                    };
                 }
                 for agent_def in agents {
                     let target_id = AgentId::from(agent_def.id.as_str());

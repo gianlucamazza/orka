@@ -59,9 +59,7 @@ impl OrkaClient {
         };
         match url.host_str() {
             Some("localhost") => true,
-            Some(host) => {
-                host == "127.0.0.1" || host == "::1" || host.starts_with("[::1]")
-            }
+            Some(host) => host == "127.0.0.1" || host == "::1" || host.starts_with("[::1]"),
             None => false,
         }
     }

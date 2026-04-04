@@ -688,7 +688,9 @@ async fn fan_out_runs_all_successors() {
     let mut graph = AgentGraph::new("g", fanout.clone());
     graph.add_node(GraphNode {
         agent: agent("fanout"),
-        kind: NodeKind::FanOut { max_concurrency: None },
+        kind: NodeKind::FanOut {
+            max_concurrency: None,
+        },
     });
     graph.add_node(agent_node("b"));
     graph.add_node(agent_node("c"));
@@ -737,7 +739,9 @@ async fn fan_out_max_concurrency_one_runs_all_successors() {
     let mut graph = AgentGraph::new("g", fanout.clone());
     graph.add_node(GraphNode {
         agent: agent("fanout"),
-        kind: NodeKind::FanOut { max_concurrency: Some(1) },
+        kind: NodeKind::FanOut {
+            max_concurrency: Some(1),
+        },
     });
     graph.add_node(agent_node("b"));
     graph.add_node(agent_node("c"));
@@ -776,7 +780,9 @@ async fn fan_out_max_concurrency_two_completes_four_branches() {
     let mut graph = AgentGraph::new("g", fanout.clone());
     graph.add_node(GraphNode {
         agent: agent("fanout"),
-        kind: NodeKind::FanOut { max_concurrency: Some(2) },
+        kind: NodeKind::FanOut {
+            max_concurrency: Some(2),
+        },
     });
     for name in ["w1", "w2", "w3", "w4"] {
         graph.add_node(agent_node(name));
@@ -1120,7 +1126,9 @@ async fn fan_out_continues_to_fan_in() {
     let mut graph = AgentGraph::new("g", AgentId::from("fanout"));
     graph.add_node(GraphNode {
         agent: agent("fanout"),
-        kind: NodeKind::FanOut { max_concurrency: None },
+        kind: NodeKind::FanOut {
+            max_concurrency: None,
+        },
     });
     graph.add_node(GraphNode {
         agent: agent("worker_a"),
@@ -1187,7 +1195,9 @@ async fn fan_out_non_complete_branch_stops_before_fan_in() {
     let mut graph = AgentGraph::new("g", AgentId::from("fanout"));
     graph.add_node(GraphNode {
         agent: agent("fanout"),
-        kind: NodeKind::FanOut { max_concurrency: None },
+        kind: NodeKind::FanOut {
+            max_concurrency: None,
+        },
     });
     graph.add_node(GraphNode {
         agent: agent("worker"),
@@ -1240,7 +1250,9 @@ async fn fan_in_continues_to_next_node() {
     let mut graph = AgentGraph::new("g", AgentId::from("fanout"));
     graph.add_node(GraphNode {
         agent: agent("fanout"),
-        kind: NodeKind::FanOut { max_concurrency: None },
+        kind: NodeKind::FanOut {
+            max_concurrency: None,
+        },
     });
     graph.add_node(GraphNode {
         agent: agent("worker"),

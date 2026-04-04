@@ -203,9 +203,7 @@ impl LlmClient for LlmRouter {
                 Err(e) => return Err(map_cb_err(e)),
             }
         }
-        last_err.unwrap_or_else(|| {
-            Err(orka_core::Error::llm_msg("all LLM providers unavailable"))
-        })
+        last_err.unwrap_or_else(|| Err(orka_core::Error::llm_msg("all LLM providers unavailable")))
     }
 
     async fn complete_stream(&self, messages: Vec<ChatMessage>, system: &str) -> Result<LlmStream> {
@@ -261,9 +259,7 @@ impl LlmClient for LlmRouter {
                 Err(e) => return Err(map_cb_err(e)),
             }
         }
-        last_err.unwrap_or_else(|| {
-            Err(orka_core::Error::llm_msg("all LLM providers unavailable"))
-        })
+        last_err.unwrap_or_else(|| Err(orka_core::Error::llm_msg("all LLM providers unavailable")))
     }
 
     async fn complete_stream_with_tools(
@@ -305,9 +301,7 @@ impl LlmClient for LlmRouter {
                 Err(e) => return Err(map_cb_err(e)),
             }
         }
-        last_err.unwrap_or_else(|| {
-            Err(orka_core::Error::llm_msg("all LLM providers unavailable"))
-        })
+        last_err.unwrap_or_else(|| Err(orka_core::Error::llm_msg("all LLM providers unavailable")))
     }
 }
 
@@ -443,7 +437,10 @@ mod tests {
         // `complete_with_options` with no model → uses primary + fallback chain.
         let opts = CompletionOptions::default();
         let result = router.complete_with_options(vec![], "", &opts).await;
-        assert!(result.is_ok(), "fallback should succeed when primary CB is open");
+        assert!(
+            result.is_ok(),
+            "fallback should succeed when primary CB is open"
+        );
     }
 
     #[tokio::test]
@@ -459,11 +456,7 @@ mod tests {
 
         let router = LlmRouter::new(primary.clone())
             .with_circuit_breaker_config(config.clone())
-            .add_provider(
-                "secondary",
-                secondary.clone(),
-                vec!["secondary/".into()],
-            )
+            .add_provider("secondary", secondary.clone(), vec!["secondary/".into()])
             .with_fallback_providers(vec!["secondary".into()]);
 
         // Trip primary CB
@@ -481,7 +474,9 @@ mod tests {
 
         // Both CBs open: error with descriptive message
         let default_opts = CompletionOptions::default();
-        let result = router.complete_with_options(vec![], "", &default_opts).await;
+        let result = router
+            .complete_with_options(vec![], "", &default_opts)
+            .await;
         assert!(result.is_err());
     }
 

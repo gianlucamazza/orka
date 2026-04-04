@@ -2056,9 +2056,13 @@ mod tests {
             .tool_use("id2", "shell_exec", serde_json::json!({"command": "pwd"}))
             .build();
 
-        let (_text, calls) =
-            parse_completion_blocks(&agent, &deps, &completion, orka_core::types::MessageId::new())
-                .await;
+        let (_text, calls) = parse_completion_blocks(
+            &agent,
+            &deps,
+            &completion,
+            orka_core::types::MessageId::new(),
+        )
+        .await;
 
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "shell_exec");

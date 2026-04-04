@@ -235,11 +235,13 @@ impl std::fmt::Display for SimpleError {
 
 impl std::error::Error for SimpleError {}
 
-/// Generates factory methods on [`Error`] for structured `{ source, context }` variants.
+/// Generates factory methods on [`Error`] for structured `{ source, context }`
+/// variants.
 ///
 /// Two forms are supported:
 /// - `msg: fn_name => Variant` — wraps a plain string in a `SimpleError`.
-/// - `src: fn_name => Variant` — takes a real `impl Error + Send + Sync + 'static` source.
+/// - `src: fn_name => Variant` — takes a real `impl Error + Send + Sync +
+///   'static` source.
 macro_rules! error_factory {
     // msg-only: wraps a plain string as both source and context.
     (msg: $(#[$attr:meta])* $fn_name:ident => $variant:ident) => {
