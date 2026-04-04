@@ -122,6 +122,12 @@ pub enum StreamChunkKind {
         /// Count of principles applied.
         count: u32,
     },
+    /// The LLM has started generating a response.
+    ///
+    /// Emitted once per turn, before the first [`Self::Delta`] or
+    /// [`Self::ThinkingDelta`] arrives. Clients can use this to show a
+    /// typing indicator without waiting for the first text token.
+    GenerationStarted,
     /// The stream is complete.
     Done,
 }
@@ -394,6 +400,7 @@ mod tests {
                 summary_generated: false,
             },
             StreamChunkKind::PrinciplesUsed { count: 2 },
+            StreamChunkKind::GenerationStarted,
             StreamChunkKind::Done,
         ];
 
@@ -531,5 +538,11 @@ mod tests {
     fn stream_chunk_kind_json_serialization_done() {
         let json = ok(serde_json::to_string(&StreamChunkKind::Done));
         assert_eq!(json, r#"{"type":"Done"}"#);
+    }
+
+    #[test]
+    fn stream_chunk_kind_json_serialization_generation_started() {
+        let json = ok(serde_json::to_string(&StreamChunkKind::GenerationStarted));
+        assert_eq!(json, r#"{"type":"GenerationStarted"}"#);
     }
 }

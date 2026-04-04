@@ -29,8 +29,18 @@ pub async fn consume_stream(
     let mut current_tool_input = String::new();
     let mut usage = Usage::default();
     let mut stop_reason = None;
+    let mut generation_started = false;
 
     while let Some(event) = stream.next().await {
+        if !generation_started {
+            generation_started = true;
+            stream_registry.send(StreamChunk::new(
+                *session_id,
+                channel.to_string(),
+                reply_to.copied(),
+                StreamChunkKind::GenerationStarted,
+            ));
+        }
         let event = event?;
         match event {
             StreamEvent::ThinkingDelta(delta) => {
@@ -181,6 +191,61 @@ mod tests {
         };
         assert_eq!(call.name, "echo");
         assert_eq!(call.input["msg"], "hi");
+    }
+
+    fn collect_chunks(
+        mut rx: tokio::sync::mpsc::UnboundedReceiver<
+            std::sync::Arc<orka_core::stream::StreamChunk>,
+        >,
+    ) -> Vec<std::sync::Arc<orka_core::stream::StreamChunk>> {
+        let mut chunks = Vec::new();
+        while let Ok(c) = rx.try_recv() {
+            chunks.push(c);
+        }
+        chunks
+    }
+
+    #[tokio::test]
+    async fn emits_generation_started_before_first_token() {
+        let events = vec![
+            StreamEvent::TextDelta("hi".into()),
+            StreamEvent::Stop(StopReason::EndTurn),
+        ];
+        let registry = StreamRegistry::new();
+        let session_id = SessionId::new();
+        let rx = registry.subscribe(session_id);
+
+        consume_stream(make_stream(events), &session_id, &registry, "ch", None)
+            .await
+            .unwrap();
+
+        let chunks = collect_chunks(rx);
+        assert!(
+            chunks
+                .first()
+                .is_some_and(|c| matches!(c.kind, StreamChunkKind::GenerationStarted)),
+            "first chunk must be GenerationStarted"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_generation_started_for_empty_stream() {
+        let events: Vec<StreamEvent> = vec![];
+        let registry = StreamRegistry::new();
+        let session_id = SessionId::new();
+        let rx = registry.subscribe(session_id);
+
+        consume_stream(make_stream(events), &session_id, &registry, "ch", None)
+            .await
+            .unwrap();
+
+        let chunks = collect_chunks(rx);
+        assert!(
+            chunks
+                .iter()
+                .all(|c| !matches!(c.kind, StreamChunkKind::GenerationStarted)),
+            "empty stream must not emit GenerationStarted"
+        );
     }
 
     #[tokio::test]
