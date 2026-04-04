@@ -537,6 +537,17 @@ pub enum DomainEventKind {
         /// Total wall-clock duration in milliseconds.
         duration_ms: u64,
     },
+    /// Emitted when the scheduler fires a due task.
+    ScheduleTriggered {
+        /// Name of the schedule entry that fired.
+        schedule_name: String,
+        /// Workspace the schedule belongs to (if any).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workspace: Option<String>,
+        /// Name of the skill invoked, if this is a skill-based schedule.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        skill_name: Option<String>,
+    },
 }
 
 /// Context available to skills during execution.

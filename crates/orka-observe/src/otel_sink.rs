@@ -323,6 +323,106 @@ impl EventSink for OtelEventSink {
                 ];
                 self.emit_internal("skill.disabled", attrs, false);
             }
+            DomainEventKind::ScheduleTriggered {
+                schedule_name,
+                skill_name,
+                workspace,
+            } => {
+                let mut attrs = vec![KeyValue::new("schedule.name", schedule_name.clone())];
+                if let Some(skill) = skill_name {
+                    attrs.push(KeyValue::new("gen_ai.tool.name", skill.clone()));
+                }
+                if let Some(ws) = workspace {
+                    attrs.push(KeyValue::new("workspace", ws.clone()));
+                }
+                self.emit_internal("schedule.triggered", attrs, false);
+            }
+            DomainEventKind::AgentDelegated {
+                run_id,
+                source_agent,
+                target_agent,
+                mode,
+                reason,
+            } => {
+                let attrs = vec![
+                    KeyValue::new("gen_ai.agent.run_id", run_id.clone()),
+                    KeyValue::new("gen_ai.agent.source", source_agent.clone()),
+                    KeyValue::new("gen_ai.agent.target", target_agent.clone()),
+                    KeyValue::new("mode", mode.clone()),
+                    KeyValue::new("reason", reason.clone()),
+                ];
+                self.emit_internal("agent.delegated", attrs, false);
+            }
+            DomainEventKind::AgentCompleted {
+                run_id,
+                agent_id,
+                iterations,
+                tokens,
+                duration_ms,
+                success,
+            } => {
+                let start_time = SystemTime::now()
+                    .checked_sub(Duration::from_millis(*duration_ms))
+                    .unwrap_or(SystemTime::now());
+                let attrs = vec![
+                    KeyValue::new("gen_ai.agent.run_id", run_id.clone()),
+                    KeyValue::new("gen_ai.agent.id", agent_id.clone()),
+                    KeyValue::new("gen_ai.agent.iterations", *iterations as i64),
+                    KeyValue::new("gen_ai.usage.tokens", *tokens as i64),
+                    KeyValue::new("duration_ms", *duration_ms as i64),
+                ];
+                let mut span = self
+                    .tracer
+                    .span_builder("agent.completed")
+                    .with_kind(SpanKind::Internal)
+                    .with_start_time(start_time)
+                    .with_attributes(attrs)
+                    .start(&self.tracer);
+                if !success {
+                    span.set_status(Status::error("agent execution failed"));
+                }
+                span.end();
+            }
+            DomainEventKind::RunInterrupted {
+                run_id,
+                agent_id,
+                tool_name,
+            } => {
+                let attrs = vec![
+                    KeyValue::new("gen_ai.agent.run_id", run_id.clone()),
+                    KeyValue::new("gen_ai.agent.id", agent_id.clone()),
+                    KeyValue::new("gen_ai.tool.name", tool_name.clone()),
+                ];
+                self.emit_internal("run.interrupted", attrs, false);
+            }
+            DomainEventKind::GraphCompleted {
+                run_id,
+                graph_id,
+                agents_executed,
+                total_iterations,
+                total_tokens,
+                duration_ms,
+            } => {
+                let start_time = SystemTime::now()
+                    .checked_sub(Duration::from_millis(*duration_ms))
+                    .unwrap_or(SystemTime::now());
+                let attrs = vec![
+                    KeyValue::new("gen_ai.agent.run_id", run_id.clone()),
+                    KeyValue::new("gen_ai.agent.graph_id", graph_id.clone()),
+                    KeyValue::new("gen_ai.agent.count", agents_executed.len() as i64),
+                    KeyValue::new("gen_ai.agent.total_iterations", *total_iterations as i64),
+                    KeyValue::new("gen_ai.usage.tokens", *total_tokens as i64),
+                    KeyValue::new("duration_ms", *duration_ms as i64),
+                ];
+                let mut span = self
+                    .tracer
+                    .span_builder("graph.completed")
+                    .with_kind(SpanKind::Server)
+                    .with_start_time(start_time)
+                    .with_attributes(attrs)
+                    .start(&self.tracer);
+                span.end();
+            }
             _ => {}
         }
     }

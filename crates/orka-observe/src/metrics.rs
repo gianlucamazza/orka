@@ -133,6 +133,39 @@ pub fn record_event(event: &DomainEvent) {
         DomainEventKind::Heartbeat => {
             counter!("orka_heartbeats_total").increment(1);
         }
+        DomainEventKind::ScheduleTriggered { .. } => {
+            counter!("orka_schedule_triggers_total").increment(1);
+        }
+        DomainEventKind::AgentDelegated { mode, .. } => {
+            counter!("orka_agent_delegations_total", "mode" => mode.clone()).increment(1);
+        }
+        DomainEventKind::AgentCompleted {
+            success,
+            duration_ms,
+            tokens,
+            iterations,
+            ..
+        } => {
+            let status = if *success { "ok" } else { "error" };
+            counter!("orka_agent_completions_total", "status" => status).increment(1);
+            counter!("orka_agent_tokens_total").increment(*tokens);
+            counter!("orka_agent_iterations_sum_total").increment(*iterations as u64);
+            histogram!("orka_agent_duration_seconds").record(*duration_ms as f64 / 1000.0);
+        }
+        DomainEventKind::RunInterrupted { .. } => {
+            counter!("orka_run_interruptions_total").increment(1);
+        }
+        DomainEventKind::GraphCompleted {
+            total_iterations,
+            total_tokens,
+            duration_ms,
+            ..
+        } => {
+            counter!("orka_graph_completions_total").increment(1);
+            counter!("orka_graph_total_iterations_sum").increment(*total_iterations as u64);
+            counter!("orka_graph_total_tokens_sum").increment(*total_tokens);
+            histogram!("orka_graph_duration_seconds").record(*duration_ms as f64 / 1000.0);
+        }
         other => {
             tracing::trace!(?other, "no metric registered for domain event kind");
         }

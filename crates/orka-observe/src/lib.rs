@@ -188,6 +188,70 @@ impl EventSink for LogEventSink {
             DomainEventKind::Heartbeat => {
                 debug!("heartbeat");
             }
+            DomainEventKind::ScheduleTriggered {
+                schedule_name,
+                skill_name,
+                ..
+            } => {
+                info!(
+                    schedule_name,
+                    skill = skill_name.as_deref().unwrap_or("-"),
+                    "schedule triggered"
+                );
+            }
+            DomainEventKind::AgentDelegated {
+                run_id,
+                source_agent,
+                target_agent,
+                mode,
+                reason,
+            } => {
+                info!(
+                    run_id,
+                    source_agent, target_agent, mode, reason, "agent delegated"
+                );
+            }
+            DomainEventKind::AgentCompleted {
+                run_id,
+                agent_id,
+                iterations,
+                tokens,
+                duration_ms,
+                success,
+            } => {
+                info!(
+                    run_id,
+                    agent_id, iterations, tokens, duration_ms, success, "agent completed"
+                );
+            }
+            DomainEventKind::RunInterrupted {
+                run_id,
+                agent_id,
+                tool_name,
+            } => {
+                info!(
+                    run_id,
+                    agent_id, tool_name, "run interrupted — awaiting approval"
+                );
+            }
+            DomainEventKind::GraphCompleted {
+                run_id,
+                graph_id,
+                agents_executed,
+                total_iterations,
+                total_tokens,
+                duration_ms,
+            } => {
+                info!(
+                    run_id,
+                    graph_id,
+                    agents = agents_executed.len(),
+                    total_iterations,
+                    total_tokens,
+                    duration_ms,
+                    "graph completed"
+                );
+            }
             _ => {
                 debug!(kind = ?event.kind, "unhandled domain event");
             }
@@ -390,6 +454,39 @@ pub(crate) mod test_helpers {
                 source: "experience_feedback".into(),
             },
             DomainEventKind::Heartbeat,
+            DomainEventKind::ScheduleTriggered {
+                schedule_name: "daily-digest".into(),
+                workspace: Some("default".into()),
+                skill_name: Some("send_digest".into()),
+            },
+            DomainEventKind::AgentDelegated {
+                run_id: "run-1".into(),
+                source_agent: "planner".into(),
+                target_agent: "executor".into(),
+                mode: "handoff".into(),
+                reason: "subtask".into(),
+            },
+            DomainEventKind::AgentCompleted {
+                run_id: "run-1".into(),
+                agent_id: "executor".into(),
+                iterations: 3,
+                tokens: 1500,
+                duration_ms: 2500,
+                success: true,
+            },
+            DomainEventKind::RunInterrupted {
+                run_id: "run-1".into(),
+                agent_id: "executor".into(),
+                tool_name: "delete_file".into(),
+            },
+            DomainEventKind::GraphCompleted {
+                run_id: "run-1".into(),
+                graph_id: "graph-a".into(),
+                agents_executed: vec!["planner".into(), "executor".into()],
+                total_iterations: 5,
+                total_tokens: 3000,
+                duration_ms: 5000,
+            },
         ]
     }
 }

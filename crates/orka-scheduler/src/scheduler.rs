@@ -1,6 +1,7 @@
 use std::{str::FromStr, sync::Arc};
 
 use chrono::Utc;
+use orka_core::{DomainEvent, DomainEventKind, traits::EventSink};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -12,6 +13,7 @@ pub struct Scheduler {
     skills: Arc<dyn SkillRegistry>,
     poll_interval_secs: u64,
     max_concurrent: usize,
+    event_sink: Option<Arc<dyn EventSink>>,
 }
 
 /// Minimal interface for the scheduler to invoke skills.
@@ -41,7 +43,15 @@ impl Scheduler {
             skills,
             poll_interval_secs,
             max_concurrent,
+            event_sink: None,
         }
+    }
+
+    /// Attach an [`EventSink`] to emit [`DomainEventKind::ScheduleTriggered`]
+    /// events when tasks fire.
+    pub fn with_event_sink(mut self, sink: Arc<dyn EventSink>) -> Self {
+        self.event_sink = Some(sink);
+        self
     }
 
     /// Run the scheduler tick loop until the cancellation token is triggered.
@@ -111,9 +121,19 @@ impl Scheduler {
 
             let store = self.store.clone();
             let skills = self.skills.clone();
+            let event_sink = self.event_sink.clone();
 
             tokio::spawn(async move {
                 let _permit = permit;
+
+                if let Some(ref sink) = event_sink {
+                    sink.emit(DomainEvent::new(DomainEventKind::ScheduleTriggered {
+                        schedule_name: schedule.name.clone(),
+                        workspace: None,
+                        skill_name: schedule.skill.clone(),
+                    }))
+                    .await;
+                }
 
                 // Execute the scheduled skill
                 if let Some(ref skill_name) = schedule.skill {
