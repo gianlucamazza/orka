@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-04-04
+
+### Added
+
+- Redis-backed observe sink configuration and metrics, plus Redis pool retry helpers and
+  integration coverage for gateway dedup/rate limiting and scheduler stores
+- Per-user mobile API rate limiting with explicit 429 coverage in the mobile test suite
+- JWT/authenticator validation coverage, including RSA/RS256 verification tests
+- A repeatable public demo pipeline that records live scenarios and renders `gif`, `mp4`,
+  and `webm` assets through `just demo*` and `scripts/demo.sh`
+
+### Changed
+
+- `LlmRouter` can now try configured fallback providers when the primary provider circuit
+  breaker is open instead of failing immediately
+- Agent `FanOut` nodes now support optional concurrency limits, with graph/config wiring
+  and executor coverage
+- CLI chat/send no longer attach `workspace:cwd` when targeting a remote Orka instance, and
+  agent parsing now drops empty tool-call names before skill dispatch
+- Experience service initialization now respects the configured vector-store backend instead
+  of always forcing Qdrant
+
 ## [1.3.0] - 2026-04-03
 
 ### Added
