@@ -1345,6 +1345,12 @@ pub struct Conversation {
     /// When this conversation was archived, or `None` if active.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<DateTime<Utc>>,
+    /// Whether the conversation is pinned by the user.
+    #[serde(default)]
+    pub pinned: bool,
+    /// User-defined labels attached to this conversation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
     /// Conversation creation time.
     pub created_at: DateTime<Utc>,
     /// Last update time.
@@ -1443,6 +1449,8 @@ impl Conversation {
             last_message_preview: None,
             status: ConversationStatus::Active,
             archived_at: None,
+            pinned: false,
+            tags: Vec::new(),
             created_at: now,
             updated_at: now,
         }

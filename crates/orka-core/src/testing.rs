@@ -222,6 +222,18 @@ impl ConversationStore for InMemoryConversationStore {
         Ok(apply_message_cursors(all, after, before, limit))
     }
 
+    async fn delete_message(
+        &self,
+        conversation_id: &ConversationId,
+        message_id: &MessageId,
+    ) -> Result<()> {
+        let mut messages = self.messages.lock().await;
+        if let Some(items) = messages.get_mut(conversation_id) {
+            items.retain(|item| &item.id != message_id);
+        }
+        Ok(())
+    }
+
     async fn set_read_watermark(
         &self,
         user_id: &str,

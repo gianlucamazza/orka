@@ -181,7 +181,9 @@ async fn mobile_conversation_list_supports_pagination() -> common::TestResult {
 }
 
 #[tokio::test]
-async fn mobile_message_list_supports_limit_and_offset() -> common::TestResult {
+async fn mobile_message_list_cursor_pagination() -> common::TestResult {
+    use tower::ServiceExt as _;
+
     let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
     let conversation = seed_conversation(
         ctx.conversations.as_ref(),
@@ -202,11 +204,38 @@ async fn mobile_message_list_supports_limit_and_offset() -> common::TestResult {
             .await?;
     }
 
+    // First page: get last 2 messages (no cursor).
     let req = common::request(
         Request::builder()
             .uri(format!(
-                "/mobile/v1/conversations/{}/messages?limit=2&offset=1",
+                "/mobile/v1/conversations/{}/messages?limit=2",
                 conversation.id
+            ))
+            .header("Authorization", bearer("user-a", &["chat:read"])),
+        Body::empty(),
+    )?;
+    let resp = ctx.app.clone().oneshot(req).await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let prev_cursor = resp
+        .headers()
+        .get("x-prev-cursor")
+        .ok_or("x-prev-cursor header must be present")?
+        .to_str()?
+        .to_string();
+
+    let json = common::json_body(resp).await?;
+    let array = common::json_array(&json)?;
+    assert_eq!(array.len(), 2);
+    assert_eq!(array[0]["text"], "message-2");
+    assert_eq!(array[1]["text"], "message-3");
+
+    // Second page: go backwards using x-prev-cursor.
+    let req = common::request(
+        Request::builder()
+            .uri(format!(
+                "/mobile/v1/conversations/{}/messages?limit=2&before={}",
+                conversation.id, prev_cursor
             ))
             .header("Authorization", bearer("user-a", &["chat:read"])),
         Body::empty(),
@@ -217,8 +246,8 @@ async fn mobile_message_list_supports_limit_and_offset() -> common::TestResult {
     let json = common::json_body(resp).await?;
     let array = common::json_array(&json)?;
     assert_eq!(array.len(), 2);
-    assert_eq!(array[0]["text"], "message-1");
-    assert_eq!(array[1]["text"], "message-2");
+    assert_eq!(array[0]["text"], "message-0");
+    assert_eq!(array[1]["text"], "message-1");
     Ok(())
 }
 

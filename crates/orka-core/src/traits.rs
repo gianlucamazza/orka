@@ -209,6 +209,15 @@ pub trait ConversationStore: Send + Sync + 'static {
         limit: usize,
     ) -> Result<Vec<ConversationMessage>>;
 
+    /// Delete a single message from the conversation transcript.
+    ///
+    /// Returns `Ok(())` whether or not the message existed (idempotent).
+    async fn delete_message(
+        &self,
+        conversation_id: &ConversationId,
+        message_id: &MessageId,
+    ) -> Result<()>;
+
     /// Advance the read watermark for `user_id` in `conversation_id`.
     ///
     /// The watermark never moves backward: if the stored cursor is already
@@ -512,8 +521,7 @@ mod tests {
 
     #[test]
     fn no_cursors_no_limit_returns_all() {
-        let all = msgs();
-        let result = apply_message_cursors(all.clone(), None, None, usize::MAX);
+        let result = apply_message_cursors(msgs(), None, None, usize::MAX);
         assert_eq!(result.len(), 5);
     }
 

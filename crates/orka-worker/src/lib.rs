@@ -147,6 +147,17 @@ impl WorkerPool {
         self
     }
 
+    /// Replace the internal cancellation token map with an externally-owned
+    /// instance.
+    ///
+    /// Use this when another component (e.g. the HTTP router's cancel endpoint)
+    /// needs to share the same token map.
+    #[must_use]
+    pub fn with_session_cancel_tokens(mut self, tokens: SessionCancelTokens) -> Self {
+        self.session_cancel_tokens = tokens;
+        self
+    }
+
     /// Start workers and process messages until `shutdown` is signalled.
     #[allow(clippy::too_many_lines)]
     pub async fn run(&self, shutdown: CancellationToken) -> orka_core::Result<()> {

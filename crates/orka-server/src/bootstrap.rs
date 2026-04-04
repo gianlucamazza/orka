@@ -114,6 +114,7 @@ struct HttpServerDeps<'a> {
     auth_enabled: bool,
     stream_registry: orka_core::StreamRegistry,
     mobile_events: MobileEventHub,
+    session_cancel_tokens: orka_worker::SessionCancelTokens,
 }
 
 // ---------------------------------------------------------------------------
@@ -978,6 +979,7 @@ fn spawn_worker_pool(
     dispatcher: Arc<GraphDispatcher>,
     memory_lock: Arc<dyn SessionLock>,
     shutdown: CancellationToken,
+    session_cancel_tokens: orka_worker::SessionCancelTokens,
 ) -> JoinHandle<()> {
     let worker_pool = WorkerPool::new(
         infra.queue.clone(),
@@ -990,7 +992,8 @@ fn spawn_worker_pool(
     )
     .with_retry_delay(config.worker.retry_base_delay_ms)
     .with_session_lock(memory_lock)
-    .with_dlq(infra.dlq.clone());
+    .with_dlq(infra.dlq.clone())
+    .with_session_cancel_tokens(session_cancel_tokens);
     tokio::spawn(async move {
         if let Err(e) = worker_pool.run(shutdown).await {
             error!(%e, "worker pool error");
@@ -1121,6 +1124,7 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         research_service: None,
         stream_registry: deps.stream_registry,
         mobile_events: deps.mobile_events,
+        session_cancel_tokens: deps.session_cancel_tokens,
         mobile_auth,
         mobile_enabled: config.auth.jwt.is_some(),
         mobile_read_rate_limit_per_minute: None,
@@ -1817,6 +1821,11 @@ impl Bootstrap {
 
         let checkpoint_store = build_checkpoint_store(&self.config.redis.url);
 
+        // Create shared cancel tokens upfront so both the HTTP router (cancel
+        // endpoint) and the worker pool share the same map.
+        let session_cancel_tokens: orka_worker::SessionCancelTokens =
+            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+
         start_http_server(HttpServerDeps {
             config: &self.config,
             infra: &self.infra,
@@ -1833,6 +1842,7 @@ impl Bootstrap {
             auth_enabled: self.auth_enabled,
             stream_registry: self.stream_registry.clone(),
             mobile_events: self.mobile_events.clone(),
+            session_cancel_tokens: session_cancel_tokens.clone(),
         })
         .await?;
 
@@ -1874,6 +1884,7 @@ impl Bootstrap {
             dispatcher,
             memory_lock,
             self.shutdown.clone(),
+            session_cancel_tokens,
         );
 
         // 15. Scheduler loop

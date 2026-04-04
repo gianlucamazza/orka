@@ -70,6 +70,10 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         mobile::handle_get_artifact_content,
         mobile::handle_list_messages,
         mobile::handle_send_message,
+        mobile::handle_mark_read,
+        mobile::handle_delete_message,
+        mobile::handle_cancel_generation,
+        mobile::handle_retry_generation,
         mobile::handle_stream,
         mobile::handle_create_pairing,
         mobile::handle_get_pairing_status,
@@ -129,6 +133,8 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         mobile::SendMessageRequest,
         mobile::SendMessageResponse,
         mobile::UploadArtifactResponse,
+        mobile::MarkReadRequest,
+        mobile::UpdateConversationRequest,
     )),
     tags(
         (name = "messages", description = "Message endpoints"),
@@ -296,6 +302,11 @@ pub struct RouterParams {
     pub stream_registry: orka_core::StreamRegistry,
     /// Product-facing mobile event hub.
     pub mobile_events: MobileEventHub,
+    /// Shared cancellation token map from the worker pool.
+    ///
+    /// Used by `POST /mobile/v1/conversations/{id}/cancel` to abort an
+    /// in-progress generation without stopping the worker.
+    pub session_cancel_tokens: orka_worker::SessionCancelTokens,
     /// Optional mobile auth service for QR pairing and refresh.
     pub mobile_auth: Option<Arc<dyn MobileAuthService>>,
     /// Whether the mobile product API should be exposed.
@@ -356,6 +367,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         research_service,
         stream_registry,
         mobile_events,
+        session_cancel_tokens,
         mobile_auth,
         mobile_enabled,
         mobile_read_rate_limit_per_minute,
@@ -457,6 +469,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
             bus,
             stream_registry,
             mobile_events,
+            session_cancel_tokens,
             mobile_auth,
         )
         .layer(axum::middleware::from_fn_with_state(

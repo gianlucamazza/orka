@@ -10,7 +10,7 @@ use axum::{
         IntoResponse, Response,
         sse::{Event, Sse},
     },
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use chrono::{DateTime, Utc};
 use governor::{Quota, RateLimiter, state::keyed::DefaultKeyedStateStore};
@@ -172,6 +172,7 @@ pub(super) struct ProtectedMobileState {
     bus: Arc<dyn MessageBus>,
     stream_registry: StreamRegistry,
     mobile_events: MobileEventHub,
+    session_cancel_tokens: orka_worker::SessionCancelTokens,
     mobile_auth: Option<Arc<dyn MobileAuthService>>,
 }
 
@@ -247,7 +248,19 @@ pub(super) struct ConversationListItem {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub(super) struct UpdateConversationRequest {
-    archived: bool,
+    /// Archive (`true`) or unarchive (`false`) the conversation.
+    #[serde(default)]
+    archived: Option<bool>,
+    /// Rename the conversation. Must be non-blank when provided.
+    #[serde(default)]
+    title: Option<String>,
+    /// Pin (`true`) or unpin (`false`) the conversation.
+    #[serde(default)]
+    pinned: Option<bool>,
+    /// Replace the conversation's tag list. Pass an empty array to clear all
+    /// tags.
+    #[serde(default)]
+    tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -403,6 +416,7 @@ pub(super) fn protected_routes(
     bus: Arc<dyn MessageBus>,
     stream_registry: StreamRegistry,
     mobile_events: MobileEventHub,
+    session_cancel_tokens: orka_worker::SessionCancelTokens,
     mobile_auth: Option<Arc<dyn MobileAuthService>>,
 ) -> Router {
     let state = ProtectedMobileState {
@@ -411,6 +425,7 @@ pub(super) fn protected_routes(
         bus,
         stream_registry,
         mobile_events,
+        session_cancel_tokens,
         mobile_auth,
     };
 
@@ -443,6 +458,18 @@ pub(super) fn protected_routes(
             get(handle_list_messages).post(handle_send_message),
         )
         .route("/mobile/v1/conversations/{id}/read", post(handle_mark_read))
+        .route(
+            "/mobile/v1/conversations/{id}/messages/{message_id}",
+            delete(handle_delete_message),
+        )
+        .route(
+            "/mobile/v1/conversations/{id}/cancel",
+            post(handle_cancel_generation),
+        )
+        .route(
+            "/mobile/v1/conversations/{id}/retry",
+            post(handle_retry_generation),
+        )
         .route("/mobile/v1/conversations/{id}/stream", get(handle_stream))
         .with_state(state)
 }
@@ -775,13 +802,21 @@ async fn handle_get_conversation(
     ),
     tag = "mobile"
 )]
-/// PATCH `/mobile/v1/conversations/{id}` — archive or unarchive a conversation.
+/// PATCH `/mobile/v1/conversations/{id}` — update conversation metadata.
 async fn handle_update_conversation(
     State(state): State<ProtectedMobileState>,
     Extension(identity): Extension<AuthIdentity>,
     Path(id): Path<String>,
     Json(body): Json<UpdateConversationRequest>,
 ) -> impl IntoResponse {
+    if body.archived.is_none()
+        && body.title.is_none()
+        && body.pinned.is_none()
+        && body.tags.is_none()
+    {
+        return error_response(StatusCode::BAD_REQUEST, "no fields to update");
+    }
+
     let conversation_id = match parse_conversation_id(&id) {
         Ok(id) => id,
         Err(response) => return response,
@@ -792,11 +827,22 @@ async fn handle_update_conversation(
         Err(response) => return response,
     };
 
-    conversation.archived_at = if body.archived {
-        Some(Utc::now())
-    } else {
-        None
-    };
+    if let Some(archived) = body.archived {
+        conversation.archived_at = if archived { Some(Utc::now()) } else { None };
+    }
+    if let Some(title) = body.title {
+        let trimmed = title.trim().to_string();
+        if trimmed.is_empty() {
+            return error_response(StatusCode::BAD_REQUEST, "title must not be blank");
+        }
+        conversation.title = trimmed;
+    }
+    if let Some(pinned) = body.pinned {
+        conversation.pinned = pinned;
+    }
+    if let Some(tags) = body.tags {
+        conversation.tags = tags;
+    }
     conversation.updated_at = Utc::now();
 
     match state.conversations.put_conversation(&conversation).await {
@@ -851,11 +897,12 @@ async fn handle_delete_conversation(
     path = "/mobile/v1/conversations/{id}/messages",
     params(
         ("id" = String, Path, description = "Conversation identifier"),
-        ("limit" = Option<usize>, Query, description = "Optional page size. Defaults to the full transcript after offset when omitted, capped at 100 when provided."),
-        ("offset" = Option<usize>, Query, description = "Zero-based offset into the ascending transcript.")
+        ("limit" = Option<usize>, Query, description = "Maximum messages to return. Defaults to 20 when omitted, capped at 100."),
+        ("after" = Option<String>, Query, description = "Opaque cursor. Return messages strictly after this position. Mutually exclusive with `before`. Read from the `x-next-cursor` response header."),
+        ("before" = Option<String>, Query, description = "Opaque cursor. Return messages strictly before this position. Mutually exclusive with `after`. Read from the `x-prev-cursor` response header.")
     ),
     responses(
-        (status = 200, description = "Conversation transcript page", body = [ConversationMessage]),
+        (status = 200, description = "Conversation transcript page. Response headers `x-next-cursor` and `x-prev-cursor` carry opaque pagination cursors derived from the last and first messages in the page respectively.", body = [ConversationMessage]),
         (status = 400, description = "Invalid request parameters", body = ApiError),
         (status = 401, description = "Authentication required", body = ApiError),
         (status = 404, description = "Conversation not found", body = ApiError),
@@ -926,6 +973,22 @@ async fn handle_list_messages(
     (headers, Json(messages)).into_response()
 }
 
+#[utoipa::path(
+    post,
+    path = "/mobile/v1/conversations/{id}/read",
+    params(
+        ("id" = String, Path, description = "Conversation identifier")
+    ),
+    request_body = MarkReadRequest,
+    responses(
+        (status = 204, description = "Read watermark advanced"),
+        (status = 400, description = "Invalid conversation or message id", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Conversation or message not found", body = ApiError),
+        (status = 500, description = "Internal error", body = ApiError)
+    ),
+    tag = "mobile"
+)]
 /// POST `/mobile/v1/conversations/{id}/read` — advance the read watermark.
 async fn handle_mark_read(
     State(state): State<ProtectedMobileState>,
@@ -967,6 +1030,220 @@ async fn handle_mark_read(
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => internal_error(error),
     }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/mobile/v1/conversations/{id}/messages/{message_id}",
+    params(
+        ("id" = String, Path, description = "Conversation identifier"),
+        ("message_id" = String, Path, description = "Message identifier")
+    ),
+    responses(
+        (status = 204, description = "Message deleted"),
+        (status = 400, description = "Invalid id", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Conversation or message not found", body = ApiError),
+        (status = 500, description = "Internal error", body = ApiError)
+    ),
+    tag = "mobile"
+)]
+/// DELETE `/mobile/v1/conversations/{id}/messages/{message_id}` — remove a
+/// single message from the conversation transcript.
+async fn handle_delete_message(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path((id, message_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let conversation_id = match parse_conversation_id(&id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    if let Err(response) = load_owned_conversation(&state, &identity, conversation_id).await {
+        return response;
+    }
+
+    let message_id = match Uuid::parse_str(&message_id) {
+        Ok(uuid) => MessageId::from(uuid),
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "invalid message id"),
+    };
+
+    match state
+        .conversations
+        .get_message(&conversation_id, &message_id)
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "message not found"),
+        Err(error) => return internal_error(error),
+    }
+
+    match state
+        .conversations
+        .delete_message(&conversation_id, &message_id)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => internal_error(error),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/mobile/v1/conversations/{id}/cancel",
+    params(
+        ("id" = String, Path, description = "Conversation identifier")
+    ),
+    responses(
+        (status = 202, description = "Cancellation accepted"),
+        (status = 400, description = "Invalid conversation id", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Conversation not found", body = ApiError),
+        (status = 409, description = "No active generation to cancel", body = ApiError),
+        (status = 500, description = "Internal error", body = ApiError)
+    ),
+    tag = "mobile"
+)]
+/// POST `/mobile/v1/conversations/{id}/cancel` — cancel an in-progress
+/// generation.
+async fn handle_cancel_generation(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let conversation_id = match parse_conversation_id(&id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let mut conversation = match load_owned_conversation(&state, &identity, conversation_id).await {
+        Ok(c) => c,
+        Err(response) => return response,
+    };
+
+    let cancelled = state
+        .session_cancel_tokens
+        .lock()
+        .map(|tokens| {
+            if let Some(token) = tokens.get(&conversation.session_id) {
+                token.cancel();
+                true
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false);
+
+    if !cancelled {
+        return error_response(StatusCode::CONFLICT, "no active generation to cancel");
+    }
+
+    conversation.status = ConversationStatus::Active;
+    conversation.updated_at = Utc::now();
+    match state.conversations.put_conversation(&conversation).await {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(error) => internal_error(error),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/mobile/v1/conversations/{id}/retry",
+    params(
+        ("id" = String, Path, description = "Conversation identifier")
+    ),
+    responses(
+        (status = 202, description = "Retry accepted", body = SendMessageResponse),
+        (status = 400, description = "Invalid conversation id or no user message found", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Conversation not found", body = ApiError),
+        (status = 409, description = "Conversation is not in failed state", body = ApiError),
+        (status = 500, description = "Internal error", body = ApiError)
+    ),
+    tag = "mobile"
+)]
+/// POST `/mobile/v1/conversations/{id}/retry` — retry the last failed
+/// generation.
+async fn handle_retry_generation(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let conversation_id = match parse_conversation_id(&id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let mut conversation = match load_owned_conversation(&state, &identity, conversation_id).await {
+        Ok(c) => c,
+        Err(response) => return response,
+    };
+
+    if conversation.status != ConversationStatus::Failed {
+        return error_response(StatusCode::CONFLICT, "conversation is not in failed state");
+    }
+
+    // Load the full transcript to find the last user message.
+    let messages = match state
+        .conversations
+        .list_messages(&conversation_id, None, None, usize::MAX)
+        .await
+    {
+        Ok(msgs) => msgs,
+        Err(error) => return internal_error(error),
+    };
+
+    let last_user_message = messages
+        .iter()
+        .rev()
+        .find(|m| m.role == ConversationMessageRole::User);
+
+    let user_message = match last_user_message {
+        Some(m) => m.clone(),
+        None => {
+            return error_response(StatusCode::BAD_REQUEST, "no user message to retry");
+        }
+    };
+
+    // Remove any trailing failed/pending assistant messages after the last user
+    // message.
+    let user_msg_idx = messages
+        .iter()
+        .rposition(|m| m.id == user_message.id)
+        .unwrap_or(messages.len());
+    for msg in messages.iter().skip(user_msg_idx + 1) {
+        let _ = state
+            .conversations
+            .delete_message(&conversation_id, &msg.id)
+            .await;
+    }
+
+    // Re-publish the user message text to the inbound bus.
+    let mut envelope = orka_core::Envelope::with_payload(
+        "mobile",
+        conversation.session_id,
+        Payload::Text(user_message.text.clone()),
+        &orka_core::Envelope::text("mobile", conversation.session_id, ""),
+    );
+    envelope.id = user_message.id.as_uuid().into();
+
+    conversation.status = ConversationStatus::Active;
+    conversation.updated_at = Utc::now();
+    if let Err(error) = state.conversations.put_conversation(&conversation).await {
+        return internal_error(error);
+    }
+
+    if let Err(error) = state.bus.publish("inbound", &envelope).await {
+        return internal_error(error);
+    }
+
+    (
+        StatusCode::ACCEPTED,
+        Json(SendMessageResponse {
+            conversation_id,
+            session_id: conversation.session_id,
+            message_id: user_message.id,
+        }),
+    )
+        .into_response()
 }
 
 #[utoipa::path(

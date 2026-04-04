@@ -37,15 +37,25 @@ Base path: `/mobile/v1`
 | `GET` | `/artifacts/{id}/content` | Fetch artifact bytes with bearer auth |
 | `GET` | `/conversations/{id}/messages` | Fetch transcript messages |
 | `POST` | `/conversations/{id}/messages` | Append a user message and enqueue Orka processing |
+| `POST` | `/conversations/{id}/read` | Advance the read watermark for the conversation |
 | `GET` | `/conversations/{id}/stream` | Stream assistant progress and completion events as SSE |
+| `PATCH` | `/conversations/{id}` | Update conversation metadata (archive, rename, pin, tags) |
+| `DELETE` | `/conversations/{id}` | Permanently delete a conversation and its transcript |
+| `POST` | `/conversations/{id}/cancel` | Cancel an in-progress generation |
+| `DELETE` | `/conversations/{id}/messages/{message_id}` | Delete a single message from the transcript |
+| `POST` | `/conversations/{id}/retry` | Retry the last failed generation |
 
 Pagination:
 
 - `GET /conversations` accepts `limit` and `offset`.
   Default `limit = 20`, maximum `limit = 100`.
-- `GET /conversations/{id}/messages` accepts `limit` and `offset`.
-  When `limit` is omitted, the transcript is returned from `offset` onward.
-  When provided, `limit` is capped at `100`.
+- `GET /conversations/{id}/messages` uses cursor-based pagination.
+  Parameters: `limit` (default 20, capped at 100), `after` (exclusive lower bound cursor),
+  `before` (exclusive upper bound cursor). `after` and `before` are mutually exclusive.
+  Response headers: `x-next-cursor` (cursor past the last returned message),
+  `x-prev-cursor` (cursor before the first returned message).
+  To load older history: request with `before=<x-prev-cursor>`.
+  To load newer messages: request with `after=<x-next-cursor>`.
 
 Pairing semantics:
 
@@ -62,24 +72,37 @@ Pairing semantics:
 
 The stream endpoint emits Server-Sent Events with these event names:
 
+- `typing_started`
+  Data: `{ "conversation_id" }`
+  Emitted when the model begins generating. Useful for showing a typing indicator.
 - `message_delta`
   Data: `{ "conversation_id", "reply_to"?, "delta" }`
+  Carries incremental assistant text while the model is responding.
+- `thinking_delta`
+  Data: `{ "conversation_id", "delta" }`
+  Carries incremental reasoning/thinking text (only when extended thinking is enabled).
+- `tool_exec_start`
+  Data: `{ "conversation_id", "id", "name", "input_summary"?, "category"? }`
+  Emitted when Orka begins executing a skill or tool.
+- `tool_exec_end`
+  Data: `{ "conversation_id", "id", "success", "duration_ms", "error"?, "result_summary"? }`
+  Emitted when Orka finishes executing a skill or tool.
+- `agent_switch`
+  Data: `{ "conversation_id", "display_name" }`
+  Emitted when the multi-agent graph transitions to a different agent.
 - `artifact_ready`
   Data: `{ "conversation_id", "artifact": ConversationArtifact }`
+  Emitted when an assistant output artifact has been durably persisted and can
+  already be fetched through the content endpoint.
 - `message_completed`
   Data: `{ "message": ConversationMessage }`
+  Emitted only after the assistant message has been persisted to the transcript.
 - `message_failed`
   Data: `{ "conversation_id", "error" }`
+  Indicates a terminal generation failure.
 - `stream_done`
   Data: `{ "conversation_id" }`
-
-`message_delta` carries incremental assistant text while the model is
-responding. `artifact_ready` is emitted when an assistant output artifact has
-been durably persisted and can already be fetched through the content endpoint.
-`message_completed` is emitted only after the assistant message has been
-persisted to the conversation transcript. `message_failed` indicates a terminal
-generation failure. `stream_done` only indicates that the transport stream
-finished; it does not imply success.
+  Only indicates that the transport stream finished; it does not imply success.
 
 Client rules:
 

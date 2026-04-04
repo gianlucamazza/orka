@@ -246,6 +246,44 @@ impl ConversationStore for RedisConversationStore {
         Ok(apply_message_cursors(all, after, before, limit))
     }
 
+    async fn delete_message(
+        &self,
+        conversation_id: &ConversationId,
+        message_id: &orka_core::MessageId,
+    ) -> Result<()> {
+        let mut conn = crate::retry::get_conn_with_retry(&self.pool)
+            .await
+            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+        let key = Self::messages_key(conversation_id);
+        let values: Vec<String> = conn
+            .lrange(&key, 0, -1)
+            .await
+            .map_err(|e| Error::bus(format!("redis LRANGE error: {e}")))?;
+
+        let remaining: Vec<String> = values
+            .into_iter()
+            .filter(|json| {
+                serde_json::from_str::<ConversationMessage>(json)
+                    .ok()
+                    .is_none_or(|item| &item.id != message_id)
+            })
+            .collect();
+
+        // Atomically replace the list.
+        let _: () = conn
+            .del(&key)
+            .await
+            .map_err(|e| Error::bus(format!("redis DEL error: {e}")))?;
+        if !remaining.is_empty() {
+            let _: () = conn
+                .rpush(&key, remaining)
+                .await
+                .map_err(|e| Error::bus(format!("redis RPUSH error: {e}")))?;
+        }
+
+        Ok(())
+    }
+
     async fn set_read_watermark(
         &self,
         user_id: &str,
