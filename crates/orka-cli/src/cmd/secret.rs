@@ -17,8 +17,12 @@ fn runtime_secret_config(config: &orka_config::SecretConfig) -> orka_secrets::Se
     let mut runtime = orka_secrets::SecretConfig::default();
     runtime.backend = backend;
     runtime.file_path.clone_from(&config.file_path);
-    runtime.encryption_key_path.clone_from(&config.encryption_key_path);
-    runtime.encryption_key_env.clone_from(&config.encryption_key_env);
+    runtime
+        .encryption_key_path
+        .clone_from(&config.encryption_key_path);
+    runtime
+        .encryption_key_env
+        .clone_from(&config.encryption_key_env);
     runtime.redis.url.clone_from(&config.redis.url);
     runtime
 }
