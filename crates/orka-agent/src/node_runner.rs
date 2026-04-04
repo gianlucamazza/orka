@@ -1420,7 +1420,16 @@ async fn parse_completion_blocks(
         match block {
             ContentBlock::Thinking(t) => thinking_text.push_str(t),
             ContentBlock::Text(t) => response_text.push_str(t),
-            ContentBlock::ToolUse(call) => tool_calls.push(call.clone()),
+            ContentBlock::ToolUse(call) => {
+                if call.name.trim().is_empty() {
+                    warn!(
+                        message_id = %message_id,
+                        "dropping tool call with empty name before skill dispatch"
+                    );
+                    continue;
+                }
+                tool_calls.push(call.clone());
+            }
             _ => debug!("unhandled content block"),
         }
     }
@@ -2036,6 +2045,23 @@ mod tests {
         let mut counts = HashMap::new();
         counts.insert("my_tool".to_string(), 1u32);
         assert!(build_tool_error_hint(&counts, 2).is_none());
+    }
+
+    #[tokio::test]
+    async fn parse_completion_blocks_drops_empty_tool_names() {
+        let agent = Agent::new(AgentId::new("test"), "Test");
+        let deps = minimal_deps(MockLlmClient::new());
+        let completion = CompletionResponseBuilder::new()
+            .tool_use("id1", "", serde_json::json!({}))
+            .tool_use("id2", "shell_exec", serde_json::json!({"command": "pwd"}))
+            .build();
+
+        let (_text, calls) =
+            parse_completion_blocks(&agent, &deps, &completion, orka_core::types::MessageId::new())
+                .await;
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "shell_exec");
     }
 
     #[test]

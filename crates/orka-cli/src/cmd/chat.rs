@@ -356,6 +356,13 @@ fn strip_line_continuations(s: &str) -> String {
     s.replace("\\\n", "")
 }
 
+fn should_attach_workspace_cwd(
+    client: &OrkaClient,
+    include_workspace_cwd: bool,
+) -> bool {
+    include_workspace_cwd && client.targets_localhost()
+}
+
 /// Expand `@path` tokens in a message to inline file content as code fences.
 ///
 /// `@path/to/file.rs` is replaced with a fenced code block containing the
@@ -437,6 +444,7 @@ pub async fn run(
     server_client: &OrkaClient,
     session_id: Option<&str>,
     local_workspace: Option<crate::workspace::LocalWorkspace>,
+    include_workspace_cwd: bool,
 ) -> Result<()> {
     let sid = OrkaClient::resolve_session_id(session_id);
 
@@ -1186,10 +1194,12 @@ pub async fn run(
 
                 let metadata = {
                     let mut meta = std::collections::HashMap::new();
-                    meta.insert(
-                        "workspace:cwd".to_string(),
-                        serde_json::Value::String(cwd.to_string_lossy().into_owned()),
-                    );
+                    if should_attach_workspace_cwd(client, include_workspace_cwd) {
+                        meta.insert(
+                            "workspace:cwd".to_string(),
+                            serde_json::Value::String(cwd.to_string_lossy().into_owned()),
+                        );
+                    }
                     if !workspace_sent {
                         workspace_sent = true;
                         if let Some(ref ws) = local_workspace {
@@ -1513,5 +1523,14 @@ mod tests {
         // A lone `@` with no path should be left as-is
         let result = expand_file_attachments("@ alone");
         assert!(result.contains('@'));
+    }
+
+    #[test]
+    fn should_attach_workspace_cwd_only_for_local_targets() {
+        let local = OrkaClient::new("http://127.0.0.1:8081", None);
+        let remote = OrkaClient::new("http://192.168.1.103:18081", None);
+        assert!(should_attach_workspace_cwd(&local, true));
+        assert!(!should_attach_workspace_cwd(&local, false));
+        assert!(!should_attach_workspace_cwd(&remote, true));
     }
 }

@@ -791,11 +791,13 @@ impl GraphExecutor {
                     }
                 }
 
-                NodeKind::FanOut => {
+                NodeKind::FanOut { max_concurrency } => {
                     // Fan-out: dispatch Agent/Router/FanOut successors in parallel.
                     // Any FanIn-kind successor is the continuation node reached after
                     // all parallel branches complete.
                     let edges = graph.outgoing_edges(&current_id);
+                    let semaphore = max_concurrency
+                        .map(|n| std::sync::Arc::new(tokio::sync::Semaphore::new(n)));
                     let mut join_set = tokio::task::JoinSet::new();
                     let mut fan_in_id: Option<AgentId> = None;
 
@@ -813,8 +815,18 @@ impl GraphExecutor {
                         let ctx = ctx.clone();
                         let deps = self.deps.clone();
                         let graph_clone = graph.clone();
+                        let sem = semaphore.clone();
 
                         join_set.spawn(async move {
+                            // Acquire a concurrency permit if a limit is set.
+                            // Dropping `_permit` at the end of this block releases
+                            // the slot for the next waiting branch.
+                            let _permit = if let Some(s) = &sem {
+                                #[allow(clippy::expect_used)]
+                                Some(s.acquire().await.expect("fan-out semaphore closed"))
+                            } else {
+                                None
+                            };
                             {
                                 deps.stream_registry.send(StreamChunk::new(
                                     ctx.session_id,

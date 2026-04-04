@@ -22,7 +22,13 @@ pub enum NodeKind {
     /// successor.
     Router,
     /// Dispatches to all successors in parallel (fan-out).
-    FanOut,
+    ///
+    /// When `max_concurrency` is `Some(n)`, at most `n` branches run
+    /// concurrently. `None` (the default) means unlimited parallelism.
+    FanOut {
+        /// Maximum number of branches to execute concurrently.
+        max_concurrency: Option<usize>,
+    },
     /// Waits for all predecessors to complete, then synthesizes results.
     FanIn,
 }

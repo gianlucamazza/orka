@@ -48,6 +48,24 @@ impl OrkaClient {
         &self.base_url
     }
 
+    /// Heuristic for whether the server is co-located with the CLI process.
+    ///
+    /// We only treat explicit loopback hosts as local. Everything else,
+    /// including LAN/private IPs, is treated as remote because the server may
+    /// not be able to access the client's filesystem.
+    pub fn targets_localhost(&self) -> bool {
+        let Ok(url) = url::Url::parse(&self.base_url) else {
+            return false;
+        };
+        match url.host_str() {
+            Some("localhost") => true,
+            Some(host) => {
+                host == "127.0.0.1" || host == "::1" || host.starts_with("[::1]")
+            }
+            None => false,
+        }
+    }
+
     /// Build a request with the correct base URL and API key header attached.
     fn request_builder(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
         let url = format!("{}{path}", self.base_url);
@@ -262,6 +280,20 @@ mod tests {
     #[test]
     fn percent_encode_special_chars() {
         assert_eq!(percent_encode("a&b=c #"), "a%26b%3Dc%20%23");
+    }
+
+    #[test]
+    fn targets_localhost_accepts_loopback_hosts() {
+        assert!(OrkaClient::new("http://localhost:8080", None).targets_localhost());
+        assert!(OrkaClient::new("http://127.0.0.1:8080", None).targets_localhost());
+        assert!(OrkaClient::new("http://[::1]:8080", None).targets_localhost());
+    }
+
+    #[test]
+    fn targets_localhost_rejects_non_loopback_hosts() {
+        assert!(!OrkaClient::new("http://192.168.1.103:18080", None).targets_localhost());
+        assert!(!OrkaClient::new("https://orka-odroid", None).targets_localhost());
+        assert!(!OrkaClient::new("not a url", None).targets_localhost());
     }
 
     #[test]

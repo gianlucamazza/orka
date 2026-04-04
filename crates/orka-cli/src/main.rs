@@ -508,7 +508,15 @@ async fn main() {
             } else {
                 workspace::discover()
             };
-            cmd::send::run(&adapter_client, &text, session_id.as_deref(), timeout, ws).await
+            cmd::send::run(
+                &adapter_client,
+                &text,
+                session_id.as_deref(),
+                timeout,
+                ws,
+                !no_workspace,
+            )
+            .await
         }
         Commands::Chat {
             session_id,
@@ -519,7 +527,14 @@ async fn main() {
             } else {
                 workspace::discover()
             };
-            cmd::chat::run(&adapter_client, &server_client, session_id.as_deref(), ws).await
+            cmd::chat::run(
+                &adapter_client,
+                &server_client,
+                session_id.as_deref(),
+                ws,
+                !no_workspace,
+            )
+            .await
         }
         Commands::Dlq { action } => match action {
             DlqAction::List => cmd::dlq::list(&server_client).await,

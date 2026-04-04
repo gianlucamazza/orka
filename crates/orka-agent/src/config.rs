@@ -44,7 +44,7 @@ pub async fn build_graph_from_config(
         let kind = match agent_def.kind {
             NodeKindDef::Agent => NodeKind::Agent,
             NodeKindDef::Router => NodeKind::Router,
-            NodeKindDef::FanOut => NodeKind::FanOut,
+            NodeKindDef::FanOut => NodeKind::FanOut { max_concurrency: None },
             NodeKindDef::FanIn => NodeKind::FanIn,
         };
         graph.add_node(GraphNode { agent, kind });
@@ -120,7 +120,7 @@ pub async fn build_graph_from_config(
                 // Auto-generate FanOut: entry dispatches all other agents in parallel.
                 // Mark the entry node as FanOut kind.
                 if let Some(node) = graph.get_node_mut(&entry_id) {
-                    node.kind = NodeKind::FanOut;
+                    node.kind = NodeKind::FanOut { max_concurrency: None };
                 }
                 for agent_def in agents {
                     let target_id = AgentId::from(agent_def.id.as_str());
@@ -446,7 +446,7 @@ mod tests {
 
         let fanout_id = crate::agent::AgentId::new("fanout");
         let node = graph.get_node(&fanout_id).expect("fanout missing");
-        assert!(matches!(node.kind, NodeKind::FanOut));
+        assert!(matches!(node.kind, NodeKind::FanOut { .. }));
         // FanOut nodes must not get handoff targets
         assert!(node.agent.handoff_targets.is_empty());
     }
@@ -582,7 +582,7 @@ mod tests {
 
         let entry_id = crate::agent::AgentId::new("entry");
         let node = graph.get_node(&entry_id).expect("entry missing");
-        assert!(matches!(node.kind, NodeKind::FanOut));
+        assert!(matches!(node.kind, NodeKind::FanOut { .. }));
 
         let edges = graph.outgoing_edges(&entry_id);
         assert_eq!(edges.len(), 2, "entry should fan out to both workers");

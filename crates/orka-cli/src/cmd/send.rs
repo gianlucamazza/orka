@@ -14,6 +14,7 @@ pub async fn run(
     session_id: Option<&str>,
     timeout_secs: u64,
     local_workspace: Option<crate::workspace::LocalWorkspace>,
+    include_workspace_cwd: bool,
 ) -> Result<()> {
     let sid = OrkaClient::resolve_session_id(session_id);
 
@@ -27,15 +28,17 @@ pub async fn run(
         .as_ref()
         .map(crate::workspace::LocalWorkspace::to_metadata)
         .unwrap_or_default();
-    metadata.insert(
-        "workspace:cwd".to_string(),
-        serde_json::Value::String(
-            std::env::current_dir()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned(),
-        ),
-    );
+    if include_workspace_cwd && client.targets_localhost() {
+        metadata.insert(
+            "workspace:cwd".to_string(),
+            serde_json::Value::String(
+                std::env::current_dir()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+        );
+    }
     let metadata = Some(metadata);
 
     // Connect WebSocket BEFORE sending the HTTP message to avoid missing fast

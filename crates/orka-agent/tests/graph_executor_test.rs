@@ -688,7 +688,7 @@ async fn fan_out_runs_all_successors() {
     let mut graph = AgentGraph::new("g", fanout.clone());
     graph.add_node(GraphNode {
         agent: agent("fanout"),
-        kind: NodeKind::FanOut,
+        kind: NodeKind::FanOut { max_concurrency: None },
     });
     graph.add_node(agent_node("b"));
     graph.add_node(agent_node("c"));
@@ -724,6 +724,85 @@ async fn fan_out_runs_all_successors() {
     // The final response is whichever branch finished last (non-deterministic),
     // so just assert non-empty (response could be "b response" or "c
     // response")
+}
+
+/// `FanOut` with `max_concurrency=1` still runs all successors (sequentially).
+#[tokio::test]
+async fn fan_out_max_concurrency_one_runs_all_successors() {
+    let fanout = AgentId::new("fanout");
+    let b = AgentId::new("b");
+    let c = AgentId::new("c");
+    let d = AgentId::new("d");
+
+    let mut graph = AgentGraph::new("g", fanout.clone());
+    graph.add_node(GraphNode {
+        agent: agent("fanout"),
+        kind: NodeKind::FanOut { max_concurrency: Some(1) },
+    });
+    graph.add_node(agent_node("b"));
+    graph.add_node(agent_node("c"));
+    graph.add_node(agent_node("d"));
+    for (target, priority) in [(&b, 0), (&c, 1), (&d, 2)] {
+        graph.add_edge(
+            fanout.clone(),
+            Edge {
+                target: target.clone(),
+                condition: None,
+                priority,
+            },
+        );
+    }
+
+    let llm = Arc::new(MockLlm::new(vec![
+        MockResp::Text("b".into()),
+        MockResp::Text("c".into()),
+        MockResp::Text("d".into()),
+    ]));
+    let ctx = make_ctx();
+    let result = GraphExecutor::new(make_deps(llm))
+        .execute(&graph, &ctx)
+        .await
+        .unwrap();
+
+    // All 3 successors must complete successfully.
+    assert!(!result.response.is_empty());
+}
+
+/// `FanOut` with `max_concurrency=2` successfully completes all 4 branches.
+#[tokio::test]
+async fn fan_out_max_concurrency_two_completes_four_branches() {
+    let fanout = AgentId::new("fanout");
+
+    let mut graph = AgentGraph::new("g", fanout.clone());
+    graph.add_node(GraphNode {
+        agent: agent("fanout"),
+        kind: NodeKind::FanOut { max_concurrency: Some(2) },
+    });
+    for name in ["w1", "w2", "w3", "w4"] {
+        graph.add_node(agent_node(name));
+        graph.add_edge(
+            fanout.clone(),
+            Edge {
+                target: AgentId::new(name),
+                condition: None,
+                priority: 0,
+            },
+        );
+    }
+
+    let llm = Arc::new(MockLlm::new(vec![
+        MockResp::Text("r1".into()),
+        MockResp::Text("r2".into()),
+        MockResp::Text("r3".into()),
+        MockResp::Text("r4".into()),
+    ]));
+    let ctx = make_ctx();
+    let result = GraphExecutor::new(make_deps(llm))
+        .execute(&graph, &ctx)
+        .await
+        .unwrap();
+
+    assert!(!result.response.is_empty());
 }
 
 /// Handoff transfer: A transfers control to B; B's response becomes the final
@@ -1041,7 +1120,7 @@ async fn fan_out_continues_to_fan_in() {
     let mut graph = AgentGraph::new("g", AgentId::from("fanout"));
     graph.add_node(GraphNode {
         agent: agent("fanout"),
-        kind: NodeKind::FanOut,
+        kind: NodeKind::FanOut { max_concurrency: None },
     });
     graph.add_node(GraphNode {
         agent: agent("worker_a"),
@@ -1108,7 +1187,7 @@ async fn fan_out_non_complete_branch_stops_before_fan_in() {
     let mut graph = AgentGraph::new("g", AgentId::from("fanout"));
     graph.add_node(GraphNode {
         agent: agent("fanout"),
-        kind: NodeKind::FanOut,
+        kind: NodeKind::FanOut { max_concurrency: None },
     });
     graph.add_node(GraphNode {
         agent: agent("worker"),
@@ -1161,7 +1240,7 @@ async fn fan_in_continues_to_next_node() {
     let mut graph = AgentGraph::new("g", AgentId::from("fanout"));
     graph.add_node(GraphNode {
         agent: agent("fanout"),
-        kind: NodeKind::FanOut,
+        kind: NodeKind::FanOut { max_concurrency: None },
     });
     graph.add_node(GraphNode {
         agent: agent("worker"),
