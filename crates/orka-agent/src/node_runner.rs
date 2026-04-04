@@ -511,6 +511,22 @@ impl<'a> AgentNodeRunner<'a> {
         );
         let llm_start = std::time::Instant::now();
 
+        let llm_model_for_request = self
+            .agent
+            .llm_config
+            .model
+            .clone()
+            .unwrap_or_else(|| "default".into());
+        self.deps
+            .event_sink
+            .emit(DomainEvent::new(DomainEventKind::LlmRequest {
+                message_id: self.message_id,
+                model: llm_model_for_request.clone(),
+                provider: infer_provider(&llm_model_for_request),
+                iteration,
+            }))
+            .await;
+
         let stream = match self
             .llm
             .complete_stream_with_tools(
