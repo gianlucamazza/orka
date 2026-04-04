@@ -28,6 +28,7 @@ Default remediation order:
 Each crate should have one primary role.
 
 - `core` and low-level crates should expose contracts, shared types, and narrow utilities.
+- Configuration crates should own schema, loading, migrations, and validation; they should not become a second runtime composition root.
 - Persistence crates should not know LLM-specific or orchestration-specific domain types unless those types are truly infrastructural.
 - Orchestration crates may compose lower layers, but should avoid becoming a dumping ground for policy, storage, protocol mapping, and UI concerns together.
 

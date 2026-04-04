@@ -1,6 +1,6 @@
 # orka-config
 
-Composition root for Orka configuration.
+Canonical configuration surface for Orka.
 
 This crate owns:
 

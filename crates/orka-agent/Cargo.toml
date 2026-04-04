@@ -9,7 +9,6 @@ rust-version.workspace = true
 
 [dependencies]
 orka-core = { workspace = true }
-orka-config = { workspace = true }
 orka-llm = { workspace = true }
 orka-skills = { workspace = true }
 orka-experience = { workspace = true }

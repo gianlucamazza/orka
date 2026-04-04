@@ -1,7 +1,6 @@
-//! Translates `OrkaConfig` into `Agent` and `AgentGraph` objects.
+//! Translates validated agent and graph definitions into `AgentGraph` objects.
 
-use orka_config::OrkaConfig;
-use orka_core::config::{AgentDef, NodeKindDef, primitives::GraphExecutionMode};
+use orka_core::config::{AgentDef, GraphDef, NodeKindDef, primitives::GraphExecutionMode};
 use orka_llm::ThinkingConfig;
 use orka_workspace::WorkspaceRegistry;
 use tracing::warn;
@@ -13,20 +12,15 @@ use crate::{
     reducer::ReducerStrategy,
 };
 
-/// Build an `AgentGraph` from the `[[agents]]` + `[graph]` config sections.
-///
-/// Requires `OrkaConfig::validate()` to have run first, which ensures:
-/// - `config.agents` is non-empty (default single-agent entry applied if
-///   needed)
-/// - `config.graph` is `Some` (auto-created for single-agent, required for
-///   multi-agent)
-/// - Legacy `[agent]` has been promoted by the v4→v5 TOML migration
+/// Build an `AgentGraph` from validated `[[agents]]` + `[graph]` definitions.
 #[allow(clippy::too_many_lines)]
 pub async fn build_graph_from_config(
-    config: &OrkaConfig,
+    agents: &[AgentDef],
+    graph_def: Option<&GraphDef>,
+    llm_config: &orka_llm::LlmConfig,
     workspace_registry: &WorkspaceRegistry,
 ) -> orka_core::Result<AgentGraph> {
-    let graph_def = config.graph.as_ref().ok_or_else(|| {
+    let graph_def = graph_def.ok_or_else(|| {
         orka_core::Error::Config(
             "[[agents]] is set but [graph] is missing — call OrkaConfig::validate() first".into(),
         )
@@ -37,7 +31,7 @@ pub async fn build_graph_from_config(
         .entry
         .as_deref()
         .map(AgentId::from)
-        .or_else(|| config.agents.first().map(|a| AgentId::from(a.id.as_str())))
+        .or_else(|| agents.first().map(|a| AgentId::from(a.id.as_str())))
         .unwrap_or_else(|| AgentId::from("default"));
 
     let mut graph = AgentGraph::new("multi-agent", entry_id.clone());
@@ -45,8 +39,8 @@ pub async fn build_graph_from_config(
     graph.termination.max_total_iterations = graph_def.max_hops;
 
     // Build nodes from agent definitions
-    for agent_def in &config.agents {
-        let agent = build_agent_from_def(agent_def, &config.llm, workspace_registry).await;
+    for agent_def in agents {
+        let agent = build_agent_from_def(agent_def, llm_config, workspace_registry).await;
         let kind = match agent_def.kind {
             NodeKindDef::Agent => NodeKind::Agent,
             NodeKindDef::Router => NodeKind::Router,
@@ -103,12 +97,11 @@ pub async fn build_graph_from_config(
     // Apply execution_mode as a convenience shortcut when no explicit edges are
     // defined. When edges are present, the topology takes precedence and
     // execution_mode is ignored.
-    if graph_def.edges.is_empty() && config.agents.len() > 1 {
+    if graph_def.edges.is_empty() && agents.len() > 1 {
         match graph_def.execution_mode {
             GraphExecutionMode::Sequential => {
                 // Auto-generate a linear chain: A → B → C → ... in agent definition order.
-                let ids: Vec<AgentId> = config
-                    .agents
+                let ids: Vec<AgentId> = agents
                     .iter()
                     .map(|a| AgentId::from(a.id.as_str()))
                     .collect();
@@ -129,7 +122,7 @@ pub async fn build_graph_from_config(
                 if let Some(node) = graph.get_node_mut(&entry_id) {
                     node.kind = NodeKind::FanOut;
                 }
-                for agent_def in &config.agents {
+                for agent_def in agents {
                     let target_id = AgentId::from(agent_def.id.as_str());
                     if target_id == entry_id {
                         continue;
@@ -181,8 +174,7 @@ pub async fn build_graph_from_config(
     // Derive handoff_targets for Agent-kind nodes from their outgoing edges.
     // Router / FanOut / FanIn nodes use structural routing and must not receive
     // handoff tools.
-    let agent_ids: Vec<AgentId> = config
-        .agents
+    let agent_ids: Vec<AgentId> = agents
         .iter()
         .filter(|a| a.kind == NodeKindDef::Agent)
         .map(|a| AgentId::from(a.id.as_str()))
@@ -312,15 +304,8 @@ async fn build_agent_from_def(
 mod tests {
     use std::sync::Arc;
 
-    use orka_config::OrkaConfig;
     use orka_core::config::{AgentDef, EdgeDef, GraphDef};
     use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
-
-    fn base_config() -> OrkaConfig {
-        let mut cfg = OrkaConfig::default();
-        cfg.workspace_dir = ".".into();
-        cfg
-    }
 
     fn make_registry() -> WorkspaceRegistry {
         let mut reg = WorkspaceRegistry::new("default".into());
@@ -332,13 +317,21 @@ mod tests {
         AgentDef::new(id)
     }
 
+    async fn build_graph(
+        agents: &[AgentDef],
+        graph_def: Option<&GraphDef>,
+        registry: &WorkspaceRegistry,
+    ) -> orka_core::Result<crate::graph::AgentGraph> {
+        super::build_graph_from_config(agents, graph_def, &orka_llm::LlmConfig::default(), registry)
+            .await
+    }
+
     #[tokio::test]
     async fn single_agent_config_builds_one_node_graph() {
-        let mut config = base_config();
-        config.agents = vec![agent_def("orka")];
-        config.graph = Some(GraphDef::default());
+        let agents = vec![agent_def("orka")];
+        let graph_def = GraphDef::default();
         let registry = make_registry();
-        let graph = super::build_graph_from_config(&config, &registry)
+        let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build_graph_from_config failed");
 
@@ -349,17 +342,15 @@ mod tests {
 
     #[tokio::test]
     async fn multi_agent_config_builds_correct_topology() {
-        let mut config = base_config();
-        config.agents = vec![agent_def("router"), agent_def("worker")];
+        let agents = vec![agent_def("router"), agent_def("worker")];
         let mut edge = EdgeDef::new("router", "worker");
         edge.condition = Some("always".to_string());
-        let mut graph = GraphDef::default();
-        graph.max_hops = 20;
-        graph.edges = vec![edge];
-        config.graph = Some(graph);
+        let mut graph_def = GraphDef::default();
+        graph_def.max_hops = 20;
+        graph_def.edges = vec![edge];
 
         let registry = make_registry();
-        let graph = super::build_graph_from_config(&config, &registry)
+        let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build_graph_from_config failed");
 
@@ -380,17 +371,15 @@ mod tests {
 
         use crate::graph::NodeKind;
 
-        let mut config = base_config();
         let mut router = agent_def("router");
         router.kind = NodeKindDef::Router;
         let worker = agent_def("worker");
         let mut graph_def = GraphDef::default();
         graph_def.edges = vec![EdgeDef::new("router", "worker")];
-        config.agents = vec![router, worker];
-        config.graph = Some(graph_def);
+        let agents = vec![router, worker];
 
         let registry = make_registry();
-        let graph = super::build_graph_from_config(&config, &registry)
+        let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
 
@@ -403,15 +392,13 @@ mod tests {
 
     #[tokio::test]
     async fn entry_from_config_overrides_first_agent() {
-        let mut config = base_config();
-        config.agents = vec![agent_def("a"), agent_def("b")];
+        let agents = vec![agent_def("a"), agent_def("b")];
         let mut graph_def = GraphDef::default();
         graph_def.entry = Some("b".to_string());
         graph_def.edges = vec![EdgeDef::new("b", "a")];
-        config.graph = Some(graph_def);
 
         let registry = make_registry();
-        let graph = super::build_graph_from_config(&config, &registry)
+        let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
 
@@ -420,14 +407,12 @@ mod tests {
 
     #[tokio::test]
     async fn handoff_targets_derived_for_agent_nodes() {
-        let mut config = base_config();
-        config.agents = vec![agent_def("src"), agent_def("dst")];
+        let agents = vec![agent_def("src"), agent_def("dst")];
         let mut graph_def = GraphDef::default();
         graph_def.edges = vec![EdgeDef::new("src", "dst")];
-        config.graph = Some(graph_def);
 
         let registry = make_registry();
-        let graph = super::build_graph_from_config(&config, &registry)
+        let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
 
@@ -445,7 +430,6 @@ mod tests {
 
         use crate::graph::NodeKind;
 
-        let mut config = base_config();
         let mut fanout = agent_def("fanout");
         fanout.kind = NodeKindDef::FanOut;
         let mut graph_def = GraphDef::default();
@@ -453,11 +437,10 @@ mod tests {
             EdgeDef::new("fanout", "worker_a"),
             EdgeDef::new("fanout", "worker_b"),
         ];
-        config.agents = vec![fanout, agent_def("worker_a"), agent_def("worker_b")];
-        config.graph = Some(graph_def);
+        let agents = vec![fanout, agent_def("worker_a"), agent_def("worker_b")];
 
         let registry = make_registry();
-        let graph = super::build_graph_from_config(&config, &registry)
+        let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
 
@@ -470,11 +453,9 @@ mod tests {
 
     #[tokio::test]
     async fn agents_without_graph_section_returns_error() {
-        let mut config = base_config();
-        config.agents = vec![agent_def("solo")];
-        // graph is None — must error
+        let agents = vec![agent_def("solo")];
         let registry = make_registry();
-        let result = super::build_graph_from_config(&config, &registry).await;
+        let result = build_graph(&agents, None, &registry).await;
         assert!(result.is_err());
     }
 
@@ -519,14 +500,12 @@ mod tests {
 
     #[tokio::test]
     async fn max_hops_wired_into_termination_policy() {
-        let mut config = base_config();
-        config.agents = vec![agent_def("a")];
+        let agents = vec![agent_def("a")];
         let mut graph_def = GraphDef::default();
         graph_def.max_hops = 42;
-        config.graph = Some(graph_def);
 
         let registry = make_registry();
-        let graph = super::build_graph_from_config(&config, &registry)
+        let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
 
@@ -558,15 +537,12 @@ mod tests {
     async fn execution_mode_sequential_auto_generates_linear_edges() {
         use orka_core::config::primitives::GraphExecutionMode;
 
-        let mut config = base_config();
-        config.agents = vec![agent_def("a"), agent_def("b"), agent_def("c")];
+        let agents = vec![agent_def("a"), agent_def("b"), agent_def("c")];
         let mut graph_def = GraphDef::default();
         graph_def.execution_mode = GraphExecutionMode::Sequential;
-        // No explicit edges — sequential mode should auto-generate a→b→c chain.
-        config.graph = Some(graph_def);
 
         let registry = make_registry();
-        let graph = super::build_graph_from_config(&config, &registry)
+        let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
 
@@ -591,18 +567,16 @@ mod tests {
 
         use crate::graph::NodeKind;
 
-        let mut config = base_config();
-        config.agents = vec![
+        let agents = vec![
             agent_def("entry"),
             agent_def("worker_a"),
             agent_def("worker_b"),
         ];
         let mut graph_def = GraphDef::default();
         graph_def.execution_mode = GraphExecutionMode::Parallel;
-        config.graph = Some(graph_def);
 
         let registry = make_registry();
-        let graph = super::build_graph_from_config(&config, &registry)
+        let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
 

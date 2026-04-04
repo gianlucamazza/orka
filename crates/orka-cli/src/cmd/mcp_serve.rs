@@ -5,6 +5,21 @@ use orka_core::{testing::InMemorySecretManager, traits::SecretManager};
 
 use crate::client::Result;
 
+fn runtime_secret_config(config: &orka_config::SecretConfig) -> orka_secrets::SecretConfig {
+    let backend = match config.backend {
+        orka_config::SecretBackend::Redis => orka_secrets::SecretBackend::Redis,
+        orka_config::SecretBackend::File => orka_secrets::SecretBackend::File,
+        _ => orka_secrets::SecretBackend::default(),
+    };
+    let mut runtime = orka_secrets::SecretConfig::default();
+    runtime.backend = backend;
+    runtime.file_path = config.file_path.clone();
+    runtime.encryption_key_path = config.encryption_key_path.clone();
+    runtime.encryption_key_env = config.encryption_key_env.clone();
+    runtime.redis.url = config.redis.url.clone();
+    runtime
+}
+
 pub async fn run(config_path: Option<&str>) -> Result<()> {
     let config_path = config_path.map(std::path::Path::new);
     let config = OrkaConfig::load(config_path).ok();
@@ -33,7 +48,8 @@ pub async fn run(config_path: Option<&str>) -> Result<()> {
 
     // Use Redis-backed secret manager if Redis URL is available, else in-memory
     let secrets: Arc<dyn SecretManager> = if let Some(ref cfg) = config {
-        match orka_secrets::create_secret_manager(&cfg.secrets, &cfg.redis.url) {
+        let secret_config = runtime_secret_config(&cfg.secrets);
+        match orka_secrets::create_secret_manager(&secret_config, &cfg.redis.url) {
             Ok(mgr) => mgr,
             Err(_) => Arc::new(InMemorySecretManager::new()),
         }

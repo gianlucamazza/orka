@@ -9,9 +9,13 @@ current parser.
 
 ## Cargo Feature Flags (`orka-config`)
 
-`orka-config` uses Cargo features to make heavy subsystem dependencies optional.
+`orka-config` is the canonical schema, loading, and validation crate. Its Cargo
+features gate optional domain sections so partial builds can skip adapters and
+subsystems that are not compiled into the final binary. Runtime wiring still
+lives in composition crates such as `orka-server`.
+
 The `default = ["full"]` feature set enables everything, so normal builds are
-unaffected. Partial builds can skip unused subsystems:
+unaffected. Partial builds can skip unused config sections:
 
 ```bash
 # Check only the core config crate without optional subsystems

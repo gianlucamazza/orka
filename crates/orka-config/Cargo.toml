@@ -1,6 +1,6 @@
 [package]
 name = "orka-config"
-description = "Top-level Orka configuration composition, loading, and validation"
+description = "Canonical Orka configuration surface, loading, and validation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -35,11 +35,6 @@ orka-auth.workspace = true
 orka-infra.workspace = true
 orka-os.workspace = true
 orka-scheduler.workspace = true
-orka-gateway.workspace = true
-orka-memory.workspace = true
-orka-observe.workspace = true
-orka-wasm.workspace = true
-orka-secrets.workspace = true
 orka-skills.workspace = true
 orka-core.workspace = true
 orka-adapter-custom.workspace = true
@@ -57,7 +52,6 @@ orka-mcp = { workspace = true, optional = true }
 orka-prompts.workspace = true
 orka-research = { workspace = true, optional = true }
 orka-a2a = { workspace = true, optional = true }
-orka-web.workspace = true
 config.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -4,7 +4,6 @@ members = [
   # ── Core ──────────────────────────────────────────────────────────────────
   # Shared types, traits, error definitions, and standalone utilities
   "crates/orka-core",
-  "crates/orka-config",
   "crates/orka-circuit-breaker",
   "crates/orka-test-support",
 
@@ -17,21 +16,20 @@ members = [
   "crates/orka-observe",
 
   # ── AI / Intelligence ─────────────────────────────────────────────────────
-  # LLM client, RAG, prompt engine, guardrails, self-learning, evaluation
+  # LLM client, RAG, prompt engine, guardrails, and self-learning
   "crates/orka-llm",
   "crates/orka-knowledge",
   "crates/orka-prompts",
   "crates/orka-guardrails",
   "crates/orka-experience",
-  "crates/orka-eval",
-  "crates/orka-research",
 
   # ── Execution / Extensibility ─────────────────────────────────────────────
-  # Skill registry, WASM sandbox (now inside orka-wasm), MCP and A2A protocol clients
+  # Skill registry, WASM sandbox, MCP/A2A protocol clients, and skill-driven evals
   "crates/orka-skills",
   "crates/orka-wasm",
   "crates/orka-mcp",
   "crates/orka-a2a",
+  "crates/orka-eval",
 
   # ── Adapters ──────────────────────────────────────────────────────────────
   # Platform integrations (Telegram, Discord, Slack, WhatsApp, custom HTTP/WS)
@@ -56,8 +54,10 @@ members = [
   "crates/orka-os",
 
   # ── Orchestration ─────────────────────────────────────────────────────────
-  # High-level: agent loop, workspace loader, gateway, worker pool, CLI, server
+  # High-level composition: config surface, checkpointing, research, agent loop, runtime wiring
+  "crates/orka-config",
   "crates/orka-checkpoint",
+  "crates/orka-research",
   "crates/orka-agent",
   "crates/orka-workspace",
   "crates/orka-gateway",

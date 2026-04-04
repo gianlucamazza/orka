@@ -4,7 +4,10 @@
 use std::{future::IntoFuture, sync::Arc};
 
 use anyhow::Context;
-use orka_config::{CodingConfig, CodingProvider, CodingSelectionPolicy, OrkaConfig};
+use orka_config::{
+    CodingConfig, CodingProvider, CodingSelectionPolicy, MemoryBackend, OrkaConfig,
+    SearchProviderKind, SecretBackend,
+};
 use orka_core::{
     ConversationArtifact, ConversationArtifactOrigin, ConversationMessage, ConversationMessageRole,
     ConversationMessageStatus, ConversationStatus, Envelope, MediaPayload, MessageId,
@@ -149,6 +152,111 @@ fn select_coding_backend(
     }
 }
 
+fn to_runtime_memory_config(config: &orka_config::MemoryConfig) -> orka_memory::MemoryConfig {
+    let backend = match config.backend {
+        MemoryBackend::Auto => orka_memory::config::MemoryBackend::Auto,
+        MemoryBackend::Redis => orka_memory::config::MemoryBackend::Redis,
+        MemoryBackend::Memory => orka_memory::config::MemoryBackend::Memory,
+    };
+    let mut runtime = orka_memory::MemoryConfig::default();
+    runtime.backend = backend;
+    runtime.max_entries = config.max_entries;
+    runtime
+}
+
+fn to_runtime_secret_config(config: &orka_config::SecretConfig) -> orka_secrets::SecretConfig {
+    let backend = match config.backend {
+        SecretBackend::Redis => orka_secrets::SecretBackend::Redis,
+        SecretBackend::File => orka_secrets::SecretBackend::File,
+        _ => orka_secrets::SecretBackend::default(),
+    };
+    let mut runtime = orka_secrets::SecretConfig::default();
+    runtime.backend = backend;
+    runtime.file_path = config.file_path.clone();
+    runtime.encryption_key_path = config.encryption_key_path.clone();
+    runtime.encryption_key_env = config.encryption_key_env.clone();
+    runtime.redis.url = config.redis.url.clone();
+    runtime
+}
+
+fn to_runtime_observe_config(config: &orka_config::ObserveConfig) -> orka_observe::ObserveConfig {
+    let mut runtime = orka_observe::ObserveConfig::default();
+    runtime.enabled = config.enabled;
+    runtime.backend = config.backend.clone();
+    runtime.otlp_endpoint = config.otlp_endpoint.clone();
+    runtime.batch_size = config.batch_size;
+    runtime.flush_interval_ms = config.flush_interval_ms;
+    runtime.service_name = config.service_name.clone();
+    runtime.service_version = config.service_version.clone();
+    runtime
+}
+
+fn to_runtime_audit_config(config: &orka_config::AuditConfig) -> orka_observe::AuditConfig {
+    let mut runtime = orka_observe::AuditConfig::default();
+    runtime.enabled = config.enabled;
+    runtime.output = config.output.clone();
+    runtime.path = config.path.clone();
+    runtime.redis_key = config.redis_key.clone();
+    runtime
+}
+
+fn to_runtime_sandbox_config(config: &orka_config::SandboxConfig) -> orka_wasm::SandboxConfig {
+    let mut runtime = orka_wasm::SandboxConfig::default();
+    runtime.backend = config.backend.clone();
+    runtime.limits.timeout_secs = config.limits.timeout_secs;
+    runtime.limits.max_memory_bytes = config.limits.max_memory_bytes;
+    runtime.limits.max_output_bytes = config.limits.max_output_bytes;
+    runtime.limits.max_open_files = config.limits.max_open_files;
+    runtime.limits.max_pids = config.limits.max_pids;
+    runtime.allowed_paths = config.allowed_paths.clone();
+    runtime.denied_paths = config.denied_paths.clone();
+    runtime
+}
+
+fn to_runtime_web_config(config: &orka_config::WebConfig) -> orka_web::WebConfig {
+    let search_provider = match config.search_provider {
+        SearchProviderKind::Tavily => orka_web::SearchProviderKind::Tavily,
+        SearchProviderKind::Brave => orka_web::SearchProviderKind::Brave,
+        SearchProviderKind::Searxng => orka_web::SearchProviderKind::Searxng,
+        SearchProviderKind::None => orka_web::SearchProviderKind::None,
+    };
+    orka_web::WebConfig {
+        search_provider,
+        api_key: config.api_key.clone(),
+        api_key_env: config.api_key_env.clone(),
+        searxng_base_url: config.searxng_base_url.clone(),
+        max_results: config.max_results,
+        max_read_chars: config.max_read_chars,
+        cache_ttl_secs: config.cache_ttl_secs,
+        max_content_chars: config.max_content_chars,
+        read_timeout_secs: config.read_timeout_secs,
+        user_agent: config.user_agent.clone(),
+    }
+}
+
+fn to_runtime_http_config(config: &orka_config::HttpClientConfig) -> orka_web::HttpClientConfig {
+    let mut runtime = orka_web::HttpClientConfig::default();
+    runtime.timeout_secs = config.timeout_secs;
+    runtime.max_redirects = config.max_redirects;
+    runtime.user_agent = config.user_agent.clone();
+    runtime.default_headers = config.default_headers.clone();
+    runtime.webhooks = config
+        .webhooks
+        .iter()
+        .map(|webhook| {
+            let mut runtime_webhook = orka_web::WebhookConfig::default();
+            runtime_webhook.name = webhook.name.clone();
+            runtime_webhook.url = webhook.url.clone();
+            runtime_webhook.method = webhook.method.clone();
+            runtime_webhook.secret = webhook.secret.clone();
+            runtime_webhook.retry.max_retries = webhook.retry.max_retries;
+            runtime_webhook.retry.delay_secs = webhook.retry.delay_secs;
+            runtime_webhook
+        })
+        .collect();
+    runtime
+}
+
 // ---------------------------------------------------------------------------
 // Step 0–2: config loading + tracing
 // ---------------------------------------------------------------------------
@@ -230,17 +338,21 @@ fn init_infra(
         create_artifact_store(&config.redis.url).context("failed to create artifact store")?;
     let QueueBundle { queue, dlq } =
         create_queue(&config.redis.url).context("failed to create priority queue")?;
+    let memory_config = to_runtime_memory_config(&config.memory);
     let orka_memory::MemoryBundle {
         store: memory,
         lock: memory_lock,
-    } = orka_memory::create_memory_store(&config.memory, &config.redis.url)
+    } = orka_memory::create_memory_store(&memory_config, &config.redis.url)
         .context("failed to create memory store")?;
     info!("memory store ready");
-    let secrets = orka_secrets::create_secret_manager(&config.secrets, &config.redis.url)
+    let secret_config = to_runtime_secret_config(&config.secrets);
+    let secrets = orka_secrets::create_secret_manager(&secret_config, &config.redis.url)
         .context("failed to create secret manager")?;
     info!("secret manager ready");
+    let observe_config = to_runtime_observe_config(&config.observe);
+    let audit_config = to_runtime_audit_config(&config.audit);
     let event_sink =
-        orka_observe::create_event_sink(&config.observe, &config.audit, &config.redis.url);
+        orka_observe::create_event_sink(&observe_config, &audit_config, &config.redis.url);
     info!("event sink ready");
 
     // 3b. Install Prometheus metrics recorder
@@ -501,7 +613,9 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
     skills.register(Arc::new(orka_skills::EchoSkill));
 
     // 4b. Sandbox + SandboxSkill
-    let sandbox = orka_wasm::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
+    let sandbox_config = to_runtime_sandbox_config(&config.sandbox);
+    let sandbox =
+        orka_wasm::create_sandbox(&sandbox_config).context("failed to create sandbox")?;
     skills.register(Arc::new(orka_wasm::SandboxSkill::new(sandbox)));
 
     // 4c. Shared WASM engine + WASM plugins
@@ -531,8 +645,9 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
     let mcp_server_count = register_mcp_skills(config, &mut skills).await;
 
     // 4e. Web skills
-    if config.web.search_provider != orka_web::SearchProviderKind::None {
-        match orka_web::create_web_skills(&config.web) {
+    if config.web.search_provider != SearchProviderKind::None {
+        let web_config = to_runtime_web_config(&config.web);
+        match orka_web::create_web_skills(&web_config) {
             Ok(web_skills) => {
                 for skill in web_skills {
                     skills.register(skill);
@@ -543,7 +658,8 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
     }
 
     // 4f. HTTP skills
-    match orka_web::create_http_skills(&config.http) {
+    let http_config = to_runtime_http_config(&config.http);
+    match orka_web::create_http_skills(&http_config) {
         Ok(http_skills) => {
             for skill in http_skills {
                 skills.register(skill);
@@ -949,10 +1065,10 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         .and_then(|r| r.selected_backend.clone());
 
     let web_search = match config.web.search_provider {
-        orka_web::SearchProviderKind::None => None,
-        orka_web::SearchProviderKind::Tavily => Some("tavily".to_string()),
-        orka_web::SearchProviderKind::Brave => Some("brave".to_string()),
-        orka_web::SearchProviderKind::Searxng => Some("searxng".to_string()),
+        SearchProviderKind::None => None,
+        SearchProviderKind::Tavily => Some("tavily".to_string()),
+        SearchProviderKind::Brave => Some("brave".to_string()),
+        SearchProviderKind::Searxng => Some("searxng".to_string()),
     };
 
     let auth_layer = build_auth_layer(config).1;
@@ -1640,7 +1756,12 @@ impl Bootstrap {
 
         // 10. Agent graph
         let graph = Arc::new(
-            orka_agent::build_graph_from_config(&config, &workspace_registry)
+            orka_agent::build_graph_from_config(
+                &config.agents,
+                config.graph.as_ref(),
+                &config.llm,
+                &workspace_registry,
+            )
                 .await
                 .context("failed to build agent graph")?,
         );
