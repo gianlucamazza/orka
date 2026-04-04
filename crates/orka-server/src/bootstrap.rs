@@ -1156,6 +1156,7 @@ fn spawn_scheduler_loop(
     config: &OrkaConfig,
     scheduler_store: Option<Arc<dyn orka_scheduler::ScheduleStore>>,
     skills: &Arc<orka_skills::SkillRegistry>,
+    event_sink: &Arc<dyn orka_core::traits::EventSink>,
     shutdown: CancellationToken,
 ) -> Option<JoinHandle<()>> {
     let store = scheduler_store?;
@@ -1164,7 +1165,8 @@ fn spawn_scheduler_loop(
         Arc::new(SchedulerSkillRegistryAdapter(skills.clone())),
         config.scheduler.poll_interval_secs,
         config.scheduler.max_concurrent,
-    );
+    )
+    .with_event_sink(event_sink.clone());
     Some(tokio::spawn(async move {
         scheduler.run(shutdown).await;
     }))
@@ -1879,6 +1881,7 @@ impl Bootstrap {
             &self.config,
             self.skill_bundle.scheduler_store,
             &self.skill_bundle.skills,
+            &self.infra.event_sink,
             self.shutdown.clone(),
         );
 
@@ -1972,7 +1975,7 @@ mod tests {
         assert_eq!(updated.status, ConversationStatus::Failed);
 
         let messages = store
-            .list_messages(&conversation_id, None, 0)
+            .list_messages(&conversation_id, None, None, usize::MAX)
             .await
             .unwrap();
         assert_eq!(messages.len(), 1);
@@ -2033,7 +2036,7 @@ mod tests {
         assert_eq!(updated.status, ConversationStatus::Interrupted);
 
         let messages = store
-            .list_messages(&conversation_id, None, 0)
+            .list_messages(&conversation_id, None, None, usize::MAX)
             .await
             .unwrap();
         assert_eq!(messages.len(), 1);

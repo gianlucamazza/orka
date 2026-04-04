@@ -17,8 +17,8 @@ use governor::{Quota, RateLimiter, state::keyed::DefaultKeyedStateStore};
 use orka_auth::AuthIdentity;
 use orka_core::{
     ArtifactId, Conversation, ConversationArtifact, ConversationArtifactOrigin, ConversationId,
-    ConversationMessage, ConversationMessageRole, ConversationStatus, MediaPayload, MessageId,
-    Payload, RichInputPayload, SessionId, StreamChunkKind, StreamRegistry,
+    ConversationMessage, ConversationMessageRole, ConversationStatus, MediaPayload, MessageCursor,
+    MessageId, Payload, RichInputPayload, SessionId, StreamChunkKind, StreamRegistry,
     traits::{ArtifactStore, ConversationStore, MessageBus},
 };
 use serde::{Deserialize, Serialize};
@@ -219,16 +219,30 @@ pub(super) struct RefreshSessionRequest {
 }
 
 #[derive(Debug, Deserialize)]
-struct PaginationQuery {
-    limit: Option<usize>,
-    offset: Option<usize>,
-}
-
-#[derive(Debug, Deserialize)]
 struct ConversationListQuery {
     limit: Option<usize>,
     offset: Option<usize>,
     archived: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MessageListQuery {
+    limit: Option<usize>,
+    after: Option<String>,
+    before: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(super) struct MarkReadRequest {
+    /// The ID of the last message the client has read.
+    last_read_message_id: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct ConversationListItem {
+    #[serde(flatten)]
+    conversation: Conversation,
+    unread_count: u64,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -359,6 +373,10 @@ fn stream_chunk_to_sse(
                 "display_name": display_name,
             }),
         ),
+        StreamChunkKind::GenerationStarted => (
+            "typing_started",
+            serde_json::json!({ "conversation_id": conversation_id }),
+        ),
         _ => return None,
     };
     Some(SseFrame {
@@ -423,6 +441,10 @@ pub(super) fn protected_routes(
         .route(
             "/mobile/v1/conversations/{id}/messages",
             get(handle_list_messages).post(handle_send_message),
+        )
+        .route(
+            "/mobile/v1/conversations/{id}/read",
+            post(handle_mark_read),
         )
         .route("/mobile/v1/conversations/{id}/stream", get(handle_stream))
         .with_state(state)
@@ -633,24 +655,46 @@ async fn handle_list_conversations(
     Extension(identity): Extension<AuthIdentity>,
     Query(params): Query<ConversationListQuery>,
 ) -> impl IntoResponse {
-    let pagination = PaginationQuery {
-        limit: params.limit,
-        offset: params.offset,
-    };
-    let (limit, offset) = match parse_pagination(&pagination) {
+    let (limit, offset) = match parse_conversation_list_pagination(&params) {
         Ok(values) => values,
         Err(response) => return response,
     };
     let include_archived = params.archived.unwrap_or(false);
 
-    match state
+    let conversations = match state
         .conversations
         .list_conversations(&identity.principal, limit, offset, include_archived)
         .await
     {
-        Ok(conversations) => Json(conversations).into_response(),
-        Err(error) => internal_error(error),
+        Ok(conversations) => conversations,
+        Err(error) => return internal_error(error),
+    };
+
+    let mut items = Vec::with_capacity(conversations.len());
+    for conversation in conversations {
+        let watermark = match state
+            .conversations
+            .get_read_watermark(&identity.principal, &conversation.id)
+            .await
+        {
+            Ok(w) => w,
+            Err(error) => return internal_error(error),
+        };
+        let unread_count = match state
+            .conversations
+            .list_messages(&conversation.id, watermark.as_ref(), None, usize::MAX)
+            .await
+        {
+            Ok(msgs) => msgs.len() as u64,
+            Err(error) => return internal_error(error),
+        };
+        items.push(ConversationListItem {
+            conversation,
+            unread_count,
+        });
     }
+
+    Json(items).into_response()
 }
 
 #[utoipa::path(
@@ -828,7 +872,7 @@ async fn handle_list_messages(
     State(state): State<ProtectedMobileState>,
     Extension(identity): Extension<AuthIdentity>,
     Path(id): Path<String>,
-    Query(params): Query<PaginationQuery>,
+    Query(params): Query<MessageListQuery>,
 ) -> impl IntoResponse {
     let conversation_id = match parse_conversation_id(&id) {
         Ok(id) => id,
@@ -838,16 +882,92 @@ async fn handle_list_messages(
         return response;
     }
 
-    let (limit, offset) = match parse_optional_pagination(&params) {
-        Ok(values) => values,
+    if params.after.is_some() && params.before.is_some() {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "after and before are mutually exclusive",
+        );
+    }
+    let limit = match parse_message_list_limit(params.limit) {
+        Ok(v) => v,
         Err(response) => return response,
     };
-    match state
+
+    let after = params.after.as_deref().and_then(MessageCursor::decode);
+    let before = params.before.as_deref().and_then(MessageCursor::decode);
+
+    if params.after.is_some() && after.is_none() {
+        return error_response(StatusCode::BAD_REQUEST, "invalid after cursor");
+    }
+    if params.before.is_some() && before.is_none() {
+        return error_response(StatusCode::BAD_REQUEST, "invalid before cursor");
+    }
+
+    let messages = match state
         .conversations
-        .list_messages(&conversation_id, limit, offset)
+        .list_messages(&conversation_id, after.as_ref(), before.as_ref(), limit)
         .await
     {
-        Ok(messages) => Json(messages).into_response(),
+        Ok(messages) => messages,
+        Err(error) => return internal_error(error),
+    };
+
+    let mut headers = HeaderMap::new();
+    if let Some(last) = messages.last() {
+        let next_cursor = MessageCursor::from_message(last).encode();
+        if let Ok(value) = HeaderValue::from_str(&next_cursor) {
+            headers.insert("x-next-cursor", value);
+        }
+    }
+    if let Some(first) = messages.first() {
+        let prev_cursor = MessageCursor::from_message(first).encode();
+        if let Ok(value) = HeaderValue::from_str(&prev_cursor) {
+            headers.insert("x-prev-cursor", value);
+        }
+    }
+
+    (headers, Json(messages)).into_response()
+}
+
+/// POST `/mobile/v1/conversations/{id}/read` — advance the read watermark.
+async fn handle_mark_read(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(id): Path<String>,
+    Json(body): Json<MarkReadRequest>,
+) -> impl IntoResponse {
+    let conversation_id = match parse_conversation_id(&id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    if let Err(response) = load_owned_conversation(&state, &identity, conversation_id).await {
+        return response;
+    }
+
+    let message_id = match Uuid::parse_str(&body.last_read_message_id) {
+        Ok(uuid) => MessageId::from(uuid),
+        Err(_) => {
+            return error_response(StatusCode::BAD_REQUEST, "invalid message id");
+        }
+    };
+
+    let message = match state
+        .conversations
+        .get_message(&conversation_id, &message_id)
+        .await
+    {
+        Ok(Some(msg)) => msg,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "message not found"),
+        Err(error) => return internal_error(error),
+    };
+
+    let cursor = MessageCursor::from_message(&message);
+    match state
+        .conversations
+        .set_read_watermark(&identity.principal, &conversation_id, &cursor)
+        .await
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => internal_error(error),
     }
 }
@@ -1399,7 +1519,9 @@ fn parse_artifact_id(id: &str) -> Result<ArtifactId, axum::response::Response> {
 }
 
 #[allow(clippy::result_large_err)]
-fn parse_pagination(params: &PaginationQuery) -> Result<(usize, usize), axum::response::Response> {
+fn parse_conversation_list_pagination(
+    params: &ConversationListQuery,
+) -> Result<(usize, usize), axum::response::Response> {
     let limit = params.limit.unwrap_or(DEFAULT_PAGE_SIZE);
     let offset = params.offset.unwrap_or(0);
 
@@ -1420,27 +1542,19 @@ fn parse_pagination(params: &PaginationQuery) -> Result<(usize, usize), axum::re
 }
 
 #[allow(clippy::result_large_err)]
-fn parse_optional_pagination(
-    params: &PaginationQuery,
-) -> Result<(Option<usize>, usize), axum::response::Response> {
-    let offset = params.offset.unwrap_or(0);
-    let limit = match params.limit {
-        Some(0) => {
-            return Err(error_response(
-                StatusCode::BAD_REQUEST,
-                "limit must be greater than zero",
-            ));
-        }
-        Some(limit) if limit > MAX_PAGE_SIZE => {
-            return Err(error_response(
-                StatusCode::BAD_REQUEST,
-                "limit must be less than or equal to 100",
-            ));
-        }
-        value => value,
-    };
-
-    Ok((limit, offset))
+fn parse_message_list_limit(limit: Option<usize>) -> Result<usize, axum::response::Response> {
+    match limit {
+        None => Ok(DEFAULT_PAGE_SIZE),
+        Some(0) => Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "limit must be greater than zero",
+        )),
+        Some(l) if l > MAX_PAGE_SIZE => Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "limit must be less than or equal to 100",
+        )),
+        Some(l) => Ok(l),
+    }
 }
 
 fn error_response(status: StatusCode, error: impl Into<String>) -> axum::response::Response {

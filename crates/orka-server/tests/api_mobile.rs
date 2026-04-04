@@ -259,7 +259,7 @@ async fn mobile_send_persists_user_message_and_publishes_inbound_envelope() -> c
 
     let messages = ctx
         .conversations
-        .list_messages(&conversation.id, None, 0)
+        .list_messages(&conversation.id, None, None, usize::MAX)
         .await?;
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].text, "hello from mobile");
@@ -413,7 +413,7 @@ async fn mobile_send_with_artifacts_persists_attachment_and_publishes_rich_input
 
     let messages = ctx
         .conversations
-        .list_messages(&conversation.id, None, 0)
+        .list_messages(&conversation.id, None, None, usize::MAX)
         .await?;
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].text, "hello with file");
