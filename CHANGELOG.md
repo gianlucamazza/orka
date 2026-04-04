@@ -19,6 +19,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Changed
 
+- Config loading now has narrower subsystem boundaries and a dedicated
+  `orka-config::subsystem_config` surface, reducing cross-crate coupling in server/bootstrap
+  and agent graph wiring
+- Workspace-related failures now use simpler shared error paths instead of ad-hoc variants across
+  chart, prompt, mobile-auth, and server call-sites
+- Archived conversation filtering in the Redis conversation store was simplified to reduce
+  pagination/filter drift
 - `LlmRouter` can now try configured fallback providers when the primary provider circuit
   breaker is open instead of failing immediately
 - Agent `FanOut` nodes now support optional concurrency limits, with graph/config wiring
