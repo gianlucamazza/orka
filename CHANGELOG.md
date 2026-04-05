@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-04-05
+
+### Added
+
+- `server.public_url`: optional config field that overrides the URL embedded in mobile
+  pairing QR codes; when set, the server's canonical public URL is used instead of the
+  URL supplied by the CLI, enabling reliable pairing via Tailscale, reverse proxies, or
+  any hostname that differs from the CLI's `--server` address
+
 ## [1.6.0] - 2026-04-05
 
 ### Added
