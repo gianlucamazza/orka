@@ -17,7 +17,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use orka_core::{Error, Result, SecretValue, traits::SecretManager};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 /// AES-256-GCM nonce size in bytes.
 const NONCE_SIZE: usize = 12;
@@ -91,6 +91,59 @@ impl FileSecretManager {
             cipher,
             lock: Arc::new(Mutex::new(())),
         })
+    }
+
+    /// Migrate any plaintext secrets to encrypted format.
+    ///
+    /// Should be called once at startup when an encryption key is present.
+    /// Iterates all secrets, tries to decrypt each; if decryption fails and
+    /// the decoded bytes are valid UTF-8, treats them as plaintext and
+    /// re-encrypts in place.
+    ///
+    /// Returns the number of secrets migrated.
+    pub async fn migrate_plaintext_secrets(&self) -> Result<usize> {
+        if self.cipher.is_none() {
+            return Ok(0);
+        }
+
+        let _guard = self.lock.lock().await;
+        let mut file = self.read_file().await?;
+        let mut migrated = 0usize;
+
+        for (path, encoded) in &mut file.secrets {
+            let bytes = match B64.decode(encoded.as_str()) {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!(path, %e, "base64 decode failed, skipping migration");
+                    continue;
+                }
+            };
+
+            // Already encrypted — skip.
+            if self.decrypt(&bytes).is_ok() {
+                continue;
+            }
+
+            // Decryption failed. If the decoded bytes are valid UTF-8 this is
+            // a plaintext secret that predates encryption being enabled.
+            if std::str::from_utf8(&bytes).is_ok() {
+                let encrypted = self.encrypt(&bytes)?;
+                *encoded = B64.encode(&encrypted);
+                info!(path, "migrated secret from plaintext to encrypted");
+                migrated += 1;
+            } else {
+                warn!(
+                    path,
+                    "secret is neither valid ciphertext nor valid UTF-8, skipping migration"
+                );
+            }
+        }
+
+        if migrated > 0 {
+            self.write_file(&file).await?;
+        }
+
+        Ok(migrated)
     }
 
     fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
@@ -292,5 +345,86 @@ mod tests {
         let mgr2 = mgr_encrypted(p);
         let got = mgr2.get_secret("persist/test").await.unwrap();
         assert_eq!(got.expose(), b"value");
+    }
+
+    /// Secrets written by a plaintext manager can be read after migration.
+    #[tokio::test]
+    async fn migrate_plaintext_to_encrypted() {
+        let p = tmp_path();
+
+        // Write secrets with no encryption.
+        let plain = mgr_plain(p.clone());
+        plain
+            .set_secret("token/a", &SecretValue::new(b"tok_aaa".to_vec()))
+            .await
+            .unwrap();
+        plain
+            .set_secret("token/b", &SecretValue::new(b"tok_bbb".to_vec()))
+            .await
+            .unwrap();
+
+        // Re-open with encryption enabled and migrate.
+        let enc = mgr_encrypted(p.clone());
+        let migrated = enc.migrate_plaintext_secrets().await.unwrap();
+        assert_eq!(migrated, 2);
+
+        // All secrets should now be readable via the encrypted manager.
+        assert_eq!(
+            enc.get_secret("token/a").await.unwrap().expose(),
+            b"tok_aaa"
+        );
+        assert_eq!(
+            enc.get_secret("token/b").await.unwrap().expose(),
+            b"tok_bbb"
+        );
+    }
+
+    /// Migration is idempotent: running it twice migrates 0 on the second run.
+    #[tokio::test]
+    async fn migrate_is_idempotent() {
+        let p = tmp_path();
+        let plain = mgr_plain(p.clone());
+        plain
+            .set_secret("key", &SecretValue::new(b"value".to_vec()))
+            .await
+            .unwrap();
+
+        let enc = mgr_encrypted(p);
+        assert_eq!(enc.migrate_plaintext_secrets().await.unwrap(), 1);
+        // Second call: already encrypted, nothing to migrate.
+        assert_eq!(enc.migrate_plaintext_secrets().await.unwrap(), 0);
+    }
+
+    /// Migration skips secrets that are already encrypted.
+    #[tokio::test]
+    async fn migrate_skips_already_encrypted() {
+        let p = tmp_path();
+        // Write one secret with the encrypted manager (already encrypted).
+        let enc = mgr_encrypted(p.clone());
+        enc.set_secret("already/enc", &SecretValue::new(b"s3cr3t".to_vec()))
+            .await
+            .unwrap();
+
+        // Migration should report 0 migrated.
+        let migrated = enc.migrate_plaintext_secrets().await.unwrap();
+        assert_eq!(migrated, 0);
+        // Value still readable.
+        assert_eq!(
+            enc.get_secret("already/enc").await.unwrap().expose(),
+            b"s3cr3t"
+        );
+    }
+
+    /// No encryption key → migration is a no-op returning 0.
+    #[tokio::test]
+    async fn migrate_no_op_without_encryption() {
+        let p = tmp_path();
+        let plain = mgr_plain(p.clone());
+        plain
+            .set_secret("k", &SecretValue::new(b"v".to_vec()))
+            .await
+            .unwrap();
+        let migrated = plain.migrate_plaintext_secrets().await.unwrap();
+        assert_eq!(migrated, 0);
     }
 }

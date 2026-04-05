@@ -117,6 +117,37 @@ pub fn create_secret_manager(
     )?))
 }
 
+/// Migrate any plaintext secrets to encrypted format.
+///
+/// Should be called once at startup after [`create_secret_manager`], when an
+/// encryption key is present. Iterates all stored secrets and re-encrypts any
+/// that were written while encryption was disabled.
+///
+/// Returns the number of secrets migrated. Returns `Ok(0)` immediately when no
+/// encryption key is configured.
+pub async fn migrate_plaintext_secrets(
+    config: &SecretConfig,
+    redis_url: &str,
+) -> orka_core::Result<usize> {
+    let encryption_key = resolve_encryption_key(config);
+    let Some(key) = encryption_key else {
+        return Ok(0);
+    };
+    let key_ref = key.as_slice();
+
+    if config.backend == SecretBackend::File {
+        let path = config
+            .file_path
+            .as_deref()
+            .map_or_else(default_secrets_file_path, PathBuf::from);
+        let mgr = FileSecretManager::with_encryption(path, Some(key_ref))?;
+        return mgr.migrate_plaintext_secrets().await;
+    }
+
+    let mgr = RedisSecretManager::with_encryption(redis_url, Some(key_ref))?;
+    mgr.migrate_plaintext_secrets().await
+}
+
 /// Create a standalone file-backed [`SecretManager`] at the given path.
 ///
 /// Optionally reads `ORKA_SECRET_ENCRYPTION_KEY` from the environment for

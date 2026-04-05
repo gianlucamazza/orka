@@ -1707,6 +1707,17 @@ impl Bootstrap {
     async fn new() -> anyhow::Result<Self> {
         let config = init_config_and_tracing()?;
         let (infra, metrics_handle) = init_infra(&config)?;
+
+        // Migrate any plaintext secrets to encrypted format now that we are in
+        // an async context. This is a no-op when no encryption key is set.
+        let secret_config = to_runtime_secret_config(&config.secrets);
+        let migrated = orka_secrets::migrate_plaintext_secrets(&secret_config, &config.redis.url)
+            .await
+            .context("failed to migrate plaintext secrets")?;
+        if migrated > 0 {
+            info!(migrated, "plaintext secrets migrated to encrypted");
+        }
+
         let skill_bundle = init_skills(&config).await?;
 
         // 5. LLM clients

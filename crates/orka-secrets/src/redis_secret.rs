@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
 use orka_core::{Error, Result, SecretValue, traits::SecretManager};
 use redis::AsyncCommands;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 /// AES-256-GCM nonce size in bytes.
 const NONCE_SIZE: usize = 12;
@@ -79,6 +79,62 @@ impl RedisSecretManager {
         out.extend_from_slice(&nonce_bytes);
         out.extend_from_slice(&ciphertext);
         Ok(out)
+    }
+
+    /// Migrate any plaintext secrets to encrypted format.
+    ///
+    /// Should be called once at startup when an encryption key is present.
+    /// Iterates all secrets, tries to decrypt each; if decryption fails and
+    /// the stored bytes are valid UTF-8, treats them as plaintext and
+    /// re-encrypts in place.
+    ///
+    /// Returns the number of secrets migrated.
+    pub async fn migrate_plaintext_secrets(&self) -> Result<usize> {
+        if self.cipher.is_none() {
+            return Ok(0);
+        }
+
+        let paths = self.list_secrets().await?;
+        let mut conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| Error::secret(format!("redis pool error: {e}")))?;
+        let mut migrated = 0usize;
+
+        for path in &paths {
+            let raw: Option<Vec<u8>> = conn
+                .get(Self::key(path))
+                .await
+                .map_err(|e| Error::secret(format!("redis GET error: {e}")))?;
+            let Some(raw) = raw else {
+                continue;
+            };
+
+            // Already encrypted — skip.
+            if self.decrypt(&raw).is_ok() {
+                continue;
+            }
+
+            // Decryption failed. If the bytes are valid UTF-8 this is a
+            // plaintext secret that predates encryption being enabled.
+            if std::str::from_utf8(&raw).is_ok() {
+                let encrypted = self.encrypt(&raw)?;
+                let _: () = conn
+                    .set(Self::key(path), encrypted)
+                    .await
+                    .map_err(|e| Error::secret(format!("redis SET error: {e}")))?;
+                info!(path, "migrated secret from plaintext to encrypted");
+                migrated += 1;
+            } else {
+                warn!(
+                    path,
+                    "secret is neither valid ciphertext nor valid UTF-8, skipping migration"
+                );
+            }
+        }
+
+        Ok(migrated)
     }
 
     /// Decrypt nonce || ciphertext back to plaintext.
