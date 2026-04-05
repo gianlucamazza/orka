@@ -7,6 +7,9 @@ platform:
   os: linux
   arch: arm64
 
+node:
+  pool: mobile-orka
+
 clone:
   depth: 1
 
