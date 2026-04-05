@@ -29,6 +29,7 @@ impl InMemoryAuthenticator {
             AuthIdentity {
                 principal: name.into(),
                 scopes,
+                device_id: None,
             },
         );
         self

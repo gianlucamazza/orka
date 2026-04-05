@@ -16,6 +16,8 @@ struct Claims {
     scope: Option<String>,
     #[serde(default)]
     scopes: Option<Vec<String>>,
+    #[serde(default)]
+    dvc: Option<String>,
     _iss: Option<String>,
     _aud: Option<serde_json::Value>,
 }
@@ -97,7 +99,7 @@ impl Authenticator for JwtAuthenticator {
 
         debug!(principal = %principal, scopes = ?scopes, "JWT authenticated");
 
-        Ok(AuthIdentity { principal, scopes })
+        Ok(AuthIdentity { principal, scopes, device_id: claims.dvc })
     }
 }
 

@@ -8,6 +8,9 @@ pub struct AuthIdentity {
     pub principal: String,
     /// Permission scopes granted to this identity.
     pub scopes: Vec<String>,
+    /// Mobile device ID extracted from the `dvc` JWT claim, if present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
 }
 
 impl AuthIdentity {
@@ -16,6 +19,7 @@ impl AuthIdentity {
         Self {
             principal: "anonymous".into(),
             scopes: vec![],
+            device_id: None,
         }
     }
 }

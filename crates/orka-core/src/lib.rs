@@ -69,7 +69,7 @@ pub use migrate::{
 };
 pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry, forward_delegate_progress};
-pub use traits::{MessageCursor, NoopEventSink, apply_message_cursors};
+pub use traits::{MessageCursor, NoopEventSink, SearchHit, apply_message_cursors, extract_snippet};
 pub use types::{
     ArtifactId, CommandArgs, CommandPayload, Conversation, ConversationArtifact,
     ConversationArtifactOrigin, ConversationId, ConversationMessage, ConversationMessageRole,

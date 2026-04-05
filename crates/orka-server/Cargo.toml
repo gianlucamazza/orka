@@ -99,6 +99,7 @@ url.workspace = true
 mime_guess = "2"
 infer = "0.16"
 governor.workspace = true
+printpdf = "0.7"
 
 [dev-dependencies]
 orka-core.workspace = true

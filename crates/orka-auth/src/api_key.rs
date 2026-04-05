@@ -43,6 +43,7 @@ impl Authenticator for ApiKeyAuthenticator {
                     Some((name, scopes)) => Ok(AuthIdentity {
                         principal: name.clone(),
                         scopes: scopes.clone(),
+                        device_id: None,
                     }),
                     None => Err(Error::Auth("invalid API key".into())),
                 }

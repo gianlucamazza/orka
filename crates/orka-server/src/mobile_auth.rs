@@ -189,6 +189,23 @@ pub struct RefreshInput {
     pub device_id: String,
 }
 
+/// Device information for the mobile client.
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceInfo {
+    /// Stable per-installation device identifier.
+    pub id: String,
+    /// Human-readable device name.
+    pub device_name: String,
+    /// Platform label such as `ios` or `android`.
+    pub platform: String,
+    /// Last time the refresh token was rotated (proxy for "last seen").
+    pub last_seen_at: Option<DateTime<Utc>>,
+    /// Whether a push token is currently registered for this device.
+    pub push_token_registered: bool,
+    /// Whether this device is the one making the current API request.
+    pub is_current: bool,
+}
+
 /// Access and refresh material returned to the mobile app.
 #[derive(Debug, Clone)]
 pub struct MobileSession {
@@ -229,6 +246,54 @@ pub trait MobileAuthService: Send + Sync {
 
     /// Rotate an existing refresh token and mint a new access token.
     async fn refresh_session(&self, input: RefreshInput) -> Result<MobileSession, MobileAuthError>;
+
+    /// List all active devices (non-expired refresh sessions) for a user.
+    ///
+    /// `current_device_id` is used to mark which entry has `is_current = true`.
+    async fn list_devices(
+        &self,
+        user_id: &str,
+        current_device_id: &str,
+    ) -> Result<Vec<DeviceInfo>, MobileAuthError>;
+
+    /// Revoke a device by deleting its refresh session.
+    ///
+    /// Returns [`MobileAuthError::NotFound`] if no active session exists for
+    /// the given `device_id` under `user_id`.
+    async fn revoke_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), MobileAuthError>;
+
+    /// Rename a device.
+    ///
+    /// Returns the updated [`DeviceInfo`], or [`MobileAuthError::NotFound`] if
+    /// no active session exists for the given `device_id` under `user_id`.
+    async fn rename_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        new_name: &str,
+        current_device_id: &str,
+    ) -> Result<DeviceInfo, MobileAuthError>;
+
+    /// Store a push token for a device.
+    async fn register_push_token(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        token: &str,
+        platform: &str,
+        app_version: Option<&str>,
+    ) -> Result<(), MobileAuthError>;
+
+    /// Remove the push token for a device.
+    async fn unregister_push_token(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), MobileAuthError>;
 }
 
 /// In-memory implementation used by integration tests.
@@ -236,6 +301,8 @@ pub struct InMemoryMobileAuthService {
     config: MobileAuthConfig,
     pairings: Arc<Mutex<HashMap<String, PairingRecord>>>,
     refresh_tokens: Arc<Mutex<HashMap<String, RefreshRecord>>>,
+    /// Maps `device_id` → push token string.
+    push_tokens: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl InMemoryMobileAuthService {
@@ -245,6 +312,7 @@ impl InMemoryMobileAuthService {
             config,
             pairings: Arc::new(Mutex::new(HashMap::new())),
             refresh_tokens: Arc::new(Mutex::new(HashMap::new())),
+            push_tokens: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -392,6 +460,97 @@ impl MobileAuthService for InMemoryMobileAuthService {
             },
         );
         Ok(session)
+    }
+
+    async fn list_devices(
+        &self,
+        user_id: &str,
+        current_device_id: &str,
+    ) -> Result<Vec<DeviceInfo>, MobileAuthError> {
+        let refresh_tokens = self.refresh_tokens.lock().await;
+        let push_tokens = self.push_tokens.lock().await;
+        let now = Utc::now();
+        let mut devices: Vec<DeviceInfo> = refresh_tokens
+            .values()
+            .filter(|r| r.user_id == user_id && r.expires_at > now)
+            .map(|r| DeviceInfo {
+                id: r.device_id.clone(),
+                device_name: r.device_name.clone(),
+                platform: r.platform.clone(),
+                last_seen_at: Some(r._last_rotated_at),
+                push_token_registered: push_tokens.contains_key(&r.device_id),
+                is_current: r.device_id == current_device_id,
+            })
+            .collect();
+        devices.sort_by(|a, b| b.last_seen_at.cmp(&a.last_seen_at));
+        Ok(devices)
+    }
+
+    async fn revoke_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), MobileAuthError> {
+        let mut refresh_tokens = self.refresh_tokens.lock().await;
+        let key = refresh_tokens
+            .iter()
+            .find(|(_, r)| r.user_id == user_id && r.device_id == device_id)
+            .map(|(k, _)| k.clone());
+        match key {
+            Some(k) => {
+                refresh_tokens.remove(&k);
+                Ok(())
+            }
+            None => Err(MobileAuthError::NotFound),
+        }
+    }
+
+    async fn rename_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        new_name: &str,
+        current_device_id: &str,
+    ) -> Result<DeviceInfo, MobileAuthError> {
+        let mut refresh_tokens = self.refresh_tokens.lock().await;
+        let push_tokens = self.push_tokens.lock().await;
+        let record = refresh_tokens
+            .values_mut()
+            .find(|r| r.user_id == user_id && r.device_id == device_id)
+            .ok_or(MobileAuthError::NotFound)?;
+        record.device_name = new_name.to_string();
+        Ok(DeviceInfo {
+            id: record.device_id.clone(),
+            device_name: record.device_name.clone(),
+            platform: record.platform.clone(),
+            last_seen_at: Some(record._last_rotated_at),
+            push_token_registered: push_tokens.contains_key(device_id),
+            is_current: device_id == current_device_id,
+        })
+    }
+
+    async fn register_push_token(
+        &self,
+        _user_id: &str,
+        device_id: &str,
+        token: &str,
+        _platform: &str,
+        _app_version: Option<&str>,
+    ) -> Result<(), MobileAuthError> {
+        self.push_tokens
+            .lock()
+            .await
+            .insert(device_id.to_string(), token.to_string());
+        Ok(())
+    }
+
+    async fn unregister_push_token(
+        &self,
+        _user_id: &str,
+        device_id: &str,
+    ) -> Result<(), MobileAuthError> {
+        self.push_tokens.lock().await.remove(device_id);
+        Ok(())
     }
 }
 
@@ -675,6 +834,274 @@ return {'ok', user_id, session_id, device_name, platform, created_at}
         .await?;
         Ok(session)
     }
+
+    async fn list_devices(
+        &self,
+        user_id: &str,
+        current_device_id: &str,
+    ) -> Result<Vec<DeviceInfo>, MobileAuthError> {
+        let mut conn = self.pool.get().await.map_err(internal_redis_error)?;
+        // SCAN all mobile refresh keys and collect those belonging to this user.
+        let mut cursor: u64 = 0;
+        let mut records: Vec<(String, HashMap<String, String>)> = Vec::new();
+        loop {
+            let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg("orka:mobile:refresh:*")
+                .arg("COUNT")
+                .arg(100u32)
+                .query_async(&mut conn)
+                .await
+                .map_err(internal_redis_error)?;
+            for key in keys {
+                let data: HashMap<String, String> = redis::cmd("HGETALL")
+                    .arg(&key)
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(internal_redis_error)?;
+                if data.get("user_id").is_some_and(|id| id == user_id) {
+                    records.push((key, data));
+                }
+            }
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
+        }
+
+        let now = Utc::now();
+        let mut devices: Vec<DeviceInfo> = Vec::new();
+        for (_key, data) in records {
+            let expires_at = data
+                .get("expires_at")
+                .and_then(|v| v.parse::<i64>().ok())
+                .and_then(|ts| DateTime::from_timestamp(ts, 0))
+                .unwrap_or(now);
+            if expires_at <= now {
+                continue;
+            }
+            let device_id_val = data
+                .get("device_id")
+                .cloned()
+                .unwrap_or_default();
+            let last_seen_at = data
+                .get("last_rotated_at")
+                .and_then(|v| v.parse::<i64>().ok())
+                .and_then(|ts| DateTime::from_timestamp(ts, 0));
+            let push_registered: bool = redis::cmd("EXISTS")
+                .arg(push_token_key(&device_id_val))
+                .query_async::<i64>(&mut conn)
+                .await
+                .map_err(internal_redis_error)?
+                > 0;
+            devices.push(DeviceInfo {
+                is_current: device_id_val == current_device_id,
+                device_name: data.get("device_name").cloned().unwrap_or_default(),
+                platform: data.get("platform").cloned().unwrap_or_default(),
+                last_seen_at,
+                push_token_registered: push_registered,
+                id: device_id_val,
+            });
+        }
+        devices.sort_by(|a, b| b.last_seen_at.cmp(&a.last_seen_at));
+        Ok(devices)
+    }
+
+    async fn revoke_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), MobileAuthError> {
+        let mut conn = self.pool.get().await.map_err(internal_redis_error)?;
+        let mut cursor: u64 = 0;
+        let mut found_key: Option<String> = None;
+        'outer: loop {
+            let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg("orka:mobile:refresh:*")
+                .arg("COUNT")
+                .arg(100u32)
+                .query_async(&mut conn)
+                .await
+                .map_err(internal_redis_error)?;
+            for key in keys {
+                let stored_user: Option<String> = redis::cmd("HGET")
+                    .arg(&key)
+                    .arg("user_id")
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(internal_redis_error)?;
+                let stored_device: Option<String> = redis::cmd("HGET")
+                    .arg(&key)
+                    .arg("device_id")
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(internal_redis_error)?;
+                if stored_user.as_deref() == Some(user_id)
+                    && stored_device.as_deref() == Some(device_id)
+                {
+                    found_key = Some(key);
+                    break 'outer;
+                }
+            }
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
+        }
+        match found_key {
+            Some(key) => {
+                let _: () = redis::cmd("DEL")
+                    .arg(&key)
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(internal_redis_error)?;
+                Ok(())
+            }
+            None => Err(MobileAuthError::NotFound),
+        }
+    }
+
+    async fn rename_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        new_name: &str,
+        current_device_id: &str,
+    ) -> Result<DeviceInfo, MobileAuthError> {
+        let mut conn = self.pool.get().await.map_err(internal_redis_error)?;
+        let mut cursor: u64 = 0;
+        let mut found_key: Option<String> = None;
+        'outer: loop {
+            let (next_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg("orka:mobile:refresh:*")
+                .arg("COUNT")
+                .arg(100u32)
+                .query_async(&mut conn)
+                .await
+                .map_err(internal_redis_error)?;
+            for key in keys {
+                let stored_user: Option<String> = redis::cmd("HGET")
+                    .arg(&key)
+                    .arg("user_id")
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(internal_redis_error)?;
+                let stored_device: Option<String> = redis::cmd("HGET")
+                    .arg(&key)
+                    .arg("device_id")
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(internal_redis_error)?;
+                if stored_user.as_deref() == Some(user_id)
+                    && stored_device.as_deref() == Some(device_id)
+                {
+                    found_key = Some(key);
+                    break 'outer;
+                }
+            }
+            cursor = next_cursor;
+            if cursor == 0 {
+                break;
+            }
+        }
+        let key = found_key.ok_or(MobileAuthError::NotFound)?;
+        let _: () = redis::cmd("HSET")
+            .arg(&key)
+            .arg("device_name")
+            .arg(new_name)
+            .query_async(&mut conn)
+            .await
+            .map_err(internal_redis_error)?;
+        let platform: String = redis::cmd("HGET")
+            .arg(&key)
+            .arg("platform")
+            .query_async(&mut conn)
+            .await
+            .map_err(internal_redis_error)?;
+        let last_rotated_at = redis::cmd("HGET")
+            .arg(&key)
+            .arg("last_rotated_at")
+            .query_async::<Option<String>>(&mut conn)
+            .await
+            .map_err(internal_redis_error)?
+            .and_then(|v| v.parse::<i64>().ok())
+            .and_then(|ts| DateTime::from_timestamp(ts, 0));
+        let push_registered: bool = redis::cmd("EXISTS")
+            .arg(push_token_key(device_id))
+            .query_async::<i64>(&mut conn)
+            .await
+            .map_err(internal_redis_error)?
+            > 0;
+        Ok(DeviceInfo {
+            id: device_id.to_string(),
+            device_name: new_name.to_string(),
+            platform,
+            last_seen_at: last_rotated_at,
+            push_token_registered: push_registered,
+            is_current: device_id == current_device_id,
+        })
+    }
+
+    async fn register_push_token(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        token: &str,
+        platform: &str,
+        app_version: Option<&str>,
+    ) -> Result<(), MobileAuthError> {
+        let mut conn = self.pool.get().await.map_err(internal_redis_error)?;
+        let key = push_token_key(device_id);
+        redis::pipe()
+            .atomic()
+            .cmd("HSET")
+            .arg(&key)
+            .arg("push_token")
+            .arg(token)
+            .arg("platform")
+            .arg(platform)
+            .arg("app_version")
+            .arg(app_version.unwrap_or(""))
+            .arg("registered_at")
+            .arg(Utc::now().timestamp())
+            .arg("user_id")
+            .arg(user_id)
+            .ignore()
+            .query_async::<()>(&mut conn)
+            .await
+            .map_err(internal_redis_error)?;
+        Ok(())
+    }
+
+    async fn unregister_push_token(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), MobileAuthError> {
+        let mut conn = self.pool.get().await.map_err(internal_redis_error)?;
+        let key = push_token_key(device_id);
+        // Verify ownership before deleting.
+        let stored_user: Option<String> = redis::cmd("HGET")
+            .arg(&key)
+            .arg("user_id")
+            .query_async(&mut conn)
+            .await
+            .map_err(internal_redis_error)?;
+        if stored_user.as_deref() != Some(user_id) {
+            return Err(MobileAuthError::NotFound);
+        }
+        let _: () = redis::cmd("DEL")
+            .arg(&key)
+            .query_async(&mut conn)
+            .await
+            .map_err(internal_redis_error)?;
+        Ok(())
+    }
 }
 
 fn internal_redis_error(error: impl fmt::Display) -> MobileAuthError {
@@ -683,6 +1110,10 @@ fn internal_redis_error(error: impl fmt::Display) -> MobileAuthError {
 
 fn pairing_key(pairing_id: &str) -> String {
     format!("orka:mobile:pairing:{pairing_id}")
+}
+
+fn push_token_key(device_id: &str) -> String {
+    format!("orka:mobile:push:{device_id}")
 }
 
 fn refresh_key(refresh_token: &str) -> String {
@@ -790,6 +1221,9 @@ struct MobileClaims<'a> {
     aud: Option<&'a str>,
     exp: u64,
     iat: u64,
+    /// Mobile device ID — extracted by the JWT authenticator into
+    /// [`AuthIdentity::device_id`].
+    dvc: &'a str,
 }
 
 fn issue_mobile_session(
@@ -807,6 +1241,7 @@ fn issue_mobile_session(
         aud: config.audience.as_deref(),
         exp: access_expires_at.timestamp() as u64,
         iat: access_now.timestamp() as u64,
+        dvc: device_id,
     };
     let access_token = encode(
         &Header::default(),

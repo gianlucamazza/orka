@@ -21,6 +21,8 @@ use orka_core::{
     MessageId, Payload, RichInputPayload, SessionId, StreamChunkKind, StreamRegistry,
     traits::{ArtifactStore, ConversationStore, MessageBus},
 };
+use crate::export::{export_json, export_markdown, export_pdf, ExportFormat};
+use crate::mobile_auth::DeviceInfo;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, mpsc};
 use tokio_stream::{StreamExt, wrappers::UnboundedReceiverStream};
@@ -263,6 +265,94 @@ pub(super) struct UpdateConversationRequest {
     tags: Option<Vec<String>>,
 }
 
+// ── Device management ────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(super) struct RenameDeviceRequest {
+    device_name: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct DeviceResponse {
+    id: String,
+    device_name: String,
+    platform: String,
+    last_seen_at: Option<DateTime<Utc>>,
+    push_token_registered: bool,
+    is_current: bool,
+}
+
+impl From<DeviceInfo> for DeviceResponse {
+    fn from(d: DeviceInfo) -> Self {
+        Self {
+            id: d.id,
+            device_name: d.device_name,
+            platform: d.platform,
+            last_seen_at: d.last_seen_at,
+            push_token_registered: d.push_token_registered,
+            is_current: d.is_current,
+        }
+    }
+}
+
+// ── Push tokens ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(super) struct RegisterPushTokenRequest {
+    push_token: String,
+    platform: String,
+    app_version: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct RegisterPushTokenResponse {
+    device_id: String,
+    push_token_registered: bool,
+}
+
+// ── Search ───────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub(super) struct SearchQuery {
+    q: String,
+    #[serde(default = "default_page_size")]
+    limit: usize,
+    #[serde(default)]
+    offset: usize,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct SearchResultItem {
+    message_id: MessageId,
+    conversation_id: ConversationId,
+    conversation_title: String,
+    role: ConversationMessageRole,
+    text_snippet: String,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct SearchResponse {
+    results: Vec<SearchResultItem>,
+    total: usize,
+}
+
+// ── Export ───────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub(super) struct ExportQuery {
+    #[serde(default = "default_export_format")]
+    format: String,
+}
+
+fn default_export_format() -> String {
+    "md".to_string()
+}
+
+fn default_page_size() -> usize {
+    20
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub(super) struct ApiError {
     error: String,
@@ -471,6 +561,28 @@ pub(super) fn protected_routes(
             post(handle_retry_generation),
         )
         .route("/mobile/v1/conversations/{id}/stream", get(handle_stream))
+        // Device management
+        .route("/mobile/v1/devices", get(handle_list_devices))
+        .route(
+            "/mobile/v1/devices/{id}",
+            delete(handle_remove_device).patch(handle_rename_device),
+        )
+        .route(
+            "/mobile/v1/devices/{id}/push-token",
+            post(handle_register_push_token).delete(handle_unregister_push_token),
+        )
+        // Search
+        .route("/mobile/v1/search", get(handle_search_messages))
+        // Transcription
+        .route(
+            "/mobile/v1/transcribe",
+            post(handle_transcribe).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+        )
+        // Export
+        .route(
+            "/mobile/v1/conversations/{id}/export",
+            get(handle_export_conversation),
+        )
         .with_state(state)
 }
 
@@ -2048,4 +2160,284 @@ fn parse_range_header(value: &str) -> Option<(usize, usize)> {
         end.parse::<usize>().ok()?
     };
     Some((start, end))
+}
+
+// ── Device management handlers ───────────────────────────────────────────────
+
+/// GET `/mobile/v1/devices` — list all active devices for the current user.
+async fn handle_list_devices(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+) -> impl IntoResponse {
+    let Some(mobile_auth) = state.mobile_auth else {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "mobile auth is unavailable on this server",
+        );
+    };
+    let current_device_id = identity.device_id.as_deref().unwrap_or("");
+    match mobile_auth
+        .list_devices(&identity.principal, current_device_id)
+        .await
+    {
+        Ok(devices) => {
+            let response: Vec<DeviceResponse> = devices.into_iter().map(Into::into).collect();
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(error) => internal_error(error),
+    }
+}
+
+/// DELETE `/mobile/v1/devices/{id}` — revoke a device session.
+async fn handle_remove_device(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(device_id): Path<String>,
+) -> impl IntoResponse {
+    let Some(mobile_auth) = state.mobile_auth else {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "mobile auth is unavailable on this server",
+        );
+    };
+    match mobile_auth
+        .revoke_device(&identity.principal, &device_id)
+        .await
+    {
+        Ok(()) => (StatusCode::NO_CONTENT, Body::empty()).into_response(),
+        Err(MobileAuthError::NotFound) => error_response(StatusCode::NOT_FOUND, "device not found"),
+        Err(error) => internal_error(error),
+    }
+}
+
+/// PATCH `/mobile/v1/devices/{id}` — rename a device.
+async fn handle_rename_device(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(device_id): Path<String>,
+    Json(body): Json<RenameDeviceRequest>,
+) -> impl IntoResponse {
+    let Some(mobile_auth) = state.mobile_auth else {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "mobile auth is unavailable on this server",
+        );
+    };
+    if body.device_name.trim().is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "device_name must not be empty");
+    }
+    let current_device_id = identity.device_id.as_deref().unwrap_or("");
+    match mobile_auth
+        .rename_device(
+            &identity.principal,
+            &device_id,
+            body.device_name.trim(),
+            current_device_id,
+        )
+        .await
+    {
+        Ok(device) => (StatusCode::OK, Json(DeviceResponse::from(device))).into_response(),
+        Err(MobileAuthError::NotFound) => error_response(StatusCode::NOT_FOUND, "device not found"),
+        Err(error) => internal_error(error),
+    }
+}
+
+// ── Push token handlers ──────────────────────────────────────────────────────
+
+/// POST `/mobile/v1/devices/{id}/push-token` — register a push notification token.
+async fn handle_register_push_token(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(device_id): Path<String>,
+    Json(body): Json<RegisterPushTokenRequest>,
+) -> impl IntoResponse {
+    let Some(mobile_auth) = state.mobile_auth else {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "mobile auth is unavailable on this server",
+        );
+    };
+    if body.push_token.trim().is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "push_token must not be empty");
+    }
+    match mobile_auth
+        .register_push_token(
+            &identity.principal,
+            &device_id,
+            body.push_token.trim(),
+            body.platform.trim(),
+            body.app_version.as_deref(),
+        )
+        .await
+    {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(RegisterPushTokenResponse {
+                device_id,
+                push_token_registered: true,
+            }),
+        )
+            .into_response(),
+        Err(error) => internal_error(error),
+    }
+}
+
+/// DELETE `/mobile/v1/devices/{id}/push-token` — unregister a push token.
+async fn handle_unregister_push_token(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(device_id): Path<String>,
+) -> impl IntoResponse {
+    let Some(mobile_auth) = state.mobile_auth else {
+        return error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "mobile auth is unavailable on this server",
+        );
+    };
+    match mobile_auth
+        .unregister_push_token(&identity.principal, &device_id)
+        .await
+    {
+        Ok(()) => (StatusCode::NO_CONTENT, Body::empty()).into_response(),
+        Err(MobileAuthError::NotFound) => {
+            error_response(StatusCode::NOT_FOUND, "push token not registered")
+        }
+        Err(error) => internal_error(error),
+    }
+}
+
+// ── Search handler ───────────────────────────────────────────────────────────
+
+/// GET `/mobile/v1/search?q=...` — search messages across all conversations.
+async fn handle_search_messages(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Query(params): Query<SearchQuery>,
+) -> impl IntoResponse {
+    let q = params.q.trim();
+    if q.is_empty() {
+        return (
+            StatusCode::OK,
+            Json(SearchResponse {
+                results: vec![],
+                total: 0,
+            }),
+        )
+            .into_response();
+    }
+    let limit = params.limit.min(MAX_PAGE_SIZE);
+    let offset = params.offset;
+    match state
+        .conversations
+        .search_messages(&identity.principal, q, limit, offset)
+        .await
+    {
+        Ok((hits, total)) => {
+            let results = hits
+                .into_iter()
+                .map(|h| SearchResultItem {
+                    message_id: h.message_id,
+                    conversation_id: h.conversation_id,
+                    conversation_title: h.conversation_title,
+                    role: h.role,
+                    text_snippet: h.text_snippet,
+                    created_at: h.created_at,
+                })
+                .collect();
+            (StatusCode::OK, Json(SearchResponse { results, total })).into_response()
+        }
+        Err(error) => internal_error(error),
+    }
+}
+
+// ── Transcription handler ────────────────────────────────────────────────────
+
+/// POST `/mobile/v1/transcribe` — transcribe an audio file.
+///
+/// Returns 501 Not Implemented until a Whisper-compatible endpoint is
+/// configured on the server.
+async fn handle_transcribe(
+    State(_state): State<ProtectedMobileState>,
+    Extension(_identity): Extension<AuthIdentity>,
+    _multipart: Multipart,
+) -> impl IntoResponse {
+    error_response(
+        StatusCode::NOT_IMPLEMENTED,
+        "audio transcription is not configured on this server",
+    )
+}
+
+// ── Export handler ───────────────────────────────────────────────────────────
+
+/// GET `/mobile/v1/conversations/{id}/export?format=md` — export a conversation.
+async fn handle_export_conversation(
+    State(state): State<ProtectedMobileState>,
+    Extension(identity): Extension<AuthIdentity>,
+    Path(id): Path<String>,
+    Query(params): Query<ExportQuery>,
+) -> impl IntoResponse {
+    let conversation_id = match parse_conversation_id(&id) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+
+    let Some(format) = ExportFormat::parse(&params.format) else {
+        return error_response(StatusCode::BAD_REQUEST, "format must be one of: json, md, pdf");
+    };
+
+    let conversation = match state.conversations.get_conversation(&conversation_id).await {
+        Ok(Some(c)) => c,
+        Ok(None) => return error_response(StatusCode::NOT_FOUND, "conversation not found"),
+        Err(error) => return internal_error(error),
+    };
+
+    if conversation.user_id != identity.principal {
+        return error_response(StatusCode::NOT_FOUND, "conversation not found");
+    }
+
+    let messages = match state
+        .conversations
+        .list_messages(&conversation_id, None, None, usize::MAX)
+        .await
+    {
+        Ok(msgs) => msgs,
+        Err(error) => return internal_error(error),
+    };
+
+    let filename = format!(
+        "conversation-{}.{}",
+        &id[..id.len().min(8)],
+        format.extension()
+    );
+    let content_type = format.content_type();
+    let disposition = format!("attachment; filename=\"{filename}\"");
+
+    let bytes = match format {
+        ExportFormat::Json => match export_json(&conversation, &messages) {
+            Ok(b) => b,
+            Err(e) => return internal_error(e),
+        },
+        ExportFormat::Markdown => export_markdown(&conversation, &messages),
+        ExportFormat::Pdf => match export_pdf(&conversation, &messages) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("PDF export failed: {e}");
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "failed to generate PDF",
+                );
+            }
+        },
+    };
+
+    let mut response = Response::new(Body::from(bytes));
+    *response.status_mut() = StatusCode::OK;
+    let hdrs = response.headers_mut();
+    if let Ok(v) = HeaderValue::from_str(content_type) {
+        hdrs.insert(header::CONTENT_TYPE, v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&disposition) {
+        hdrs.insert(header::CONTENT_DISPOSITION, v);
+    }
+    response
 }

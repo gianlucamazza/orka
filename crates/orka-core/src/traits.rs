@@ -2,11 +2,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine as _;
+use chrono::{DateTime, Utc};
 
 use crate::{
     ArtifactId, Conversation, ConversationArtifact, ConversationId, ConversationMessage,
-    DomainEvent, Envelope, MemoryEntry, MessageId, MessageSink, MessageStream, OutboundMessage,
-    Result, SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
+    ConversationMessageRole, DomainEvent, Envelope, MemoryEntry, MessageId, MessageSink,
+    MessageStream, OutboundMessage, Result, SecretValue, Session, SessionId, SkillInput,
+    SkillOutput, SkillSchema,
 };
 
 /// Opaque pagination cursor for message lists.
@@ -236,6 +238,85 @@ pub trait ConversationStore: Send + Sync + 'static {
         user_id: &str,
         conversation_id: &ConversationId,
     ) -> Result<Option<MessageCursor>>;
+
+    /// Full-text search across all messages in a user's conversations.
+    ///
+    /// Returns matching [`SearchHit`] entries sorted by `created_at` desc,
+    /// along with the total count of matches (before pagination).
+    ///
+    /// The default implementation performs an in-memory case-insensitive
+    /// substring scan over all conversations. Backends with native search
+    /// support should override this method for better performance.
+    async fn search_messages(
+        &self,
+        user_id: &str,
+        query: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<(Vec<SearchHit>, usize)> {
+        let conversations = self
+            .list_conversations(user_id, usize::MAX, 0, false)
+            .await?;
+        let query_lower = query.to_lowercase();
+        let mut hits: Vec<SearchHit> = Vec::new();
+
+        for conversation in &conversations {
+            let messages = self
+                .list_messages(&conversation.id, None, None, usize::MAX)
+                .await?;
+            for message in messages {
+                let text_lower = message.text.to_lowercase();
+                if let Some(pos) = text_lower.find(&query_lower) {
+                    let snippet = extract_snippet(&message.text, pos, 50);
+                    hits.push(SearchHit {
+                        message_id: message.id,
+                        conversation_id: conversation.id,
+                        conversation_title: conversation.title.clone(),
+                        role: message.role,
+                        text_snippet: snippet,
+                        created_at: message.created_at,
+                    });
+                }
+            }
+        }
+
+        hits.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        let total = hits.len();
+        let page = hits.into_iter().skip(offset).take(limit).collect();
+        Ok((page, total))
+    }
+}
+
+/// Extract a text snippet of ±`half_window` chars centred on `match_pos`.
+pub fn extract_snippet(text: &str, match_pos: usize, half_window: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    // Convert byte offset to char offset.
+    let char_pos = text[..match_pos].chars().count();
+    let start = char_pos.saturating_sub(half_window);
+    let end = (char_pos + half_window * 2).min(chars.len());
+    let snippet: String = chars[start..end].iter().collect();
+    if start > 0 || end < chars.len() {
+        format!("…{snippet}…")
+    } else {
+        snippet
+    }
+}
+
+/// A single search result from a message full-text search.
+#[derive(Debug, Clone)]
+pub struct SearchHit {
+    /// The matched message ID.
+    pub message_id: MessageId,
+    /// The conversation containing the matched message.
+    pub conversation_id: ConversationId,
+    /// Title of the conversation at search time.
+    pub conversation_title: String,
+    /// Role of the message author.
+    pub role: ConversationMessageRole,
+    /// Excerpt from the message text (±50 chars around the first match).
+    pub text_snippet: String,
+    /// Message creation time.
+    pub created_at: DateTime<Utc>,
 }
 
 /// Persistent artifact metadata and content storage for product-facing clients.
@@ -431,6 +512,14 @@ pub trait SecretManager: Send + Sync + 'static {
     /// List all secret paths.
     async fn list_secrets(&self) -> Result<Vec<String>> {
         Err(crate::Error::secret("list not supported"))
+    }
+
+    /// Migrate plaintext secrets to encrypted format.
+    ///
+    /// Called once at startup when an encryption key is present. The default
+    /// implementation is a no-op that returns `Ok(0)`.
+    async fn migrate_plaintext_secrets(&self) -> Result<usize> {
+        Ok(0)
     }
 }
 
