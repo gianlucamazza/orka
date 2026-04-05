@@ -1,4 +1,4 @@
-# Maintainer: Gianluca Homen <gianluca@homen.dev>
+# Maintainer: Gianluca Mazza <info@gianlucamazza.it>
 pkgname=orka-git
 pkgver=1.6.0
 pkgrel=1
