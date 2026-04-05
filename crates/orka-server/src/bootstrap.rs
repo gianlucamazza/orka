@@ -1708,10 +1708,11 @@ impl Bootstrap {
         let config = init_config_and_tracing()?;
         let (infra, metrics_handle) = init_infra(&config)?;
 
-        // Migrate any plaintext secrets to encrypted format now that we are in
-        // an async context. This is a no-op when no encryption key is set.
-        let secret_config = to_runtime_secret_config(&config.secrets);
-        let migrated = orka_secrets::migrate_plaintext_secrets(&secret_config, &config.redis.url)
+        // Migrate any plaintext secrets to encrypted format. No-op when no
+        // encryption key is set.
+        let migrated = infra
+            .secrets
+            .migrate_plaintext_secrets()
             .await
             .context("failed to migrate plaintext secrets")?;
         if migrated > 0 {

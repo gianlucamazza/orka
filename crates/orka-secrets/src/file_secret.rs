@@ -93,59 +93,6 @@ impl FileSecretManager {
         })
     }
 
-    /// Migrate any plaintext secrets to encrypted format.
-    ///
-    /// Should be called once at startup when an encryption key is present.
-    /// Iterates all secrets, tries to decrypt each; if decryption fails and
-    /// the decoded bytes are valid UTF-8, treats them as plaintext and
-    /// re-encrypts in place.
-    ///
-    /// Returns the number of secrets migrated.
-    pub async fn migrate_plaintext_secrets(&self) -> Result<usize> {
-        if self.cipher.is_none() {
-            return Ok(0);
-        }
-
-        let _guard = self.lock.lock().await;
-        let mut file = self.read_file().await?;
-        let mut migrated = 0usize;
-
-        for (path, encoded) in &mut file.secrets {
-            let bytes = match B64.decode(encoded.as_str()) {
-                Ok(b) => b,
-                Err(e) => {
-                    warn!(path, %e, "base64 decode failed, skipping migration");
-                    continue;
-                }
-            };
-
-            // Already encrypted — skip.
-            if self.decrypt(&bytes).is_ok() {
-                continue;
-            }
-
-            // Decryption failed. If the decoded bytes are valid UTF-8 this is
-            // a plaintext secret that predates encryption being enabled.
-            if std::str::from_utf8(&bytes).is_ok() {
-                let encrypted = self.encrypt(&bytes)?;
-                *encoded = B64.encode(&encrypted);
-                info!(path, "migrated secret from plaintext to encrypted");
-                migrated += 1;
-            } else {
-                warn!(
-                    path,
-                    "secret is neither valid ciphertext nor valid UTF-8, skipping migration"
-                );
-            }
-        }
-
-        if migrated > 0 {
-            self.write_file(&file).await?;
-        }
-
-        Ok(migrated)
-    }
-
     fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
         let Some(cipher) = &self.cipher else {
             return Ok(plaintext.to_vec());
@@ -252,6 +199,51 @@ impl SecretManager for FileSecretManager {
         let mut paths: Vec<String> = file.secrets.into_keys().collect();
         paths.sort();
         Ok(paths)
+    }
+
+    async fn migrate_plaintext_secrets(&self) -> Result<usize> {
+        if self.cipher.is_none() {
+            return Ok(0);
+        }
+
+        let _guard = self.lock.lock().await;
+        let mut file = self.read_file().await?;
+        let mut migrated = 0usize;
+
+        for (path, encoded) in &mut file.secrets {
+            let bytes = match B64.decode(encoded.as_str()) {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!(path, %e, "base64 decode failed, skipping migration");
+                    continue;
+                }
+            };
+
+            // Already encrypted — skip.
+            if self.decrypt(&bytes).is_ok() {
+                continue;
+            }
+
+            // Decryption failed. If the decoded bytes are valid UTF-8 this is
+            // a plaintext secret that predates encryption being enabled.
+            if std::str::from_utf8(&bytes).is_ok() {
+                let encrypted = self.encrypt(&bytes)?;
+                *encoded = B64.encode(&encrypted);
+                info!(path, "migrated secret from plaintext to encrypted");
+                migrated += 1;
+            } else {
+                warn!(
+                    path,
+                    "secret is neither valid ciphertext nor valid UTF-8, skipping migration"
+                );
+            }
+        }
+
+        if migrated > 0 {
+            self.write_file(&file).await?;
+        }
+
+        Ok(migrated)
     }
 }
 
@@ -412,6 +404,40 @@ mod tests {
         assert_eq!(
             enc.get_secret("already/enc").await.unwrap().expose(),
             b"s3cr3t"
+        );
+    }
+
+    /// Mixed state: some secrets already encrypted, some plaintext.
+    /// Only plaintext ones should be migrated.
+    #[tokio::test]
+    async fn migrate_mixed_state() {
+        let p = tmp_path();
+
+        // Write one secret with no encryption (plaintext).
+        let plain = mgr_plain(p.clone());
+        plain
+            .set_secret("plain/tok", &SecretValue::new(b"plain_value".to_vec()))
+            .await
+            .unwrap();
+
+        // Write another secret directly with the encrypted manager.
+        let enc = mgr_encrypted(p.clone());
+        enc.set_secret("enc/tok", &SecretValue::new(b"enc_value".to_vec()))
+            .await
+            .unwrap();
+
+        // Migrate: only the plaintext one should count.
+        let migrated = enc.migrate_plaintext_secrets().await.unwrap();
+        assert_eq!(migrated, 1);
+
+        // Both secrets must be readable via the encrypted manager.
+        assert_eq!(
+            enc.get_secret("plain/tok").await.unwrap().expose(),
+            b"plain_value"
+        );
+        assert_eq!(
+            enc.get_secret("enc/tok").await.unwrap().expose(),
+            b"enc_value"
         );
     }
 

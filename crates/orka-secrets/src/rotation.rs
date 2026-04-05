@@ -249,6 +249,19 @@ impl SecretManager for RotatingSecretManager {
         let primary = self.primary.read().await;
         primary.list_secrets().await
     }
+
+    async fn migrate_plaintext_secrets(&self) -> Result<usize> {
+        // Migrate in primary; also migrate previous if still in the overlap window.
+        let primary = self.primary.read().await;
+        let mut migrated = primary.migrate_plaintext_secrets().await?;
+
+        let previous = self.previous.read().await;
+        if let Some(prev) = previous.as_ref() {
+            migrated += prev.migrate_plaintext_secrets().await?;
+        }
+
+        Ok(migrated)
+    }
 }
 
 #[cfg(test)]
