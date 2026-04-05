@@ -841,7 +841,9 @@ fn build_mobile_auth_service(config: &OrkaConfig) -> Option<Arc<dyn MobileAuthSe
     let mobile_auth_config = MobileAuthConfig::new(issuer, jwt.audience.clone(), secret.clone());
 
     match RedisMobileAuthService::new(&config.redis.url, mobile_auth_config) {
-        Ok(service) => Some(Arc::new(service)),
+        Ok(service) => Some(Arc::new(
+            service.with_public_url(config.server.public_url.clone()),
+        )),
         Err(error) => {
             warn!(%error, "mobile auth service unavailable");
             None

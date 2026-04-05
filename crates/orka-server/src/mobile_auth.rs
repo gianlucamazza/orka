@@ -299,6 +299,7 @@ pub trait MobileAuthService: Send + Sync {
 /// In-memory implementation used by integration tests.
 pub struct InMemoryMobileAuthService {
     config: MobileAuthConfig,
+    public_url: Option<String>,
     pairings: Arc<Mutex<HashMap<String, PairingRecord>>>,
     refresh_tokens: Arc<Mutex<HashMap<String, RefreshRecord>>>,
     /// Maps `device_id` → push token string.
@@ -310,10 +311,18 @@ impl InMemoryMobileAuthService {
     pub fn new(config: MobileAuthConfig) -> Self {
         Self {
             config,
+            public_url: None,
             pairings: Arc::new(Mutex::new(HashMap::new())),
             refresh_tokens: Arc::new(Mutex::new(HashMap::new())),
             push_tokens: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Set the canonical public URL used in pairing QR codes.
+    #[must_use]
+    pub fn with_public_url(mut self, url: Option<String>) -> Self {
+        self.public_url = url;
+        self
     }
 }
 
@@ -324,7 +333,8 @@ impl MobileAuthService for InMemoryMobileAuthService {
         creator_principal: &str,
         server_base_url: &str,
     ) -> Result<CreatedPairing, MobileAuthError> {
-        let server_base_url = normalize_server_base_url(server_base_url)?;
+        let effective_url = self.public_url.as_deref().unwrap_or(server_base_url);
+        let server_base_url = normalize_server_base_url(effective_url)?;
         let pairing_id = Uuid::now_v7().to_string();
         let pairing_secret = random_secret()?;
         let now = Utc::now();
@@ -558,6 +568,7 @@ impl MobileAuthService for InMemoryMobileAuthService {
 pub struct RedisMobileAuthService {
     config: MobileAuthConfig,
     pool: Pool,
+    public_url: Option<String>,
 }
 
 impl RedisMobileAuthService {
@@ -570,7 +581,18 @@ impl RedisMobileAuthService {
                     "failed to create mobile auth Redis pool: {error}"
                 ))
             })?;
-        Ok(Self { config, pool })
+        Ok(Self {
+            config,
+            pool,
+            public_url: None,
+        })
+    }
+
+    /// Set the canonical public URL used in pairing QR codes.
+    #[must_use]
+    pub fn with_public_url(mut self, url: Option<String>) -> Self {
+        self.public_url = url;
+        self
     }
 }
 
@@ -581,7 +603,8 @@ impl MobileAuthService for RedisMobileAuthService {
         creator_principal: &str,
         server_base_url: &str,
     ) -> Result<CreatedPairing, MobileAuthError> {
-        let server_base_url = normalize_server_base_url(server_base_url)?;
+        let effective_url = self.public_url.as_deref().unwrap_or(server_base_url);
+        let server_base_url = normalize_server_base_url(effective_url)?;
         let pairing_id = Uuid::now_v7().to_string();
         let pairing_secret = random_secret()?;
         let now = Utc::now();
@@ -1423,5 +1446,51 @@ mod tests {
             })
             .await;
         assert!(matches!(reused, Err(MobileAuthError::Unauthorized)));
+    }
+
+    #[tokio::test]
+    async fn public_url_overrides_cli_base_url_in_pairing_uri() {
+        let service = InMemoryMobileAuthService::new(MobileAuthConfig::new(
+            "orka-tests".to_string(),
+            None,
+            "test-secret-key-at-least-32-bytes-long!".to_string(),
+        ))
+        .with_public_url(Some("http://100.64.0.2:18080".to_string()));
+
+        // CLI passes localhost — should be ignored
+        let created = service
+            .create_pairing("operator-1", "http://127.0.0.1:18080")
+            .await
+            .unwrap();
+
+        assert!(
+            created.pairing_uri.contains("100.64.0.2%3A18080"),
+            "pairing URI should contain the public_url, got: {}",
+            created.pairing_uri
+        );
+        assert!(
+            !created.pairing_uri.contains("127.0.0.1"),
+            "pairing URI must not contain the CLI localhost URL"
+        );
+    }
+
+    #[tokio::test]
+    async fn without_public_url_cli_base_url_is_used() {
+        let service = InMemoryMobileAuthService::new(MobileAuthConfig::new(
+            "orka-tests".to_string(),
+            None,
+            "test-secret-key-at-least-32-bytes-long!".to_string(),
+        ));
+
+        let created = service
+            .create_pairing("operator-1", "https://orka.example.com")
+            .await
+            .unwrap();
+
+        assert!(
+            created.pairing_uri.contains("orka.example.com"),
+            "pairing URI should contain the CLI-supplied URL, got: {}",
+            created.pairing_uri
+        );
     }
 }

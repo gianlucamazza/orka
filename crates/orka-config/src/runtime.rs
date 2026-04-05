@@ -88,6 +88,16 @@ pub struct ServerConfig {
     /// TCP port to listen on.
     #[serde(default = "default_port")]
     pub port: u16,
+    /// Canonical public URL advertised to external clients (e.g. mobile apps).
+    ///
+    /// When set, this URL is embedded in mobile pairing QR codes instead of
+    /// the URL supplied by the CLI. Required when the server is accessed via
+    /// a different hostname or IP than the one the CLI uses to connect
+    /// (e.g. Tailscale IP, public domain, reverse proxy).
+    ///
+    /// Example: `"http://100.64.0.2:18080"` or `"https://orka.example.com"`
+    #[serde(default)]
+    pub public_url: Option<String>,
 }
 
 impl ServerConfig {
@@ -124,6 +134,7 @@ impl Default for ServerConfig {
         Self {
             host: default_host(),
             port: default_port(),
+            public_url: None,
         }
     }
 }
@@ -277,27 +288,21 @@ mod tests {
 
     #[test]
     fn redis_validates_url() {
-        assert!(
-            RedisConfig {
-                url: "redis://localhost:6379".to_string(),
-            }
-            .validate()
-            .is_ok()
-        );
-        assert!(
-            RedisConfig {
-                url: "rediss://localhost:6380".to_string(),
-            }
-            .validate()
-            .is_ok()
-        );
-        assert!(
-            RedisConfig {
-                url: "http://localhost:6379".to_string(),
-            }
-            .validate()
-            .is_err()
-        );
+        assert!(RedisConfig {
+            url: "redis://localhost:6379".to_string(),
+        }
+        .validate()
+        .is_ok());
+        assert!(RedisConfig {
+            url: "rediss://localhost:6380".to_string(),
+        }
+        .validate()
+        .is_ok());
+        assert!(RedisConfig {
+            url: "http://localhost:6379".to_string(),
+        }
+        .validate()
+        .is_err());
     }
 
     #[test]
@@ -312,6 +317,7 @@ mod tests {
         let config = ServerConfig {
             host: "0.0.0.0".to_string(),
             port: 3000,
+            public_url: None,
         };
         assert_eq!(config.bind_address(), "0.0.0.0:3000");
         assert!(config.validate().is_ok());
@@ -333,14 +339,12 @@ mod tests {
 
     #[test]
     fn worker_validation_rejects_zero_concurrency() {
-        assert!(
-            WorkerConfig {
-                concurrency: 0,
-                retry_base_delay_ms: 1000,
-            }
-            .validate()
-            .is_err()
-        );
+        assert!(WorkerConfig {
+            concurrency: 0,
+            retry_base_delay_ms: 1000,
+        }
+        .validate()
+        .is_err());
     }
 
     #[test]

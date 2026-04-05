@@ -9,6 +9,7 @@ workspace_dir = "."
 [server]
 host = "127.0.0.1"
 port = 8080
+# public_url = "https://orka.example.com"  # URL embedded in mobile pairing QR codes
 
 [bus]
 backend = "redis"
