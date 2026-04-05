@@ -4,7 +4,7 @@
 #          --build-context binaries=target/aarch64-unknown-linux-gnu/release \
 #          -t registry.home.gianlucamazza.it/gmazza/orka:<tag> --push .
 
-FROM gcr.io/distroless/cc-debian12
+FROM debian:bookworm-slim
 
 ARG BUILD_DATE
 ARG VCS_REF
@@ -16,9 +16,14 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.title="orka-server" \
       org.opencontainers.image.source="https://github.com/gianlucamazza/orka"
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates libfontconfig1 libssl3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r orka && useradd -r -g orka -u 65532 orka
+
 COPY --from=binaries orka-server /usr/local/bin/orka-server
 
-USER nonroot:nonroot
+USER orka:orka
 
 EXPOSE 8080 8081
 

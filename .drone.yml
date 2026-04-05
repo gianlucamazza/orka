@@ -1,136 +1,17 @@
 ---
 kind: pipeline
 type: docker
-name: pr-amd64-verify
-
-platform:
-  os: linux
-  arch: amd64
-
-clone:
-  depth: 1
-
-steps:
-  - name: checks
-    image: rust:1.93-slim-bookworm
-    environment:
-      REDIS_URL: redis://redis:6379
-      QDRANT_URL: http://qdrant:6334
-    commands:
-      - apt-get update -qq
-      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev libfontconfig-dev clang mold
-      - rm -rf /var/lib/apt/lists/*
-      - rustup component add clippy
-      - rustup toolchain install nightly --profile minimal --component rustfmt
-      - cargo install cargo-deny --locked
-      - "until bash -lc ': >/dev/tcp/redis/6379' 2>/dev/null; do sleep 1; done"
-      - "until bash -lc ': >/dev/tcp/qdrant/6334' 2>/dev/null; do sleep 1; done"
-      - cargo +nightly fmt --all -- --check
-      - cargo clippy --workspace --all-targets -- -D warnings
-      - cargo deny check
-      - cargo build --workspace
-      - cargo test --workspace
-      - cargo test --workspace -- --ignored
-      - cargo build --release --bin orka-server --bin orka
-      - ./scripts/create-install-bundle.sh --profile release --output-dir dist/orka-install-bundle-amd64
-      - test -x dist/orka-install-bundle-amd64/target/release/orka-server
-      - test -x dist/orka-install-bundle-amd64/target/release/orka
-      - test -f dist/orka-install-bundle-amd64/scripts/install.sh
-      - bash -n scripts/install.sh
-      - bash -n scripts/create-install-bundle.sh
-      - bash -n scripts/deploy-remote-native.sh
-      - sh -n scripts/publish-oci.sh
-
-services:
-  - name: redis
-    image: redis:7-alpine
-  - name: qdrant
-    image: qdrant/qdrant:v1.17.0
-
-trigger:
-  event:
-    - pull_request
-
----
-kind: pipeline
-type: docker
-name: main-amd64-publish
-
-platform:
-  os: linux
-  arch: amd64
-
-clone:
-  depth: 1
-
-steps:
-  - name: validate
-    image: rust:1.93-slim-bookworm
-    environment:
-      REDIS_URL: redis://redis:6379
-      QDRANT_URL: http://qdrant:6334
-    commands:
-      - apt-get update -qq
-      - apt-get install -y --no-install-recommends ca-certificates curl git pkg-config libssl-dev libfreetype6-dev libfontconfig-dev clang mold
-      - rm -rf /var/lib/apt/lists/*
-      - rustup component add clippy
-      - rustup toolchain install nightly --profile minimal --component rustfmt
-      - "until bash -lc ': >/dev/tcp/redis/6379' 2>/dev/null; do sleep 1; done"
-      - "until bash -lc ': >/dev/tcp/qdrant/6334' 2>/dev/null; do sleep 1; done"
-      - cargo +nightly fmt --all -- --check
-      - cargo clippy --workspace --all-targets -- -D warnings
-      - cargo test --workspace
-      - cargo test --workspace -- --ignored
-      - cargo build --release --bin orka-server --bin orka
-      - ./scripts/create-install-bundle.sh --profile release --output-dir dist/orka-install-bundle-amd64 --tarball dist/orka-install-bundle-amd64.tar.gz
-
-  - name: publish-oci
-    image: docker:28-cli
-    environment:
-      REGISTRY_USERNAME:
-        from_secret: REGISTRY_USERNAME
-      REGISTRY_PASSWORD:
-        from_secret: REGISTRY_PASSWORD
-    volumes:
-      - name: docker_sock
-        path: /var/run/docker.sock
-    commands:
-      - ./scripts/publish-oci.sh
-
-services:
-  - name: redis
-    image: redis:7-alpine
-  - name: qdrant
-    image: qdrant/qdrant:v1.17.0
-
-volumes:
-  - name: docker_sock
-    host:
-      path: /var/run/docker.sock
-
-trigger:
-  branch:
-    - main
-  event:
-    - push
-
----
-kind: pipeline
-type: docker
-name: main-arm64-native-deploy
+name: deploy-arm64
 
 platform:
   os: linux
   arch: arm64
 
-depends_on:
-  - main-amd64-publish
-
 clone:
   depth: 1
 
 steps:
-  - name: build-native-bundle
+  - name: build
     image: rust:1.93-slim-bookworm
     commands:
       - apt-get update -qq
@@ -140,7 +21,7 @@ steps:
       - ./scripts/create-install-bundle.sh --profile release --output-dir dist/orka-install-bundle-arm64 --tarball dist/orka-install-bundle-arm64.tar.gz
       - test -f dist/orka-install-bundle-arm64.tar.gz
 
-  - name: remote-native-install
+  - name: deploy
     image: debian:bookworm-slim
     environment:
       ORKA_DEPLOY_HOST:
