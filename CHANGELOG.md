@@ -1,283 +1,361 @@
 # Changelog
 
-All notable changes to Orka will be documented in this file.
+All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-## [1.5.0] - 2026-04-04
+## [1.6.0] - 2026-04-05
 
 ### Added
 
-- Mobile API: `POST /mobile/v1/conversations/{id}/cancel` — cancels an in-progress
-  generation by signalling the shared `SessionCancelTokens` map; worker pool and HTTP
-  router now share the same token map via a new `WorkerPool::with_session_cancel_tokens`
-  builder method
-- Mobile API: `DELETE /mobile/v1/conversations/{id}/messages/{message_id}` — removes a
-  single message from a conversation transcript; backed by a new `delete_message` method
-  on the `ConversationStore` trait with Redis (LRANGE→filter→DEL+RPUSH) and in-memory
-  implementations
-- Mobile API: `POST /mobile/v1/conversations/{id}/retry` — retries the last failed
-  generation: verifies `status == Failed`, removes trailing assistant messages, and
-  re-publishes the last user message to the inbound bus
-- `Conversation` now carries `pinned: bool` and `tags: Vec<String>` fields; both use
-  `#[serde(default)]` so existing stored conversations deserialize without migration
-- `PATCH /mobile/v1/conversations/{id}` extended to accept `title`, `pinned`, and `tags`
-  in addition to `archived`; all fields are optional, at least one must be present
-- `POST /mobile/v1/conversations/{id}/read` registered in the OpenAPI spec with a
-  `#[utoipa::path]` annotation and schema for `MarkReadRequest`
+- add 8 missing mobile API endpoints
+
+### Fixed
+
+- auto-migrate plaintext secrets when encryption key is added
 
 ### Changed
 
-- OpenAPI annotation on `GET /mobile/v1/conversations/{id}/messages` corrected to reflect
-  cursor-based pagination (`after`, `before`, `limit`) instead of the stale `offset` docs;
-  `x-next-cursor` and `x-prev-cursor` response headers are now documented
-- `docs/guides/mobile-client.md` updated: cursor pagination semantics, full table of new
-  endpoints, and all 10 SSE event types with payload shapes (`typing_started`,
-  `thinking_delta`, `tool_exec_start`, `tool_exec_end`, `agent_switch` were missing)
-- Integration test `mobile_message_list_supports_limit_and_offset` replaced with
-  `mobile_message_list_cursor_pagination` which covers forward and backward cursor traversal
+- consolidate migrate_plaintext_secrets on SecretManager trait
+## [1.5.0] - 2026-04-05
 
+### Added
+
+- add ScheduleTriggered event and observability coverage
+- emit LlmRequest domain event before streaming completion
+- add GenerationStarted chunk for typing indicators
+- add cursor pagination and read receipts for conversations
+- cursor pagination, typing indicators, and read receipts
+- close API gaps identified in client inventory
+
+### Changed
+
+- fix clippy warnings from feature additions
 ## [1.4.0] - 2026-04-04
 
 ### Added
 
-- Redis-backed observe sink configuration and metrics, plus Redis pool retry helpers and
-  integration coverage for gateway dedup/rate limiting and scheduler stores
-- Per-user mobile API rate limiting with explicit 429 coverage in the mobile test suite;
-  read (GET/HEAD) and write (POST/PATCH/PUT/DELETE) requests now use separate buckets —
-  300 req/min and 60 req/min respectively (previously a single 120 req/min bucket)
-- JWT/authenticator validation coverage, including RSA/RS256 verification tests
-- Test coverage for `create_experience_service` initialization (enabled/disabled paths),
-  gateway stale rate-counter cleanup at the 10 000-entry threshold, `RedisEventSink`
-  interval-triggered flush when buffer is below batch size, and scheduler `max_concurrent`
-  semaphore enforcement under parallel load
-- A repeatable public demo pipeline that records live scenarios and renders `gif`, `mp4`,
-  and `webm` assets through `just demo*` and `scripts/demo.sh`
-
-### Changed
-
-- Replaced deprecated `serde_yaml 0.9` with `serde_yml 0.0.12` across the workspace
-  (`orka-skills`, `orka-workspace`); the API is a drop-in rename of `from_str`
-- Config loading now has narrower subsystem boundaries and a dedicated
-  `orka-config::subsystem_config` surface, reducing cross-crate coupling in server/bootstrap
-  and agent graph wiring
-- Workspace-related failures now use simpler shared error paths instead of ad-hoc variants across
-  chart, prompt, mobile-auth, and server call-sites
-- Archived conversation filtering in the Redis conversation store was simplified to reduce
-  pagination/filter drift
-- `LlmRouter` can now try configured fallback providers when the primary provider circuit
-  breaker is open instead of failing immediately
-- Agent `FanOut` nodes now support optional concurrency limits, with graph/config wiring
-  and executor coverage
-- CLI chat/send no longer attach `workspace:cwd` when targeting a remote Orka instance, and
-  agent parsing now drops empty tool-call names before skill dispatch
-- Experience service initialization now respects the configured vector-store backend instead
-  of always forcing Qdrant
+- add archive and delete conversation endpoints
+- harden auth and server resiliency
+- add fan-out limits and safer remote sessions
+- differentiate mobile API rate limits for reads and writes
 
 ### Fixed
 
-- Resolved all outstanding clippy warnings: `assigning_clones` (use `clone_from` in CLI and
-  bootstrap converters), `items_after_statements` (elevate test-only structs in `jwt.rs`),
-  `match_wildcard_for_single_variants` (explicit `VectorStoreBackend::Qdrant` arm), and
-  replaced `unwrap_err()` with `is_err_and` in auth config tests
+- replace assigning_clones with clone_from in cli commands
+- use clone_from in bootstrap to_runtime converters
+- replace unwrap_err with is_err_and and elevate test structs
+- use explicit match arm for VectorStoreBackend::Qdrant
 
+### Changed
+
+- narrow config boundaries and decouple agent graph builder
+- simplify workspace error types
+- simplify archived conversation filtering
+
+### Documentation
+
+- add live demo pipeline and refreshed assets
+- include latest fixes in v1.4.0 notes
+- update CHANGELOG for 1.4.0 with audit completion entries
 ## [1.3.0] - 2026-04-03
 
 ### Added
 
-- `llm_call_timeout_secs` (default: 120 s) and `max_run_secs` (default: none) config fields
-  on `AgentConfig` / `Agent` — allows capping individual LLM calls and total wall-clock run
-  time per agent invocation (`orka-core`, `orka-agent`)
+- forward ThinkingDelta, ToolExec, and AgentSwitch stream events to SSE
+- add artifact support
+
+### Fixed
+
+- resolve pre-existing warnings in orka-server
+- resolve expect_used, too-many-lines, and wildcard-match warnings in orka-server
+- bump cargo-chef to 0.1.77 to support edition 2024
+- add libfontconfig-dev and libfreetype6-dev to build stage
+- drop empty-name tool calls and orphaned results in OpenAI path
+- fix all clippy warnings and complete artifact/RichInput wiring
 
 ### Changed
 
-- Agent now returns explicit user-visible error messages when a run is interrupted by
-  `max_turns`, LLM-call timeout, or wall-clock timeout instead of silently returning an
-  empty response (`orka-agent`)
-- `sanitize_tool_result_history` now also strips `ToolUse` blocks with empty names (spurious
-  outputs from some LLMs) and removes their orphaned `ToolResult` counterparts (`orka-llm`)
-- Worker session-lock contention now uses exponential backoff (base 1 s, cap 60 s) and
-  sends the message to the DLQ after 30 failed retries instead of re-enqueuing indefinitely
-  with a fixed 1 s delay (`orka-worker`)
-
+- extract stream_chunk_to_sse helper to remove too_many_lines allow
 ## [1.2.0] - 2026-04-01
 
-### Added
-
-- `orka_core::Error::Checkpoint` and `Error::Experience` typed variants (with
-  `source` + `context` fields) and their constructor helpers `Error::checkpoint()`,
-  `Error::checkpoint_msg()`, `Error::experience()`, `Error::experience_msg()` —
-  replaces the previous `Error::Other(e.to_string())` fallback across checkpoint and
-  experience call-sites
-
 ### Changed
 
-- **Crate consolidation** — reduced workspace from 46 to 40 members:
-  - `orka-bus`, `orka-queue`, `orka-session`, `orka-conversation` merged into `orka-infra`
-    (Redis-backed infrastructure services; all public APIs re-exported at crate root)
-  - `orka-onboard` folded into `orka-cli` (was a single-dependent crate; now lives
-    under `crates/orka-cli/src/onboard/`)
-  - `orka-http` merged into `orka-web` (HTTP client skills now under `orka_web::http`;
-    `HttpClientConfig`, `SsrfGuard`, and `create_http_skills` re-exported at crate root)
-  - `orka-sandbox` merged into `orka-wasm` (sandbox execution now under
-    `orka_wasm::sandbox`; `SandboxConfig`, `ProcessSandbox`, `WasmSandbox`, etc.
-    re-exported at crate root)
-- **`orka-config` feature gates** — 10 optional subsystem deps are now behind
-  Cargo features: `telegram`, `discord`, `slack`, `whatsapp`, `chart`, `research`,
-  `a2a`, `mcp`, `knowledge`, `experience`. The `default = ["full"]` meta-feature
-  enables all of them for backwards compatibility. Partial builds
-  (`cargo check -p orka-config --no-default-features`) now skip all unused
-  subsystem crates, reducing incremental compile overhead.
-- **`orka-git`** — `create_git_skills` now returns `Vec<Arc<dyn Skill>>` (was
-  `Vec<Box<dyn Skill>>`) and `orka_core::Error` (was `GitError`), aligning with the
-  rest of the workspace skill factories
-- **`orka-cli` onboard** — `handle_store_secret` and `handle_ask_user` extracted as
-  dedicated methods on `OnboardSession`; `to_orka_config` gated behind `#[cfg(test)]`
-- `ConversationStatus` default now uses `#[derive(Default)]` + `#[default]` attribute
-  instead of a manual `impl Default`
-- `RedisConversationStore::list_messages` pagination uses `map_or` (clippy `map_unwrap_or`)
-
-### Removed
-
-- Standalone crates `orka-bus`, `orka-queue`, `orka-session`, `orka-conversation`,
-  `orka-onboard`, `orka-http`, `orka-sandbox` — functionality is fully preserved in
-  the consolidated crates listed above; only import paths changed.
-
+- typed error variants, Arc<dyn Skill>, onboard extraction (v1.2.0)
 ## [1.1.0] - 2026-04-01
 
 ### Added
 
-- Dedicated mobile auth and pairing endpoints under `/mobile/v1/*` for QR-based
-  first-device association, refresh-token rotation, and authenticated mobile
-  sessions
-- `orka mobile pair` CLI command with terminal QR rendering and pairing-status
-  polling for first association between a signed-in CLI session and the mobile app
-- Mobile auth service for device-scoped access/refresh token issuance with
-  one-time, short-lived pairing sessions
-- Public mobile API documentation covering pairing, refresh, conversation paging,
-  and SSE event semantics
+- add conversation store, JWT auth, and mobile API
+- wire conversation store, JWT auth, and mobile hub into Bootstrap
+- add orka-conversation crate and mobile router
+- add pagination, OpenAPI registration, and auth tests
+- add QR pairing and device session auth
+
+### Fixed
+
+- eliminate unwrap() in budget duration check
 
 ### Changed
 
-- Mobile conversation endpoints now expose stable `limit`/`offset` pagination and
-  explicit user-scoped authorization semantics
-- Mobile SSE handling now distinguishes preview deltas from authoritative completed
-  assistant messages and documents `stream_done` as transport completion only
-- Mobile app onboarding now defaults to QR pairing with a manual pairing-URI
-  fallback for simulators and restricted-permission environments
+- normalize workspace deps and remove unused insta dev-dep
+- replace std::fs with tokio::fs in worktree operations
+- serialize task before store to eliminate clone
+- offload blocking write to spawn_blocking in AuditSink
+- replace ArcSwap with RwLock in SwappableLlmClient
+- split Gateway::new() into GatewayDeps + GatewayConfig
+- extract Bootstrap struct from run() function
+- extract AgentNodeRunner and WorkspaceHandlerDeps
+- pass CompletionOptions by reference in LlmClient trait
+- unify image dep at 0.25 and normalize adapter-custom dev-deps
+- reduce too_many_arguments with config structs (N1)
+- consolidate 7 small crates into 4 existing crates
+- feature-gate optional subsystem dependencies
 
+### Documentation
+
+- update for crate consolidation
+
+### Build
+
+- make local embeddings opt-in by default
+
+### Sdk
+
+- tolerate clippy lint drift in hello plugin
+- format hello plugin lint allow
 ## [1.0.0] - 2026-03-29
 
 ### Added
 
-- 14 new REST management endpoints: skills listing, scheduler CRUD, workspace inspection, graph topology, experience system (status/principles/distill), session management
-- 8 new CLI commands: `skill`, `schedule`, `workspace`, `graph`, `experience`, `session`, `metrics`, `a2a`
-- `SessionStore::list()` trait method with Redis SCAN and in-memory implementations
-- `AgentGraph::nodes_iter()` / `edges_iter()` public accessors
-- `Serialize` derive on `SoulFrontmatter`
-- MCP serve now uses Redis-backed `SecretManager` when Redis is configured (fallback to in-memory)
-- `NodeKindDef` config enum (`"agent"`, `"router"`, `"fan_out"`, `"fan_in"`) — graph topology is now
-  fully declarative via `[[agents]] kind = "..."` in `orka.toml`
-- `graph.entry` — explicit entry-point agent ID; falls back to the first `[[agents]]` entry
-- Auto-derived `handoff_targets` — `agent`-kind nodes automatically advertise transfer/delegate tools
-  for each of their outgoing graph edges; no manual `handoff_targets` configuration needed
-- `history_filter` / `history_filter_n` per-agent fields — control how much conversation history
-  is forwarded on handoff (`"full"` (default), `"last_n"`, `"none"`)
-- Guardrails wired into `GraphExecutor` via `ExecutorDeps::guardrail` — three checkpoints per node:
-  input, tool-call, and output; blocked requests short-circuit with an error response
-- **Checkpointing** — `orka-checkpoint` crate: automatic per-node checkpoint saving, crash recovery
-  via `GraphExecutor::resume()`, and REST API (`/api/v1/runs/{run_id}/checkpoints*`) for inspection
-- **Human-in-the-Loop (HITL)** — `interrupt_before_tools` agent config pauses execution before
-  specified tool calls; `POST /api/v1/runs/{run_id}/approve` re-enqueues for resumption,
-  `POST /api/v1/runs/{run_id}/reject` marks the run as failed
-- **Planning mode** — `planning_mode` per-agent config: `"always"` generates a structured plan via
-  a dedicated LLM call before the first iteration; `"adaptive"` exposes plan tools for LLM-driven
-  planning
-- **History strategy** — `history_strategy` per-agent config: `"summarize"` calls the LLM to
-  summarize dropped turns; `"rolling_window:<n>"` keeps the last *n* conversation turns with
-  incremental background summarization
-- **State reducers** — `[graph.reducers]` TOML config maps shared state slots to merge strategies
-  (`append`, `sum`, `max`, `min`, `merge_object`, `last_write_wins`) enabling correct fan-out
-  aggregation without coordinator agents
-- **Multi-modal vision** — `ImageSource` (URL / Base64) and `ContentBlockInput::Image` added to
-  `orka-llm`; dispatchers forward `image/*` media payloads as vision messages to Anthropic Claude
-  and OpenAI providers; captions are appended as text blocks
-- `orka-agent` crate: multi-agent graph executor with `AgentGraph`, `GraphExecutor`,
-  fan-out/fan-in nodes, transfer/delegate handoffs, and termination policies
-- `orka-wasm` crate: shared `WasmEngine` with module cache and per-instance limits,
-  used by both `orka-sandbox` and `orka-skills` to avoid duplicate engine init
-- `WorkerPoolGraph` in `orka-worker`: drop-in replacement for `WorkerPool` when
-  multi-agent graph execution is desired
-- Config: new `[[agents]]` list and `[graph]` topology section in `orka.toml` for
-  declarative multi-agent deployments (`AgentDef`, `GraphDef`, `EdgeDef`)
-- `RunId` type in `orka-core` for graph execution run tracking
-- New `DomainEventKind` variants: `AgentDelegated`, `AgentCompleted`, `GraphCompleted`
-- Discord adapter: slash command registration via `application_id`, image/file
-  attachment support, command interaction handling
-- Slack adapter: Block Kit formatted responses, file upload support, improved
-  event deduplication
-- WhatsApp adapter: media message support (image/audio/document), read receipts,
-  improved webhook verification
-- Plugin SDK: improved ergonomics, updated WASM ABI, and comprehensive API docs
-  with ABI contract table and step-by-step quickstart
-- `orka-llm`: new `error` module with structured `LlmError` enum (Network, Auth,
-  RateLimit, ContextWindow, Provider, Parse, Stream) converting to `orka_core::Error`
-- `orka-server`: adapter feature flags — `telegram`, `discord`, `slack`, `whatsapp`
-  (all enabled by default); build with `--no-default-features` for a minimal server
-- `/health/ready` endpoint now includes a Qdrant liveness check when `[knowledge]` is
-  enabled, returning `"qdrant": "ok"` or an error message in the JSON response
-- Privacy statement added to `README.md` clarifying that Orka collects no telemetry
-  and all data remains within the user's own infrastructure
+- add release tooling config (git-cliff, cargo-release, commitlint)
+- add lock-free LLM client hot-swap and .env watcher
+- add CLI enhancements, OS approval, workspace registry, and streaming support
+- dual license MIT/Apache-2.0, upgrade deps, harden install script
+- add retry module, stream improvements, config extensions, and ergonomic constructors
+- add constructor methods, complete_with_options, and non_exhaustive annotations
+- handle new domain event kinds and add metrics
+- add self-learning experience system with trajectory collection, reflection, and distillation
+- integrate experience system into workspace handler
+- wire experience service and distillation loop
+- handle TrajectoryRecorded and DistillationCompleted events
+- change WASM plugin input to structured JSON args
+- rewrite adapter with webhook, media and auth guard
+- add package_updates skill
+- add build-time version info, sd_notify and /version endpoint
+- add systemd fs drop-in for home directory access
+- add Interact permission level and reassign skill tiers
+- extract shared WASM engine to orka-wasm crate
+- introduce multi-agent graph executor
+- config v3 with multi-agent definitions
+- upgrade Discord, Slack, Telegram, WhatsApp
+- wire graph execution and misc improvements
+- CLI enhancements, ClaudeCode skill, stream/context improvements, and polish
+- 8 new CLI commands, 14 REST endpoints, session listing, and graph accessors
+- add demo GIF to README and refine CLI internals
+- WS channel filter and source_channel metadata propagation
+- add MCP bridge (claude-channel) for Claude Code ↔ Orka integration
+- soft skills, MCP HTTP/OAuth, WASM Component Model, eval framework, TUI dashboard
+- overhaul Telegram command system
+- parse compound command strings with POSIX shell quoting
+- add fs_edit, JS sandbox, stdin/env passthrough, code guardrails
+- stream send output and raise default timeout to 120s
+- tool-level guardrails, keyword soft skill selection, MCP version alignment
+- inject shell context into AI prompts and improve UX
+- Unify `BuildContext` in `pipeline` and introduce `ContextCoordinator` with new providers for prompt context management.
+- complete architecture with Rust 2026 best practices
+- complete remaining architecture tasks with Rust 2026 best practices
+- add LLM moderation and prompt injection detection
+- initial scaffold for orka-eval and codebase sync
+- align OS integration and security with excellence audit
+- replace claude_code with coding_delegate, remove approval system
+- multi-agent graph execution and dynamic prompt sections
+- migrate from rustyline to reedline for interactive input
+- add Debian and Fedora packaging with CI
+- add config v6 with node kinds, history filter, typed enums, and plugin capabilities
+- add adaptive thinking support and stream consumer
+- wire graph node kinds, guardrails, and history filtering into executor
+- add orka doctor diagnostic command
+- add git and protocol configuration foundation
+- add checkpoint persistence and git skills crates
+- add planner/reducer flow and checkpoint-aware execution
+- implement A2A v1.0 routes, discovery, streaming, and CLI support
+- add skill timeout and concurrency config to AgentConfig
+- add OpenCode coding backend support
+- refactor coding_delegate to module with streaming and cancellation
+- add autonomous research campaign subsystem
+- add create_chart skill with inline PNG delivery
+- add onboarding wizard, inline media rendering, and file-backed secrets
+- implement cross-session history persistence via MemoryStore
+- add configurable TTL to RedisResearchStore with builder API
+- add AgentStopReason and propagate through execution pipeline
+- extract ChatRenderer/TermCaps and surface stop-reason warnings
+- normalize max_iterations → max_turns without version bump
+- gate optional backends behind cargo features
+- add typed memory layers, list/delete ops, and progress bridge
+- introduce FactStore and semantic memory skills
+- inject semantic facts into agent system prompt
+- add list_principles and forget_principle operations
+- replace /reset with /memory command and wire FactStore
+- wire FactStore through bootstrap and agent executor
+- add auth_kind config for flexible API key vs bearer token auth
+- support auth_kind for reflection LLM credential resolution
+- support Auto auth_kind with inferred token type and add env_watcher tests
+- switch native-tls to rustls and gate local-embeddings for ARM
+- add aarch64 cross-compilation support
+- add ARM release builds, Docker multi-arch, and homelab push
+- add moonshot provider support
+- add SecretStr type for zeroize-on-drop string credentials
+- add webhook secret verification, hide token from URLs, and migrate to SecretStr
+- add HMAC-SHA256 webhook verification and migrate to SecretStr
+- add HMAC-SHA256 webhook verification and migrate to SecretStr
+- wire structured errors, deterministic routing, harden prefix matching, and migrate to SecretStr
+- add lazy Qdrant reconnection, embedding retry, and migrate to SecretStr
+- wire SecretStr credentials through providers, adapters, and env watcher
+- wrap API keys in SecretStr at init command entry point
+- add distributed execution lock and fix TOCTOU race
+- extend validation to all subsections
+- add debug tracing
+- add WASM target build job
+- add PluginInput.get_str helper to align raw and Component Model SDKs
+- add architecture doctor checks
+
+### Fixed
+
+- resolve all clippy warnings across workspace
+- implement Qdrant filter support in search()
+- add filter param to VectorStore::list_documents()
+- make MockVectorStore respect filters in search() and list_documents()
+- fix prompt width, builtin parsing and streaming UX
+- remove spurious streamed_this_turn reset on Done
+- harden systemd unit with least-privilege fs restrictions
+- handle empty arrays in PKGBUILD and install.sh config patching
+- rename install() to do_install() and fix SUDOERS_TMP trap
+- complete WebSocket close handshake on exit
+- move send status output to stderr; fix status ready/checks parsing
+- enforce workspace:cwd for tilde paths and strengthen system prompt
+- dispatch slash commands directly in WorkerPoolGraph
+- restore conversation context after tool-call turns
+- improve WebSocket close handshake with SeqCst ordering and flush
+- resolve race condition in AsyncServiceContainer
+- update tests for McpTransportConfig API drift
+- fall back to /etc/orka/orka.toml for native installs
+- apply clippy lints for inline format args and method refs
+- resolve WebSocket disconnects on long agent iterations
+- apply idle timeout to `orka send` command
+- move audit log to /var/lib/orka and document path constraints
+- add plotters ttf feature for headless text rendering
+- resolve clippy warnings across adapters, eval, experience, gateway, and sandbox
+- use write! macro instead of format!+push_str in reflector
+- resolve crash, security, and data correctness bugs
+- persist history on HITL interrupt and deduplicate trigger message
+- wrap all write/delete pairs in atomic pipelines
+- implement correct SCAN cursor iteration in list()
+- correct StackedBar, Combo, Histogram, and y-axis semantics
+- remove dead code and silent failure modes across crates
+- data integrity and guardrail correctness (Tier 1 round 2)
+- validate JSON-RPC version, cap in-memory store, MGET batch-fetch, extract push helper
+- make from_checkpoint sync, harden history deserialisation, code cleanup
+- router correctness and clippy fixes
+- clippy and code-quality fixes across the CLI
+- clippy and idiomatic improvements across commands
+- abort on config validation or migration failure
+- add missing bus field in node_runner test fixture
+- support OAuth tokens in Anthropic client
+- add wildcard arm for non-exhaustive LlmAuthKind match
+- add auth_kind/auth_token fields to migrate schema allowlist
+- add jitter to backoff_delay and improve Telegram error logging
+- correct default Qdrant URL to gRPC port 6334
+- add LlmProviderConfig::for_provider constructor to fix non-exhaustive errors
+- fix pre-existing compilation and logic errors in integration tests
+- suppress warnings and apply lint fixes across workspace
+- fix unnecessary mut and borrowed value in orka-cli
+- allow type_complexity in interactive_phase1
+- fix Cross.toml for aarch64 — use libfreetype6-dev and install clang
+- support OpenAI o-series and gpt-5 model families
+- make agent temperature optional for model compatibility
+- always use max_completion_tokens, skip reasoning for non-o-series
+- temperature inheritance + streaming token tracking
+- temperature inheritance + streaming token tracking (#4)
+- add interaction ACK, fix heartbeat sequence, and migrate to SecretStr
+- isolate reflection failures and prevent concurrent distillation
+- fix production healthcheck command
+- resolve cargo-deny license and advisory issues
+- fix remaining pedantic lint errors
+- pass SecretStr by reference in TelegramAdapter::new
+- rewrite if-let-else as let-else in experience service
+- allow expect_used in test modules
 
 ### Changed
 
-- `orka-core::Error` variants `Worker`, `Sandbox`, `Observe`, `HttpClient`, `Llm`
-  now carry a `#[source]` boxed error for full error chain preservation; new helper
-  constructors (`worker()`, `sandbox()`, `observe()`, `http_client()`, `llm()`) accept
-  any `std::error::Error` source; `*_msg()` variants for plain string messages
-- `#[non_exhaustive]` added to 33 public config structs in `orka-core`, enabling
-  future field additions without semver breaks
-- `orka-sandbox` and `orka-skills` now depend on `orka-wasm` instead of `wasmtime`
-  directly — single global module cache, reduced binary size
-- Server instantiates shared `WasmEngine` and passes it to sandbox and plugin loader
-- `WorkerPoolGraph` is the primary handler when `[graph]` is present in config
-- `reqwest` workspace dep: added `multipart` feature
-- `scraper` moved to a separate section in `Cargo.toml` for clarity
-- circuit-breaker: replace `.unwrap()` with `.expect("mutex poisoned")` on mutex
-  guards for clearer panic messages
+- extract resolve_api_key helper to DRY up LLM provider init
+- migrate skills and adapters to new core constructors
+- update bus, gateway, memory, and infra crates
+- replace inline retry loops with retry_with_backoff
+- remove test-util feature gate
+- expand config with doc comments, backend overrides and Telegram fields
+- remove dead NATS stub
+- unify ChatMessage with typed Role enum
+- modernize scripts/install.sh with umask, install(), flags, and robustness fixes
+- split config.rs into modular config directory
+- config schema v3-v5 migrations and API cleanup
+- align all adapters with updated config API
+- align bootstrap and commands with multi-agent config
+- extract SessionLock and DeadLetterQueue traits (ISP)
+- extract Dispatcher trait and split workspace_handler into module
+- adopt Dispatcher, DeadLetterQueue, SessionLock, and typed config enums
+- eliminate magic numbers and adopt typed enums across crates
+- rename max_iterations to max_turns
+- align DEFAULT_MAX_ITERATIONS and SOUL.md to max_turns rename
+- type config enums and harden workspace lookup
+- introduce crate-specific error types
+- harden typed ids and sanitize graph history
+- make check ids opaque
+- replace /reset with /memory in completions and chat UI
+- extract composed config into orka-config
+- move domain config to owning crates, remove container
 
-### Removed
+### Documentation
 
-- `orka-router` crate: routing is now handled by `AgentGraph` in `orka-agent`
+- add rustdoc to orka-core public API and enforce missing_docs lint
+- enhance CONTRIBUTING.md with commit conventions and architecture guide
+- fix MSRV inconsistency (1.75 → 1.85)
+- add crate READMEs and architecture overview
+- add doc comments across all crates
+- expand config reference table and orka.toml inline comments
+- add deployment, skill-development, mcp-guide, experience-system, eval-guide, expand SECURITY.md
+- replace ASCII diagrams with Mermaid and add demo tape files
+- update README description and project structure
+- validate and fix architecture diagrams
+- replace \n with <br/> in Mermaid diagrams for correct rendering
+- implement documentation audit improvements
+- cleanup and consolidate documentation
+- reorganize documentation into guides/reference/internal
+- translate to English, update architecture, remove obsolete plans
+- add internal architecture, security, and coverage reports
+- update README and CONTRIBUTING for current state
+- update README with current endpoints and port layout
+- refresh reference docs and navigation index
+- update analysis and security reports
+- update TOOLS.md for current skill set and refresh Cargo.lock
+- document auth_kind config and ANTHROPIC_AUTH_TOKEN env var
+- align docs with config refactoring and container removal
+- add architecture principles reference and update CLI reference
 
-## [0.1.0] - 2026-03-16
+### Demo
 
-### Added
+- record all GIF demos and fix send.tape quote escaping
 
-- Multi-channel agent orchestration (Telegram, Discord, Slack, WhatsApp, custom HTTP/WebSocket)
-- Priority queue with Redis Sorted Sets (Urgent, Normal, Background)
-- LLM integration with Anthropic Claude and OpenAI (streaming support)
-- Skill system with registry, schema validation, and WASM plugin support
-- MCP (Model Context Protocol) server with JSON-RPC 2.0 over stdio
-- A2A (Agent-to-Agent) protocol for inter-agent communication
-- Agent router with prefix-based routing and delegation
-- Workspace-based agent configuration with hot-reload (SOUL.md, TOOLS.md)
-- Session management with Redis-backed storage
-- Memory store (key-value per session)
-- Secret management with AES-256-GCM encryption at rest
-- Circuit breaker pattern for external service resilience
-- Guardrails for input/output validation and content filtering
-- Sandboxed code execution (process isolation and WASM)
-- Knowledge base with RAG (Qdrant vector store, document ingestion)
-- Cron-based task scheduler
-- OS integration skills (filesystem, process, system info)
-- HTTP request skill with SSRF protection
-- Rate limiting and message deduplication at the gateway
-- JWT and API key authentication
-- OpenTelemetry tracing and Prometheus metrics
-- Swagger UI for API documentation
-- CLI tool for workspace management
-- Docker Compose deployment
-- Plugin SDK for WASM-based extensions
+### Security
+
+- remove hardcoded user home paths from tests and config
+- move homelab registry URL out of Justfile into env var
+[1.6.0]: https://github.com/gianlucamazza/orka/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/gianlucamazza/orka/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/gianlucamazza/orka/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/gianlucamazza/orka/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/gianlucamazza/orka/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/gianlucamazza/orka/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/gianlucamazza/orka/compare/v0.1.0...v1.0.0
+
