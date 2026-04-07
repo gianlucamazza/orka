@@ -1,6 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
+use orka_contracts::{
+    CommandContent, EventContent, InboundInteraction, InteractionContent, MediaAttachment,
+    PlatformContext, RichInput, TraceContext,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -28,20 +32,6 @@ pub enum ErrorCategory {
     Budget,
     /// Category cannot be determined.
     Unknown,
-}
-
-/// Well-known metadata keys used across adapters and the worker.
-pub mod meta {
-    /// The name of the workspace associated with this message.
-    pub const WORKSPACE_NAME: &str = "workspace:name";
-    /// Telegram chat identifier.
-    pub const TELEGRAM_CHAT_ID: &str = "telegram_chat_id";
-    /// Telegram user display name.
-    pub const TELEGRAM_FROM_USERNAME: &str = "telegram_from_username";
-    /// Slack team identifier.
-    pub const SLACK_TEAM_ID: &str = "slack_team_id";
-    /// Discord guild identifier.
-    pub const DISCORD_GUILD_ID: &str = "discord_guild_id";
 }
 
 /// Unique identifier for a message flowing through the system.
@@ -854,18 +844,6 @@ pub struct EventPayload {
     pub data: serde_json::Value,
 }
 
-/// W3C Trace Context for distributed tracing propagation.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
-#[non_exhaustive]
-pub struct TraceContext {
-    /// W3C traceparent `trace-id` component (32 lowercase hex characters).
-    pub trace_id: Option<String>,
-    /// W3C traceparent `parent-id` component (16 lowercase hex characters).
-    pub span_id: Option<String>,
-    /// W3C trace flags byte (`1` = sampled).
-    pub trace_flags: Option<u8>,
-}
-
 /// Universal message envelope that flows through the entire system.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[non_exhaustive]
@@ -886,6 +864,14 @@ pub struct Envelope {
     pub metadata: HashMap<String, serde_json::Value>,
     /// Distributed tracing propagation headers.
     pub trace_context: TraceContext,
+    /// Canonical platform context produced by the adapter.
+    ///
+    /// Replaces the scattered platform-specific metadata keys
+    /// (`telegram_chat_id`, `slack_channel`, etc.) with a typed, two-level
+    /// model. Only the originating adapter writes `extensions`; shared code
+    /// reads only the canonical fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform_context: Option<PlatformContext>,
 }
 
 impl DomainEvent {
@@ -1195,6 +1181,7 @@ impl Envelope {
             payload: Payload::Text(text.into()),
             metadata: HashMap::new(),
             trace_context: TraceContext::default(),
+            platform_context: None,
         }
     }
 
@@ -1215,6 +1202,72 @@ impl Envelope {
             payload,
             metadata: HashMap::new(),
             trace_context: source.trace_context.clone(),
+            platform_context: None,
+        }
+    }
+}
+
+/// Convert an [`InboundInteraction`] into an [`Envelope`] for the message bus.
+///
+/// This is the single conversion boundary between the public adapter contract
+/// and the internal wire format. Called by the bridge task in `orka-server`.
+impl From<InboundInteraction> for Envelope {
+    fn from(interaction: InboundInteraction) -> Self {
+        let payload = match interaction.content {
+            InteractionContent::Text(text) => Payload::Text(text),
+            InteractionContent::RichInput(RichInput { text, attachments }) => {
+                Payload::RichInput(RichInputPayload {
+                    text,
+                    attachments: attachments
+                        .into_iter()
+                        .map(|a| MediaPayload {
+                            mime_type: a.mime_type,
+                            url: a.url,
+                            filename: a.filename,
+                            caption: a.caption,
+                            size_bytes: a.size_bytes,
+                            data_base64: a.data_base64,
+                        })
+                        .collect(),
+                })
+            }
+            InteractionContent::Media(MediaAttachment {
+                mime_type,
+                url,
+                filename,
+                caption,
+                size_bytes,
+                data_base64,
+            }) => Payload::Media(MediaPayload {
+                mime_type,
+                url,
+                filename,
+                caption,
+                size_bytes,
+                data_base64,
+            }),
+            InteractionContent::Command(CommandContent { name, args }) => {
+                Payload::Command(CommandPayload { name, args })
+            }
+            InteractionContent::Event(EventContent { kind, data }) => {
+                Payload::Event(EventPayload { kind, data })
+            }
+            // `InteractionContent` is `#[non_exhaustive]`; future variants fall
+            // back to an empty text payload so the envelope is never silently
+            // dropped.
+            _ => Payload::Text(String::new()),
+        };
+
+        Self {
+            id: MessageId::from(interaction.id),
+            channel: interaction.source_channel,
+            session_id: SessionId::from(interaction.session_id),
+            timestamp: interaction.timestamp,
+            priority: Priority::default(),
+            payload,
+            metadata: HashMap::new(),
+            trace_context: interaction.trace,
+            platform_context: Some(interaction.context),
         }
     }
 }
@@ -1689,10 +1742,25 @@ impl std::fmt::Debug for SecretStr {
 }
 
 /// Type alias for the message sink passed to channel adapters.
+///
+/// Deprecated by [`InteractionSink`]; kept for internal use by the bus/worker.
 pub type MessageSink = tokio::sync::mpsc::Sender<Envelope>;
+
+/// Type alias for the interaction sink passed to channel adapters.
+///
+/// Adapters produce [`orka_contracts::InboundInteraction`] and send it to this
+/// sink. The bridge in `orka-server` converts to [`Envelope`] for the bus.
+pub type InteractionSink = tokio::sync::mpsc::Sender<orka_contracts::InboundInteraction>;
 
 /// Type alias for the message stream returned by the bus.
 pub type MessageStream = tokio::sync::mpsc::Receiver<Envelope>;
+
+/// Shared map from session ID to active generation cancellation token.
+///
+/// The worker registers a token before each dispatch; the `/cancel` endpoint
+/// uses it to abort an in-progress generation without stopping the worker.
+pub type SessionCancelTokens =
+    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<SessionId, tokio_util::sync::CancellationToken>>>;
 
 /// Exponential backoff delay with full jitter, capped at `max_secs`.
 ///

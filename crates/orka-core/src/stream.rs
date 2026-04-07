@@ -263,6 +263,92 @@ pub async fn forward_delegate_progress(
     ));
 }
 
+/// Convert a [`StreamChunkKind`] into the canonical [`RealtimeEvent`].
+///
+/// This mapping is the authoritative translation between the internal worker
+/// streaming format and the public contract exposed to all integration
+/// surfaces.
+impl From<StreamChunkKind> for orka_contracts::RealtimeEvent {
+    fn from(kind: StreamChunkKind) -> Self {
+        use orka_contracts::RealtimeEvent;
+        match kind {
+            StreamChunkKind::GenerationStarted => RealtimeEvent::GenerationStarted,
+            StreamChunkKind::Delta(delta) => RealtimeEvent::MessageDelta { delta },
+            StreamChunkKind::ThinkingDelta(delta) => RealtimeEvent::ThinkingDelta { delta },
+            StreamChunkKind::ToolStart { id, name } => RealtimeEvent::ToolCallStart { id, name },
+            StreamChunkKind::ToolEnd { id, success } => RealtimeEvent::ToolCallEnd { id, success },
+            StreamChunkKind::ToolExecStart {
+                id,
+                name,
+                input_summary,
+                category,
+                ..
+            } => RealtimeEvent::ToolExecStart {
+                id,
+                name,
+                input_summary,
+                category,
+            },
+            StreamChunkKind::ToolExecEnd {
+                id,
+                success,
+                duration_ms,
+                error,
+                result_summary,
+                ..
+            } => RealtimeEvent::ToolExecEnd {
+                id,
+                success,
+                duration_ms,
+                error,
+                result_summary,
+            },
+            StreamChunkKind::AgentSwitch {
+                agent_id,
+                display_name,
+                ..
+            } => RealtimeEvent::AgentSwitch {
+                agent_id,
+                display_name,
+            },
+            StreamChunkKind::Usage {
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_creation_tokens,
+                reasoning_tokens,
+                model,
+                cost_usd,
+                ..
+            } => RealtimeEvent::Usage {
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_creation_tokens,
+                reasoning_tokens,
+                model,
+                cost_usd,
+            },
+            StreamChunkKind::ContextInfo {
+                history_tokens,
+                context_window,
+                messages_truncated,
+                summary_generated,
+                ..
+            } => RealtimeEvent::ContextInfo {
+                history_tokens,
+                context_window,
+                messages_truncated,
+                summary_generated,
+            },
+            StreamChunkKind::PrinciplesUsed { count, .. } => {
+                RealtimeEvent::PrinciplesUsed { count }
+            }
+            StreamChunkKind::Done => RealtimeEvent::StreamDone,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

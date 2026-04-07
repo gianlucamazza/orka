@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+orka-contracts.workspace = true
 orka-auth.workspace = true
 axum.workspace = true
 tower.workspace = true

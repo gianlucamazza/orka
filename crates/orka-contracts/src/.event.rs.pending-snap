@@ -1,0 +1,67 @@
+{"run_id":"1775581155-320680712","line":241,"new":{"module_name":"orka_contracts__event__tests","snapshot_name":"snapshot_tool_exec_start","metadata":{"source":"crates/orka-contracts/src/event.rs","assertion_line":241,"expression":"json(&event)"},"snapshot":"{\n  \"data\": {\n    \"category\": \"search\",\n    \"id\": \"t1\",\n    \"input_summary\": \"query: orka rust\",\n    \"name\": \"web_search\"\n  },\n  \"type\": \"tool_exec_start\"\n}"},"old":{"module_name":"orka_contracts__event__tests","metadata":{},"snapshot":"{\n  \"type\": \"tool_exec_start\",\n  \"data\": {\n    \"id\": \"t1\",\n    \"name\": \"web_search\",\n    \"input_summary\": \"query: orka rust\",\n    \"category\": \"search\"\n  }\n}"}}
+{"run_id":"1775581155-320680712","line":265,"new":{"module_name":"orka_contracts__event__tests","snapshot_name":"snapshot_usage","metadata":{"source":"crates/orka-contracts/src/event.rs","assertion_line":265,"expression":"json(&event)"},"snapshot":"{\n  \"data\": {\n    \"cost_usd\": 0.0015,\n    \"input_tokens\": 100,\n    \"model\": \"claude-sonnet-4-6\",\n    \"output_tokens\": 50\n  },\n  \"type\": \"usage\"\n}"},"old":{"module_name":"orka_contracts__event__tests","metadata":{},"snapshot":"{\n  \"type\": \"usage\",\n  \"data\": {\n    \"input_tokens\": 100,\n    \"output_tokens\": 50,\n    \"model\": \"claude-sonnet-4-6\",\n    \"cost_usd\": 0.0015\n  }\n}"}}
+{"run_id":"1775581155-320680712","line":214,"new":{"module_name":"orka_contracts__event__tests","snapshot_name":"snapshot_message_delta","metadata":{"source":"crates/orka-contracts/src/event.rs","assertion_line":214,"expression":"json(&event)"},"snapshot":"{\n  \"data\": {\n    \"delta\": \"Hello, world!\"\n  },\n  \"type\": \"message_delta\"\n}"},"old":{"module_name":"orka_contracts__event__tests","metadata":{},"snapshot":"{\n  \"type\": \"message_delta\",\n  \"data\": {\n    \"delta\": \"Hello, world!\"\n  }\n}"}}
+{"run_id":"1775581243-127230901","line":226,"new":null,"old":null}
+{"run_id":"1775581243-127230901","line":214,"new":null,"old":null}
+{"run_id":"1775581243-127230901","line":265,"new":{"module_name":"orka_contracts__event__tests","snapshot_name":"snapshot_usage","metadata":{"source":"crates/orka-contracts/src/event.rs","assertion_line":265,"expression":"json(&event)"},"snapshot":"{\n  \"data\": {\n    \"cost_usd\": 0.0015,\n    \"input_tokens\": 100,\n    \"model\": \"claude-sonnet-4-6\",\n    \"output_tokens\": 50\n  },\n  \"type\": \"usage\"\n}"},"old":{"module_name":"orka_contracts__event__tests","metadata":{},"snapshot":"{\n  \"data\": {\n    \"input_tokens\": 100,\n    \"output_tokens\": 50,\n    \"model\": \"claude-sonnet-4-6\",\n    \"cost_usd\": 0.0015\n  },\n  \"type\": \"usage\"\n}"}}
+{"run_id":"1775581243-127230901","line":241,"new":{"module_name":"orka_contracts__event__tests","snapshot_name":"snapshot_tool_exec_start","metadata":{"source":"crates/orka-contracts/src/event.rs","assertion_line":241,"expression":"json(&event)"},"snapshot":"{\n  \"data\": {\n    \"category\": \"search\",\n    \"id\": \"t1\",\n    \"input_summary\": \"query: orka rust\",\n    \"name\": \"web_search\"\n  },\n  \"type\": \"tool_exec_start\"\n}"},"old":{"module_name":"orka_contracts__event__tests","metadata":{},"snapshot":"{\n  \"data\": {\n    \"id\": \"t1\",\n    \"name\": \"web_search\",\n    \"input_summary\": \"query: orka rust\",\n    \"category\": \"search\"\n  },\n  \"type\": \"tool_exec_start\"\n}"}}
+{"run_id":"1775581246-517979421","line":214,"new":null,"old":null}
+{"run_id":"1775581246-517979421","line":226,"new":null,"old":null}
+{"run_id":"1775581246-517979421","line":241,"new":{"module_name":"orka_contracts__event__tests","snapshot_name":"snapshot_tool_exec_start","metadata":{"source":"crates/orka-contracts/src/event.rs","assertion_line":241,"expression":"json(&event)"},"snapshot":"{\n  \"data\": {\n    \"category\": \"search\",\n    \"id\": \"t1\",\n    \"input_summary\": \"query: orka rust\",\n    \"name\": \"web_search\"\n  },\n  \"type\": \"tool_exec_start\"\n}"},"old":{"module_name":"orka_contracts__event__tests","metadata":{},"snapshot":"{\n  \"data\": {\n    \"id\": \"t1\",\n    \"name\": \"web_search\",\n    \"input_summary\": \"query: orka rust\",\n    \"category\": \"search\"\n  },\n  \"type\": \"tool_exec_start\"\n}"}}
+{"run_id":"1775581246-517979421","line":265,"new":{"module_name":"orka_contracts__event__tests","snapshot_name":"snapshot_usage","metadata":{"source":"crates/orka-contracts/src/event.rs","assertion_line":265,"expression":"json(&event)"},"snapshot":"{\n  \"data\": {\n    \"cost_usd\": 0.0015,\n    \"input_tokens\": 100,\n    \"model\": \"claude-sonnet-4-6\",\n    \"output_tokens\": 50\n  },\n  \"type\": \"usage\"\n}"},"old":{"module_name":"orka_contracts__event__tests","metadata":{},"snapshot":"{\n  \"data\": {\n    \"input_tokens\": 100,\n    \"output_tokens\": 50,\n    \"model\": \"claude-sonnet-4-6\",\n    \"cost_usd\": 0.0015\n  },\n  \"type\": \"usage\"\n}"}}
+{"run_id":"1775581250-882876137","line":214,"new":null,"old":null}
+{"run_id":"1775581250-882876137","line":226,"new":null,"old":null}
+{"run_id":"1775581250-882876137","line":265,"new":{"module_name":"orka_contracts__event__tests","snapshot_name":"snapshot_usage","metadata":{"source":"crates/orka-contracts/src/event.rs","assertion_line":265,"expression":"json(&event)"},"snapshot":"{\n  \"data\": {\n    \"cost_usd\": 0.0015,\n    \"input_tokens\": 100,\n    \"model\": \"claude-sonnet-4-6\",\n    \"output_tokens\": 50\n  },\n  \"type\": \"usage\"\n}"},"old":{"module_name":"orka_contracts__event__tests","metadata":{},"snapshot":"{\n  \"data\": {\n    \"input_tokens\": 100,\n    \"output_tokens\": 50,\n    \"model\": \"claude-sonnet-4-6\",\n    \"cost_usd\": 0.0015\n  },\n  \"type\": \"usage\"\n}"}}
+{"run_id":"1775581250-882876137","line":241,"new":{"module_name":"orka_contracts__event__tests","snapshot_name":"snapshot_tool_exec_start","metadata":{"source":"crates/orka-contracts/src/event.rs","assertion_line":241,"expression":"json(&event)"},"snapshot":"{\n  \"data\": {\n    \"category\": \"search\",\n    \"id\": \"t1\",\n    \"input_summary\": \"query: orka rust\",\n    \"name\": \"web_search\"\n  },\n  \"type\": \"tool_exec_start\"\n}"},"old":{"module_name":"orka_contracts__event__tests","metadata":{},"snapshot":"{\n  \"data\": {\n    \"id\": \"t1\",\n    \"name\": \"web_search\",\n    \"input_summary\": \"query: orka rust\",\n    \"category\": \"search\"\n  },\n  \"type\": \"tool_exec_start\"\n}"}}
+{"run_id":"1775581312-4419008","line":241,"new":null,"old":null}
+{"run_id":"1775581312-4419008","line":226,"new":null,"old":null}
+{"run_id":"1775581312-4419008","line":214,"new":null,"old":null}
+{"run_id":"1775581312-4419008","line":265,"new":null,"old":null}
+{"run_id":"1775581755-87431225","line":214,"new":null,"old":null}
+{"run_id":"1775581755-87431225","line":226,"new":null,"old":null}
+{"run_id":"1775581755-87431225","line":241,"new":null,"old":null}
+{"run_id":"1775581755-87431225","line":265,"new":null,"old":null}
+{"run_id":"1775581802-938010869","line":214,"new":null,"old":null}
+{"run_id":"1775581802-938010869","line":226,"new":null,"old":null}
+{"run_id":"1775581802-938010869","line":265,"new":null,"old":null}
+{"run_id":"1775581802-938010869","line":241,"new":null,"old":null}
+{"run_id":"1775582503-510203252","line":226,"new":null,"old":null}
+{"run_id":"1775582503-510203252","line":241,"new":null,"old":null}
+{"run_id":"1775582503-510203252","line":214,"new":null,"old":null}
+{"run_id":"1775582503-510203252","line":265,"new":null,"old":null}
+{"run_id":"1775582503-539218666","line":226,"new":null,"old":null}
+{"run_id":"1775582503-539218666","line":214,"new":null,"old":null}
+{"run_id":"1775582503-539218666","line":241,"new":null,"old":null}
+{"run_id":"1775582503-539218666","line":265,"new":null,"old":null}
+{"run_id":"1775582503-559187955","line":226,"new":null,"old":null}
+{"run_id":"1775582503-559187955","line":214,"new":null,"old":null}
+{"run_id":"1775582503-559187955","line":241,"new":null,"old":null}
+{"run_id":"1775582503-559187955","line":265,"new":null,"old":null}
+{"run_id":"1775582503-630057936","line":226,"new":null,"old":null}
+{"run_id":"1775582503-630057936","line":241,"new":null,"old":null}
+{"run_id":"1775582503-630057936","line":214,"new":null,"old":null}
+{"run_id":"1775582503-630057936","line":265,"new":null,"old":null}
+{"run_id":"1775582626-905020909","line":241,"new":null,"old":null}
+{"run_id":"1775582626-905020909","line":226,"new":null,"old":null}
+{"run_id":"1775582626-905020909","line":214,"new":null,"old":null}
+{"run_id":"1775582626-905020909","line":265,"new":null,"old":null}
+{"run_id":"1775582829-289786103","line":214,"new":null,"old":null}
+{"run_id":"1775582829-289786103","line":226,"new":null,"old":null}
+{"run_id":"1775582829-289786103","line":265,"new":null,"old":null}
+{"run_id":"1775582829-289786103","line":241,"new":null,"old":null}
+{"run_id":"1775586656-972799237","line":226,"new":null,"old":null}
+{"run_id":"1775586656-972799237","line":214,"new":null,"old":null}
+{"run_id":"1775586656-972799237","line":241,"new":null,"old":null}
+{"run_id":"1775586656-972799237","line":265,"new":null,"old":null}
+{"run_id":"1775588681-133842395","line":241,"new":null,"old":null}
+{"run_id":"1775588681-133842395","line":226,"new":null,"old":null}
+{"run_id":"1775588681-133842395","line":214,"new":null,"old":null}
+{"run_id":"1775588681-133842395","line":265,"new":null,"old":null}
+{"run_id":"1775590832-602992221","line":214,"new":null,"old":null}
+{"run_id":"1775590832-602992221","line":265,"new":null,"old":null}
+{"run_id":"1775590832-602992221","line":226,"new":null,"old":null}
+{"run_id":"1775590832-602992221","line":241,"new":null,"old":null}
+{"run_id":"1775591346-803839758","line":214,"new":null,"old":null}
+{"run_id":"1775591346-803839758","line":241,"new":null,"old":null}
+{"run_id":"1775591346-803839758","line":226,"new":null,"old":null}
+{"run_id":"1775591346-803839758","line":265,"new":null,"old":null}

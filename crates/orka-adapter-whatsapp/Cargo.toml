@@ -7,7 +7,9 @@ license.workspace = true
 
 [dependencies]
 orka-core.workspace = true
+orka-contracts.workspace = true
 async-trait.workspace = true
+chrono.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

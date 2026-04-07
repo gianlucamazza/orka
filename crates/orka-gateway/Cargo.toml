@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+orka-contracts.workspace = true
 orka-core.workspace = true
 orka-infra.workspace = true
 orka-workspace.workspace = true

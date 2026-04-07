@@ -30,6 +30,7 @@ wasm = ["orka-skills/wasm"]
 
 [dependencies]
 orka-core.workspace = true
+orka-contracts.workspace = true
 orka-config.workspace = true
 orka-infra.workspace = true
 orka-gateway.workspace = true

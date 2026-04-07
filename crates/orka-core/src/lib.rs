@@ -50,6 +50,9 @@ pub mod stream;
 /// Shared utility functions (e.g., string helpers).
 pub mod util;
 
+/// Domain service for conversation lifecycle operations (cancel, retry, delete, mark-read).
+pub mod conversation_controller;
+
 /// Configuration types for the Orka platform.
 #[cfg(feature = "config")]
 pub mod config;
@@ -67,6 +70,10 @@ pub use error::{Error, Result};
 pub use migrate::{
     MigrationError, MigrationResult, inspect_config_issues, migrate_for_write, migrate_if_needed,
 };
+pub use orka_contracts::{
+    Capability, CapabilitySet, InboundInteraction, IntegrationClass, PlatformContext,
+    RealtimeEvent, SenderInfo, TraceContext, TrustLevel,
+};
 pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry, forward_delegate_progress};
 pub use traits::{MessageCursor, NoopEventSink, SearchHit, apply_message_cursors, extract_snippet};
@@ -74,9 +81,9 @@ pub use types::{
     ArtifactId, CommandArgs, CommandPayload, Conversation, ConversationArtifact,
     ConversationArtifactOrigin, ConversationId, ConversationMessage, ConversationMessageRole,
     ConversationMessageStatus, ConversationStatus, DomainEvent, DomainEventKind, Envelope,
-    ErrorCategory, EventId, EventPayload, MediaPayload, MemoryEntry, MemoryKind, MemoryScope,
-    MessageId, MessageSink, MessageStream, OutboundMessage, Payload, Priority, RichInputPayload,
-    RunId, SecretStr, SecretValue, Session, SessionId, SkillBudget, SkillContext, SkillInput,
-    SkillOutput, SkillSchema, TraceContext, backoff_delay,
+    ErrorCategory, EventId, EventPayload, InteractionSink, MediaPayload, MemoryEntry, MemoryKind,
+    MemoryScope, MessageId, MessageSink, MessageStream, OutboundMessage, Payload, Priority,
+    RichInputPayload, RunId, SecretStr, SecretValue, Session, SessionCancelTokens, SessionId,
+    SkillBudget, SkillContext, SkillInput, SkillOutput, SkillSchema, backoff_delay,
 };
 pub use util::truncate_tool_result;

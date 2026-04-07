@@ -19,6 +19,7 @@ migrate = ["toml_edit"]
 config = ["migrate"]
 
 [dependencies]
+orka-contracts.workspace = true
 async-trait.workspace = true
 base64.workspace = true
 chrono.workspace = true

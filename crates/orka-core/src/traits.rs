@@ -6,9 +6,8 @@ use chrono::{DateTime, Utc};
 
 use crate::{
     ArtifactId, Conversation, ConversationArtifact, ConversationId, ConversationMessage,
-    ConversationMessageRole, DomainEvent, Envelope, MemoryEntry, MessageId, MessageSink,
-    MessageStream, OutboundMessage, Result, SecretValue, Session, SessionId, SkillInput,
-    SkillOutput, SkillSchema,
+    ConversationMessageRole, DomainEvent, Envelope, MemoryEntry, MessageId, MessageStream,
+    OutboundMessage, Result, SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
 };
 
 /// Opaque pagination cursor for message lists.
@@ -115,7 +114,7 @@ pub trait ChannelAdapter: Send + Sync + 'static {
     fn channel_id(&self) -> &str;
 
     /// Start receiving messages, forwarding them into the provided sink.
-    async fn start(&self, sink: MessageSink) -> Result<()>;
+    async fn start(&self, sink: crate::types::InteractionSink) -> Result<()>;
 
     /// Send an outbound message to this channel.
     async fn send(&self, msg: OutboundMessage) -> Result<()>;
@@ -127,6 +126,25 @@ pub trait ChannelAdapter: Send + Sync + 'static {
     /// Default: no-op.
     async fn register_commands(&self, _commands: &[(&str, &str)]) -> Result<()> {
         Ok(())
+    }
+
+    /// Returns the set of capabilities supported by this adapter.
+    ///
+    /// Used by the gateway to enforce access control, by the info endpoint to
+    /// expose integration metadata, and by orchestration to degrade gracefully
+    /// when a capability is absent.
+    fn capabilities(&self) -> orka_contracts::CapabilitySet {
+        orka_contracts::CapabilitySet::new()
+    }
+
+    /// Returns the integration class of this adapter.
+    fn integration_class(&self) -> orka_contracts::IntegrationClass {
+        orka_contracts::IntegrationClass::MessagingChannel
+    }
+
+    /// Returns the trust level granted to messages from this adapter.
+    fn trust_level(&self) -> orka_contracts::TrustLevel {
+        orka_contracts::TrustLevel::BotToken
     }
 }
 

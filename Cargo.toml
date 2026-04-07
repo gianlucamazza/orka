@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   # ── Core ──────────────────────────────────────────────────────────────────
   # Shared types, traits, error definitions, and standalone utilities
+  "crates/orka-contracts",
   "crates/orka-core",
   "crates/orka-circuit-breaker",
   "crates/orka-test-support",
@@ -110,6 +111,9 @@ cast_precision_loss = "allow"
 cast_sign_loss = "allow"
 
 [workspace.dependencies]
+# Internal crates
+orka-contracts = { path = "crates/orka-contracts" }
+
 # Async runtime
 tokio = { version = "1", features = [
   "rt-multi-thread",

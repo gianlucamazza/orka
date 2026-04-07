@@ -38,7 +38,6 @@ pub use handler::{AgentHandler, EchoHandler};
 use orka_core::{
     DomainEvent, DomainEventKind, Envelope, OutboundMessage, Payload, Priority, Session,
     traits::{DeadLetterQueue, EventSink, MessageBus, PriorityQueue, SessionLock, SessionStore},
-    types::SessionId,
 };
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 use tokio_util::sync::CancellationToken;
@@ -71,7 +70,7 @@ const SESSION_LOCK_WAIT_MAX_MS: u64 = 60_000;
 ///
 /// The worker registers a token before each dispatch; the `/cancel` command
 /// uses it to abort ongoing LLM loops.
-pub type SessionCancelTokens = Arc<Mutex<HashMap<SessionId, CancellationToken>>>;
+pub use orka_core::SessionCancelTokens;
 
 /// Concurrent worker pool that pops envelopes from a priority queue and
 /// dispatches them via a pluggable [`Dispatcher`].

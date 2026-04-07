@@ -5823,6 +5823,7 @@ dependencies = [
  "governor",
  "http",
  "orka-auth",
+ "orka-contracts",
  "orka-core",
  "reqwest",
  "serde",
@@ -5841,7 +5842,9 @@ name = "orka-adapter-discord"
 version = "1.8.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "futures-util",
+ "orka-contracts",
  "orka-core",
  "reqwest",
  "serde",
@@ -5857,8 +5860,10 @@ version = "1.8.0"
 dependencies = [
  "async-trait",
  "axum 0.8.8",
+ "chrono",
  "hex",
  "hmac",
+ "orka-contracts",
  "orka-core",
  "reqwest",
  "serde",
@@ -5877,6 +5882,7 @@ dependencies = [
  "chrono",
  "hex",
  "hmac",
+ "orka-contracts",
  "orka-core",
  "pulldown-cmark",
  "reqwest",
@@ -5895,8 +5901,10 @@ version = "1.8.0"
 dependencies = [
  "async-trait",
  "axum 0.8.8",
+ "chrono",
  "hex",
  "hmac",
+ "orka-contracts",
  "orka-core",
  "reqwest",
  "serde",
@@ -6015,6 +6023,7 @@ dependencies = [
  "nu-ansi-term",
  "open",
  "orka-config",
+ "orka-contracts",
  "orka-core",
  "orka-llm",
  "orka-mcp",
@@ -6080,6 +6089,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "orka-contracts"
+version = "1.8.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "insta",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
 name = "orka-core"
 version = "1.8.0"
 dependencies = [
@@ -6089,6 +6112,7 @@ dependencies = [
  "dashmap",
  "futures-util",
  "glob",
+ "orka-contracts",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -6145,6 +6169,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "deadpool-redis",
+ "orka-contracts",
  "orka-core",
  "orka-infra",
  "orka-test-support",
@@ -6461,6 +6486,7 @@ dependencies = [
  "orka-checkpoint",
  "orka-circuit-breaker",
  "orka-config",
+ "orka-contracts",
  "orka-core",
  "orka-eval",
  "orka-experience",
