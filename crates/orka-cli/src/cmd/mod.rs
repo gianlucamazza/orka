@@ -1,4 +1,5 @@
 pub mod a2a;
+pub mod util;
 pub mod chat;
 pub mod config;
 pub mod dashboard;

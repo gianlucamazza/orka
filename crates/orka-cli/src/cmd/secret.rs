@@ -8,28 +8,9 @@ use orka_core::{SecretValue, traits::SecretManager};
 
 use crate::client::Result;
 
-fn runtime_secret_config(config: &orka_config::SecretConfig) -> orka_secrets::SecretConfig {
-    let backend = match config.backend {
-        orka_config::SecretBackend::Redis => orka_secrets::SecretBackend::Redis,
-        orka_config::SecretBackend::File => orka_secrets::SecretBackend::File,
-        _ => orka_secrets::SecretBackend::default(),
-    };
-    let mut runtime = orka_secrets::SecretConfig::default();
-    runtime.backend = backend;
-    runtime.file_path.clone_from(&config.file_path);
-    runtime
-        .encryption_key_path
-        .clone_from(&config.encryption_key_path);
-    runtime
-        .encryption_key_env
-        .clone_from(&config.encryption_key_env);
-    runtime.redis.url.clone_from(&config.redis.url);
-    runtime
-}
-
 fn create_manager() -> Result<Arc<dyn SecretManager>> {
     let config = OrkaConfig::load(None)?;
-    let secret_config = runtime_secret_config(&config.secrets);
+    let secret_config = super::util::runtime_secret_config(&config.secrets);
     let mgr = orka_secrets::create_secret_manager(&secret_config, &config.redis.url)?;
     Ok(mgr)
 }
