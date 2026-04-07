@@ -19,7 +19,7 @@ mod secrets;
 use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
-pub use mobile::{MobileEventHub, MobileStreamEvent};
+pub use mobile::MobileEventHub;
 use orka_a2a::{A2aState, AgentDirectory};
 use orka_agent::AgentGraph;
 use orka_auth::AuthLayer;
@@ -137,6 +137,12 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         mobile::UploadArtifactResponse,
         mobile::MarkReadRequest,
         mobile::UpdateConversationRequest,
+        AdapterInfo,
+        ServerFeatures,
+        ServerInfo,
+        orka_contracts::TrustLevel,
+        orka_contracts::IntegrationClass,
+        orka_contracts::Capability,
     )),
     tags(
         (name = "messages", description = "Message endpoints"),
@@ -173,9 +179,22 @@ pub async fn security_headers(
     response
 }
 
+/// Per-adapter integration metadata exposed by `/api/v1/info`.
+#[derive(Clone, serde::Serialize, utoipa::ToSchema)]
+pub struct AdapterInfo {
+    /// Unique channel identifier (e.g. `"telegram"`, `"discord"`).
+    pub channel_id: String,
+    /// Integration category (messaging, product client, operational, etc.).
+    pub integration_class: orka_contracts::IntegrationClass,
+    /// Trust level granted to messages from this adapter.
+    pub trust_level: orka_contracts::TrustLevel,
+    /// Capabilities declared by this adapter.
+    pub capabilities: orka_contracts::CapabilitySet,
+}
+
 /// Feature flags reported by the server in `/api/v1/info`.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct ServerFeatures {
     /// Whether knowledge and retrieval endpoints are enabled.
     pub knowledge: bool,
@@ -195,13 +214,16 @@ pub struct ServerFeatures {
 
 /// Lightweight server info returned by `GET /api/v1/info` for CLI banners and
 /// tooling. Built once at router construction time with no runtime I/O.
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct ServerInfo {
     /// Semantic version of the running build.
+    #[schema(value_type = String)]
     pub version: &'static str,
     /// Git commit SHA embedded at build time.
+    #[schema(value_type = String)]
     pub git_sha: &'static str,
     /// Build timestamp embedded at build time.
+    #[schema(value_type = String)]
     pub build_date: &'static str,
     /// Display name of the primary agent.
     pub agent_name: String,
@@ -221,8 +243,8 @@ pub struct ServerInfo {
     pub agent_count: usize,
     /// Whether API-key or JWT auth is enabled.
     pub auth_enabled: bool,
-    /// Channel IDs of active adapters (e.g. "telegram", "discord").
-    pub adapters: Vec<String>,
+    /// Active adapters with their integration metadata.
+    pub adapters: Vec<AdapterInfo>,
     /// Selected coding backend, if OS/coding integration is active.
     pub coding_backend: Option<String>,
     /// Configured web search provider, if active.
@@ -292,8 +314,8 @@ pub struct RouterParams {
     pub agent_count: usize,
     /// Whether API-key or JWT auth is enabled for `/api/v1/info`.
     pub auth_enabled: bool,
-    /// Active adapter channel IDs for `/api/v1/info`.
-    pub adapters: Vec<String>,
+    /// Active adapters for `/api/v1/info`.
+    pub adapters: Vec<AdapterInfo>,
     /// Selected coding backend for `/api/v1/info`.
     pub coding_backend: Option<String>,
     /// Configured web search provider for `/api/v1/info`.
@@ -306,11 +328,10 @@ pub struct RouterParams {
     pub stream_registry: orka_core::StreamRegistry,
     /// Product-facing mobile event hub.
     pub mobile_events: MobileEventHub,
-    /// Shared cancellation token map from the worker pool.
-    ///
-    /// Used by `POST /mobile/v1/conversations/{id}/cancel` to abort an
-    /// in-progress generation without stopping the worker.
-    pub session_cancel_tokens: orka_worker::SessionCancelTokens,
+    /// Domain service for conversation lifecycle operations (cancel, retry,
+    /// delete, mark-read).  Constructed from the worker's cancel-token map,
+    /// the conversation store, and the message bus in `bootstrap.rs`.
+    pub controller: Arc<orka_core::conversation_controller::ConversationController>,
     /// Optional mobile auth service for QR pairing and refresh.
     pub mobile_auth: Option<Arc<dyn MobileAuthService>>,
     /// Whether the mobile product API should be exposed.
@@ -372,7 +393,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         research_service,
         stream_registry,
         mobile_events,
-        session_cancel_tokens,
+        controller,
         mobile_auth,
         mobile_enabled,
         mobile_read_rate_limit_per_minute,
@@ -475,7 +496,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
             bus,
             stream_registry,
             mobile_events,
-            session_cancel_tokens,
+            controller,
             mobile_auth,
         )
         .layer(axum::middleware::from_fn_with_state(

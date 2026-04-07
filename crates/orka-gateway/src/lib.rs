@@ -17,6 +17,7 @@ const RATE_LIMIT_WINDOW_SECS: i64 = 60;
 
 use chrono::Utc;
 use deadpool_redis::Pool;
+use orka_contracts::TrustLevel;
 use orka_core::{
     DomainEvent, DomainEventKind, Envelope, Session,
     traits::{EventSink, MessageBus, PriorityQueue, SessionStore},
@@ -205,9 +206,17 @@ impl Gateway {
         true
     }
 
-    /// Resolve priority based on chat type: DMs get Urgent, groups get Normal.
+    /// Resolve priority from the canonical [`PlatformContext`] interaction
+    /// kind.
+    ///
+    /// DMs (`interaction_kind` = `"direct"`) get `Urgent`; groups get `Normal`.
+    /// Falls back to the envelope's existing priority if unset.
     fn resolve_priority(envelope: &Envelope) -> orka_core::Priority {
-        match envelope.metadata.get("chat_type").and_then(|v| v.as_str()) {
+        let kind = envelope
+            .platform_context
+            .as_ref()
+            .and_then(|ctx| ctx.interaction_kind.as_deref());
+        match kind {
             Some("direct") => orka_core::Priority::Urgent,
             Some("group") => orka_core::Priority::Normal,
             _ => envelope.priority,
@@ -227,6 +236,24 @@ impl Gateway {
         // Idempotency check
         if self.is_duplicate(&envelope.id).await {
             debug!(message_id = %envelope.id, "duplicate message, skipping");
+            self.bus.ack(&envelope.id).await?;
+            return Ok(());
+        }
+
+        // Trust validation: messaging adapters must not claim UserAuthenticated.
+        // Only the mobile product surface authenticates users via JWT.
+        if envelope
+            .platform_context
+            .as_ref()
+            .and_then(|ctx| ctx.trust_level)
+            == Some(TrustLevel::UserAuthenticated)
+            && envelope.channel != "mobile"
+        {
+            warn!(
+                channel = %envelope.channel,
+                message_id = %envelope.id,
+                "trust violation: non-mobile channel claimed UserAuthenticated — dropping"
+            );
             self.bus.ack(&envelope.id).await?;
             return Ok(());
         }
@@ -291,30 +318,27 @@ impl Gateway {
     }
 }
 
-/// Extract a user identifier from the envelope metadata.
+/// Extract a user identifier from the envelope.
 ///
-/// Tries well-known keys in priority order (human-readable names first),
-/// handles both string and numeric values, falls back to "anonymous".
+/// Reads the canonical [`PlatformContext`] fields in order of preference:
+/// `platform_user_id`, `user_id`, then `display_name`. Falls back to
+/// `"anonymous"` if none are set.
 fn resolve_user_id(envelope: &Envelope) -> String {
-    const KEYS: &[&str] = &[
-        "telegram_username",
-        "telegram_user_name",
-        "telegram_user_id",
-        "discord_username",
-        "discord_user_id",
-        "slack_user_id",
-        "whatsapp_user_id",
-        "user_id",
-    ];
-    for key in KEYS {
-        if let Some(val) = envelope.metadata.get(*key) {
-            if let Some(s) = val.as_str() {
-                if !s.is_empty() {
-                    return s.to_string();
-                }
-            } else if let Some(n) = val.as_i64() {
-                return n.to_string();
-            }
+    if let Some(ctx) = &envelope.platform_context {
+        if let Some(id) = &ctx.sender.platform_user_id
+            && !id.is_empty()
+        {
+            return id.clone();
+        }
+        if let Some(id) = &ctx.sender.user_id
+            && !id.is_empty()
+        {
+            return id.clone();
+        }
+        if let Some(name) = &ctx.sender.display_name
+            && !name.is_empty()
+        {
+            return name.clone();
         }
     }
     "anonymous".to_string()
@@ -334,7 +358,7 @@ mod tests {
     use std::time::Duration;
 
     use orka_core::{
-        DomainEventKind, SessionId,
+        DomainEventKind, PlatformContext, SessionId, SenderInfo,
         testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
     };
 
@@ -435,8 +459,11 @@ mod tests {
     async fn resolve_priority_direct_is_urgent() {
         let (gw, queue, _, _) = test_gateway(0);
         let mut env = Envelope::text("ch", SessionId::new(), "dm");
-        env.metadata
-            .insert("chat_type".into(), serde_json::json!("direct"));
+        env.platform_context = Some(PlatformContext {
+            interaction_kind: Some("direct".into()),
+            sender: SenderInfo::default(),
+            ..Default::default()
+        });
         gw.process(env).await.unwrap();
 
         let msg = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
@@ -447,8 +474,11 @@ mod tests {
     async fn resolve_priority_group_is_normal() {
         let (gw, queue, _, _) = test_gateway(0);
         let mut env = Envelope::text("ch", SessionId::new(), "group msg");
-        env.metadata
-            .insert("chat_type".into(), serde_json::json!("group"));
+        env.platform_context = Some(PlatformContext {
+            interaction_kind: Some("group".into()),
+            sender: SenderInfo::default(),
+            ..Default::default()
+        });
         gw.process(env).await.unwrap();
 
         let msg = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
@@ -501,6 +531,58 @@ mod tests {
         gw.process(env).await.unwrap();
         let msg = queue.pop(Duration::from_millis(10)).await.unwrap().unwrap();
         assert!(msg.trace_context.trace_id.is_some());
+    }
+
+    #[tokio::test]
+    async fn trust_violation_drops_non_mobile_user_authenticated() {
+        let (gw, queue, _, _) = test_gateway(0);
+        let mut env = Envelope::text("telegram", SessionId::new(), "hi");
+        env.platform_context = Some(PlatformContext {
+            trust_level: Some(TrustLevel::UserAuthenticated),
+            sender: SenderInfo::default(),
+            ..Default::default()
+        });
+        gw.process(env).await.unwrap();
+        assert_eq!(queue.len().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn trust_ok_mobile_user_authenticated() {
+        let (gw, queue, _, _) = test_gateway(0);
+        let mut env = Envelope::text("mobile", SessionId::new(), "hi");
+        env.platform_context = Some(PlatformContext {
+            trust_level: Some(TrustLevel::UserAuthenticated),
+            sender: SenderInfo::default(),
+            ..Default::default()
+        });
+        gw.process(env).await.unwrap();
+        assert_eq!(queue.len().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn trust_none_passes_through() {
+        let (gw, queue, _, _) = test_gateway(0);
+        let mut env = Envelope::text("telegram", SessionId::new(), "hi");
+        env.platform_context = Some(PlatformContext {
+            trust_level: None,
+            sender: SenderInfo::default(),
+            ..Default::default()
+        });
+        gw.process(env).await.unwrap();
+        assert_eq!(queue.len().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn trust_bot_token_passes_through() {
+        let (gw, queue, _, _) = test_gateway(0);
+        let mut env = Envelope::text("telegram", SessionId::new(), "hi");
+        env.platform_context = Some(PlatformContext {
+            trust_level: Some(TrustLevel::BotToken),
+            sender: SenderInfo::default(),
+            ..Default::default()
+        });
+        gw.process(env).await.unwrap();
+        assert_eq!(queue.len().await.unwrap(), 1);
     }
 
     #[tokio::test]

@@ -183,6 +183,13 @@ pub(crate) fn test_router() -> axum::Router {
     let bus = Arc::new(InMemoryBus::new());
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
+    let controller = Arc::new(
+        orka_core::conversation_controller::ConversationController::new(
+            conversations.clone(),
+            bus.clone(),
+            Arc::default(),
+        ),
+    );
     build_router(RouterParams {
         bus,
         queue: q.clone(),
@@ -222,7 +229,7 @@ pub(crate) fn test_router() -> axum::Router {
         mobile_events: MobileEventHub::new(),
         mobile_auth: None,
         mobile_enabled: false,
-        session_cancel_tokens: Arc::default(),
+        controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
     })
@@ -271,6 +278,13 @@ pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::R
     let bus = Arc::new(InMemoryBus::new());
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
+    let controller = Arc::new(
+        orka_core::conversation_controller::ConversationController::new(
+            conversations.clone(),
+            bus.clone(),
+            Arc::default(),
+        ),
+    );
     build_router(RouterParams {
         bus,
         queue: q.clone(),
@@ -310,7 +324,7 @@ pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::R
         mobile_events: MobileEventHub::new(),
         mobile_auth: None,
         mobile_enabled: false,
-        session_cancel_tokens: Arc::default(),
+        controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
     })
@@ -338,6 +352,13 @@ pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
     let bus = Arc::new(InMemoryBus::new());
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
+    let controller = Arc::new(
+        orka_core::conversation_controller::ConversationController::new(
+            conversations.clone(),
+            bus.clone(),
+            Arc::default(),
+        ),
+    );
     build_router(RouterParams {
         bus,
         queue: q.clone(),
@@ -377,7 +398,7 @@ pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
         mobile_events: MobileEventHub::new(),
         mobile_auth: None,
         mobile_enabled: false,
-        session_cancel_tokens: Arc::default(),
+        controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
     })
@@ -419,6 +440,13 @@ pub(crate) fn test_router_with_research() -> axum::Router {
     let bus = Arc::new(InMemoryBus::new());
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
+    let controller = Arc::new(
+        orka_core::conversation_controller::ConversationController::new(
+            conversations.clone(),
+            bus.clone(),
+            Arc::default(),
+        ),
+    );
     build_router(RouterParams {
         bus,
         queue: q.clone(),
@@ -466,7 +494,7 @@ pub(crate) fn test_router_with_research() -> axum::Router {
         mobile_events: MobileEventHub::new(),
         mobile_auth: None,
         mobile_enabled: false,
-        session_cancel_tokens: Arc::default(),
+        controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
     })
@@ -500,6 +528,13 @@ pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileT
     ));
     let auth_layer = Some(AuthLayer::new(authenticator, auth_cfg));
     let q = Arc::new(InMemoryQueue::new());
+    let controller = Arc::new(
+        orka_core::conversation_controller::ConversationController::new(
+            conversations.clone(),
+            bus.clone(),
+            Arc::default(),
+        ),
+    );
 
     let app = build_router(RouterParams {
         bus: bus.clone(),
@@ -540,7 +575,7 @@ pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileT
         mobile_events: mobile_events.clone(),
         mobile_auth: Some(test_mobile_auth_service()),
         mobile_enabled: true,
-        session_cancel_tokens: Arc::default(),
+        controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
     });
@@ -576,6 +611,13 @@ pub(crate) fn test_mobile_router_low_rate_limit(secret: &str, issuer: &str) -> M
     ));
     let auth_layer = Some(AuthLayer::new(authenticator, auth_cfg));
     let q = Arc::new(InMemoryQueue::new());
+    let controller = Arc::new(
+        orka_core::conversation_controller::ConversationController::new(
+            conversations.clone(),
+            bus.clone(),
+            Arc::default(),
+        ),
+    );
 
     let app = build_router(RouterParams {
         bus: bus.clone(),
@@ -616,7 +658,7 @@ pub(crate) fn test_mobile_router_low_rate_limit(secret: &str, issuer: &str) -> M
         mobile_events: mobile_events.clone(),
         mobile_auth: Some(test_mobile_auth_service()),
         mobile_enabled: true,
-        session_cancel_tokens: Arc::default(),
+        controller,
         mobile_read_rate_limit_per_minute: Some(1),
         mobile_write_rate_limit_per_minute: Some(1),
     });
@@ -663,6 +705,13 @@ pub(crate) fn test_router_with_composite_auth(
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
     let q = Arc::new(InMemoryQueue::new());
+    let controller = Arc::new(
+        orka_core::conversation_controller::ConversationController::new(
+            conversations.clone(),
+            bus.clone(),
+            Arc::default(),
+        ),
+    );
     build_router(RouterParams {
         bus,
         queue: q.clone(),
@@ -702,7 +751,7 @@ pub(crate) fn test_router_with_composite_auth(
         mobile_events: MobileEventHub::new(),
         mobile_auth: Some(test_mobile_auth_service()),
         mobile_enabled: true,
-        session_cancel_tokens: Arc::default(),
+        controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
     })

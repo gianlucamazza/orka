@@ -15,10 +15,11 @@ use axum::{
 use chrono::{DateTime, Utc};
 use governor::{Quota, RateLimiter, state::keyed::DefaultKeyedStateStore};
 use orka_auth::AuthIdentity;
+use orka_contracts::RealtimeEvent;
 use orka_core::{
     ArtifactId, Conversation, ConversationArtifact, ConversationArtifactOrigin, ConversationId,
     ConversationMessage, ConversationMessageRole, ConversationStatus, MediaPayload, MessageCursor,
-    MessageId, Payload, RichInputPayload, SessionId, StreamChunkKind, StreamRegistry,
+    MessageId, Payload, RichInputPayload, SessionId, StreamRegistry,
     traits::{ArtifactStore, ConversationStore, MessageBus},
 };
 use serde::{Deserialize, Serialize};
@@ -106,35 +107,14 @@ pub(super) async fn rate_limit_middleware(
     }
 }
 
-/// Realtime event pushed to mobile clients after transcript persistence.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data", rename_all = "snake_case")]
-pub enum MobileStreamEvent {
-    /// Assistant message has been finalized and persisted.
-    MessageCompleted {
-        /// Final persisted assistant message payload.
-        message: ConversationMessage,
-    },
-    /// Message generation failed.
-    MessageFailed {
-        /// Conversation that failed.
-        conversation_id: ConversationId,
-        /// Human-readable error string.
-        error: String,
-    },
-    /// A new artifact became available for the conversation.
-    ArtifactReady {
-        /// Conversation that owns the artifact.
-        conversation_id: ConversationId,
-        /// Persisted artifact metadata.
-        artifact: ConversationArtifact,
-    },
-}
-
 /// Per-conversation event hub used by the mobile product API.
+///
+/// Subscribers receive [`RealtimeEvent`] values directly — the former
+/// `MobileStreamEvent` wrapper was removed in Phase 7 of the architectural
+/// modernization.
 #[derive(Clone, Default)]
 pub struct MobileEventHub {
-    inner: Arc<Mutex<HashMap<ConversationId, Vec<mpsc::UnboundedSender<MobileStreamEvent>>>>>,
+    inner: Arc<Mutex<HashMap<ConversationId, Vec<mpsc::UnboundedSender<RealtimeEvent>>>>>,
 }
 
 impl MobileEventHub {
@@ -147,7 +127,7 @@ impl MobileEventHub {
     pub async fn subscribe(
         &self,
         conversation_id: ConversationId,
-    ) -> mpsc::UnboundedReceiver<MobileStreamEvent> {
+    ) -> mpsc::UnboundedReceiver<RealtimeEvent> {
         let (tx, rx) = mpsc::unbounded_channel();
         let mut inner = self.inner.lock().await;
         inner.entry(conversation_id).or_default().push(tx);
@@ -155,7 +135,7 @@ impl MobileEventHub {
     }
 
     /// Publish an event to active subscribers.
-    pub async fn publish(&self, conversation_id: ConversationId, event: MobileStreamEvent) {
+    pub async fn publish(&self, conversation_id: ConversationId, event: RealtimeEvent) {
         let mut inner = self.inner.lock().await;
         let Some(subscribers) = inner.get_mut(&conversation_id) else {
             return;
@@ -175,7 +155,7 @@ pub(super) struct ProtectedMobileState {
     bus: Arc<dyn MessageBus>,
     stream_registry: StreamRegistry,
     mobile_events: MobileEventHub,
-    session_cancel_tokens: orka_worker::SessionCancelTokens,
+    controller: Arc<orka_core::conversation_controller::ConversationController>,
     mobile_auth: Option<Arc<dyn MobileAuthService>>,
 }
 
@@ -407,88 +387,6 @@ pub(super) struct SendMessageResponse {
     message_id: MessageId,
 }
 
-#[derive(Debug)]
-struct SseFrame {
-    event: &'static str,
-    data: String,
-}
-
-fn stream_chunk_to_sse(
-    kind: &StreamChunkKind,
-    conversation_id: ConversationId,
-    reply_to: Option<MessageId>,
-) -> Option<SseFrame> {
-    let (event, data) = match kind {
-        StreamChunkKind::Delta(delta) => (
-            "message_delta",
-            serde_json::json!({
-                "conversation_id": conversation_id,
-                "reply_to": reply_to,
-                "delta": delta,
-            }),
-        ),
-        StreamChunkKind::Done => (
-            "stream_done",
-            serde_json::json!({ "conversation_id": conversation_id }),
-        ),
-        StreamChunkKind::ThinkingDelta(delta) => (
-            "thinking_delta",
-            serde_json::json!({
-                "conversation_id": conversation_id,
-                "delta": delta,
-            }),
-        ),
-        StreamChunkKind::ToolExecStart {
-            name,
-            id,
-            input_summary,
-            category,
-        } => (
-            "tool_exec_start",
-            serde_json::json!({
-                "conversation_id": conversation_id,
-                "id": id,
-                "name": name,
-                "input_summary": input_summary,
-                "category": category,
-            }),
-        ),
-        StreamChunkKind::ToolExecEnd {
-            id,
-            success,
-            duration_ms,
-            error,
-            result_summary,
-        } => (
-            "tool_exec_end",
-            serde_json::json!({
-                "conversation_id": conversation_id,
-                "id": id,
-                "success": success,
-                "duration_ms": duration_ms,
-                "error": error,
-                "result_summary": result_summary,
-            }),
-        ),
-        StreamChunkKind::AgentSwitch { display_name, .. } => (
-            "agent_switch",
-            serde_json::json!({
-                "conversation_id": conversation_id,
-                "display_name": display_name,
-            }),
-        ),
-        StreamChunkKind::GenerationStarted => (
-            "typing_started",
-            serde_json::json!({ "conversation_id": conversation_id }),
-        ),
-        _ => return None,
-    };
-    Some(SseFrame {
-        event,
-        data: data.to_string(),
-    })
-}
-
 /// Build the public mobile auth routes that remain accessible before login.
 pub(super) fn public_routes(mobile_auth: Option<Arc<dyn MobileAuthService>>) -> Router {
     Router::new()
@@ -507,7 +405,7 @@ pub(super) fn protected_routes(
     bus: Arc<dyn MessageBus>,
     stream_registry: StreamRegistry,
     mobile_events: MobileEventHub,
-    session_cancel_tokens: orka_worker::SessionCancelTokens,
+    controller: Arc<orka_core::conversation_controller::ConversationController>,
     mobile_auth: Option<Arc<dyn MobileAuthService>>,
 ) -> Router {
     let state = ProtectedMobileState {
@@ -516,7 +414,7 @@ pub(super) fn protected_routes(
         bus,
         stream_registry,
         mobile_events,
-        session_cancel_tokens,
+        controller,
         mobile_auth,
     };
 
@@ -1113,35 +1011,19 @@ async fn handle_mark_read(
         Ok(id) => id,
         Err(response) => return response,
     };
-    if let Err(response) = load_owned_conversation(&state, &identity, conversation_id).await {
-        return response;
-    }
 
     let message_id = match Uuid::parse_str(&body.last_read_message_id) {
         Ok(uuid) => MessageId::from(uuid),
-        Err(_) => {
-            return error_response(StatusCode::BAD_REQUEST, "invalid message id");
-        }
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "invalid message id"),
     };
 
-    let message = match state
-        .conversations
-        .get_message(&conversation_id, &message_id)
-        .await
-    {
-        Ok(Some(msg)) => msg,
-        Ok(None) => return error_response(StatusCode::NOT_FOUND, "message not found"),
-        Err(error) => return internal_error(error),
-    };
-
-    let cursor = MessageCursor::from_message(&message);
     match state
-        .conversations
-        .set_read_watermark(&identity.principal, &conversation_id, &cursor)
+        .controller
+        .mark_read(&identity.principal, &conversation_id, &message_id)
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => internal_error(error),
+        Err(e) => map_control_error(e),
     }
 }
 
@@ -1172,8 +1054,8 @@ async fn handle_delete_message(
         Ok(id) => id,
         Err(response) => return response,
     };
-    if let Err(response) = load_owned_conversation(&state, &identity, conversation_id).await {
-        return response;
+    if let Err(e) = state.controller.load_owned(&identity.principal, conversation_id).await {
+        return map_control_error(e);
     }
 
     let message_id = match Uuid::parse_str(&message_id) {
@@ -1181,23 +1063,23 @@ async fn handle_delete_message(
         Err(_) => return error_response(StatusCode::BAD_REQUEST, "invalid message id"),
     };
 
-    match state
-        .conversations
-        .get_message(&conversation_id, &message_id)
-        .await
-    {
-        Ok(Some(_)) => {}
-        Ok(None) => return error_response(StatusCode::NOT_FOUND, "message not found"),
-        Err(error) => return internal_error(error),
-    }
-
-    match state
-        .conversations
-        .delete_message(&conversation_id, &message_id)
-        .await
-    {
+    match state.controller.delete_message(&conversation_id, &message_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => internal_error(error),
+        Err(e) => map_control_error(e),
+    }
+}
+
+fn map_control_error(e: orka_core::conversation_controller::ControlError) -> axum::response::Response {
+    use orka_core::conversation_controller::ControlError;
+    match e {
+        ControlError::NotFound | ControlError::NotOwned => {
+            error_response(StatusCode::NOT_FOUND, "not found")
+        }
+        ControlError::InvalidState(msg) => error_response(StatusCode::CONFLICT, msg),
+        ControlError::NoActiveGeneration => {
+            error_response(StatusCode::CONFLICT, "no active generation to cancel")
+        }
+        ControlError::Store(err) => internal_error(err),
     }
 }
 
@@ -1228,33 +1110,15 @@ async fn handle_cancel_generation(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let mut conversation = match load_owned_conversation(&state, &identity, conversation_id).await {
-        Ok(c) => c,
-        Err(response) => return response,
-    };
+    let mut conversation =
+        match state.controller.load_owned(&identity.principal, conversation_id).await {
+            Ok(c) => c,
+            Err(e) => return map_control_error(e),
+        };
 
-    let cancelled = state
-        .session_cancel_tokens
-        .lock()
-        .map(|tokens| {
-            if let Some(token) = tokens.get(&conversation.session_id) {
-                token.cancel();
-                true
-            } else {
-                false
-            }
-        })
-        .unwrap_or(false);
-
-    if !cancelled {
-        return error_response(StatusCode::CONFLICT, "no active generation to cancel");
-    }
-
-    conversation.status = ConversationStatus::Active;
-    conversation.updated_at = Utc::now();
-    match state.conversations.put_conversation(&conversation).await {
+    match state.controller.cancel_generation(&mut conversation).await {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
-        Err(error) => internal_error(error),
+        Err(e) => map_control_error(e),
     }
 }
 
@@ -1285,78 +1149,24 @@ async fn handle_retry_generation(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let mut conversation = match load_owned_conversation(&state, &identity, conversation_id).await {
-        Ok(c) => c,
-        Err(response) => return response,
-    };
+    let mut conversation =
+        match state.controller.load_owned(&identity.principal, conversation_id).await {
+            Ok(c) => c,
+            Err(e) => return map_control_error(e),
+        };
 
-    if conversation.status != ConversationStatus::Failed {
-        return error_response(StatusCode::CONFLICT, "conversation is not in failed state");
+    match state.controller.retry_generation(&mut conversation).await {
+        Ok(result) => (
+            StatusCode::ACCEPTED,
+            Json(SendMessageResponse {
+                conversation_id: result.conversation_id,
+                session_id: result.session_id,
+                message_id: result.message_id,
+            }),
+        )
+            .into_response(),
+        Err(e) => map_control_error(e),
     }
-
-    // Load the full transcript to find the last user message.
-    let messages = match state
-        .conversations
-        .list_messages(&conversation_id, None, None, usize::MAX)
-        .await
-    {
-        Ok(msgs) => msgs,
-        Err(error) => return internal_error(error),
-    };
-
-    let last_user_message = messages
-        .iter()
-        .rev()
-        .find(|m| m.role == ConversationMessageRole::User);
-
-    let user_message = match last_user_message {
-        Some(m) => m.clone(),
-        None => {
-            return error_response(StatusCode::BAD_REQUEST, "no user message to retry");
-        }
-    };
-
-    // Remove any trailing failed/pending assistant messages after the last user
-    // message.
-    let user_msg_idx = messages
-        .iter()
-        .rposition(|m| m.id == user_message.id)
-        .unwrap_or(messages.len());
-    for msg in messages.iter().skip(user_msg_idx + 1) {
-        let _ = state
-            .conversations
-            .delete_message(&conversation_id, &msg.id)
-            .await;
-    }
-
-    // Re-publish the user message text to the inbound bus.
-    let mut envelope = orka_core::Envelope::with_payload(
-        "mobile",
-        conversation.session_id,
-        Payload::Text(user_message.text.clone()),
-        &orka_core::Envelope::text("mobile", conversation.session_id, ""),
-    );
-    envelope.id = user_message.id.as_uuid().into();
-
-    conversation.status = ConversationStatus::Active;
-    conversation.updated_at = Utc::now();
-    if let Err(error) = state.conversations.put_conversation(&conversation).await {
-        return internal_error(error);
-    }
-
-    if let Err(error) = state.bus.publish("inbound", &envelope).await {
-        return internal_error(error);
-    }
-
-    (
-        StatusCode::ACCEPTED,
-        Json(SendMessageResponse {
-            conversation_id,
-            session_id: conversation.session_id,
-            message_id: user_message.id,
-        }),
-    )
-        .into_response()
 }
 
 #[utoipa::path(
@@ -1792,48 +1602,37 @@ async fn handle_stream(
         Err(response) => return response,
     };
 
-    let (tx, rx) = mpsc::unbounded_channel::<SseFrame>();
+    // Channel carries (sse_event_name, data_json) pairs.
+    let (tx, rx) = mpsc::unbounded_channel::<(&'static str, String)>();
     let mut chunk_rx = state.stream_registry.subscribe(conversation.session_id);
     let mut mobile_rx = state.mobile_events.subscribe(conversation.id).await;
+    let conv_id = conversation.id;
 
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 chunk = chunk_rx.recv() => {
-                    let Some(chunk) = chunk else {
-                        break;
-                    };
-                    if let Some(frame) = stream_chunk_to_sse(&chunk.kind, conversation.id, chunk.reply_to)
-                        && tx.send(frame).is_err()
-                    {
+                    let Some(chunk) = chunk else { break; };
+                    let event = RealtimeEvent::from(chunk.kind.clone());
+                    let name = event.sse_event_name();
+                    let data = serde_json::json!({
+                        "conversation_id": conv_id,
+                        "reply_to": chunk.reply_to,
+                        "event": event,
+                    }).to_string();
+                    if tx.send((name, data)).is_err() {
                         break;
                     }
                 }
-                event = mobile_rx.recv() => {
-                    let Some(event) = event else {
-                        break;
-                    };
-                    let (name, data) = match event {
-                        MobileStreamEvent::MessageCompleted { message } => (
-                            "message_completed",
-                            serde_json::json!({ "message": message }).to_string(),
-                        ),
-                        MobileStreamEvent::MessageFailed { conversation_id, error } => (
-                            "message_failed",
-                            serde_json::json!({
-                                "conversation_id": conversation_id,
-                                "error": error,
-                            }).to_string(),
-                        ),
-                        MobileStreamEvent::ArtifactReady { conversation_id, artifact } => (
-                            "artifact_ready",
-                            serde_json::json!({
-                                "conversation_id": conversation_id,
-                                "artifact": artifact,
-                            }).to_string(),
-                        ),
-                    };
-                    if tx.send(SseFrame { event: name, data }).is_err() {
+                mobile_event = mobile_rx.recv() => {
+                    let Some(event) = mobile_event else { break; };
+                    let name = event.sse_event_name();
+                    let data = serde_json::json!({
+                        "conversation_id": conv_id,
+                        "reply_to": serde_json::Value::Null,
+                        "event": event,
+                    }).to_string();
+                    if tx.send((name, data)).is_err() {
                         break;
                     }
                 }
@@ -1842,7 +1641,7 @@ async fn handle_stream(
     });
 
     let stream = UnboundedReceiverStream::new(rx)
-        .map(|frame| Ok::<Event, Infallible>(Event::default().event(frame.event).data(frame.data)));
+        .map(|(name, data)| Ok::<Event, Infallible>(Event::default().event(name).data(data)));
 
     Sse::new(stream).into_response()
 }

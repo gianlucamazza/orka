@@ -22,7 +22,7 @@ pub(crate) async fn start_adapter(
     shutdown: CancellationToken,
     workspace_name: Option<String>,
 ) -> anyhow::Result<()> {
-    let (sink_tx, mut sink_rx) = mpsc::channel::<Envelope>(256);
+    let (sink_tx, mut sink_rx) = mpsc::channel::<orka_contracts::InboundInteraction>(256);
     adapter.start(sink_tx).await?;
 
     let bus_for_bridge = bus.clone();
@@ -33,7 +33,8 @@ pub(crate) async fn start_adapter(
                 () = cancel.cancelled() => break,
                 msg = sink_rx.recv() => {
                     match msg {
-                        Some(mut envelope) => {
+                        Some(interaction) => {
+                            let mut envelope = Envelope::from(interaction);
                             if let Some(ref ws) = workspace_name {
                                 envelope.metadata.entry("workspace:name".to_string())
                                     .or_insert_with(|| serde_json::json!(ws));

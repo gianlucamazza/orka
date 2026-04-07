@@ -27,6 +27,7 @@ use orka_core::{
     testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
     traits::MessageBus,
 };
+use orka_contracts::TrustLevel;
 use orka_gateway::{Gateway, GatewayConfig, GatewayDeps};
 use orka_worker::{EchoHandler, HandlerDispatcher, WorkerPool};
 use orka_workspace::WorkspaceLoader;
@@ -97,7 +98,7 @@ async fn start_pipeline() -> common::TestResult<(
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
 
-    let router = app_router(sink_tx, ws_registry.clone(), StreamRegistry::new(), None);
+    let router = app_router(sink_tx, ws_registry.clone(), StreamRegistry::new(), None, TrustLevel::UserAuthenticated);
     tokio::spawn(async move {
         axum::serve(listener, router).await.ok();
     });
@@ -105,7 +106,8 @@ async fn start_pipeline() -> common::TestResult<(
     // 4. Bridge adapter sink → bus "inbound"
     let bus_for_inbound = bus.clone();
     tokio::spawn(async move {
-        while let Some(envelope) = sink_rx.recv().await {
+        while let Some(interaction) = sink_rx.recv().await {
+            let envelope = orka_core::Envelope::from(interaction);
             bus_for_inbound.publish("inbound", &envelope).await.ok();
         }
     });

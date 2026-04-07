@@ -26,7 +26,8 @@ use orka_infra::{
 use orka_server::{
     mobile_auth::{MobileAuthConfig, MobileAuthService, RedisMobileAuthService},
     router::{
-        BUILD_DATE, GIT_SHA, MobileEventHub, RouterParams, ServerFeatures, VERSION, build_router,
+        AdapterInfo, BUILD_DATE, GIT_SHA, MobileEventHub, RouterParams, ServerFeatures, VERSION,
+        build_router,
     },
 };
 use orka_worker::{CommandRegistry, GraphDispatcher, WorkerPool};
@@ -1024,6 +1025,23 @@ fn build_checkpoint_store(redis_url: &str) -> Option<Arc<dyn orka_checkpoint::Ch
 // HTTP management endpoint
 // ---------------------------------------------------------------------------
 
+/// Collect `AdapterInfo` from the active adapter list, excluding the internal
+/// custom adapter which is not user-visible.
+fn collect_adapter_infos(
+    adapters: &[Arc<dyn orka_core::traits::ChannelAdapter>],
+) -> Vec<AdapterInfo> {
+    adapters
+        .iter()
+        .filter(|a| a.channel_id() != "custom")
+        .map(|a| AdapterInfo {
+            channel_id: a.channel_id().to_string(),
+            integration_class: a.integration_class(),
+            trust_level: a.trust_level(),
+            capabilities: a.capabilities(),
+        })
+        .collect()
+}
+
 /// Build the router parameters from the HTTP server dependencies.
 /// Consumes `deps` so that owned fields (`metrics_handle`, `a2a_state`, etc.)
 /// are moved into `RouterParams` without cloning.
@@ -1059,12 +1077,7 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         }
     });
 
-    let adapter_names: Vec<String> = deps
-        .adapters
-        .iter()
-        .map(|a| a.channel_id().to_string())
-        .filter(|id| id != "custom")
-        .collect();
+    let adapter_names = collect_adapter_infos(deps.adapters);
 
     let coding_backend = deps
         .skill_bundle
@@ -1127,7 +1140,9 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         research_service: None,
         stream_registry: deps.stream_registry,
         mobile_events: deps.mobile_events,
-        session_cancel_tokens: deps.session_cancel_tokens,
+        controller: Arc::new(orka_core::conversation_controller::ConversationController::new(
+            deps.infra.conversations.clone(), deps.infra.bus.clone(), deps.session_cancel_tokens.clone(),
+        )),
         mobile_auth,
         mobile_enabled: config.auth.jwt.is_some(),
         mobile_read_rate_limit_per_minute: None,
@@ -1367,9 +1382,9 @@ async fn apply_outbound_payload(
             mobile_events
                 .publish(
                     conversation_id,
-                    orka_server::router::MobileStreamEvent::ArtifactReady {
-                        conversation_id,
-                        artifact,
+                    orka_contracts::RealtimeEvent::ArtifactReady {
+                        conversation_id: conversation_id.as_uuid(),
+                        artifact: serde_json::to_value(&artifact).unwrap_or_default(),
                     },
                 )
                 .await;
@@ -1409,9 +1424,9 @@ async fn apply_outbound_payload(
                 mobile_events
                     .publish(
                         conversation_id,
-                        orka_server::router::MobileStreamEvent::ArtifactReady {
-                            conversation_id,
-                            artifact,
+                        orka_contracts::RealtimeEvent::ArtifactReady {
+                            conversation_id: conversation_id.as_uuid(),
+                            artifact: serde_json::to_value(&artifact).unwrap_or_default(),
                         },
                     )
                     .await;
@@ -1488,8 +1503,8 @@ async fn persist_mobile_outbound(
             mobile_events
                 .publish(
                     conversation_id,
-                    orka_server::router::MobileStreamEvent::MessageFailed {
-                        conversation_id,
+                    orka_contracts::RealtimeEvent::MessageFailed {
+                        conversation_id: conversation_id.as_uuid(),
                         error: error_text,
                     },
                 )
@@ -1500,7 +1515,10 @@ async fn persist_mobile_outbound(
                 mobile_events
                     .publish(
                         conversation_id,
-                        orka_server::router::MobileStreamEvent::MessageCompleted { message },
+                        orka_contracts::RealtimeEvent::MessageCompleted {
+                            conversation_id: message.conversation_id.as_uuid(),
+                            message: serde_json::to_value(&message).unwrap_or_default(),
+                        },
                     )
                     .await;
             }
@@ -2013,17 +2031,14 @@ mod tests {
             .await
             .expect("failure event should be emitted");
         match event {
-            orka_server::router::MobileStreamEvent::MessageFailed {
+            orka_contracts::RealtimeEvent::MessageFailed {
                 conversation_id: event_conversation_id,
                 error,
             } => {
-                assert_eq!(event_conversation_id, conversation_id);
+                assert_eq!(event_conversation_id, conversation_id.as_uuid());
                 assert_eq!(error, "tool execution failed");
             }
-            other @ (orka_server::router::MobileStreamEvent::MessageCompleted { .. }
-            | orka_server::router::MobileStreamEvent::ArtifactReady { .. }) => {
-                panic!("unexpected mobile event: {other:?}")
-            }
+            other => panic!("unexpected mobile event: {other:?}"),
         }
     }
 
@@ -2074,14 +2089,14 @@ mod tests {
             .await
             .expect("completion event should be emitted");
         match event {
-            orka_server::router::MobileStreamEvent::MessageCompleted { message } => {
-                assert_eq!(message.id, envelope.id);
-                assert_eq!(message.text, "Paused for approval.");
+            orka_contracts::RealtimeEvent::MessageCompleted { message, .. } => {
+                assert_eq!(
+                    message["id"].as_str(),
+                    Some(envelope.id.to_string().as_str())
+                );
+                assert_eq!(message["text"].as_str(), Some("Paused for approval."));
             }
-            other @ (orka_server::router::MobileStreamEvent::MessageFailed { .. }
-            | orka_server::router::MobileStreamEvent::ArtifactReady { .. }) => {
-                panic!("unexpected mobile event: {other:?}")
-            }
+            other => panic!("unexpected mobile event: {other:?}"),
         }
     }
 

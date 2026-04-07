@@ -12,7 +12,7 @@ use orka_core::{
     SessionId, StreamChunk, StreamChunkKind,
     traits::{ArtifactStore, ConversationStore, MessageBus},
 };
-use orka_server::router::MobileStreamEvent;
+use orka_contracts::RealtimeEvent;
 use tower::ServiceExt;
 
 const JWT_SECRET: &str = "test-secret-key-at-least-32-bytes-long!";
@@ -579,7 +579,7 @@ async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestRe
     ));
     let (event, data) = parse_sse_frame(&next_sse_frame(&mut stream, &mut buffer).await?)?;
     assert_eq!(event, "message_delta");
-    assert_eq!(data["delta"], "partial");
+    assert_eq!(data["event"]["data"]["delta"], "partial");
 
     let mut artifact = orka_core::ConversationArtifact::new(
         "user-a",
@@ -594,15 +594,15 @@ async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestRe
     ctx.mobile_events
         .publish(
             conversation.id,
-            MobileStreamEvent::ArtifactReady {
-                conversation_id: conversation.id,
-                artifact: artifact.clone(),
+            RealtimeEvent::ArtifactReady {
+                conversation_id: conversation.id.as_uuid(),
+                artifact: serde_json::to_value(&artifact).unwrap_or_default(),
             },
         )
         .await;
     let (event, data) = parse_sse_frame(&next_sse_frame(&mut stream, &mut buffer).await?)?;
     assert_eq!(event, "artifact_ready");
-    assert_eq!(data["artifact"]["filename"], "artifact.txt");
+    assert_eq!(data["event"]["data"]["artifact"]["filename"], "artifact.txt");
 
     let message = ConversationMessage::new(
         MessageId::new(),
@@ -614,15 +614,16 @@ async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestRe
     ctx.mobile_events
         .publish(
             conversation.id,
-            MobileStreamEvent::MessageCompleted {
-                message: message.clone(),
+            RealtimeEvent::MessageCompleted {
+                conversation_id: conversation.id.as_uuid(),
+                message: serde_json::to_value(&message).unwrap_or_default(),
             },
         )
         .await;
     let (event, data) = parse_sse_frame(&next_sse_frame(&mut stream, &mut buffer).await?)?;
     assert_eq!(event, "message_completed");
-    assert_eq!(data["message"]["id"], message.id.to_string());
-    assert_eq!(data["message"]["text"], "final answer");
+    assert_eq!(data["event"]["data"]["message"]["id"], message.id.to_string());
+    assert_eq!(data["event"]["data"]["message"]["text"], "final answer");
 
     ctx.stream_registry.send(StreamChunk::new(
         conversation.session_id,
