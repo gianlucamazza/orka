@@ -288,21 +288,27 @@ mod tests {
 
     #[test]
     fn redis_validates_url() {
-        assert!(RedisConfig {
-            url: "redis://localhost:6379".to_string(),
-        }
-        .validate()
-        .is_ok());
-        assert!(RedisConfig {
-            url: "rediss://localhost:6380".to_string(),
-        }
-        .validate()
-        .is_ok());
-        assert!(RedisConfig {
-            url: "http://localhost:6379".to_string(),
-        }
-        .validate()
-        .is_err());
+        assert!(
+            RedisConfig {
+                url: "redis://localhost:6379".to_string(),
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            RedisConfig {
+                url: "rediss://localhost:6380".to_string(),
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            RedisConfig {
+                url: "http://localhost:6379".to_string(),
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]
@@ -339,12 +345,14 @@ mod tests {
 
     #[test]
     fn worker_validation_rejects_zero_concurrency() {
-        assert!(WorkerConfig {
-            concurrency: 0,
-            retry_base_delay_ms: 1000,
-        }
-        .validate()
-        .is_err());
+        assert!(
+            WorkerConfig {
+                concurrency: 0,
+                retry_base_delay_ms: 1000,
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]

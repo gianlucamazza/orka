@@ -260,11 +260,7 @@ pub trait MobileAuthService: Send + Sync {
     ///
     /// Returns [`MobileAuthError::NotFound`] if no active session exists for
     /// the given `device_id` under `user_id`.
-    async fn revoke_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), MobileAuthError>;
+    async fn revoke_device(&self, user_id: &str, device_id: &str) -> Result<(), MobileAuthError>;
 
     /// Rename a device.
     ///
@@ -496,11 +492,7 @@ impl MobileAuthService for InMemoryMobileAuthService {
         Ok(devices)
     }
 
-    async fn revoke_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), MobileAuthError> {
+    async fn revoke_device(&self, user_id: &str, device_id: &str) -> Result<(), MobileAuthError> {
         let mut refresh_tokens = self.refresh_tokens.lock().await;
         let key = refresh_tokens
             .iter()
@@ -904,10 +896,7 @@ return {'ok', user_id, session_id, device_name, platform, created_at}
             if expires_at <= now {
                 continue;
             }
-            let device_id_val = data
-                .get("device_id")
-                .cloned()
-                .unwrap_or_default();
+            let device_id_val = data.get("device_id").cloned().unwrap_or_default();
             let last_seen_at = data
                 .get("last_rotated_at")
                 .and_then(|v| v.parse::<i64>().ok())
@@ -931,11 +920,7 @@ return {'ok', user_id, session_id, device_name, platform, created_at}
         Ok(devices)
     }
 
-    async fn revoke_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), MobileAuthError> {
+    async fn revoke_device(&self, user_id: &str, device_id: &str) -> Result<(), MobileAuthError> {
         let mut conn = self.pool.get().await.map_err(internal_redis_error)?;
         let mut cursor: u64 = 0;
         let mut found_key: Option<String> = None;

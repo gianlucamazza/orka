@@ -99,7 +99,11 @@ impl Authenticator for JwtAuthenticator {
 
         debug!(principal = %principal, scopes = ?scopes, "JWT authenticated");
 
-        Ok(AuthIdentity { principal, scopes, device_id: claims.dvc })
+        Ok(AuthIdentity {
+            principal,
+            scopes,
+            device_id: claims.dvc,
+        })
     }
 }
 

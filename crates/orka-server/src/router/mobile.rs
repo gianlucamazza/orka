@@ -21,17 +21,18 @@ use orka_core::{
     MessageId, Payload, RichInputPayload, SessionId, StreamChunkKind, StreamRegistry,
     traits::{ArtifactStore, ConversationStore, MessageBus},
 };
-use crate::export::{export_json, export_markdown, export_pdf, ExportFormat};
-use crate::mobile_auth::DeviceInfo;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, mpsc};
 use tokio_stream::{StreamExt, wrappers::UnboundedReceiverStream};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::mobile_auth::{
-    CompletePairingInput, MobileAuthError, MobileAuthService, MobileSession, PairingStatus,
-    RefreshInput,
+use crate::{
+    export::{ExportFormat, export_json, export_markdown, export_pdf},
+    mobile_auth::{
+        CompletePairingInput, DeviceInfo, MobileAuthError, MobileAuthService, MobileSession,
+        PairingStatus, RefreshInput,
+    },
 };
 
 const DEFAULT_PAGE_SIZE: usize = 20;
@@ -2244,7 +2245,8 @@ async fn handle_rename_device(
 
 // ── Push token handlers ──────────────────────────────────────────────────────
 
-/// POST `/mobile/v1/devices/{id}/push-token` — register a push notification token.
+/// POST `/mobile/v1/devices/{id}/push-token` — register a push notification
+/// token.
 async fn handle_register_push_token(
     State(state): State<ProtectedMobileState>,
     Extension(identity): Extension<AuthIdentity>,
@@ -2369,7 +2371,8 @@ async fn handle_transcribe(
 
 // ── Export handler ───────────────────────────────────────────────────────────
 
-/// GET `/mobile/v1/conversations/{id}/export?format=md` — export a conversation.
+/// GET `/mobile/v1/conversations/{id}/export?format=md` — export a
+/// conversation.
 async fn handle_export_conversation(
     State(state): State<ProtectedMobileState>,
     Extension(identity): Extension<AuthIdentity>,
@@ -2382,7 +2385,10 @@ async fn handle_export_conversation(
     };
 
     let Some(format) = ExportFormat::parse(&params.format) else {
-        return error_response(StatusCode::BAD_REQUEST, "format must be one of: json, md, pdf");
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "format must be one of: json, md, pdf",
+        );
     };
 
     let conversation = match state.conversations.get_conversation(&conversation_id).await {
@@ -2422,10 +2428,7 @@ async fn handle_export_conversation(
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!("PDF export failed: {e}");
-                return error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "failed to generate PDF",
-                );
+                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "failed to generate PDF");
             }
         },
     };
