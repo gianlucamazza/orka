@@ -219,13 +219,13 @@ enum Commands {
         shell: clap_complete::Shell,
     },
     /// Show version information
-    Version {
-        /// Check for available updates
+    Version,
+    /// Update orka to the latest release
+    Update {
+        /// Check for available updates without installing
         #[arg(long)]
         check: bool,
     },
-    /// Update orka to the latest release
-    Update,
     /// Real-time TUI dashboard
     Dashboard {
         /// Polling interval in seconds
@@ -834,15 +834,17 @@ async fn main() {
             clap_complete::generate(shell, &mut Cli::command(), "orka", &mut std::io::stdout());
             Ok(())
         }
-        Commands::Version { check } => {
+        Commands::Version => {
+            println!("orka {VERSION_LONG}");
+            Ok(())
+        }
+        Commands::Update { check } => {
             if check {
                 cmd::update::run_check().await
             } else {
-                println!("orka {VERSION_LONG}");
-                Ok(())
+                cmd::update::run_update().await
             }
         }
-        Commands::Update => cmd::update::run_update().await,
         Commands::Dashboard { interval } => cmd::dashboard::run(&server_client, interval).await,
         Commands::Research { action } => match action {
             ResearchAction::Campaign { action } => match action {
