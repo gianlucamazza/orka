@@ -7,7 +7,6 @@ use crate::error::{A2aError, ERR_INVALID_REQUEST};
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
     /// Must be `"2.0"`.
-    #[allow(dead_code)]
     pub jsonrpc: String,
     /// Request identifier — echoed back in the response.
     pub id: Option<Value>,

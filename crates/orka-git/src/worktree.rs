@@ -12,8 +12,9 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use tracing::{info, warn};
+use tracing::info;
+#[cfg(not(unix))]
+use tracing::warn;
 
 use crate::{cli::run_git, error::GitError};
 

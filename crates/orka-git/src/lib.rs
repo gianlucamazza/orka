@@ -80,7 +80,7 @@ pub fn create_git_skills(
         Arc::new(GitStatusSkill::new(guard.clone())),
         Arc::new(GitDiffSkill::new(guard.clone())),
         Arc::new(GitLogSkill::new(guard.clone())),
-        Arc::new(GitBranchListSkill::new(guard.clone())),
+        Arc::new(GitBranchListSkill::new()),
         Arc::new(GitBlameSkill::new(guard.clone())),
         Arc::new(GitGrepSkill::new(guard.clone())),
         // Tier 2: write

@@ -12,7 +12,6 @@ use crate::{store::ScheduleStore, types::Schedule};
 pub struct InMemoryScheduleStore {
     schedules: Mutex<Vec<Schedule>>,
     /// Tracks acquired execution locks: `"{id}:{run_at}"`.
-    #[allow(dead_code)]
     locks: Mutex<HashSet<String>>,
 }
 

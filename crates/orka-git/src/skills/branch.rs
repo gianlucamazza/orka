@@ -18,15 +18,18 @@ use crate::{
 /// Lists all local and optionally remote branches.
 ///
 /// Uses gix for efficient, no-fork branch enumeration.
-pub struct GitBranchListSkill {
-    #[allow(dead_code)] // held for future per-call policy hooks
-    guard: Arc<GitGuard>,
-}
+pub struct GitBranchListSkill;
 
 impl GitBranchListSkill {
-    /// Create from the shared guard.
-    pub fn new(guard: Arc<GitGuard>) -> Self {
-        Self { guard }
+    /// Create a new instance.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for GitBranchListSkill {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

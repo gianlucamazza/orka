@@ -5,7 +5,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU16, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use colored::Colorize;
@@ -17,8 +17,6 @@ use crate::{markdown::MarkdownRenderer, term_caps::ColorLevel};
 pub(crate) struct ActiveTool {
     pub(crate) name: String,
     pub(crate) category: Option<String>,
-    #[allow(dead_code)]
-    pub(crate) started_at: Instant,
     pub(crate) progress_bar: ProgressBar,
 }
 
@@ -207,7 +205,6 @@ impl ChatRenderer {
             ActiveTool {
                 name,
                 category,
-                started_at: Instant::now(),
                 progress_bar: pb,
             },
         );
@@ -305,12 +302,6 @@ impl ChatRenderer {
         for (_, tool) in self.active_tools.drain() {
             tool.progress_bar.finish_and_clear();
         }
-    }
-
-    /// Returns `true` if at least one `Delta` was received in the current turn.
-    #[allow(dead_code)]
-    pub(crate) fn has_streamed(&self) -> bool {
-        self.streaming
     }
 
     // ── Private helpers ───────────────────────────────────────────────────

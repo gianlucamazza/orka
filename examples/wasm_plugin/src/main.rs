@@ -138,27 +138,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Demonstrates creating a simple plugin programmatically
-#[cfg(feature = "demo_build")]
-async fn demo_build_plugin() -> Result<()> {
-    use orka_wasm::component::PluginCapabilities;
-
-    info!("Building plugin programmatically...");
-
-    let capabilities = PluginCapabilities {
-        allow_network: false,
-        allow_filesystem: false,
-        allow_stdio: true,
-        allowed_env_vars: vec!["HOME".to_string()],
-        allowed_paths: vec![],
-    };
-
-    // This would require WIT bindings generation
-    // For now, just showing the API structure
-    info!("Capabilities configured: {:?}", capabilities);
-
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {
