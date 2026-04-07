@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-04-07
+
+### Added
+
+- **`orka-contracts` crate** — new shared contract layer with canonical types:
+  `PlatformContext`, `InboundInteraction`, `TrustLevel`, `IntegrationClass`,
+  `Capability`, `CapabilitySet`, `RealtimeEvent` (snake_case, adjacently-tagged),
+  `SenderInfo`, `TraceContext`, and all interaction content variants
+- **Trust-level enforcement in gateway** — inbound envelopes claiming
+  `TrustLevel::UserAuthenticated` from any channel other than `"mobile"` are
+  dropped with a warning; 4 unit tests cover all trust scenarios
+- **`AdapterInfo`** exposed on `GET /api/v1/info` with per-adapter
+  `channel_id`, `integration_class`, `trust_level`, and `capabilities`
+- **OpenAPI schema** for `AdapterInfo`, `ServerFeatures`, `ServerInfo`,
+  `TrustLevel`, `IntegrationClass`, and `Capability`
+- `ChannelAdapter` trait methods: `capabilities()`, `integration_class()`,
+  `trust_level()` — all adapters implement them with correct defaults
+
+### Changed
+
+- **Adapters split into modular files**: Discord, Slack, and WhatsApp monolithic
+  `lib.rs` files (700–1200 LOC) are split into `api.rs`, `types.rs`, and
+  `gateway.rs`/`webhook.rs` — `lib.rs` is now a thin coordinator only
+- **Trust wiring** — all 5 adapters (Telegram, Discord, Slack, WhatsApp, Custom)
+  thread `trust_level()` through internal state into every `PlatformContext`
+  construction site (9 sites total); every `InboundInteraction` now carries
+  `trust_level: Some(...)`
+- **`MobileEventHub` now carries `RealtimeEvent` directly** — `MobileStreamEvent`
+  deleted; both mobile SSE and custom WebSocket use the same canonical type
+- `Envelope.platform_context: Option<PlatformContext>` replaces scattered
+  platform-specific metadata keys (`telegram_chat_id`, `slack_channel`, etc.)
+- CLI streaming protocol updated to consume `RealtimeEvent` variants directly
+
+### Removed
+
+- `MobileStreamEvent` — superseded by `RealtimeEvent` from `orka-contracts`
+
 ## [1.8.0] - 2026-04-07
 
 ### Added
