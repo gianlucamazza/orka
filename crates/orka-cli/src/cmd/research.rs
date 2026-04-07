@@ -4,7 +4,7 @@ use crate::{client::OrkaClient, table::make_table};
 
 const NOT_ENABLED_MSG: &str = "Research is not enabled on this server.";
 
-async fn check_503(resp: reqwest::Response) -> Option<reqwest::Response> {
+fn check_503(resp: reqwest::Response) -> Option<reqwest::Response> {
     if resp.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
         println!("{}", NOT_ENABLED_MSG.yellow());
         None
@@ -15,7 +15,7 @@ async fn check_503(resp: reqwest::Response) -> Option<reqwest::Response> {
 
 pub async fn campaign_list(client: &OrkaClient) -> crate::client::Result<()> {
     let resp = client.get("/api/v1/research/campaigns").await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -46,7 +46,7 @@ pub async fn campaign_show(client: &OrkaClient, id: &str) -> crate::client::Resu
     let resp = client
         .get(&format!("/api/v1/research/campaigns/{id}"))
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -98,7 +98,7 @@ pub async fn campaign_create(
     let resp = client
         .post("/api/v1/research/campaigns", Some(body))
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let created: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -129,7 +129,7 @@ pub async fn campaign_delete(
     let resp = client
         .delete(&format!("/api/v1/research/campaigns/{id}"))
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     OrkaClient::ensure_ok(resp).await?;
@@ -144,7 +144,7 @@ pub async fn campaign_pause(client: &OrkaClient, id: &str) -> crate::client::Res
             Some(serde_json::json!({})),
         )
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     OrkaClient::ensure_ok(resp).await?;
@@ -159,7 +159,7 @@ pub async fn campaign_resume(client: &OrkaClient, id: &str) -> crate::client::Re
             Some(serde_json::json!({})),
         )
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     OrkaClient::ensure_ok(resp).await?;
@@ -174,7 +174,7 @@ pub async fn campaign_run(client: &OrkaClient, id: &str) -> crate::client::Resul
             Some(serde_json::json!({})),
         )
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let run: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -193,7 +193,7 @@ pub async fn run_list(client: &OrkaClient, campaign_id: Option<&str>) -> crate::
         "/api/v1/research/runs".to_string()
     };
     let resp = client.get(&path).await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -216,10 +216,8 @@ pub async fn run_list(client: &OrkaClient, campaign_id: Option<&str>) -> crate::
 }
 
 pub async fn run_show(client: &OrkaClient, id: &str) -> crate::client::Result<()> {
-    let resp = client
-        .get(&format!("/api/v1/research/runs/{id}"))
-        .await?;
-    let Some(resp) = check_503(resp).await else {
+    let resp = client.get(&format!("/api/v1/research/runs/{id}")).await?;
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -237,7 +235,7 @@ pub async fn candidate_list(
         "/api/v1/research/candidates".to_string()
     };
     let resp = client.get(&path).await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -250,8 +248,7 @@ pub async fn candidate_list(
     for candidate in candidates {
         let improvement = candidate["improvement"]
             .as_f64()
-            .map(|value| format!("{value:.6}"))
-            .unwrap_or_else(|| "-".to_string());
+            .map_or_else(|| "-".to_string(), |value| format!("{value:.6}"));
         table.add_row([
             candidate["id"].as_str().unwrap_or("?"),
             candidate["campaign_id"].as_str().unwrap_or("?"),
@@ -268,7 +265,7 @@ pub async fn candidate_show(client: &OrkaClient, id: &str) -> crate::client::Res
     let resp = client
         .get(&format!("/api/v1/research/candidates/{id}"))
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -287,7 +284,7 @@ pub async fn candidate_promote(
             Some(serde_json::json!({ "approved": approve })),
         )
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -314,7 +311,7 @@ pub async fn promotion_list(
         "/api/v1/research/promotions".to_string()
     };
     let resp = client.get(&path).await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -341,7 +338,7 @@ pub async fn promotion_show(client: &OrkaClient, id: &str) -> crate::client::Res
     let resp = client
         .get(&format!("/api/v1/research/promotions/{id}"))
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     let body: serde_json::Value = OrkaClient::ensure_ok(resp).await?.json().await?;
@@ -356,7 +353,7 @@ pub async fn promotion_approve(client: &OrkaClient, id: &str) -> crate::client::
             Some(serde_json::json!({})),
         )
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     OrkaClient::ensure_ok(resp).await?;
@@ -375,7 +372,7 @@ pub async fn promotion_reject(
             Some(serde_json::json!({ "reason": reason })),
         )
         .await?;
-    let Some(resp) = check_503(resp).await else {
+    let Some(resp) = check_503(resp) else {
         return Ok(());
     };
     OrkaClient::ensure_ok(resp).await?;

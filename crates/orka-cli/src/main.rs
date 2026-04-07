@@ -238,6 +238,11 @@ enum Commands {
         #[arg(long, default_value = "2")]
         interval: u64,
     },
+    /// Manage research campaigns, runs, candidates, and promotions
+    Research {
+        #[command(subcommand)]
+        action: ResearchAction,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -444,6 +449,181 @@ enum MobileAction {
         /// Maximum time to wait for pairing completion, in seconds
         #[arg(long, default_value = "120")]
         timeout: u64,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum ResearchAction {
+    /// Manage research campaigns
+    Campaign {
+        #[command(subcommand)]
+        action: ResearchCampaignAction,
+    },
+    /// Manage research runs
+    Run {
+        #[command(subcommand)]
+        action: ResearchRunAction,
+    },
+    /// Manage research candidates
+    Candidate {
+        #[command(subcommand)]
+        action: ResearchCandidateAction,
+    },
+    /// Manage promotion requests
+    Promotion {
+        #[command(subcommand)]
+        action: ResearchPromotionAction,
+    },
+}
+
+/// Arguments for `research campaign create`.
+#[derive(clap::Args)]
+struct ResearchCampaignCreate {
+    /// Campaign name
+    name: String,
+    /// Workspace name
+    #[arg(long)]
+    workspace: String,
+    /// Repository path
+    #[arg(long)]
+    repo_path: String,
+    /// Baseline git ref
+    #[arg(long)]
+    baseline_ref: String,
+    /// Task description
+    #[arg(long)]
+    task: String,
+    /// Verification command
+    #[arg(long)]
+    verify: String,
+    /// Additional context
+    #[arg(long)]
+    context: Option<String>,
+    /// Editable file paths (repeatable)
+    #[arg(long = "path")]
+    editable_paths: Vec<String>,
+    /// Metric name to track
+    #[arg(long)]
+    metric_name: Option<String>,
+    /// Regex to extract metric value
+    #[arg(long)]
+    metric_regex: Option<String>,
+    /// Metric direction (higher/lower)
+    #[arg(long, default_value = "higher")]
+    direction: String,
+    /// Baseline metric value
+    #[arg(long)]
+    baseline_metric: Option<f64>,
+    /// Minimum required improvement
+    #[arg(long)]
+    min_improvement: Option<f64>,
+    /// Cron expression for scheduled runs
+    #[arg(long)]
+    cron: Option<String>,
+    /// Target branch for promotions
+    #[arg(long, default_value = "main")]
+    target_branch: String,
+}
+
+#[derive(clap::Subcommand)]
+enum ResearchCampaignAction {
+    /// List all research campaigns
+    List,
+    /// Show details for a campaign
+    Show {
+        /// Campaign ID
+        id: String,
+    },
+    /// Create a new research campaign
+    Create(Box<ResearchCampaignCreate>),
+    /// Delete a campaign
+    Delete {
+        /// Campaign ID
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// Pause a campaign
+    Pause {
+        /// Campaign ID
+        id: String,
+    },
+    /// Resume a paused campaign
+    Resume {
+        /// Campaign ID
+        id: String,
+    },
+    /// Trigger a new run for a campaign
+    Run {
+        /// Campaign ID
+        id: String,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum ResearchRunAction {
+    /// List runs (optionally filtered by campaign)
+    List {
+        /// Filter by campaign ID
+        #[arg(long)]
+        campaign_id: Option<String>,
+    },
+    /// Show details for a run
+    Show {
+        /// Run ID
+        id: String,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum ResearchCandidateAction {
+    /// List candidates (optionally filtered by campaign)
+    List {
+        /// Filter by campaign ID
+        #[arg(long)]
+        campaign_id: Option<String>,
+    },
+    /// Show details for a candidate
+    Show {
+        /// Candidate ID
+        id: String,
+    },
+    /// Promote a candidate (creates a promotion request if target branch set)
+    Promote {
+        /// Candidate ID
+        id: String,
+        /// Approve automatically
+        #[arg(long)]
+        approve: bool,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum ResearchPromotionAction {
+    /// List promotion requests (optionally filtered by campaign)
+    List {
+        /// Filter by campaign ID
+        #[arg(long)]
+        campaign_id: Option<String>,
+    },
+    /// Show details for a promotion request
+    Show {
+        /// Promotion request ID
+        id: String,
+    },
+    /// Approve a promotion request
+    Approve {
+        /// Promotion request ID
+        id: String,
+    },
+    /// Reject a promotion request
+    Reject {
+        /// Promotion request ID
+        id: String,
+        /// Rejection reason
+        #[arg(long)]
+        reason: Option<String>,
     },
 }
 
@@ -671,6 +851,80 @@ async fn main() {
         }
         Commands::Update => cmd::update::run_update().await,
         Commands::Dashboard { interval } => cmd::dashboard::run(&server_client, interval).await,
+        Commands::Research { action } => match action {
+            ResearchAction::Campaign { action } => match action {
+                ResearchCampaignAction::List => cmd::research::campaign_list(&server_client).await,
+                ResearchCampaignAction::Show { id } => {
+                    cmd::research::campaign_show(&server_client, &id).await
+                }
+                ResearchCampaignAction::Create(a) => {
+                    cmd::research::campaign_create(
+                        &server_client,
+                        &a.name,
+                        &a.workspace,
+                        &a.repo_path,
+                        &a.baseline_ref,
+                        &a.task,
+                        &a.verify,
+                        a.context.as_deref(),
+                        &a.editable_paths,
+                        a.metric_name.as_deref(),
+                        a.metric_regex.as_deref(),
+                        &a.direction,
+                        a.baseline_metric,
+                        a.min_improvement,
+                        a.cron.as_deref(),
+                        &a.target_branch,
+                    )
+                    .await
+                }
+                ResearchCampaignAction::Delete { id, yes } => {
+                    cmd::research::campaign_delete(&server_client, &id, yes).await
+                }
+                ResearchCampaignAction::Pause { id } => {
+                    cmd::research::campaign_pause(&server_client, &id).await
+                }
+                ResearchCampaignAction::Resume { id } => {
+                    cmd::research::campaign_resume(&server_client, &id).await
+                }
+                ResearchCampaignAction::Run { id } => {
+                    cmd::research::campaign_run(&server_client, &id).await
+                }
+            },
+            ResearchAction::Run { action } => match action {
+                ResearchRunAction::List { campaign_id } => {
+                    cmd::research::run_list(&server_client, campaign_id.as_deref()).await
+                }
+                ResearchRunAction::Show { id } => {
+                    cmd::research::run_show(&server_client, &id).await
+                }
+            },
+            ResearchAction::Candidate { action } => match action {
+                ResearchCandidateAction::List { campaign_id } => {
+                    cmd::research::candidate_list(&server_client, campaign_id.as_deref()).await
+                }
+                ResearchCandidateAction::Show { id } => {
+                    cmd::research::candidate_show(&server_client, &id).await
+                }
+                ResearchCandidateAction::Promote { id, approve } => {
+                    cmd::research::candidate_promote(&server_client, &id, approve).await
+                }
+            },
+            ResearchAction::Promotion { action } => match action {
+                ResearchPromotionAction::List { campaign_id } => {
+                    cmd::research::promotion_list(&server_client, campaign_id.as_deref()).await
+                }
+                ResearchPromotionAction::Show { id } => {
+                    cmd::research::promotion_show(&server_client, &id).await
+                }
+                ResearchPromotionAction::Approve { id } => {
+                    cmd::research::promotion_approve(&server_client, &id).await
+                }
+                ResearchPromotionAction::Reject { id, reason } => {
+                    cmd::research::promotion_reject(&server_client, &id, reason.as_deref()).await
+                }
+            },
+        },
     };
 
     if let Err(e) = result {

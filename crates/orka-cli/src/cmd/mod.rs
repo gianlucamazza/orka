@@ -10,6 +10,7 @@ pub mod init;
 pub mod mcp_serve;
 pub mod metrics;
 pub mod mobile;
+pub mod research;
 pub mod schedule;
 pub mod secret;
 pub mod send;
