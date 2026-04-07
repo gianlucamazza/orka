@@ -184,12 +184,6 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Check sudo NOPASSWD configuration
-    Sudo {
-        /// Path to orka.toml config file
-        #[arg(long)]
-        config: Option<String>,
-    },
     /// Comprehensive system diagnostics
     Doctor {
         #[command(subcommand)]
@@ -653,7 +647,7 @@ async fn main() {
     let cli = Cli::parse();
     let api_key = cli.api_key.as_deref();
     let server_client = client::OrkaClient::new(&cli.server, api_key);
-    let adapter_client = client::OrkaClient::new(&cli.adapter, api_key);
+    let make_adapter = || client::OrkaClient::new(&cli.adapter, api_key);
 
     let result = match cli.command {
         Commands::Init {
@@ -689,7 +683,7 @@ async fn main() {
                 ws_discovery::discover()
             };
             cmd::send::run(
-                &adapter_client,
+                &make_adapter(),
                 &text,
                 session_id.as_deref(),
                 timeout,
@@ -708,7 +702,7 @@ async fn main() {
                 ws_discovery::discover()
             };
             cmd::chat::run(
-                &adapter_client,
+                &make_adapter(),
                 &server_client,
                 session_id.as_deref(),
                 ws,
@@ -836,7 +830,6 @@ async fn main() {
                 .await
             }
         },
-        Commands::Sudo { config } => cmd::sudo::check(config.as_deref()).await,
         Commands::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "orka", &mut std::io::stdout());
             Ok(())
