@@ -6,6 +6,8 @@ pub mod experience;
 pub mod help;
 /// `/memory` command — inspects and manages memory layers.
 pub mod memory;
+/// `/reset` command — clear conversation history and memory.
+pub mod reset;
 /// `/skill` command — invokes a named skill directly.
 pub mod skill;
 /// `/skills` command — lists registered skills.
@@ -129,6 +131,7 @@ pub fn register_all(registry: &mut CommandRegistry, deps: CommandRegistryDeps) {
         experience,
     } = deps;
     registry.register(Arc::new(cancel::CancelCommand::new()));
+    registry.register(Arc::new(reset::ResetCommand::new(memory.clone())));
     registry.register(Arc::new(skill::SkillCommand::new(skills.clone(), secrets)));
     registry.register(Arc::new(skills::SkillsCommand::new(skills)));
     registry.register(Arc::new(memory::MemoryCommand::new(
