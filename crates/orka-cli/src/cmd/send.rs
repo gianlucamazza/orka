@@ -1,6 +1,6 @@
 use colored::Colorize;
 use futures_util::StreamExt;
-use orka_core::stream::StreamChunkKind;
+use orka_contracts::RealtimeEvent;
 
 use crate::{
     client::{OrkaClient, Result},
@@ -122,14 +122,14 @@ where
         // Use Deref<Target=str> on Utf8Bytes directly — no allocation needed.
         let raw = msg.into_text()?;
         match classify_ws_message(&raw) {
-            WsMessage::Stream(StreamChunkKind::Delta(data)) => {
+            WsMessage::Stream(RealtimeEvent::MessageDelta { delta: data }) => {
                 if !got_content {
                     println!("\n{}", "Reply:".green().bold());
                     got_content = true;
                 }
                 renderer.push_delta(&data);
             }
-            WsMessage::Stream(StreamChunkKind::ToolExecStart {
+            WsMessage::Stream(RealtimeEvent::ToolExecStart {
                 name,
                 input_summary,
                 ..
@@ -140,7 +140,7 @@ where
                 };
                 eprintln!("  {} {}...", "⚙".dimmed(), label.dimmed());
             }
-            WsMessage::Stream(StreamChunkKind::ToolExecEnd {
+            WsMessage::Stream(RealtimeEvent::ToolExecEnd {
                 success,
                 duration_ms,
                 error,
@@ -161,16 +161,16 @@ where
                     eprintln!("  {} ({dur}){suffix}", "✗".red());
                 }
             }
-            WsMessage::Stream(StreamChunkKind::ThinkingDelta(_)) => {
+            WsMessage::Stream(RealtimeEvent::ThinkingDelta { .. }) => {
                 if !thinking_shown {
                     eprintln!("  {}", "thinking...".dimmed());
                     thinking_shown = true;
                 }
             }
-            WsMessage::Stream(StreamChunkKind::AgentSwitch { display_name, .. }) => {
+            WsMessage::Stream(RealtimeEvent::AgentSwitch { display_name, .. }) => {
                 eprintln!("  {}", format!("[{display_name}]").dimmed());
             }
-            WsMessage::Stream(StreamChunkKind::Done) => {
+            WsMessage::Stream(RealtimeEvent::StreamDone) => {
                 if got_content {
                     renderer.flush();
                 } else {

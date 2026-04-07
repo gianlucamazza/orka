@@ -1,10 +1,11 @@
-use orka_core::stream::{AgentStopReason, StreamChunkKind};
+use orka_contracts::RealtimeEvent;
+use orka_core::stream::AgentStopReason;
 
 /// Classified WebSocket message.
 #[derive(Debug)]
 pub enum WsMessage {
     /// A streaming chunk (delta, tool event, done).
-    Stream(StreamChunkKind),
+    Stream(RealtimeEvent),
     /// A final text message, with optional stop reason from execution metadata.
     Final(String, Option<AgentStopReason>),
     /// An inlined media attachment (e.g. a generated chart).
@@ -23,7 +24,7 @@ pub enum WsMessage {
 /// Classify a raw WebSocket text frame into a typed message.
 ///
 /// 1. Parse as `serde_json::Value` (single parse for the whole message)
-/// 2. Try deserializing that value as `StreamChunkKind`
+/// 2. Try deserializing that value as `RealtimeEvent` (`snake_case` tagged)
 /// 3. Try extracting text from `OutboundMessage` shape (`payload.data`)
 /// 4. Fall back to `Unknown`
 pub fn classify_ws_message(raw: &str) -> WsMessage {
@@ -31,9 +32,9 @@ pub fn classify_ws_message(raw: &str) -> WsMessage {
         return WsMessage::Unknown(raw.to_string());
     };
 
-    // Stream chunk: top-level { "type": "Delta"|"ToolStart"|... }
-    if let Ok(kind) = serde_json::from_value::<StreamChunkKind>(parsed.clone()) {
-        return WsMessage::Stream(kind);
+    // Stream chunk: top-level { "type": "message_delta"|"stream_done"|... }
+    if let Ok(event) = serde_json::from_value::<RealtimeEvent>(parsed.clone()) {
+        return WsMessage::Stream(event);
     }
 
     // OutboundMessage shape: { payload: { type: "...", data: ... }, metadata: { ...
@@ -83,36 +84,39 @@ mod tests {
 
     #[test]
     fn classifies_delta_chunk() {
-        let raw = r#"{"type":"Delta","data":"Hello "}"#;
+        let raw = r#"{"type":"message_delta","data":{"delta":"Hello "}}"#;
         match classify_ws_message(raw) {
-            WsMessage::Stream(StreamChunkKind::Delta(s)) => assert_eq!(s, "Hello "),
-            other => panic!("expected Stream(Delta), got {other:?}"),
+            WsMessage::Stream(RealtimeEvent::MessageDelta { delta }) => {
+                assert_eq!(delta, "Hello ");
+            }
+            other => panic!("expected Stream(MessageDelta), got {other:?}"),
         }
     }
 
     #[test]
     fn classifies_done_chunk() {
-        let raw = r#"{"type":"Done"}"#;
+        let raw = r#"{"type":"stream_done"}"#;
         assert!(matches!(
             classify_ws_message(raw),
-            WsMessage::Stream(StreamChunkKind::Done)
+            WsMessage::Stream(RealtimeEvent::StreamDone)
         ));
     }
 
     #[test]
     fn classifies_tool_exec_start() {
-        let raw = r#"{"type":"ToolExecStart","data":{"name":"web_search","id":"t1"}}"#;
+        let raw = r#"{"type":"tool_exec_start","data":{"name":"web_search","id":"t1"}}"#;
         assert!(matches!(
             classify_ws_message(raw),
-            WsMessage::Stream(StreamChunkKind::ToolExecStart { .. })
+            WsMessage::Stream(RealtimeEvent::ToolExecStart { .. })
         ));
     }
 
     #[test]
     fn classifies_tool_exec_end_success() {
-        let raw = r#"{"type":"ToolExecEnd","data":{"id":"t1","success":true,"duration_ms":1200}}"#;
+        let raw =
+            r#"{"type":"tool_exec_end","data":{"id":"t1","success":true,"duration_ms":1200}}"#;
         match classify_ws_message(raw) {
-            WsMessage::Stream(StreamChunkKind::ToolExecEnd {
+            WsMessage::Stream(RealtimeEvent::ToolExecEnd {
                 success,
                 duration_ms,
                 ..
@@ -189,9 +193,9 @@ mod tests {
 
     #[test]
     fn classifies_usage_chunk() {
-        let raw = r#"{"type":"Usage","data":{"input_tokens":1500,"output_tokens":300,"model":"claude-sonnet-4-20250514"}}"#;
+        let raw = r#"{"type":"usage","data":{"input_tokens":1500,"output_tokens":300,"model":"claude-sonnet-4-20250514"}}"#;
         match classify_ws_message(raw) {
-            WsMessage::Stream(StreamChunkKind::Usage {
+            WsMessage::Stream(RealtimeEvent::Usage {
                 input_tokens,
                 output_tokens,
                 model,
@@ -207,10 +211,10 @@ mod tests {
 
     #[test]
     fn classifies_thinking_delta_chunk() {
-        let raw = r#"{"type":"ThinkingDelta","data":"Let me think..."}"#;
+        let raw = r#"{"type":"thinking_delta","data":{"delta":"Let me think..."}}"#;
         match classify_ws_message(raw) {
-            WsMessage::Stream(StreamChunkKind::ThinkingDelta(s)) => {
-                assert_eq!(s, "Let me think...");
+            WsMessage::Stream(RealtimeEvent::ThinkingDelta { delta }) => {
+                assert_eq!(delta, "Let me think...");
             }
             other => panic!("expected ThinkingDelta, got {other:?}"),
         }
@@ -218,9 +222,9 @@ mod tests {
 
     #[test]
     fn classifies_agent_switch_chunk() {
-        let raw = r#"{"type":"AgentSwitch","data":{"agent_id":"a1","display_name":"Researcher"}}"#;
+        let raw = r#"{"type":"agent_switch","data":{"agent_id":"a1","display_name":"Researcher"}}"#;
         match classify_ws_message(raw) {
-            WsMessage::Stream(StreamChunkKind::AgentSwitch { display_name, .. }) => {
+            WsMessage::Stream(RealtimeEvent::AgentSwitch { display_name, .. }) => {
                 assert_eq!(display_name, "Researcher");
             }
             other => panic!("expected AgentSwitch, got {other:?}"),
@@ -229,9 +233,9 @@ mod tests {
 
     #[test]
     fn classifies_context_info_chunk() {
-        let raw = r#"{"type":"ContextInfo","data":{"history_tokens":50000,"context_window":128000,"messages_truncated":3,"summary_generated":true}}"#;
+        let raw = r#"{"type":"context_info","data":{"history_tokens":50000,"context_window":128000,"messages_truncated":3,"summary_generated":true}}"#;
         match classify_ws_message(raw) {
-            WsMessage::Stream(StreamChunkKind::ContextInfo {
+            WsMessage::Stream(RealtimeEvent::ContextInfo {
                 history_tokens,
                 context_window,
                 messages_truncated,
@@ -247,9 +251,9 @@ mod tests {
 
     #[test]
     fn classifies_principles_used_chunk() {
-        let raw = r#"{"type":"PrinciplesUsed","data":{"count":5}}"#;
+        let raw = r#"{"type":"principles_used","data":{"count":5}}"#;
         match classify_ws_message(raw) {
-            WsMessage::Stream(StreamChunkKind::PrinciplesUsed { count }) => {
+            WsMessage::Stream(RealtimeEvent::PrinciplesUsed { count }) => {
                 assert_eq!(count, 5);
             }
             other => panic!("expected PrinciplesUsed, got {other:?}"),

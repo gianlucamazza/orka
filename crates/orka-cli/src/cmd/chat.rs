@@ -13,7 +13,8 @@ use std::{
 use colored::Colorize;
 use futures_util::{SinkExt, StreamExt, stream::SplitStream};
 use indicatif::MultiProgress;
-use orka_core::{parse_slash_command, stream::StreamChunkKind};
+use orka_contracts::RealtimeEvent;
+use orka_core::parse_slash_command;
 use reedline::{FileBackedHistory, Reedline, Signal};
 use serde_json::json;
 use tokio_tungstenite::{
@@ -603,16 +604,16 @@ pub async fn run(
                         };
 
                         match classify_ws_message(&text) {
-                            WsMessage::Stream(StreamChunkKind::AgentSwitch {
+                            WsMessage::Stream(RealtimeEvent::AgentSwitch {
                                 display_name,
                                 ..
                             }) => {
                                 renderer.on_agent_switch(display_name);
                             }
-                            WsMessage::Stream(StreamChunkKind::PrinciplesUsed { count }) => {
+                            WsMessage::Stream(RealtimeEvent::PrinciplesUsed { count }) => {
                                 renderer.on_principles_used(count);
                             }
-                            WsMessage::Stream(StreamChunkKind::ContextInfo {
+                            WsMessage::Stream(RealtimeEvent::ContextInfo {
                                 history_tokens,
                                 context_window,
                                 messages_truncated,
@@ -625,7 +626,7 @@ pub async fn run(
                                     summary_generated,
                                 );
                             }
-                            WsMessage::Stream(StreamChunkKind::Usage {
+                            WsMessage::Stream(RealtimeEvent::Usage {
                                 input_tokens,
                                 output_tokens,
                                 reasoning_tokens,
@@ -646,15 +647,15 @@ pub async fn run(
                                     );
                                 }
                             }
-                            WsMessage::Stream(StreamChunkKind::ThinkingDelta(delta)) => {
+                            WsMessage::Stream(RealtimeEvent::ThinkingDelta { delta }) => {
                                 renderer.on_thinking_delta(&delta);
                             }
-                            WsMessage::Stream(StreamChunkKind::Delta(data)) => {
+                            WsMessage::Stream(RealtimeEvent::MessageDelta { delta: data }) => {
                                 streamed_this_turn = true;
                                 turn_done_sent = false; // new turn is streaming
                                 renderer.on_delta(&data);
                             }
-                            WsMessage::Stream(StreamChunkKind::ToolExecStart {
+                            WsMessage::Stream(RealtimeEvent::ToolExecStart {
                                 name,
                                 id,
                                 input_summary,
@@ -662,7 +663,7 @@ pub async fn run(
                             }) => {
                                 renderer.on_tool_exec_start(name, id, input_summary, category);
                             }
-                            WsMessage::Stream(StreamChunkKind::ToolExecEnd {
+                            WsMessage::Stream(RealtimeEvent::ToolExecEnd {
                                 id,
                                 success,
                                 duration_ms,
@@ -677,7 +678,7 @@ pub async fn run(
                                     result_summary,
                                 );
                             }
-                            WsMessage::Stream(StreamChunkKind::Done) => {
+                            WsMessage::Stream(RealtimeEvent::StreamDone) => {
                                 let response = renderer.on_done();
                                 // CRITICAL: Check timeout flag before sending signals.
                                 // The main task may have already drained the channels during
@@ -734,13 +735,14 @@ pub async fn run(
                                 renderer.on_media(&mime_type, &data_base64, caption.as_deref());
                             }
                             WsMessage::Stream(
-                                StreamChunkKind::ToolStart { .. } | StreamChunkKind::ToolEnd { .. },
+                                RealtimeEvent::ToolCallStart { .. }
+                                | RealtimeEvent::ToolCallEnd { .. },
                             ) => {
                                 // Internal LLM tool-block bookkeeping events —
                                 // no UI action
                             }
                             WsMessage::Stream(unknown) => {
-                                tracing::debug!(?unknown, "unhandled stream chunk kind");
+                                tracing::debug!(?unknown, "unhandled stream event");
                             }
                             WsMessage::Unknown(raw) => {
                                 ChatRenderer::on_unknown(&raw);
