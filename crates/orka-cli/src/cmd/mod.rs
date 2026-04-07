@@ -18,6 +18,5 @@ pub mod send;
 pub mod session;
 pub mod skill;
 pub mod status;
-pub mod sudo;
 pub mod update;
 pub mod workspace;
