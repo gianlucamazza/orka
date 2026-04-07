@@ -3,9 +3,7 @@ use colored::Colorize;
 use crate::{client::OrkaClient, table::make_table};
 
 pub async fn list(client: &OrkaClient) -> crate::client::Result<()> {
-    let resp = client.get("/api/v1/dlq").await?;
-    let resp = OrkaClient::ensure_ok(resp).await?;
-    let body: serde_json::Value = resp.json().await?;
+    let body = client.get_json("/api/v1/dlq").await?;
 
     if let Some(messages) = body.as_array() {
         if messages.is_empty() {
@@ -36,12 +34,8 @@ pub async fn replay(client: &OrkaClient, id: &str) -> crate::client::Result<()> 
     let resp = client
         .post(&format!("/api/v1/dlq/{id}/replay"), None)
         .await?;
-    if resp.status().is_success() {
-        println!("{}", format!("Message {id} replayed successfully").green());
-    } else {
-        let body = resp.text().await?;
-        println!("{}", format!("Failed to replay: {body}").red());
-    }
+    OrkaClient::ensure_ok(resp).await?;
+    println!("{}", format!("Message {id} replayed successfully").green());
     Ok(())
 }
 
@@ -55,12 +49,7 @@ pub async fn purge(client: &OrkaClient, yes: bool) -> crate::client::Result<()> 
         println!("Aborted.");
         return Ok(());
     }
-    let resp = client.delete("/api/v1/dlq").await?;
-    if resp.status().is_success() {
-        println!("{}", "DLQ purged successfully".green());
-    } else {
-        let body = resp.text().await?;
-        println!("{}", format!("Failed to purge: {body}").red());
-    }
+    client.delete_ok("/api/v1/dlq").await?;
+    println!("{}", "DLQ purged successfully".green());
     Ok(())
 }

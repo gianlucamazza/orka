@@ -160,6 +160,12 @@ impl OrkaClient {
             .await
     }
 
+    pub async fn delete_ok(&self, path: &str) -> Result<()> {
+        let resp = self.delete(path).await?;
+        Self::ensure_ok(resp).await?;
+        Ok(())
+    }
+
     /// Resolve an optional session ID, generating a new UUID v7 if absent.
     pub fn resolve_session_id(session_id: Option<&str>) -> String {
         session_id.map_or_else(|| uuid::Uuid::now_v7().to_string(), String::from)
