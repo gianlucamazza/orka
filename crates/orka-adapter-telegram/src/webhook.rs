@@ -9,30 +9,32 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::post,
 };
+use orka_contracts::TrustLevel;
 use orka_core::{
+    InteractionSink,
     traits::MemoryStore,
-    types::{MessageSink, SessionId},
+    types::SessionId,
 };
-use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 use crate::{
     TelegramAuthGuard,
     api::TelegramApi,
-    polling::{extract_user_info, process_message, resolve_session},
-    types::{CallbackQuery, Update},
+    polling::{extract_user_info, process_callback_query, process_message},
+    types::Update,
 };
 
 #[derive(Clone)]
 struct WebhookState {
     api: Arc<TelegramApi>,
-    sink: Arc<Mutex<Option<MessageSink>>>,
+    sink: Arc<Mutex<Option<InteractionSink>>>,
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
     memory: Option<Arc<dyn MemoryStore>>,
     auth_guard: Arc<TelegramAuthGuard>,
     /// Expected value of `X-Telegram-Bot-Api-Secret-Token`, if configured.
     webhook_secret: Option<String>,
+    trust_level: TrustLevel,
 }
 
 /// Verify `X-Telegram-Bot-Api-Secret-Token` using constant-time comparison to
@@ -107,15 +109,17 @@ async fn handle_update(
             state.memory.as_ref(),
             &sink,
             is_edited,
+            state.trust_level,
         )
         .await;
     } else if let Some(cq) = update.callback_query {
-        handle_callback_query(
+        process_callback_query(
             &state.api,
             cq,
             &state.sessions,
             state.memory.as_ref(),
             &sink,
+            state.trust_level,
         )
         .await;
     }
@@ -123,66 +127,11 @@ async fn handle_update(
     axum::http::StatusCode::OK
 }
 
-async fn handle_callback_query(
-    api: &Arc<TelegramApi>,
-    cq: CallbackQuery,
-    sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
-    memory: Option<&Arc<dyn MemoryStore>>,
-    sink: &MessageSink,
-) {
-    use orka_core::types::{Envelope, EventPayload, MessageId, Payload};
-
-    let chat_id = cq.message.as_ref().map(|m| m.chat.id);
-
-    let session_id = if let Some(cid) = chat_id {
-        resolve_session(cid, sessions, memory).await
-    } else {
-        SessionId::new()
-    };
-
-    {
-        let api = api.clone();
-        let cq_id = cq.id.clone();
-        tokio::spawn(async move {
-            if let Err(e) = api.answer_callback_query(&cq_id, None).await {
-                warn!(%e, "failed to answer callback query");
-            }
-        });
-    }
-
-    let data = cq.data.clone().unwrap_or_default();
-    let payload = Payload::Event(EventPayload::new(
-        "callback_query",
-        json!({ "data": data, "from_id": cq.from.id }),
-    ));
-
-    let mut envelope = Envelope::text("telegram", session_id, "");
-    envelope.id = MessageId::new();
-    envelope.payload = payload;
-    envelope.timestamp = chrono::Utc::now();
-
-    envelope
-        .metadata
-        .insert("telegram_callback_query_id".into(), json!(cq.id));
-    if let Some(cid) = chat_id {
-        envelope
-            .metadata
-            .insert("telegram_chat_id".into(), json!(cid));
-    }
-    envelope
-        .metadata
-        .insert("telegram_user_id".into(), json!(cq.from.id));
-
-    if let Err(e) = sink.send(envelope).await {
-        warn!(%e, "failed to send callback query envelope");
-    }
-}
-
 /// Start the webhook HTTP server.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_webhook_server(
     api: Arc<TelegramApi>,
-    sink: Arc<Mutex<Option<MessageSink>>>,
+    sink: Arc<Mutex<Option<InteractionSink>>>,
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
     memory: Option<Arc<dyn MemoryStore>>,
     webhook_url: String,
@@ -190,6 +139,7 @@ pub(crate) async fn run_webhook_server(
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     auth_guard: Arc<TelegramAuthGuard>,
     webhook_secret: Option<String>,
+    trust_level: TrustLevel,
 ) {
     // Register webhook with Telegram
     match api
@@ -214,6 +164,7 @@ pub(crate) async fn run_webhook_server(
         memory,
         auth_guard,
         webhook_secret,
+        trust_level,
     };
 
     let app = Router::new()

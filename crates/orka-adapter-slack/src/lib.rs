@@ -3,27 +3,26 @@
 #![warn(missing_docs)]
 
 pub mod config;
+mod api;
+mod types;
+mod webhook;
 
 use std::{collections::HashMap, future::IntoFuture, sync::Arc};
 
 use async_trait::async_trait;
-use axum::{Json, Router, body::Bytes, extract::State, http::HeaderMap, routing::post};
+use axum::{Router, routing::post};
 pub use config::SlackAdapterConfig;
-use hmac::{Hmac, Mac};
 use orka_core::{
-    Error, Result, SecretStr,
+    Error, InteractionSink, Result, SecretStr,
     traits::ChannelAdapter,
-    types::{
-        Envelope, MediaPayload, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay,
-    },
+    types::{OutboundMessage, Payload, SessionId, backoff_delay},
 };
 use reqwest::Client;
-use serde::Deserialize;
-use sha2::Sha256;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
-type HmacSha256 = Hmac<Sha256>;
+use types::AppState;
+use webhook::handle_event;
 
 /// Slack Events API [`ChannelAdapter`] using HTTP webhooks.
 pub struct SlackAdapter {
@@ -33,7 +32,7 @@ pub struct SlackAdapter {
     /// is logged at startup.
     signing_secret: Option<Arc<SecretStr>>,
     client: Client,
-    sink: Arc<Mutex<Option<MessageSink>>>,
+    sink: Arc<Mutex<Option<InteractionSink>>>,
     shutdown: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     sessions: Arc<Mutex<HashMap<String, SessionId>>>,
     listen_port: u16,
@@ -60,290 +59,14 @@ impl SlackAdapter {
     }
 }
 
-/// Verify `X-Slack-Signature` using HMAC-SHA256.
-///
-/// Slack signs each request as `v0={hex(HMAC-SHA256(signing_secret,
-/// "v0:{timestamp}:{body}")))}` and includes the timestamp in
-/// `X-Slack-Request-Timestamp`.  Requests older than 5 minutes are rejected to
-/// prevent replay attacks.
-/// POST JSON to `url` with up to 3 attempts (retry on 429 or 5xx).
-/// Returns the successful `reqwest::Response` or the last error encountered.
-async fn post_json_retried(
-    client: &reqwest::Client,
-    url: &str,
-    auth: &str,
-    body: &serde_json::Value,
-    context: &str,
-) -> Result<reqwest::Response> {
-    let mut last_err: Option<Error> = None;
-    for attempt in 0..3u32 {
-        if attempt > 0 {
-            let ms = 500u64.saturating_mul(1u64 << (attempt - 1));
-            tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
-        }
-        match client
-            .post(url)
-            .header("Authorization", auth)
-            .header("Content-Type", "application/json; charset=utf-8")
-            .json(body)
-            .send()
-            .await
-        {
-            Err(e) if e.is_timeout() || e.is_connect() => {
-                last_err = Some(Error::Adapter {
-                    source: Box::new(e),
-                    context: format!("{context} (transient)"),
-                });
-            }
-            Err(e) => {
-                return Err(Error::Adapter {
-                    source: Box::new(e),
-                    context: context.to_string(),
-                });
-            }
-            Ok(r) if r.status() == 429 || r.status().is_server_error() => {
-                let status = r.status();
-                let text = r.text().await.unwrap_or_default();
-                last_err = Some(Error::Adapter {
-                    source: Box::new(std::io::Error::other(text.clone())),
-                    context: format!("{context}: HTTP {status}: {text}"),
-                });
-            }
-            Ok(r) => return Ok(r),
-        }
-    }
-    Err(last_err.unwrap_or_else(|| Error::Adapter {
-        source: Box::new(std::io::Error::other("max retries exceeded")),
-        context: format!("{context}: max retries exceeded"),
-    }))
-}
-
-fn verify_slack_signature(headers: &HeaderMap, body: &[u8], signing_secret: &str) -> bool {
-    let timestamp = if let Some(ts) = headers
-        .get("X-Slack-Request-Timestamp")
-        .and_then(|v| v.to_str().ok())
-    {
-        ts.to_owned()
-    } else {
-        warn!("Slack webhook: missing X-Slack-Request-Timestamp");
-        return false;
-    };
-
-    // Reject requests older than 5 minutes to prevent replay attacks.
-    if let Ok(ts_secs) = timestamp.parse::<i64>() {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        if (now - ts_secs).abs() > 300 {
-            warn!("Slack webhook: request timestamp too old (possible replay attack)");
-            return false;
-        }
-    }
-
-    let provided_sig = if let Some(s) = headers
-        .get("X-Slack-Signature")
-        .and_then(|v| v.to_str().ok())
-    {
-        s.to_owned()
-    } else {
-        warn!("Slack webhook: missing X-Slack-Signature");
-        return false;
-    };
-
-    let base_string = format!("v0:{}:{}", timestamp, String::from_utf8_lossy(body));
-    let Ok(mut mac) = HmacSha256::new_from_slice(signing_secret.as_bytes()) else {
-        return false;
-    };
-    mac.update(base_string.as_bytes());
-    let expected = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
-
-    // Constant-time comparison.
-    let expected_b = expected.as_bytes();
-    let provided_b = provided_sig.as_bytes();
-    if expected_b.len() != provided_b.len() {
-        return false;
-    }
-    expected_b
-        .iter()
-        .zip(provided_b.iter())
-        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-        == 0
-}
-
-#[derive(Debug, Deserialize)]
-struct SlackEventPayload {
-    #[serde(rename = "type")]
-    event_type: String,
-    challenge: Option<String>,
-    event: Option<SlackEvent>,
-}
-
-#[derive(Debug, Deserialize)]
-struct SlackEvent {
-    #[serde(rename = "type")]
-    event_type: String,
-    channel: Option<String>,
-    text: Option<String>,
-    user: Option<String>,
-    #[serde(default)]
-    bot_id: Option<String>,
-    #[serde(default)]
-    channel_type: Option<String>,
-    #[serde(default)]
-    files: Vec<SlackFile>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-struct SlackFile {
-    /// File ID from Slack API (used for completeness in deserialization).
-    /// Note: File download uses `url_private` directly; upload uses
-    /// `files.getUploadURLExternal`/`completeUploadExternal` flow.
-    // Note: ID is required by Slack API schema for deserialization completeness.
-    #[allow(dead_code)]
-    id: String,
-    mimetype: Option<String>,
-    name: Option<String>,
-    url_private: Option<String>,
-    size: Option<u64>,
-}
-
-#[derive(Clone)]
-struct AppState {
-    sink: Arc<Mutex<Option<MessageSink>>>,
-    sessions: Arc<Mutex<HashMap<String, SessionId>>>,
-    signing_secret: Option<Arc<SecretStr>>,
-}
-
-async fn handle_event(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> axum::response::Response {
-    // Verify Slack request signature when a signing secret is configured.
-    if let Some(ref secret) = state.signing_secret
-        && !verify_slack_signature(&headers, &body, (**secret).expose())
-    {
-        warn!("Slack webhook: signature verification failed, rejecting request");
-        return axum::response::IntoResponse::into_response(axum::http::StatusCode::UNAUTHORIZED);
-    }
-
-    let payload: SlackEventPayload = match serde_json::from_slice(&body) {
-        Ok(p) => p,
-        Err(e) => {
-            warn!(%e, "Slack webhook: failed to parse event payload");
-            return axum::response::IntoResponse::into_response(
-                axum::http::StatusCode::BAD_REQUEST,
-            );
-        }
-    };
-
-    // URL verification challenge
-    if payload.event_type == "url_verification"
-        && let Some(challenge) = payload.challenge
-    {
-        return axum::response::IntoResponse::into_response(Json(
-            serde_json::json!({ "challenge": challenge }),
-        ));
-    }
-
-    if payload.event_type == "event_callback"
-        && let Some(event) = payload.event
-    {
-        // Skip bot messages
-        if event.bot_id.is_some() {
-            return axum::response::IntoResponse::into_response(axum::http::StatusCode::OK);
-        }
-
-        if event.event_type == "message"
-            && let Some(channel) = event.channel.clone()
-        {
-            let session_id = {
-                let mut sessions = state.sessions.lock().await;
-                *sessions
-                    .entry(channel.clone())
-                    .or_insert_with(SessionId::new)
-            };
-
-            let chat_type = match event.channel_type.as_deref() {
-                Some("im") => "direct",
-                _ => "group",
-            };
-
-            // Media files attached to the message
-            for file in &event.files {
-                let url = match &file.url_private {
-                    Some(u) => u.clone(),
-                    None => continue,
-                };
-                let mime = file
-                    .mimetype
-                    .clone()
-                    .unwrap_or_else(|| "application/octet-stream".into());
-                let caption = file.name.clone();
-
-                let mut media = MediaPayload::new(mime, url);
-                media.caption = caption;
-                media.size_bytes = file.size;
-
-                let mut envelope = Envelope::text("slack", session_id, "");
-                envelope.payload = Payload::Media(media);
-                envelope
-                    .metadata
-                    .insert("slack_channel".into(), serde_json::json!(channel));
-                envelope
-                    .metadata
-                    .insert("chat_type".into(), serde_json::json!(chat_type));
-                if let Some(ref user) = event.user {
-                    envelope
-                        .metadata
-                        .insert("slack_user".into(), serde_json::json!(user));
-                }
-
-                let sink = state.sink.lock().await;
-                if let Some(ref tx) = *sink
-                    && tx.send(envelope).await.is_err()
-                {
-                    error!("Slack: sink closed");
-                }
-            }
-
-            // Text message
-            if let Some(text) = event.text {
-                let mut envelope = Envelope::text("slack", session_id, &text);
-                envelope
-                    .metadata
-                    .insert("slack_channel".into(), serde_json::json!(channel));
-                if let Some(user) = event.user {
-                    envelope
-                        .metadata
-                        .insert("slack_user".into(), serde_json::json!(user));
-                }
-                envelope
-                    .metadata
-                    .insert("chat_type".into(), serde_json::json!(chat_type));
-
-                let sink = state.sink.lock().await;
-                if let Some(ref tx) = *sink
-                    && tx.send(envelope).await.is_err()
-                {
-                    error!("Slack: sink closed");
-                }
-            }
-        }
-    }
-
-    axum::response::IntoResponse::into_response(axum::http::StatusCode::OK)
-}
-
 #[async_trait]
-#[allow(clippy::unnecessary_literal_bound, clippy::too_many_lines)]
+#[allow(clippy::unnecessary_literal_bound)]
 impl ChannelAdapter for SlackAdapter {
     fn channel_id(&self) -> &str {
         "slack"
     }
 
-    async fn start(&self, sink: MessageSink) -> Result<()> {
+    async fn start(&self, sink: InteractionSink) -> Result<()> {
         *self.sink.lock().await = Some(sink);
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -353,6 +76,7 @@ impl ChannelAdapter for SlackAdapter {
             sink: self.sink.clone(),
             sessions: self.sessions.clone(),
             signing_secret: self.signing_secret.clone(),
+            trust_level: self.trust_level(),
         };
 
         let state_for_restart = state.clone();
@@ -398,18 +122,13 @@ impl ChannelAdapter for SlackAdapter {
                         }
                     }
                 }
-                () = async {
-                    let _ = shutdown_rx.await;
-                } => {
+                () = async { let _ = shutdown_rx.await; } => {
                     info!("Slack adapter shutting down");
                 }
             }
         });
 
-        info!(
-            port = self.listen_port,
-            "Slack adapter started (Events API)"
-        );
+        info!(port = self.listen_port, "Slack adapter started (Events API)");
         Ok(())
     }
 
@@ -426,238 +145,17 @@ impl ChannelAdapter for SlackAdapter {
         let auth = format!("Bearer {}", self.bot_token.expose());
 
         match &msg.payload {
-            Payload::Text(text) => {
-                let body = serde_json::json!({
-                    "channel": channel,
-                    "text": text,
-                });
-                let response = post_json_retried(
-                    &self.client,
-                    "https://slack.com/api/chat.postMessage",
-                    &auth,
-                    &body,
-                    "Slack chat.postMessage failed",
-                )
-                .await?;
-                if !response.status().is_success() {
-                    let body = response.text().await.unwrap_or_default();
-                    return Err(Error::Adapter {
-                        source: Box::new(std::io::Error::other(body.clone())),
-                        context: format!("Slack API error: {body}"),
-                    });
-                }
-                debug!(channel, "sent text message to Slack");
-            }
+            Payload::Text(text) => api::send_text_message(&self.client, &auth, channel, text).await?,
             Payload::Media(media) => {
-                // Inline data (e.g. generated charts): always use file upload.
-                // URL-based images: use Block Kit image block (lighter path).
-                // URL-based non-images: download then file upload.
+                // Inline data or non-image URL → 3-step file upload.
+                // URL-based images → Block Kit image block (lighter path).
                 if media.mime_type.starts_with("image/") && media.data_base64.is_none() {
-                    // Image with URL → Block Kit image block
-                    let blocks = serde_json::json!([{
-                        "type": "image",
-                        "image_url": media.url,
-                        "alt_text": media.caption.as_deref().unwrap_or("image"),
-                    }]);
-                    let body = serde_json::json!({
-                        "channel": channel,
-                        "blocks": blocks,
-                    });
-                    let response = post_json_retried(
-                        &self.client,
-                        "https://slack.com/api/chat.postMessage",
-                        &auth,
-                        &body,
-                        "Slack image block send failed",
-                    )
-                    .await?;
-                    if !response.status().is_success() {
-                        let body = response.text().await.unwrap_or_default();
-                        return Err(Error::Adapter {
-                            source: Box::new(std::io::Error::other(body.clone())),
-                            context: format!("Slack API error (image): {body}"),
-                        });
-                    }
-                    debug!(channel, "sent image block to Slack");
+                    api::send_image_block(&self.client, &auth, channel, media).await?;
                 } else {
-                    // Inline data or non-image URL:
-                    // files.getUploadURLExternal → upload → completeUploadExternal
-                    let filename = media.caption.clone().unwrap_or_else(|| "attachment".into());
-                    let file_bytes: Vec<u8> = if let Some(data) = media.decode_data() {
-                        data
-                    } else {
-                        self.client
-                            .get(&media.url)
-                            .send()
-                            .await
-                            .map_err(|e| Error::Adapter {
-                                source: Box::new(e),
-                                context: "Slack media download failed".into(),
-                            })?
-                            .bytes()
-                            .await
-                            .map_err(|e| Error::Adapter {
-                                source: Box::new(e),
-                                context: "Slack media read failed".into(),
-                            })?
-                            .to_vec()
-                    };
-
-                    // Step 1: Get upload URL (with retry)
-                    let url_resp: serde_json::Value = {
-                        let mut last_err: Option<Error> = None;
-                        let mut result: Option<serde_json::Value> = None;
-                        for attempt in 0..3u32 {
-                            if attempt > 0 {
-                                let ms = 500u64.saturating_mul(1u64 << (attempt - 1));
-                                tokio::time::sleep(std::time::Duration::from_millis(
-                                    ms.min(10_000),
-                                ))
-                                .await;
-                            }
-                            match self
-                                .client
-                                .get("https://slack.com/api/files.getUploadURLExternal")
-                                .header("Authorization", &auth)
-                                .query(&[
-                                    ("filename", &filename),
-                                    ("length", &file_bytes.len().to_string()),
-                                ])
-                                .send()
-                                .await
-                            {
-                                Err(e) if e.is_timeout() || e.is_connect() => {
-                                    last_err = Some(Error::Adapter {
-                                        source: Box::new(e),
-                                        context: "Slack getUploadURLExternal failed (transient)"
-                                            .into(),
-                                    });
-                                }
-                                Err(e) => {
-                                    return Err(Error::Adapter {
-                                        source: Box::new(e),
-                                        context: "Slack getUploadURLExternal failed".into(),
-                                    });
-                                }
-                                Ok(r) if r.status() == 429 || r.status().is_server_error() => {
-                                    let status = r.status();
-                                    let text = r.text().await.unwrap_or_default();
-                                    last_err = Some(Error::Adapter {
-                                        source: Box::new(std::io::Error::other(text.clone())),
-                                        context: format!(
-                                            "Slack getUploadURLExternal HTTP {status}: {text}"
-                                        ),
-                                    });
-                                }
-                                Ok(r) => {
-                                    let v: serde_json::Value =
-                                        r.json().await.map_err(|e| Error::Adapter {
-                                            source: Box::new(e),
-                                            context: "Slack getUploadURLExternal parse failed"
-                                                .into(),
-                                        })?;
-                                    result = Some(v);
-                                    last_err = None;
-                                    break;
-                                }
-                            }
-                        }
-                        result.ok_or_else(|| {
-                            last_err.unwrap_or_else(|| Error::Adapter {
-                                source: Box::new(std::io::Error::other("max retries exceeded")),
-                                context: "Slack getUploadURLExternal max retries exceeded".into(),
-                            })
-                        })?
-                    };
-
-                    if url_resp["ok"].as_bool() != Some(true) {
-                        return Err(Error::Adapter {
-                            source: Box::new(std::io::Error::other(url_resp.to_string())),
-                            context: "Slack getUploadURLExternal returned ok=false".into(),
-                        });
-                    }
-
-                    let upload_url = url_resp["upload_url"].as_str().unwrap_or("").to_string();
-                    let file_id = url_resp["file_id"].as_str().unwrap_or("").to_string();
-
-                    // Step 2: Upload the file (with retry — clone bytes on each attempt)
-                    let mut last_err: Option<Error> = None;
-                    for attempt in 0..3u32 {
-                        if attempt > 0 {
-                            let ms = 500u64.saturating_mul(1u64 << (attempt - 1));
-                            tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000)))
-                                .await;
-                        }
-                        match self
-                            .client
-                            .post(&upload_url)
-                            .body(file_bytes.clone())
-                            .send()
-                            .await
-                        {
-                            Err(e) if e.is_timeout() || e.is_connect() => {
-                                last_err = Some(Error::Adapter {
-                                    source: Box::new(e),
-                                    context: "Slack file upload failed (transient)".into(),
-                                });
-                            }
-                            Err(e) => {
-                                return Err(Error::Adapter {
-                                    source: Box::new(e),
-                                    context: "Slack file upload failed".into(),
-                                });
-                            }
-                            Ok(r) if r.status() == 429 || r.status().is_server_error() => {
-                                let status = r.status();
-                                let text = r.text().await.unwrap_or_default();
-                                last_err = Some(Error::Adapter {
-                                    source: Box::new(std::io::Error::other(text.clone())),
-                                    context: format!("Slack file upload HTTP {status}: {text}"),
-                                });
-                            }
-                            Ok(_) => {
-                                last_err = None;
-                                break;
-                            }
-                        }
-                    }
-                    if let Some(e) = last_err {
-                        return Err(e);
-                    }
-
-                    // Step 3: Complete upload (with retry via helper)
-                    let complete_body = serde_json::json!({
-                        "files": [{ "id": file_id }],
-                        "channel_id": channel,
-                    });
-                    let complete_resp: serde_json::Value = post_json_retried(
-                        &self.client,
-                        "https://slack.com/api/files.completeUploadExternal",
-                        &auth,
-                        &complete_body,
-                        "Slack completeUploadExternal failed",
-                    )
-                    .await?
-                    .json()
-                    .await
-                    .map_err(|e| Error::Adapter {
-                        source: Box::new(e),
-                        context: "Slack completeUploadExternal parse failed".into(),
-                    })?;
-
-                    if complete_resp["ok"].as_bool() != Some(true) {
-                        return Err(Error::Adapter {
-                            source: Box::new(std::io::Error::other(complete_resp.to_string())),
-                            context: "Slack completeUploadExternal returned ok=false".into(),
-                        });
-                    }
-
-                    debug!(channel, "uploaded file to Slack");
+                    api::send_file_upload(&self.client, &auth, channel, media).await?;
                 }
             }
-            _ => {
-                warn!("Slack adapter: unsupported payload type, skipping");
-            }
+            _ => warn!("Slack adapter: unsupported payload type, skipping"),
         }
 
         Ok(())
@@ -677,6 +175,31 @@ impl ChannelAdapter for SlackAdapter {
         info!("Slack adapter shut down");
         Ok(())
     }
+
+    fn capabilities(&self) -> orka_core::CapabilitySet {
+        use orka_core::Capability;
+        [
+            Capability::TextInbound,
+            Capability::TextOutbound,
+            Capability::StreamingDeltas,
+            Capability::MediaInbound,
+            Capability::MediaOutbound,
+            Capability::Threading,
+            Capability::RichText,
+            Capability::FileUpload,
+            Capability::WebhookPush,
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn integration_class(&self) -> orka_core::IntegrationClass {
+        orka_core::IntegrationClass::MessagingChannel
+    }
+
+    fn trust_level(&self) -> orka_core::TrustLevel {
+        orka_core::TrustLevel::VerifiedWebhook
+    }
 }
 
 #[cfg(test)]
@@ -692,6 +215,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::types::SlackEventPayload;
 
     fn make_adapter() -> SlackAdapter {
         SlackAdapter::new(SecretStr::new("xoxb-test-token"), None, 3000)
@@ -807,4 +331,6 @@ mod tests {
         assert_eq!(file.name.as_deref(), Some("report.pdf"));
         assert_eq!(file.size, Some(12345));
     }
+
+
 }

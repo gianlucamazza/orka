@@ -3,68 +3,26 @@
 #![warn(missing_docs)]
 
 pub mod config;
+mod api;
+mod types;
+mod webhook;
 
 use std::{collections::HashMap, future::IntoFuture, sync::Arc};
 
 use async_trait::async_trait;
-use axum::{
-    Router,
-    body::Bytes,
-    extract::{Query, State},
-    http::HeaderMap,
-    routing::get,
-};
+use axum::{Router, routing::get};
 pub use config::WhatsAppAdapterConfig;
-use hmac::{Hmac, Mac};
 use orka_core::{
-    Error, Result, SecretStr,
+    Error, InteractionSink, Result, SecretStr,
     traits::ChannelAdapter,
-    types::{
-        Envelope, MediaPayload, MessageSink, OutboundMessage, Payload, SessionId, backoff_delay,
-    },
+    types::{OutboundMessage, SessionId, backoff_delay},
 };
 use reqwest::Client;
-use serde::Deserialize;
-use sha2::Sha256;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
-type HmacSha256 = Hmac<Sha256>;
-
-/// Verify `X-Hub-Signature-256` using HMAC-SHA256 with the app secret.
-///
-/// Meta sends `sha256={hex(HMAC-SHA256(app_secret, raw_body))}` in the header.
-fn verify_whatsapp_signature(headers: &HeaderMap, body: &[u8], app_secret: &str) -> bool {
-    let sig_header = if let Some(s) = headers
-        .get("X-Hub-Signature-256")
-        .and_then(|v| v.to_str().ok())
-    {
-        s.to_owned()
-    } else {
-        warn!("WhatsApp webhook: missing X-Hub-Signature-256 header");
-        return false;
-    };
-
-    let provided_hex = sig_header.strip_prefix("sha256=").unwrap_or(&sig_header);
-
-    let Ok(mut mac) = HmacSha256::new_from_slice(app_secret.as_bytes()) else {
-        return false;
-    };
-    mac.update(body);
-    let expected_hex = hex::encode(mac.finalize().into_bytes());
-
-    // Constant-time comparison.
-    let expected_b = expected_hex.as_bytes();
-    let provided_b = provided_hex.as_bytes();
-    if expected_b.len() != provided_b.len() {
-        return false;
-    }
-    expected_b
-        .iter()
-        .zip(provided_b.iter())
-        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-        == 0
-}
+use types::AppState;
+use webhook::{webhook_receive, webhook_verify};
 
 /// Default Graph API version used when not overridden by the caller.
 const DEFAULT_API_VERSION: &str = "v21.0";
@@ -79,7 +37,7 @@ pub struct WhatsAppAdapter {
     app_secret: Option<Arc<SecretStr>>,
     api_version: String,
     client: Client,
-    sink: Arc<Mutex<Option<MessageSink>>>,
+    sink: Arc<Mutex<Option<InteractionSink>>>,
     shutdown: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     sessions: Arc<Mutex<HashMap<String, SessionId>>>,
     listen_port: u16,
@@ -121,248 +79,13 @@ impl WhatsAppAdapter {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct WebhookVerifyParams {
-    #[serde(rename = "hub.mode")]
-    mode: Option<String>,
-    #[serde(rename = "hub.verify_token")]
-    token: Option<String>,
-    #[serde(rename = "hub.challenge")]
-    challenge: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WebhookPayload {
-    entry: Option<Vec<WebhookEntry>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WebhookEntry {
-    changes: Option<Vec<WebhookChange>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WebhookChange {
-    value: Option<WebhookValue>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WebhookValue {
-    messages: Option<Vec<WhatsAppMessage>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WhatsAppMessage {
-    from: String,
-    #[serde(rename = "type")]
-    msg_type: String,
-    text: Option<WhatsAppText>,
-    image: Option<WhatsAppMedia>,
-    video: Option<WhatsAppMedia>,
-    audio: Option<WhatsAppMedia>,
-    document: Option<WhatsAppMedia>,
-}
-
-#[derive(Debug, Deserialize)]
-struct WhatsAppText {
-    body: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct WhatsAppMedia {
-    id: String,
-    mime_type: Option<String>,
-    caption: Option<String>,
-}
-
-#[derive(Clone)]
-struct AppState {
-    verify_token: Arc<SecretStr>,
-    access_token: Arc<SecretStr>,
-    api_version: String,
-    client: Client,
-    sink: Arc<Mutex<Option<MessageSink>>>,
-    sessions: Arc<Mutex<HashMap<String, SessionId>>>,
-    app_secret: Option<Arc<SecretStr>>,
-}
-
-async fn webhook_verify(
-    State(state): State<AppState>,
-    Query(params): Query<WebhookVerifyParams>,
-) -> axum::response::Response {
-    if params.mode.as_deref() == Some("subscribe")
-        && params.token.as_deref() == Some((*state.verify_token).expose())
-        && let Some(challenge) = params.challenge
-    {
-        return axum::response::IntoResponse::into_response(challenge);
-    }
-    axum::response::IntoResponse::into_response(axum::http::StatusCode::FORBIDDEN)
-}
-
-#[allow(clippy::too_many_lines)]
-async fn webhook_receive(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> axum::http::StatusCode {
-    if let Some(ref secret) = state.app_secret
-        && !verify_whatsapp_signature(&headers, &body, (*secret).expose())
-    {
-        warn!("WhatsApp webhook: X-Hub-Signature-256 verification failed, rejecting request");
-        return axum::http::StatusCode::UNAUTHORIZED;
-    }
-
-    let payload: WebhookPayload = match serde_json::from_slice(&body) {
-        Ok(p) => p,
-        Err(e) => {
-            warn!(%e, "WhatsApp webhook: failed to parse payload");
-            return axum::http::StatusCode::BAD_REQUEST;
-        }
-    };
-    if let Some(entries) = payload.entry {
-        for entry in entries {
-            if let Some(changes) = entry.changes {
-                for change in changes {
-                    if let Some(value) = change.value
-                        && let Some(messages) = value.messages
-                    {
-                        for msg in messages {
-                            let session_id = {
-                                let mut sessions = state.sessions.lock().await;
-                                *sessions
-                                    .entry(msg.from.clone())
-                                    .or_insert_with(SessionId::new)
-                            };
-
-                            let maybe_media: Option<(&WhatsAppMedia, &str)> =
-                                match msg.msg_type.as_str() {
-                                    "image" => msg.image.as_ref().map(|m| (m, "image/jpeg")),
-                                    "video" => msg.video.as_ref().map(|m| (m, "video/mp4")),
-                                    "audio" => msg.audio.as_ref().map(|m| (m, "audio/ogg")),
-                                    "document" => msg
-                                        .document
-                                        .as_ref()
-                                        .map(|m| (m, "application/octet-stream")),
-                                    _ => None,
-                                };
-
-                            if let Some((media_obj, default_mime)) = maybe_media {
-                                let media_id = media_obj.id.clone();
-                                let mime = media_obj
-                                    .mime_type
-                                    .clone()
-                                    .unwrap_or_else(|| default_mime.into());
-                                let caption = media_obj.caption.clone();
-
-                                // Resolve media ID → URL via Cloud API
-                                let url = match resolve_media_url_inner(
-                                    &state.client,
-                                    state.access_token.expose(),
-                                    &media_id,
-                                    &state.api_version,
-                                )
-                                .await
-                                {
-                                    Ok(u) => u,
-                                    Err(e) => {
-                                        error!(%e, "WhatsApp: failed to resolve media URL");
-                                        continue;
-                                    }
-                                };
-
-                                let mut media = MediaPayload::new(mime, url);
-                                media.caption = caption;
-
-                                let mut envelope = Envelope::text("whatsapp", session_id, "");
-                                envelope.payload = Payload::Media(media);
-                                envelope
-                                    .metadata
-                                    .insert("whatsapp_from".into(), serde_json::json!(msg.from));
-                                envelope
-                                    .metadata
-                                    .insert("chat_type".into(), serde_json::json!("direct"));
-
-                                let sink = state.sink.lock().await;
-                                if let Some(ref tx) = *sink
-                                    && tx.send(envelope).await.is_err()
-                                {
-                                    error!("WhatsApp: sink closed");
-                                }
-                                continue;
-                            }
-
-                            if msg.msg_type != "text" {
-                                continue;
-                            }
-
-                            if let Some(text) = msg.text {
-                                let mut envelope =
-                                    Envelope::text("whatsapp", session_id, &text.body);
-                                envelope
-                                    .metadata
-                                    .insert("whatsapp_from".into(), serde_json::json!(msg.from));
-                                envelope
-                                    .metadata
-                                    .insert("chat_type".into(), serde_json::json!("direct"));
-
-                                let sink = state.sink.lock().await;
-                                if let Some(ref tx) = *sink
-                                    && tx.send(envelope).await.is_err()
-                                {
-                                    error!("WhatsApp: sink closed");
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    axum::http::StatusCode::OK
-}
-
-/// Standalone helper so the webhook handler can call it without `&self`.
-async fn resolve_media_url_inner(
-    client: &Client,
-    access_token: &str,
-    media_id: &str,
-    api_version: &str,
-) -> Result<String> {
-    let resp = client
-        .get(format!(
-            "https://graph.facebook.com/{api_version}/{media_id}"
-        ))
-        .header("Authorization", format!("Bearer {access_token}"))
-        .send()
-        .await
-        .map_err(|e| Error::Adapter {
-            source: Box::new(e),
-            context: format!("WhatsApp resolve media {media_id} failed"),
-        })?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| Error::Adapter {
-            source: Box::new(e),
-            context: "WhatsApp media response parse failed".into(),
-        })?;
-
-    resp["url"]
-        .as_str()
-        .map(String::from)
-        .ok_or_else(|| Error::Adapter {
-            source: Box::new(std::io::Error::other("missing url in media response")),
-            context: format!("WhatsApp media {media_id}: no url field"),
-        })
-}
-
 #[async_trait]
 impl ChannelAdapter for WhatsAppAdapter {
     fn channel_id(&self) -> &'static str {
         "whatsapp"
     }
 
-    async fn start(&self, sink: MessageSink) -> Result<()> {
+    async fn start(&self, sink: InteractionSink) -> Result<()> {
         *self.sink.lock().await = Some(sink);
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -376,6 +99,7 @@ impl ChannelAdapter for WhatsAppAdapter {
             sink: self.sink.clone(),
             sessions: self.sessions.clone(),
             app_secret: self.app_secret.clone(),
+            trust_level: self.trust_level(),
         };
 
         let state_for_restart = state.clone();
@@ -421,124 +145,25 @@ impl ChannelAdapter for WhatsAppAdapter {
                         }
                     }
                 }
-                () = async {
-                    let _ = shutdown_rx.await;
-                } => {
+                () = async { let _ = shutdown_rx.await; } => {
                     info!("WhatsApp adapter shutting down");
                 }
             }
         });
 
-        info!(
-            port = self.listen_port,
-            "WhatsApp adapter started (Cloud API webhook)"
-        );
+        info!(port = self.listen_port, "WhatsApp adapter started (Cloud API webhook)");
         Ok(())
     }
 
     async fn send(&self, msg: OutboundMessage) -> Result<()> {
-        let to = msg
-            .metadata
-            .get("whatsapp_from")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Adapter {
-                source: Box::new(std::io::Error::other("missing whatsapp_from")),
-                context: "missing whatsapp_from in outbound metadata".into(),
-            })?;
-
-        let url = format!(
-            "https://graph.facebook.com/{}/{}/messages",
-            self.api_version, self.phone_number_id
-        );
-
-        let body = match &msg.payload {
-            Payload::Text(text) => serde_json::json!({
-                "messaging_product": "whatsapp",
-                "to": to,
-                "type": "text",
-                "text": { "body": text },
-            }),
-            Payload::Media(media) => {
-                let (msg_type, media_field) = if media.mime_type.starts_with("image/") {
-                    ("image", "image")
-                } else if media.mime_type.starts_with("video/") {
-                    ("video", "video")
-                } else if media.mime_type.starts_with("audio/") {
-                    ("audio", "audio")
-                } else {
-                    ("document", "document")
-                };
-
-                let mut media_obj = serde_json::json!({ "link": media.url });
-                if let Some(ref caption) = media.caption {
-                    media_obj["caption"] = serde_json::json!(caption);
-                }
-
-                serde_json::json!({
-                    "messaging_product": "whatsapp",
-                    "to": to,
-                    "type": msg_type,
-                    media_field: media_obj,
-                })
-            }
-            _ => {
-                warn!("WhatsApp adapter: unsupported payload type, skipping");
-                return Ok(());
-            }
-        };
-
-        let auth = format!("Bearer {}", self.access_token.expose());
-        let mut last_err: Option<Error> = None;
-        for attempt in 0..3u32 {
-            if attempt > 0 {
-                let ms = 500u64.saturating_mul(1u64 << (attempt - 1));
-                tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
-            }
-            let result = self
-                .client
-                .post(&url)
-                .header("Authorization", &auth)
-                .json(&body)
-                .send()
-                .await;
-            match result {
-                Err(e) if e.is_timeout() || e.is_connect() => {
-                    last_err = Some(Error::Adapter {
-                        source: Box::new(e),
-                        context: "WhatsApp send message failed (transient)".into(),
-                    });
-                }
-                Err(e) => {
-                    return Err(Error::Adapter {
-                        source: Box::new(e),
-                        context: "WhatsApp send message failed".into(),
-                    });
-                }
-                Ok(resp) if resp.status() == 429 || resp.status().is_server_error() => {
-                    let status = resp.status();
-                    let text = resp.text().await.unwrap_or_default();
-                    last_err = Some(Error::Adapter {
-                        source: Box::new(std::io::Error::other(text.clone())),
-                        context: format!("WhatsApp API error {status}: {text}"),
-                    });
-                }
-                Ok(resp) if !resp.status().is_success() => {
-                    let text = resp.text().await.unwrap_or_default();
-                    return Err(Error::Adapter {
-                        source: Box::new(std::io::Error::other(text.clone())),
-                        context: format!("WhatsApp API error: {text}"),
-                    });
-                }
-                Ok(_) => {
-                    debug!(to, "sent message via WhatsApp");
-                    return Ok(());
-                }
-            }
-        }
-        Err(last_err.unwrap_or_else(|| Error::Adapter {
-            source: Box::new(std::io::Error::other("max retries exceeded")),
-            context: "WhatsApp send message failed after retries".into(),
-        }))
+        api::send_message(
+            &self.client,
+            &self.access_token,
+            &self.api_version,
+            &self.phone_number_id,
+            &msg,
+        )
+        .await
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -547,6 +172,27 @@ impl ChannelAdapter for WhatsAppAdapter {
         }
         info!("WhatsApp adapter shut down");
         Ok(())
+    }
+
+    fn capabilities(&self) -> orka_core::CapabilitySet {
+        use orka_core::Capability;
+        [
+            Capability::TextInbound,
+            Capability::TextOutbound,
+            Capability::MediaInbound,
+            Capability::MediaOutbound,
+            Capability::WebhookPush,
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn integration_class(&self) -> orka_core::IntegrationClass {
+        orka_core::IntegrationClass::MessagingChannel
+    }
+
+    fn trust_level(&self) -> orka_core::TrustLevel {
+        orka_core::TrustLevel::VerifiedWebhook
     }
 }
 
@@ -566,6 +212,7 @@ mod tests {
     use orka_core::types::{OutboundMessage, SessionId};
 
     use super::*;
+    use crate::types::{WebhookPayload, WebhookValue, WebhookVerifyParams, WhatsAppMessage};
 
     fn make_adapter() -> WhatsAppAdapter {
         WhatsAppAdapter::new(

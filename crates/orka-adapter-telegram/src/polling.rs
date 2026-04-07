@@ -2,15 +2,15 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use orka_core::{
-    MemoryEntry,
-    traits::MemoryStore,
-    types::{
-        CommandPayload, Envelope, EventPayload, MessageId, MessageSink, Payload, SessionId,
-        backoff_delay,
-    },
+use orka_contracts::{
+    CommandContent, EventContent, InboundInteraction, InteractionContent, MediaAttachment,
+    PlatformContext, SenderInfo, TraceContext, TrustLevel,
 };
-use serde_json::json;
+use orka_core::{
+    InteractionSink, MemoryEntry,
+    traits::MemoryStore,
+    types::{SessionId, backoff_delay},
+};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -77,11 +77,12 @@ pub(crate) fn extract_user_info(update: &Update) -> Option<(i64, Option<String>)
 /// Run the long-polling loop until `shutdown_rx` fires.
 pub(crate) async fn run_polling_loop(
     api: Arc<TelegramApi>,
-    sink: MessageSink,
+    sink: InteractionSink,
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
     memory: Option<Arc<dyn MemoryStore>>,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     auth_guard: Arc<TelegramAuthGuard>,
+    trust_level: TrustLevel,
 ) {
     let mut offset: i64 = 0;
     let mut error_count: u32 = 0;
@@ -105,8 +106,16 @@ pub(crate) async fn run_polling_loop(
                 error_count = 0;
                 for update in updates {
                     offset = update.update_id + 1;
-                    handle_update(&api, update, &sessions, memory.as_ref(), &sink, &auth_guard)
-                        .await;
+                    handle_update(
+                        &api,
+                        update,
+                        &sessions,
+                        memory.as_ref(),
+                        &sink,
+                        &auth_guard,
+                        trust_level,
+                    )
+                    .await;
                 }
             }
             Err(e) => {
@@ -132,8 +141,9 @@ async fn handle_update(
     update: Update,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
     memory: Option<&Arc<dyn MemoryStore>>,
-    sink: &MessageSink,
+    sink: &InteractionSink,
     auth_guard: &TelegramAuthGuard,
+    trust_level: TrustLevel,
 ) {
     if let Some((user_id, username)) = extract_user_info(&update) {
         if !auth_guard.is_allowed(user_id) {
@@ -149,7 +159,7 @@ async fn handle_update(
     }
 
     if let Some(cq) = update.callback_query {
-        process_callback_query(api, cq, sessions, memory, sink).await;
+        process_callback_query(api, cq, sessions, memory, sink, trust_level).await;
         return;
     }
 
@@ -159,7 +169,7 @@ async fn handle_update(
         _ => return,
     };
 
-    process_message(api, msg, sessions, memory, sink, is_edited).await;
+    process_message(api, msg, sessions, memory, sink, is_edited, trust_level).await;
 }
 
 /// Process a regular or edited message.
@@ -168,8 +178,9 @@ pub(crate) async fn process_message(
     msg: TelegramMessage,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
     memory: Option<&Arc<dyn MemoryStore>>,
-    sink: &MessageSink,
+    sink: &InteractionSink,
     is_edited: bool,
+    trust_level: TrustLevel,
 ) {
     let chat_id = msg.chat.id;
 
@@ -194,62 +205,52 @@ pub(crate) async fn process_message(
         name
     });
 
-    let payload = build_payload(api, &msg).await;
-
-    let mut envelope = Envelope::text("telegram", session_id, "");
-    envelope.id = MessageId::new();
-    envelope.payload = payload;
-    envelope.timestamp = chrono::Utc::now();
-
-    // Core metadata
-    envelope
-        .metadata
-        .insert("telegram_chat_id".into(), json!(chat_id));
+    let content = build_content(api, &msg).await;
 
     let chat_type = match msg.chat.r#type.as_deref() {
         Some("private") => "direct",
         _ => "group",
     };
-    envelope
-        .metadata
-        .insert("chat_type".into(), json!(chat_type));
-    envelope
-        .metadata
-        .insert("telegram_message_id".into(), json!(msg.message_id));
 
-    if let Some(from) = &msg.from {
-        envelope
-            .metadata
-            .insert("telegram_user_id".into(), json!(from.id));
-        if let Some(ref name) = user_name {
-            envelope
-                .metadata
-                .insert("telegram_user_name".into(), json!(name));
-        }
-        if let Some(ref uname) = from.username {
-            envelope
-                .metadata
-                .insert("telegram_username".into(), json!(uname));
-        }
-    }
+    let mut extensions = serde_json::Map::new();
+    extensions.insert("telegram_message_id".into(), serde_json::json!(msg.message_id));
     if let Some(tid) = msg.message_thread_id {
-        envelope
-            .metadata
-            .insert("telegram_message_thread_id".into(), json!(tid));
+        extensions.insert("telegram_message_thread_id".into(), serde_json::json!(tid));
     }
     if is_edited {
-        envelope
-            .metadata
-            .insert("telegram_edited".into(), json!(true));
+        extensions.insert("telegram_edited".into(), serde_json::json!(true));
     }
 
-    if sink.send(envelope).await.is_err() {
+    let sender = msg.from.as_ref().map_or_else(SenderInfo::default, |from| SenderInfo {
+        platform_user_id: Some(from.id.to_string()),
+        display_name: user_name.clone(),
+        user_id: None,
+    });
+
+    let interaction = InboundInteraction {
+        id: Uuid::now_v7(),
+        source_channel: "telegram".into(),
+        session_id: session_id.as_uuid(),
+        timestamp: chrono::Utc::now(),
+        content,
+        context: PlatformContext {
+            sender,
+            chat_id: Some(chat_id.to_string()),
+            interaction_kind: Some(chat_type.into()),
+            trust_level: Some(trust_level),
+            extensions: extensions.into_iter().collect(),
+            ..Default::default()
+        },
+        trace: TraceContext::default(),
+    };
+
+    if sink.send(interaction).await.is_err() {
         debug!("sink closed, stopping Telegram message processing");
     }
 }
 
-/// Build the payload from a message: command > media > text.
-async fn build_payload(api: &Arc<TelegramApi>, msg: &TelegramMessage) -> Payload {
+/// Build the interaction content from a message: command > media > text.
+async fn build_content(api: &Arc<TelegramApi>, msg: &TelegramMessage) -> InteractionContent {
     // Check for bot command entity at offset 0
     let is_command = msg
         .entities
@@ -262,7 +263,14 @@ async fn build_payload(api: &Arc<TelegramApi>, msg: &TelegramMessage) -> Payload
 
     // Check for media
     if let Some(media) = resolve_inbound_media(api, msg).await {
-        return Payload::Media(media);
+        return InteractionContent::Media(MediaAttachment {
+            mime_type: media.mime_type,
+            url: media.url,
+            filename: media.filename,
+            caption: media.caption,
+            size_bytes: media.size_bytes,
+            data_base64: media.data_base64,
+        });
     }
 
     // Fallback to text
@@ -271,10 +279,10 @@ async fn build_payload(api: &Arc<TelegramApi>, msg: &TelegramMessage) -> Payload
         .clone()
         .or_else(|| msg.caption.clone())
         .unwrap_or_default();
-    Payload::Text(text)
+    InteractionContent::Text(text)
 }
 
-fn parse_command(text: &str) -> Payload {
+fn parse_command(text: &str) -> InteractionContent {
     // Strip leading '/', split on whitespace
     let stripped = text.trim_start_matches('/');
     // Handle @BotName suffix in command (e.g. /start@MyBot)
@@ -283,19 +291,20 @@ fn parse_command(text: &str) -> Payload {
         .unwrap_or((stripped, ""));
     let cmd_name = cmd_raw.split('@').next().unwrap_or(cmd_raw).to_lowercase();
 
-    let mut args = HashMap::new();
+    let mut args = std::collections::HashMap::new();
     if !rest.trim().is_empty() {
-        args.insert("text".into(), json!(rest.trim()));
+        args.insert("text".into(), serde_json::json!(rest.trim()));
     }
-    Payload::Command(CommandPayload::new(cmd_name, args))
+    InteractionContent::Command(CommandContent { name: cmd_name, args })
 }
 
-async fn process_callback_query(
+pub(crate) async fn process_callback_query(
     api: &Arc<TelegramApi>,
     cq: CallbackQuery,
     sessions: &Arc<Mutex<HashMap<i64, SessionId>>>,
     memory: Option<&Arc<dyn MemoryStore>>,
-    sink: &MessageSink,
+    sink: &InteractionSink,
+    trust_level: TrustLevel,
 ) {
     let chat_id = cq.message.as_ref().map(|m| m.chat.id);
 
@@ -317,34 +326,36 @@ async fn process_callback_query(
     }
 
     let data = cq.data.clone().unwrap_or_default();
-    let payload = Payload::Event(EventPayload::new(
-        "callback_query",
-        json!({ "data": data, "from_id": cq.from.id }),
-    ));
+    let content = InteractionContent::Event(EventContent {
+        kind: "callback_query".into(),
+        data: serde_json::json!({ "data": data, "from_id": cq.from.id }),
+    });
 
-    let mut envelope = Envelope::text("telegram", session_id, "");
-    envelope.id = MessageId::new();
-    envelope.payload = payload;
-    envelope.timestamp = chrono::Utc::now();
+    let mut extensions = serde_json::Map::new();
+    extensions.insert("telegram_callback_query_id".into(), serde_json::json!(cq.id));
 
-    envelope
-        .metadata
-        .insert("telegram_callback_query_id".into(), json!(cq.id));
-    if let Some(cid) = chat_id {
-        envelope
-            .metadata
-            .insert("telegram_chat_id".into(), json!(cid));
-    }
-    envelope
-        .metadata
-        .insert("telegram_user_id".into(), json!(cq.from.id));
-    if let Some(uname) = &cq.from.username {
-        envelope
-            .metadata
-            .insert("telegram_username".into(), json!(uname));
-    }
+    let interaction = InboundInteraction {
+        id: Uuid::now_v7(),
+        source_channel: "telegram".into(),
+        session_id: session_id.as_uuid(),
+        timestamp: chrono::Utc::now(),
+        content,
+        context: PlatformContext {
+            sender: SenderInfo {
+                platform_user_id: Some(cq.from.id.to_string()),
+                display_name: cq.from.username.clone(),
+                user_id: None,
+            },
+            chat_id: chat_id.map(|id| id.to_string()),
+            interaction_kind: Some("callback".into()),
+            trust_level: Some(trust_level),
+            extensions: extensions.into_iter().collect(),
+            ..Default::default()
+        },
+        trace: TraceContext::default(),
+    };
 
-    if sink.send(envelope).await.is_err() {
+    if sink.send(interaction).await.is_err() {
         debug!("sink closed, stopping Telegram callback query processing");
     }
 }
@@ -355,40 +366,40 @@ mod tests {
 
     #[test]
     fn parse_command_simple() {
-        let payload = parse_command("/start");
-        match payload {
-            Payload::Command(cmd) => {
+        let content = parse_command("/start");
+        match content {
+            InteractionContent::Command(cmd) => {
                 assert_eq!(cmd.name, "start");
                 assert!(cmd.args.is_empty());
             }
-            _ => panic!("expected Command payload"),
+            _ => panic!("expected Command content"),
         }
     }
 
     #[test]
     fn parse_command_with_args() {
-        let payload = parse_command("/echo hello world");
-        match payload {
-            Payload::Command(cmd) => {
+        let content = parse_command("/echo hello world");
+        match content {
+            InteractionContent::Command(cmd) => {
                 assert_eq!(cmd.name, "echo");
                 assert_eq!(
                     cmd.args.get("text").and_then(|v| v.as_str()),
                     Some("hello world")
                 );
             }
-            _ => panic!("expected Command payload"),
+            _ => panic!("expected Command content"),
         }
     }
 
     #[test]
     fn parse_command_with_bot_suffix() {
-        let payload = parse_command("/help@MyBot");
-        match payload {
-            Payload::Command(cmd) => {
+        let content = parse_command("/help@MyBot");
+        match content {
+            InteractionContent::Command(cmd) => {
                 assert_eq!(cmd.name, "help");
                 assert!(cmd.args.is_empty());
             }
-            _ => panic!("expected Command payload"),
+            _ => panic!("expected Command content"),
         }
     }
 }

@@ -9,7 +9,8 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::{SinkExt, StreamExt};
-use orka_core::{Envelope, MessageSink, SessionId, StreamRegistry};
+use orka_contracts::{InboundInteraction, InteractionContent, PlatformContext, SenderInfo, TraceContext};
+use orka_core::{InteractionSink, SessionId, StreamRegistry};
 use serde::Deserialize;
 use tower_http::{
     cors::{AllowMethods, AllowOrigin, CorsLayer},
@@ -30,12 +31,14 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
 /// Shared state injected into axum route handlers.
 #[derive(Clone)]
 pub struct AppState {
-    /// Sender that routes inbound messages into the Orka bus.
-    pub sink: MessageSink,
+    /// Sender that routes inbound interactions into the Orka bus bridge.
+    pub sink: InteractionSink,
     /// Registry tracking active WebSocket connections per session.
     pub ws_registry: WsRegistry,
     /// Registry for streaming SSE/WS responses back to clients.
     pub stream_registry: StreamRegistry,
+    /// Trust level declared by this adapter, stamped on every inbound interaction.
+    pub trust_level: orka_contracts::TrustLevel,
 }
 
 /// Middleware that adds security headers to all responses.
@@ -66,15 +69,17 @@ async fn security_headers(
 
 /// Build the application router with shared state.
 pub fn app_router(
-    sink: MessageSink,
+    sink: InteractionSink,
     ws_registry: WsRegistry,
     stream_registry: StreamRegistry,
     auth_layer: Option<orka_auth::AuthLayer>,
+    trust_level: orka_contracts::TrustLevel,
 ) -> Router {
     let state = AppState {
         sink,
         ws_registry,
         stream_registry,
+        trust_level,
     };
 
     let health = Router::new().route("/api/v1/health", get(handle_health));
@@ -120,26 +125,34 @@ pub async fn handle_message(
     State(state): State<AppState>,
     Json(req): Json<InboundRequest>,
 ) -> impl IntoResponse {
-    let session_id = req
+    let session_uuid = req
         .session_id
         .and_then(|s| s.parse::<Uuid>().ok())
-        .map_or_else(SessionId::new, SessionId::from);
+        .unwrap_or_else(Uuid::now_v7);
 
-    let mut envelope = Envelope::text("custom", session_id, &req.text);
+    let interaction_id = Uuid::now_v7();
+    let message_id = interaction_id.to_string();
+    let session_id_str = session_uuid.to_string();
 
-    if let Some(metadata) = req.metadata {
-        envelope.metadata = metadata;
-    }
-    if let Some(uid) = req.user_id {
-        envelope
-            .metadata
-            .insert("user_id".into(), serde_json::json!(uid));
-    }
+    let interaction = InboundInteraction {
+        id: interaction_id,
+        source_channel: "custom".into(),
+        session_id: session_uuid,
+        timestamp: chrono::Utc::now(),
+        content: InteractionContent::Text(req.text),
+        context: PlatformContext {
+            sender: SenderInfo {
+                user_id: req.user_id,
+                ..Default::default()
+            },
+            extensions: req.metadata.unwrap_or_default(),
+            trust_level: Some(state.trust_level),
+            ..Default::default()
+        },
+        trace: TraceContext::default(),
+    };
 
-    let message_id = envelope.id.to_string();
-    let session_id_str = session_id.to_string();
-
-    match state.sink.send(envelope).await {
+    match state.sink.send(interaction).await {
         Ok(()) => (
             StatusCode::OK,
             Json(InboundResponse {
@@ -231,7 +244,7 @@ async fn handle_ws_connection(
                 // Stream chunks (real-time deltas, tool status) — always forwarded
                 chunk = stream_rx.recv() => {
                     if let Some(chunk) = chunk
-                        && let Ok(json) = serde_json::to_string(&chunk.kind)
+                        && let Ok(json) = serde_json::to_string(&orka_contracts::RealtimeEvent::from(chunk.kind.clone()))
                             && ws_sink.send(Message::Text(json.into())).await.is_err() {
                                 break;
                             }

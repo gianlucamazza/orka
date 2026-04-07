@@ -23,9 +23,9 @@ use async_trait::async_trait;
 pub use config::TelegramAdapterConfig;
 use media::{SendMethod, select_send_method};
 use orka_core::{
-    Error, Result, SecretStr,
+    Error, InteractionSink, Result, SecretStr,
     traits::{ChannelAdapter, MemoryStore},
-    types::{MessageSink, OutboundMessage, Payload, SessionId},
+    types::{OutboundMessage, Payload, SessionId},
 };
 use serde_json::json;
 use tokio::sync::Mutex;
@@ -65,7 +65,7 @@ impl TelegramAuthGuard {
 pub struct TelegramAdapter {
     api: Arc<TelegramApi>,
     config: TelegramAdapterConfig,
-    sink: Arc<Mutex<Option<MessageSink>>>,
+    sink: Arc<Mutex<Option<InteractionSink>>>,
     shutdown: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     sessions: Arc<Mutex<HashMap<i64, SessionId>>>,
     memory: Option<Arc<dyn MemoryStore>>,
@@ -104,7 +104,7 @@ impl ChannelAdapter for TelegramAdapter {
         "telegram"
     }
 
-    async fn start(&self, sink: MessageSink) -> Result<()> {
+    async fn start(&self, sink: InteractionSink) -> Result<()> {
         *self.sink.lock().await = Some(sink.clone());
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -120,6 +120,8 @@ impl ChannelAdapter for TelegramAdapter {
             let n = auth_guard.allowed.as_ref().map_or(0, HashSet::len);
             info!(authorized_users = n, "Telegram auth enabled");
         }
+
+        let trust_level = self.trust_level();
 
         if mode.as_str() == "webhook" {
             let webhook_url = self
@@ -146,14 +148,23 @@ impl ChannelAdapter for TelegramAdapter {
                     shutdown_rx,
                     auth_guard,
                     webhook_secret,
+                    trust_level,
                 )
                 .await;
             });
             info!("Telegram adapter started (webhook mode)");
         } else {
             tokio::spawn(async move {
-                polling::run_polling_loop(api, sink, sessions, memory, shutdown_rx, auth_guard)
-                    .await;
+                polling::run_polling_loop(
+                    api,
+                    sink,
+                    sessions,
+                    memory,
+                    shutdown_rx,
+                    auth_guard,
+                    trust_level,
+                )
+                .await;
             });
             info!("Telegram adapter started (long polling)");
         }
@@ -358,6 +369,38 @@ impl ChannelAdapter for TelegramAdapter {
         self.api.set_my_commands(&owned).await?;
         info!(count = owned.len(), "registered Telegram bot commands");
         Ok(())
+    }
+
+    fn capabilities(&self) -> orka_core::CapabilitySet {
+        use orka_core::Capability;
+        let mut caps = orka_core::CapabilitySet::from_iter([
+            Capability::TextInbound,
+            Capability::TextOutbound,
+            Capability::StreamingDeltas,
+            Capability::MessageEdit,
+            Capability::TypingIndicator,
+            Capability::SlashCommands,
+            Capability::InteractiveCallbacks,
+            Capability::MediaInbound,
+            Capability::MediaOutbound,
+            Capability::RichText,
+        ]);
+        if self.config.is_webhook() {
+            caps.insert(Capability::WebhookPush);
+        }
+        caps
+    }
+
+    fn integration_class(&self) -> orka_core::IntegrationClass {
+        orka_core::IntegrationClass::MessagingChannel
+    }
+
+    fn trust_level(&self) -> orka_core::TrustLevel {
+        if self.config.is_webhook() {
+            orka_core::TrustLevel::VerifiedWebhook
+        } else {
+            orka_core::TrustLevel::BotToken
+        }
     }
 }
 

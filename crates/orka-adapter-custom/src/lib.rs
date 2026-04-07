@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 pub use config::CustomAdapterConfig;
-use orka_core::{MessageSink, OutboundMessage, Result, StreamRegistry, traits::ChannelAdapter};
+use orka_core::{InteractionSink, OutboundMessage, Result, StreamRegistry, traits::ChannelAdapter};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
@@ -25,7 +25,7 @@ use crate::{routes::app_router, ws::WsRegistry};
 pub struct CustomAdapter {
     config: CustomAdapterConfig,
     auth_layer: Option<orka_auth::AuthLayer>,
-    sink: Arc<Mutex<Option<MessageSink>>>,
+    sink: Arc<Mutex<Option<InteractionSink>>>,
     shutdown_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     ws_registry: WsRegistry,
     stream_registry: StreamRegistry,
@@ -61,13 +61,14 @@ impl ChannelAdapter for CustomAdapter {
         "custom"
     }
 
-    async fn start(&self, sink: MessageSink) -> Result<()> {
+    async fn start(&self, sink: InteractionSink) -> Result<()> {
         let addr = format!("{}:{}", self.config.host, self.config.port);
         let router = app_router(
             sink.clone(),
             self.ws_registry.clone(),
             self.stream_registry.clone(),
             self.auth_layer.clone(),
+            self.trust_level(),
         );
 
         *self.sink.lock().await = Some(sink);
@@ -114,5 +115,29 @@ impl ChannelAdapter for CustomAdapter {
             warn!("Custom adapter shutdown called but no server was running");
         }
         Ok(())
+    }
+
+    fn capabilities(&self) -> orka_core::CapabilitySet {
+        use orka_core::Capability;
+        [
+            Capability::TextInbound,
+            Capability::TextOutbound,
+            Capability::StreamingDeltas,
+            Capability::MediaInbound,
+            Capability::MediaOutbound,
+            Capability::ConversationControl,
+            Capability::FileUpload,
+            Capability::WebsocketBidirectional,
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn integration_class(&self) -> orka_core::IntegrationClass {
+        orka_core::IntegrationClass::ProductClient
+    }
+
+    fn trust_level(&self) -> orka_core::TrustLevel {
+        orka_core::TrustLevel::UserAuthenticated
     }
 }

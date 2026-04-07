@@ -8,6 +8,7 @@
 use orka_adapter_custom::{
     CustomAdapter, CustomAdapterConfig, routes::app_router, types::InboundResponse, ws::WsRegistry,
 };
+use orka_contracts::InteractionContent;
 use orka_core::{OutboundMessage, Payload, SessionId, StreamRegistry, traits::ChannelAdapter};
 use tokio::sync::mpsc;
 
@@ -20,7 +21,7 @@ async fn post_message_arrives_on_sink() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let router = app_router(tx, ws_registry, StreamRegistry::new(), None);
+    let router = app_router(tx, ws_registry, StreamRegistry::new(), None, orka_contracts::TrustLevel::UserAuthenticated);
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
@@ -41,11 +42,11 @@ async fn post_message_arrives_on_sink() {
     assert!(!body.message_id.is_empty());
     assert!(!body.session_id.is_empty());
 
-    let envelope = rx.try_recv().unwrap();
-    assert_eq!(envelope.channel, "custom");
-    match &envelope.payload {
-        orka_core::Payload::Text(t) => assert_eq!(t, "Hello from test"),
-        other => panic!("Expected Text payload, got {other:?}"),
+    let interaction = rx.try_recv().unwrap();
+    assert_eq!(interaction.source_channel, "custom");
+    match &interaction.content {
+        InteractionContent::Text(t) => assert_eq!(t, "Hello from test"),
+        other => panic!("Expected Text content, got {other:?}"),
     }
 }
 
@@ -57,7 +58,7 @@ async fn health_endpoint_returns_ok() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let router = app_router(tx, ws_registry, StreamRegistry::new(), None);
+    let router = app_router(tx, ws_registry, StreamRegistry::new(), None, orka_contracts::TrustLevel::UserAuthenticated);
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
@@ -124,7 +125,7 @@ async fn ws_connect_and_receive_outbound() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let router = app_router(sink_tx, ws_registry, StreamRegistry::new(), None);
+    let router = app_router(sink_tx, ws_registry, StreamRegistry::new(), None, orka_contracts::TrustLevel::UserAuthenticated);
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
