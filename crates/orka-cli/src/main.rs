@@ -791,10 +791,12 @@ async fn main() {
             },
         },
         Commands::Secret { action } => match action {
-            SecretAction::Set { path } => cmd::secret::set(&path).await,
-            SecretAction::Get { path, reveal } => cmd::secret::get(&path, reveal).await,
-            SecretAction::List => cmd::secret::list().await,
-            SecretAction::Delete { path } => cmd::secret::delete(&path).await,
+            SecretAction::Set { path } => cmd::secret::set(&server_client, &path).await,
+            SecretAction::Get { path, reveal } => {
+                cmd::secret::get(&server_client, &path, reveal).await
+            }
+            SecretAction::List => cmd::secret::list(&server_client).await,
+            SecretAction::Delete { path } => cmd::secret::delete(&server_client, &path).await,
         },
         Commands::McpServe { config } => cmd::mcp_serve::run(config.as_deref()).await,
         Commands::Config { action } => match action {

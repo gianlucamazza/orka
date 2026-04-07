@@ -1,19 +1,6 @@
-use std::{
-    io::{BufRead as _, IsTerminal as _},
-    sync::Arc,
-};
+use std::io::{BufRead as _, IsTerminal as _};
 
-use orka_config::OrkaConfig;
-use orka_core::{SecretValue, traits::SecretManager};
-
-use crate::client::Result;
-
-fn create_manager() -> Result<Arc<dyn SecretManager>> {
-    let config = OrkaConfig::load(None)?;
-    let secret_config = super::util::runtime_secret_config(&config.secrets);
-    let mgr = orka_secrets::create_secret_manager(&secret_config, &config.redis.url)?;
-    Ok(mgr)
-}
+use crate::client::{OrkaClient, Result};
 
 /// Read the secret value.
 /// - Interactive TTY: uses a masked password prompt via dialoguer.
@@ -40,48 +27,45 @@ fn read_value() -> Result<String> {
     Ok(line)
 }
 
-pub async fn set(path: &str) -> Result<()> {
+pub async fn set(client: &OrkaClient, path: &str) -> Result<()> {
     let value = read_value()?;
-    let mgr = create_manager()?;
-    let secret = SecretValue::new(value.as_bytes().to_vec());
-    mgr.set_secret(path, &secret).await?;
+    let url = format!("/api/v1/secrets/{path}");
+    let resp = client
+        .post(&url, Some(serde_json::json!({ "value": value })))
+        .await?;
+    OrkaClient::ensure_ok(resp).await?;
     println!("secret '{path}' set");
     Ok(())
 }
 
-pub async fn get(path: &str, reveal: bool) -> Result<()> {
-    let mgr = create_manager()?;
-    let secret = mgr.get_secret(path).await?;
-    if reveal {
-        println!("{}", secret.expose_str().unwrap_or("<binary>"));
+pub async fn get(client: &OrkaClient, path: &str, reveal: bool) -> Result<()> {
+    let url = if reveal {
+        format!("/api/v1/secrets/{path}?reveal=true")
     } else {
-        let raw = secret.expose_str().unwrap_or("");
-        if raw.chars().count() <= 4 {
-            println!("****");
-        } else {
-            let prefix: String = raw.chars().take(4).collect();
-            println!("{prefix}****");
-        }
-    }
+        format!("/api/v1/secrets/{path}")
+    };
+    let body = client.get_json(&url).await?;
+    println!("{}", body["value"].as_str().unwrap_or("<binary>"));
     Ok(())
 }
 
-pub async fn list() -> Result<()> {
-    let mgr = create_manager()?;
-    let keys = mgr.list_secrets().await?;
+pub async fn list(client: &OrkaClient) -> Result<()> {
+    let body = client.get_json("/api/v1/secrets").await?;
+    let keys = body.as_array().ok_or("expected JSON array")?;
     if keys.is_empty() {
         println!("no secrets found");
     } else {
         for key in keys {
-            println!("{key}");
+            println!("{}", key.as_str().unwrap_or(""));
         }
     }
     Ok(())
 }
 
-pub async fn delete(path: &str) -> Result<()> {
-    let mgr = create_manager()?;
-    mgr.delete_secret(path).await?;
+pub async fn delete(client: &OrkaClient, path: &str) -> Result<()> {
+    let url = format!("/api/v1/secrets/{path}");
+    let resp = client.delete(&url).await?;
+    OrkaClient::ensure_ok(resp).await?;
     println!("secret '{path}' deleted");
     Ok(())
 }

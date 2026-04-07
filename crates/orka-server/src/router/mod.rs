@@ -14,6 +14,7 @@ mod management;
 mod mobile;
 mod research;
 mod schedules;
+mod secrets;
 
 use std::sync::Arc;
 
@@ -24,7 +25,8 @@ use orka_agent::AgentGraph;
 use orka_auth::AuthLayer;
 use orka_checkpoint::CheckpointStore;
 use orka_core::traits::{
-    ArtifactStore, ConversationStore, DeadLetterQueue, MessageBus, PriorityQueue, SessionStore,
+    ArtifactStore, ConversationStore, DeadLetterQueue, MessageBus, PriorityQueue, SecretManager,
+    SessionStore,
 };
 use orka_experience::ExperienceService;
 use orka_observe::metrics::PrometheusHandle;
@@ -296,6 +298,8 @@ pub struct RouterParams {
     pub coding_backend: Option<String>,
     /// Configured web search provider for `/api/v1/info`.
     pub web_search: Option<String>,
+    /// Secret manager (for /api/v1/secrets*).
+    pub secret_manager: Arc<dyn SecretManager>,
     /// Research service (for /api/v1/research*; `None` = research disabled).
     pub research_service: Option<Arc<ResearchService>>,
     /// Stream registry for SSE endpoints.
@@ -364,6 +368,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         adapters,
         coding_backend,
         web_search,
+        secret_manager,
         research_service,
         stream_registry,
         mobile_events,
@@ -448,6 +453,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
     let api_routes = dlq::routes(dlq)
         .merge(schedules::routes(scheduler_store))
         .merge(checkpoints::routes(checkpoint_store, queue.clone()))
+        .merge(secrets::routes(secret_manager))
         .merge(management::routes(
             skills,
             soft_skills,

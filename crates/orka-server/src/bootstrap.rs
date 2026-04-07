@@ -1123,6 +1123,7 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         adapters: adapter_names,
         coding_backend,
         web_search,
+        secret_manager: deps.infra.secrets.clone(),
         research_service: None,
         stream_registry: deps.stream_registry,
         mobile_events: deps.mobile_events,

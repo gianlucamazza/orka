@@ -1,5 +1,4 @@
 pub mod a2a;
-pub mod util;
 pub mod chat;
 pub mod config;
 pub mod dashboard;
@@ -19,4 +18,5 @@ pub mod session;
 pub mod skill;
 pub mod status;
 pub mod update;
+pub mod util;
 pub mod workspace;
