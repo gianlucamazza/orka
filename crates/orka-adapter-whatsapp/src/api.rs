@@ -49,18 +49,12 @@ pub(crate) async fn send_message(
     phone_number_id: &str,
     msg: &OutboundMessage,
 ) -> Result<()> {
-    let to = msg
-        .metadata
-        .get("whatsapp_from")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::Adapter {
-            source: Box::new(std::io::Error::other("missing whatsapp_from")),
-            context: "missing whatsapp_from in outbound metadata".into(),
-        })?;
+    let to = msg.chat_id().map_err(|_| Error::Adapter {
+        source: Box::new(std::io::Error::other("missing platform_context.chat_id")),
+        context: "missing chat_id in platform_context".into(),
+    })?;
 
-    let url = format!(
-        "https://graph.facebook.com/{api_version}/{phone_number_id}/messages"
-    );
+    let url = format!("https://graph.facebook.com/{api_version}/{phone_number_id}/messages");
 
     let body = match &msg.payload {
         Payload::Text(text) => serde_json::json!({

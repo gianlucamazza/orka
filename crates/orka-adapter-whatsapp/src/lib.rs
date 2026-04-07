@@ -2,8 +2,8 @@
 
 #![warn(missing_docs)]
 
-pub mod config;
 mod api;
+pub mod config;
 mod types;
 mod webhook;
 
@@ -20,7 +20,6 @@ use orka_core::{
 use reqwest::Client;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
-
 use types::AppState;
 use webhook::{webhook_receive, webhook_verify};
 
@@ -151,7 +150,10 @@ impl ChannelAdapter for WhatsAppAdapter {
             }
         });
 
-        info!(port = self.listen_port, "WhatsApp adapter started (Cloud API webhook)");
+        info!(
+            port = self.listen_port,
+            "WhatsApp adapter started (Cloud API webhook)"
+        );
         Ok(())
     }
 
@@ -231,14 +233,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_errors_when_whatsapp_from_missing() {
+    async fn send_errors_when_chat_id_missing() {
         let adapter = make_adapter();
         let msg = OutboundMessage::text("whatsapp", SessionId::new(), "hello", None);
         let err = adapter.send(msg).await.unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("whatsapp_from"),
-            "expected error about whatsapp_from, got: {msg}"
+            msg.contains("platform_context"),
+            "expected error about missing platform_context.chat_id, got: {msg}"
         );
     }
 

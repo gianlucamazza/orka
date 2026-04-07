@@ -38,20 +38,21 @@ async fn session_map_consistency() {
     );
 }
 
-/// Verifies Envelope creation from a Discord MESSAGE_CREATE-style payload.
+/// Verifies Envelope creation from a Discord MESSAGE_CREATE-style payload
+/// using the canonical `PlatformContext` routing model.
 #[tokio::test]
 async fn envelope_from_discord_message() {
+    use orka_contracts::platform::{PlatformContext, SenderInfo};
     use orka_core::types::{Envelope, Payload};
 
     let session_id = SessionId::new();
     let mut envelope = Envelope::text("discord", session_id, "Hey there");
-    envelope.metadata.insert(
-        "discord_channel_id".to_string(),
-        serde_json::json!("ch-abc"),
-    );
-    envelope
-        .metadata
-        .insert("chat_type".to_string(), serde_json::json!("group"));
+    envelope.platform_context = Some(PlatformContext {
+        chat_id: Some("ch-abc".into()),
+        guild_id: Some("guild-123".into()),
+        sender: SenderInfo::default(),
+        ..Default::default()
+    });
 
     assert_eq!(envelope.channel, "discord");
     assert_eq!(envelope.session_id, session_id);
@@ -59,11 +60,9 @@ async fn envelope_from_discord_message() {
         Payload::Text(t) => assert_eq!(t, "Hey there"),
         other => panic!("expected Text payload, got {other:?}"),
     }
-    assert_eq!(
-        envelope.metadata["discord_channel_id"],
-        serde_json::json!("ch-abc")
-    );
-    assert_eq!(envelope.metadata["chat_type"], serde_json::json!("group"));
+    let pc = envelope.platform_context.as_ref().unwrap();
+    assert_eq!(pc.chat_id.as_deref(), Some("ch-abc"));
+    assert_eq!(pc.guild_id.as_deref(), Some("guild-123"));
 }
 
 /// Verifies `chat_type` classification: `guild_id` present = group, absent =

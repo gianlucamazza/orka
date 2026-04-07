@@ -2,8 +2,8 @@
 
 #![warn(missing_docs)]
 
-pub mod config;
 mod api;
+pub mod config;
 mod gateway;
 mod types;
 
@@ -19,7 +19,6 @@ use orka_core::{
 use reqwest::Client;
 use tokio::sync::Mutex;
 use tracing::info;
-
 use types::GatewayResponse;
 
 /// Discord Gateway [`ChannelAdapter`] using WebSocket and REST API.
@@ -94,12 +93,10 @@ impl ChannelAdapter for DiscordAdapter {
 
     async fn send(&self, msg: OutboundMessage) -> Result<()> {
         let channel_id = msg
-            .metadata
-            .get("discord_channel_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Adapter {
-                source: Box::new(std::io::Error::other("missing discord_channel_id")),
-                context: "missing discord_channel_id in outbound metadata".into(),
+            .chat_id()
+            .map_err(|_| Error::Adapter {
+                source: Box::new(std::io::Error::other("missing platform_context.chat_id")),
+                context: "missing chat_id in platform_context".into(),
             })?
             .to_owned();
 
@@ -108,9 +105,7 @@ impl ChannelAdapter for DiscordAdapter {
 
     async fn register_commands(&self, commands: &[(&str, &str)]) -> Result<()> {
         let Some(app_id) = self.application_id.clone() else {
-            tracing::warn!(
-                "Discord register_commands: application_id not configured, skipping"
-            );
+            tracing::warn!("Discord register_commands: application_id not configured, skipping");
             return Ok(());
         };
         api::register_commands(&self.client, &self.bot_token, &app_id, commands).await
@@ -180,14 +175,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_errors_when_discord_channel_id_missing() {
+    async fn send_errors_when_chat_id_missing() {
         let adapter = DiscordAdapter::new(SecretStr::new("test-token"), None);
         let msg = OutboundMessage::text("discord", SessionId::new(), "hello", None);
         let err = adapter.send(msg).await.unwrap_err();
         let msg = format!("{err}");
         assert!(
-            msg.contains("discord_channel_id"),
-            "expected error about missing discord_channel_id, got: {msg}"
+            msg.contains("platform_context"),
+            "expected error about missing platform_context.chat_id, got: {msg}"
         );
     }
 

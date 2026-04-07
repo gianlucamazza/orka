@@ -37,22 +37,23 @@ async fn session_map_consistency() {
     );
 }
 
-/// Verifies Envelope creation from a Slack `event_callback` message.
+/// Verifies Envelope creation from a Slack `event_callback` message using
+/// the canonical `PlatformContext` routing model.
 #[tokio::test]
 async fn envelope_from_slack_event() {
+    use orka_contracts::platform::{PlatformContext, SenderInfo};
     use orka_core::types::{Envelope, Payload};
 
     let session_id = SessionId::new();
     let mut envelope = Envelope::text("slack", session_id, "Slack message");
-    envelope
-        .metadata
-        .insert("slack_channel".to_string(), serde_json::json!("C12345"));
-    envelope
-        .metadata
-        .insert("slack_user".to_string(), serde_json::json!("U98765"));
-    envelope
-        .metadata
-        .insert("chat_type".to_string(), serde_json::json!("group"));
+    envelope.platform_context = Some(PlatformContext {
+        chat_id: Some("C12345".into()),
+        sender: SenderInfo {
+            platform_user_id: Some("U98765".into()),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
 
     assert_eq!(envelope.channel, "slack");
     assert_eq!(envelope.session_id, session_id);
@@ -60,11 +61,9 @@ async fn envelope_from_slack_event() {
         Payload::Text(t) => assert_eq!(t, "Slack message"),
         other => panic!("expected Text payload, got {other:?}"),
     }
-    assert_eq!(
-        envelope.metadata["slack_channel"],
-        serde_json::json!("C12345")
-    );
-    assert_eq!(envelope.metadata["slack_user"], serde_json::json!("U98765"));
+    let pc = envelope.platform_context.as_ref().unwrap();
+    assert_eq!(pc.chat_id.as_deref(), Some("C12345"));
+    assert_eq!(pc.sender.platform_user_id.as_deref(), Some("U98765"));
 }
 
 /// Verifies that the `SlackEventPayload` JSON shape parses correctly.

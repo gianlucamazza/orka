@@ -1140,9 +1140,13 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         research_service: None,
         stream_registry: deps.stream_registry,
         mobile_events: deps.mobile_events,
-        controller: Arc::new(orka_core::conversation_controller::ConversationController::new(
-            deps.infra.conversations.clone(), deps.infra.bus.clone(), deps.session_cancel_tokens.clone(),
-        )),
+        controller: Arc::new(
+            orka_core::conversation_controller::ConversationController::new(
+                deps.infra.conversations.clone(),
+                deps.infra.bus.clone(),
+                deps.session_cancel_tokens.clone(),
+            ),
+        ),
         mobile_auth,
         mobile_enabled: config.auth.jwt.is_some(),
         mobile_read_rate_limit_per_minute: None,
@@ -1283,6 +1287,7 @@ async fn spawn_outbound_bridge(
                             None,
                         );
                         outbound.metadata = envelope.metadata.clone();
+                        outbound.platform_context = envelope.platform_context.clone();
                         let target = adapters
                             .iter()
                             .find(|a| a.channel_id() == envelope.channel.as_str());

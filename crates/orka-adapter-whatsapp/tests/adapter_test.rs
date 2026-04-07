@@ -44,20 +44,20 @@ async fn session_map_consistency() {
     );
 }
 
-/// Verifies Envelope creation from a `WhatsApp` webhook message.
+/// Verifies Envelope creation from a `WhatsApp` webhook message using
+/// the canonical `PlatformContext` routing model.
 #[tokio::test]
 async fn envelope_from_whatsapp_message() {
+    use orka_contracts::platform::{PlatformContext, SenderInfo};
     use orka_core::types::{Envelope, Payload};
 
     let session_id = SessionId::new();
     let mut envelope = Envelope::text("whatsapp", session_id, "Hello from WhatsApp");
-    envelope.metadata.insert(
-        "whatsapp_from".to_string(),
-        serde_json::json!("+1234567890"),
-    );
-    envelope
-        .metadata
-        .insert("chat_type".to_string(), serde_json::json!("direct"));
+    envelope.platform_context = Some(PlatformContext {
+        chat_id: Some("+1234567890".into()),
+        sender: SenderInfo::default(),
+        ..Default::default()
+    });
 
     assert_eq!(envelope.channel, "whatsapp");
     assert_eq!(envelope.session_id, session_id);
@@ -65,11 +65,8 @@ async fn envelope_from_whatsapp_message() {
         Payload::Text(t) => assert_eq!(t, "Hello from WhatsApp"),
         other => panic!("expected Text payload, got {other:?}"),
     }
-    assert_eq!(
-        envelope.metadata["whatsapp_from"],
-        serde_json::json!("+1234567890")
-    );
-    assert_eq!(envelope.metadata["chat_type"], serde_json::json!("direct"));
+    let pc = envelope.platform_context.as_ref().unwrap();
+    assert_eq!(pc.chat_id.as_deref(), Some("+1234567890"));
 }
 
 /// Verifies that the `WhatsApp` webhook JSON shape parses correctly.

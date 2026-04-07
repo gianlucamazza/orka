@@ -32,19 +32,20 @@ async fn session_map_consistency() {
     );
 }
 
-/// Verifies Envelope creation from a Telegram-style update payload.
+/// Verifies Envelope creation from a Telegram-style update payload using
+/// the canonical `PlatformContext` routing model.
 #[tokio::test]
 async fn envelope_from_telegram_update() {
+    use orka_contracts::platform::{PlatformContext, SenderInfo};
     use orka_core::types::{Envelope, Payload};
 
     let session_id = SessionId::new();
     let mut envelope = Envelope::text("telegram", session_id, "Hello world");
-    envelope
-        .metadata
-        .insert("telegram_chat_id".to_string(), serde_json::json!(12345i64));
-    envelope
-        .metadata
-        .insert("chat_type".to_string(), serde_json::json!("direct"));
+    envelope.platform_context = Some(PlatformContext {
+        chat_id: Some("12345".into()),
+        sender: SenderInfo::default(),
+        ..Default::default()
+    });
 
     assert_eq!(envelope.channel, "telegram");
     assert_eq!(envelope.session_id, session_id);
@@ -53,10 +54,14 @@ async fn envelope_from_telegram_update() {
         other => panic!("expected Text payload, got {other:?}"),
     }
     assert_eq!(
-        envelope.metadata["telegram_chat_id"],
-        serde_json::json!(12345i64)
+        envelope
+            .platform_context
+            .as_ref()
+            .unwrap()
+            .chat_id
+            .as_deref(),
+        Some("12345")
     );
-    assert_eq!(envelope.metadata["chat_type"], serde_json::json!("direct"));
 }
 
 /// Verifies that the Telegram deserialization structs parse correctly.

@@ -493,6 +493,7 @@ async fn publish_outbound(bus: &Arc<dyn MessageBus>, source: &Envelope, msgs: &[
         let mut out_env =
             Envelope::with_payload(&msg.channel, msg.session_id, msg.payload.clone(), source);
         out_env.metadata = msg.metadata.clone();
+        msg.platform_context.clone_into(&mut out_env.platform_context);
         if let Err(e) = bus.publish("outbound", &out_env).await {
             error!(%e, "failed to publish outbound");
         }

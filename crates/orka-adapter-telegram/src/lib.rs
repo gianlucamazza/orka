@@ -173,24 +173,17 @@ impl ChannelAdapter for TelegramAdapter {
     }
 
     async fn send(&self, msg: OutboundMessage) -> Result<()> {
-        let chat_id = msg
-            .metadata
-            .get("telegram_chat_id")
-            .and_then(serde_json::Value::as_i64)
-            .ok_or_else(|| Error::Adapter {
-                source: Box::new(std::io::Error::other("missing telegram_chat_id")),
-                context: "missing telegram_chat_id in outbound metadata".into(),
-            })?;
+        let chat_id_str = msg.chat_id().map_err(|_| Error::Adapter {
+            source: Box::new(std::io::Error::other("missing platform_context.chat_id")),
+            context: "missing chat_id in platform_context".into(),
+        })?;
+        let chat_id: i64 = chat_id_str.parse().map_err(|_| Error::Adapter {
+            source: Box::new(std::io::Error::other("chat_id is not a valid i64")),
+            context: format!("telegram chat_id '{chat_id_str}' is not a valid i64"),
+        })?;
 
-        let reply_to_message_id = msg
-            .metadata
-            .get("telegram_message_id")
-            .and_then(serde_json::Value::as_i64);
-
-        let message_thread_id = msg
-            .metadata
-            .get("telegram_message_thread_id")
-            .and_then(serde_json::Value::as_i64);
+        let reply_to_message_id = msg.extension_i64("telegram_message_id");
+        let message_thread_id = msg.extension_i64("telegram_message_thread_id");
 
         let parse_mode = msg
             .metadata
@@ -439,8 +432,8 @@ mod tests {
         let err = adapter.send(msg).await.unwrap_err();
         let msg = format!("{err}");
         assert!(
-            msg.contains("telegram_chat_id"),
-            "expected error about missing telegram_chat_id, got: {msg}"
+            msg.contains("platform_context"),
+            "expected error about missing platform_context.chat_id, got: {msg}"
         );
     }
 

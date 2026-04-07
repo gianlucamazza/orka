@@ -2,8 +2,8 @@
 
 #![warn(missing_docs)]
 
-pub mod config;
 mod api;
+pub mod config;
 mod types;
 mod webhook;
 
@@ -20,7 +20,6 @@ use orka_core::{
 use reqwest::Client;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
-
 use types::AppState;
 use webhook::handle_event;
 
@@ -128,24 +127,25 @@ impl ChannelAdapter for SlackAdapter {
             }
         });
 
-        info!(port = self.listen_port, "Slack adapter started (Events API)");
+        info!(
+            port = self.listen_port,
+            "Slack adapter started (Events API)"
+        );
         Ok(())
     }
 
     async fn send(&self, msg: OutboundMessage) -> Result<()> {
-        let channel = msg
-            .metadata
-            .get("slack_channel")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Adapter {
-                source: Box::new(std::io::Error::other("missing slack_channel")),
-                context: "missing slack_channel in outbound metadata".into(),
-            })?;
+        let channel = msg.chat_id().map_err(|_| Error::Adapter {
+            source: Box::new(std::io::Error::other("missing platform_context.chat_id")),
+            context: "missing chat_id in platform_context".into(),
+        })?;
 
         let auth = format!("Bearer {}", self.bot_token.expose());
 
         match &msg.payload {
-            Payload::Text(text) => api::send_text_message(&self.client, &auth, channel, text).await?,
+            Payload::Text(text) => {
+                api::send_text_message(&self.client, &auth, channel, text).await?;
+            }
             Payload::Media(media) => {
                 // Inline data or non-image URL → 3-step file upload.
                 // URL-based images → Block Kit image block (lighter path).
@@ -228,14 +228,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_errors_when_slack_channel_missing() {
+    async fn send_errors_when_chat_id_missing() {
         let adapter = make_adapter();
         let msg = orka_core::types::OutboundMessage::text("slack", SessionId::new(), "hello", None);
         let err = adapter.send(msg).await.unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("slack_channel"),
-            "expected error about missing slack_channel, got: {msg}"
+            msg.contains("platform_context"),
+            "expected error about missing platform_context.chat_id, got: {msg}"
         );
     }
 
@@ -331,6 +331,4 @@ mod tests {
         assert_eq!(file.name.as_deref(), Some("report.pdf"));
         assert_eq!(file.size, Some(12345));
     }
-
-
 }

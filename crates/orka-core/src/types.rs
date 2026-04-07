@@ -1067,6 +1067,7 @@ impl OutboundMessage {
             payload: Payload::Text(text.into()),
             reply_to,
             metadata: HashMap::new(),
+            platform_context: None,
         }
     }
 
@@ -1083,6 +1084,7 @@ impl OutboundMessage {
             payload,
             reply_to,
             metadata: HashMap::new(),
+            platform_context: None,
         }
     }
 }
@@ -1202,7 +1204,7 @@ impl Envelope {
             payload,
             metadata: HashMap::new(),
             trace_context: source.trace_context.clone(),
-            platform_context: None,
+            platform_context: source.platform_context.clone(),
         }
     }
 }
@@ -1284,25 +1286,51 @@ pub struct OutboundMessage {
     pub payload: Payload,
     /// Optional ID of the inbound message being replied to.
     pub reply_to: Option<MessageId>,
-    /// Adapter-specific delivery metadata.
+    /// Adapter-specific delivery metadata (legacy; prefer `platform_context`).
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Canonical platform context for routing.
+    ///
+    /// Set by the worker from the inbound envelope's `platform_context`.
+    /// Adapters should read routing information from here first and fall back
+    /// to `metadata` for backward compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform_context: Option<PlatformContext>,
 }
 
 impl OutboundMessage {
-    /// Get a required string from metadata, returning an error if missing.
-    pub fn require_meta_str(&self, key: &str) -> crate::Result<&str> {
-        self.metadata
-            .get(key)
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| crate::Error::Other(format!("missing metadata key: {key}")))
+    /// Return the canonical chat / channel identifier from `platform_context`.
+    ///
+    /// This is the authoritative routing key for all adapters.  Every outbound
+    /// message that travels through the standard worker→adapter pipeline will
+    /// have `platform_context` populated from the originating inbound envelope,
+    /// so adapters should call this instead of reading the legacy metadata bag.
+    pub fn chat_id(&self) -> crate::Result<&str> {
+        self.platform_context
+            .as_ref()
+            .and_then(|pc| pc.chat_id.as_deref())
+            .ok_or_else(|| crate::Error::Other("missing platform_context.chat_id".into()))
     }
 
-    /// Get a required i64 from metadata, returning an error if missing.
-    pub fn require_meta_i64(&self, key: &str) -> crate::Result<i64> {
-        self.metadata
-            .get(key)
+    /// Return a platform-specific extension value as `i64`.
+    ///
+    /// Extensions use the `{platform}_{field}` naming convention, e.g.
+    /// `telegram_message_id`.  Returns `None` if the key is absent or is not
+    /// an integer.
+    pub fn extension_i64(&self, key: &str) -> Option<i64> {
+        self.platform_context
+            .as_ref()
+            .and_then(|pc| pc.extensions.get(key))
             .and_then(serde_json::Value::as_i64)
-            .ok_or_else(|| crate::Error::Other(format!("missing metadata key: {key}")))
+    }
+
+    /// Return a platform-specific extension value as `&str`.
+    ///
+    /// Returns `None` if the key is absent or is not a string.
+    pub fn extension_str(&self, key: &str) -> Option<&str> {
+        self.platform_context
+            .as_ref()
+            .and_then(|pc| pc.extensions.get(key))
+            .and_then(serde_json::Value::as_str)
     }
 
     /// Set `source_channel` in metadata and return self (builder-style).
@@ -1759,8 +1787,9 @@ pub type MessageStream = tokio::sync::mpsc::Receiver<Envelope>;
 ///
 /// The worker registers a token before each dispatch; the `/cancel` endpoint
 /// uses it to abort an in-progress generation without stopping the worker.
-pub type SessionCancelTokens =
-    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<SessionId, tokio_util::sync::CancellationToken>>>;
+pub type SessionCancelTokens = std::sync::Arc<
+    std::sync::Mutex<std::collections::HashMap<SessionId, tokio_util::sync::CancellationToken>>,
+>;
 
 /// Exponential backoff delay with full jitter, capped at `max_secs`.
 ///
@@ -1921,27 +1950,44 @@ mod tests {
         assert!(input.get_bool("missing").is_err());
     }
 
-    // --- OutboundMessage metadata ---
+    // --- OutboundMessage platform_context helpers ---
 
-    #[test]
-    fn require_meta_str_present() {
+    fn make_outbound_with_chat_id(chat_id: &str) -> OutboundMessage {
+        use orka_contracts::platform::{PlatformContext, SenderInfo};
         let mut msg = OutboundMessage::text("ch", SessionId::new(), "hi", None);
-        msg.metadata.insert("chat_id".into(), json!("123"));
-        assert_eq!(ok(msg.require_meta_str("chat_id")), "123");
+        msg.platform_context = Some(PlatformContext {
+            chat_id: Some(chat_id.into()),
+            sender: SenderInfo::default(),
+            ..Default::default()
+        });
+        msg
     }
 
     #[test]
-    fn require_meta_str_missing() {
+    fn chat_id_present() {
+        let msg = make_outbound_with_chat_id("123");
+        assert_eq!(ok(msg.chat_id()), "123");
+    }
+
+    #[test]
+    fn chat_id_missing_errors() {
         let msg = OutboundMessage::text("ch", SessionId::new(), "hi", None);
-        assert!(msg.require_meta_str("nope").is_err());
+        assert!(msg.chat_id().is_err());
     }
 
     #[test]
-    fn require_meta_i64_present_and_missing() {
+    fn extension_i64_present_and_missing() {
+        use orka_contracts::platform::{PlatformContext, SenderInfo};
         let mut msg = OutboundMessage::text("ch", SessionId::new(), "hi", None);
-        msg.metadata.insert("num".into(), json!(42));
-        assert_eq!(ok(msg.require_meta_i64("num")), 42);
-        assert!(msg.require_meta_i64("nope").is_err());
+        let mut pc = PlatformContext {
+            sender: SenderInfo::default(),
+            ..Default::default()
+        };
+        pc.extensions
+            .insert("telegram_message_id".into(), json!(42));
+        msg.platform_context = Some(pc);
+        assert_eq!(msg.extension_i64("telegram_message_id"), Some(42));
+        assert_eq!(msg.extension_i64("nope"), None);
     }
 
     #[test]
