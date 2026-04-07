@@ -440,7 +440,7 @@ pub async fn run(
     client: &OrkaClient,
     server_client: &OrkaClient,
     session_id: Option<&str>,
-    local_workspace: Option<crate::workspace::LocalWorkspace>,
+    local_workspace: Option<crate::ws_discovery::LocalWorkspace>,
     include_workspace_cwd: bool,
 ) -> Result<()> {
     let sid = OrkaClient::resolve_session_id(session_id);

@@ -13,7 +13,7 @@ pub async fn run(
     text: &str,
     session_id: Option<&str>,
     timeout_secs: u64,
-    local_workspace: Option<crate::workspace::LocalWorkspace>,
+    local_workspace: Option<crate::ws_discovery::LocalWorkspace>,
     include_workspace_cwd: bool,
 ) -> Result<()> {
     let sid = OrkaClient::resolve_session_id(session_id);
@@ -26,7 +26,7 @@ pub async fn run(
 
     let mut metadata = local_workspace
         .as_ref()
-        .map(crate::workspace::LocalWorkspace::to_metadata)
+        .map(crate::ws_discovery::LocalWorkspace::to_metadata)
         .unwrap_or_default();
     if include_workspace_cwd && client.targets_localhost() {
         metadata.insert(

@@ -19,4 +19,4 @@ pub mod skill;
 pub mod status;
 pub mod sudo;
 pub mod update;
-pub mod workspace_cmd;
+pub mod workspace;

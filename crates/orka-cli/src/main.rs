@@ -14,7 +14,7 @@ mod shell;
 mod table;
 mod term_caps;
 mod util;
-mod workspace;
+mod ws_discovery;
 
 use clap::{CommandFactory, Parser};
 use tracing_subscriber::EnvFilter;
@@ -686,7 +686,7 @@ async fn main() {
             let ws = if no_workspace {
                 None
             } else {
-                workspace::discover()
+                ws_discovery::discover()
             };
             cmd::send::run(
                 &adapter_client,
@@ -705,7 +705,7 @@ async fn main() {
             let ws = if no_workspace {
                 None
             } else {
-                workspace::discover()
+                ws_discovery::discover()
             };
             cmd::chat::run(
                 &adapter_client,
@@ -754,8 +754,8 @@ async fn main() {
             }
         },
         Commands::Workspace { action } => match action {
-            WorkspaceAction::List => cmd::workspace_cmd::list(&server_client).await,
-            WorkspaceAction::Show { name } => cmd::workspace_cmd::show(&server_client, &name).await,
+            WorkspaceAction::List => cmd::workspace::list(&server_client).await,
+            WorkspaceAction::Show { name } => cmd::workspace::show(&server_client, &name).await,
         },
         Commands::Graph { dot } => cmd::graph::show(&server_client, dot).await,
         Commands::Experience { action } => match action {
