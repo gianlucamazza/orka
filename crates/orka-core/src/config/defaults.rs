@@ -193,6 +193,16 @@ pub const fn default_max_run_secs() -> Option<u64> {
     None
 }
 
+/// Default maximum budget extensions granted for plan progress.
+pub const fn default_max_budget_extensions() -> usize {
+    2
+}
+
+/// Default turns added per budget extension.
+pub const fn default_budget_extension_size() -> usize {
+    5
+}
+
 /// Default web search provider.
 pub fn default_web_search_provider() -> String {
     "none".to_string()

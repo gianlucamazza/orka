@@ -1013,6 +1013,7 @@ fn checkpoint_status_for_stop_reason(stop_reason: orka_core::stream::AgentStopRe
         },
         orka_core::stream::AgentStopReason::Complete
         | orka_core::stream::AgentStopReason::MaxTurns
+        | orka_core::stream::AgentStopReason::SoftLimit
         | orka_core::stream::AgentStopReason::MaxTokens
         | orka_core::stream::AgentStopReason::Interrupted => RunStatus::Completed,
     }

@@ -481,6 +481,18 @@ pub trait Skill: Send + Sync + 'static {
         "general"
     }
 
+    /// Budget cost per invocation, counted against the agent's step budget.
+    ///
+    /// - `0.0` — free meta-tools (planning, routing).
+    /// - `0.5` — read-only / search operations with no side effects.
+    /// - `1.0` — default: mutations, shell execution, network calls.
+    ///
+    /// Override this method in skills that are inherently cheap (e.g. simple
+    /// lookups) or expensive (e.g. long-running compilations).
+    fn budget_cost(&self) -> f32 {
+        1.0
+    }
+
     /// Validate the output produced by [`execute`].
     ///
     /// Called automatically by [`SkillRegistry::invoke`] after a successful

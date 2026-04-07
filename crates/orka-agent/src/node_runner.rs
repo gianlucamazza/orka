@@ -25,6 +25,7 @@ use tracing::{Instrument, debug, info, info_span, warn};
 
 use crate::{
     agent::{Agent, HistoryStrategy},
+    budget::{BudgetTracker, BudgetZone},
     context::{ExecutionContext, SlotKey},
     executor::ExecutorDeps,
     graph::AgentGraph,
@@ -155,7 +156,7 @@ struct AgentNodeRunner<'a> {
     tool_error_counts: HashMap<String, u32>,
     max_tool_retries: u32,
     iterations: usize,
-    tool_turns: usize,
+    budget: BudgetTracker,
     final_response: Option<String>,
     handoff: Option<Handoff>,
     stop_reason: orka_core::stream::AgentStopReason,
@@ -255,7 +256,11 @@ impl<'a> AgentNodeRunner<'a> {
             tool_error_counts: HashMap::new(),
             max_tool_retries,
             iterations: 0,
-            tool_turns: 0,
+            budget: BudgetTracker::new(
+                agent.max_turns,
+                agent.max_budget_extensions,
+                agent.budget_extension_size,
+            ),
             final_response: None,
             handoff: None,
             stop_reason: orka_core::stream::AgentStopReason::Complete,
@@ -620,9 +625,13 @@ impl<'a> AgentNodeRunner<'a> {
         let mut results_map: HashMap<String, (String, bool)> = HashMap::new();
         let mut skill_calls: Vec<ToolCall> = Vec::new();
 
+        let mut plan_step_signal = PlanStepSignal::None;
         for call in &regular_calls {
-            if let Some(result) = handle_plan_tool(self.agent, self.ctx, call).await {
+            if let Some((result, signal)) =
+                handle_plan_tool(self.agent, self.ctx, call, &self.budget).await
+            {
                 results_map.insert(call.id.clone(), result);
+                plan_step_signal = signal;
             } else if let Some(result) =
                 handle_progressive_tool(call, self.progressive, &mut self.enabled_categories)
             {
@@ -691,22 +700,125 @@ impl<'a> AgentNodeRunner<'a> {
         )
         .await;
 
-        self.tool_turns += 1;
-        if self.tool_turns >= self.agent.max_turns {
-            warn!(
-                max_turns = self.agent.max_turns,
-                "agent reached max tool turns"
-            );
-            self.final_response = Some(format!(
-                "I've reached the maximum number of steps ({}) for this request. \
-                 Please try rephrasing or breaking the task into smaller parts.",
-                self.agent.max_turns
-            ));
-            self.stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
-            return Ok(IterationOutcome::Done);
+        // Notify budget of plan-step outcomes so dynamic extension can fire.
+        match plan_step_signal {
+            PlanStepSignal::None => {}
+            PlanStepSignal::Completed => self.budget.record_plan_step(true),
+            PlanStepSignal::Failed => self.budget.record_plan_step(false),
         }
 
-        Ok(IterationOutcome::Continue)
+        // Advance budget tracker and apply zone-based pressure logic.
+        // Costs come from Skill::budget_cost() where available; synthetic tools
+        // (plan, handoff, progressive-disclosure) use synthetic_tool_cost().
+        let batch_costs: Vec<(&str, crate::budget::StepCost)> = regular_calls
+            .iter()
+            .map(|c| {
+                let cost = self.deps.skills.get(&c.name).map_or_else(
+                    || crate::budget::synthetic_tool_cost(&c.name),
+                    |s| s.budget_cost(),
+                );
+                (c.name.as_str(), cost)
+            })
+            .collect();
+        let batch_inputs: Vec<(&str, &serde_json::Value)> = regular_calls
+            .iter()
+            .map(|c| (c.name.as_str(), &c.input))
+            .collect();
+        Ok(self.apply_budget_pressure(&batch_costs, &batch_inputs))
+    }
+
+    /// Record a tool-call batch against the budget tracker, inject any
+    /// necessary pressure hints into the message history, and return whether
+    /// the agent loop should continue or stop.
+    fn apply_budget_pressure(
+        &mut self,
+        costs: &[(&str, crate::budget::StepCost)],
+        inputs: &[(&str, &serde_json::Value)],
+    ) -> IterationOutcome {
+        self.budget.observe_calls(inputs);
+        let zone = self.budget.record_batch(costs);
+
+        if self.budget.loop_detected() {
+            warn!(agent = %self.agent.id, "loop detected — injecting redirect");
+            self.push_system_hint(
+                "[SYSTEM] Loop detected: you have repeated the same action multiple times. \
+                 This costs extra budget. Try a completely different approach."
+                    .to_string(),
+            );
+        }
+
+        if let Some(interval) = self.agent.reflection_interval {
+            let consumed = self.budget.consumed_steps();
+            if consumed > 0 && consumed.is_multiple_of(interval) {
+                let hint = format!(
+                    "[SYSTEM CHECKPOINT] {}. Assess: are you making progress toward \
+                     the goal? Should you change your approach?",
+                    self.budget.status_line()
+                );
+                self.push_system_hint(hint);
+            }
+        }
+
+        match zone {
+            BudgetZone::Normal => {}
+            BudgetZone::Warning => {
+                if !self.budget.warned {
+                    self.budget.warned = true;
+                    let hint = format!(
+                        "[SYSTEM] Budget notice: {}. Begin wrapping up your work and \
+                         move toward a final answer.",
+                        self.budget.status_line()
+                    );
+                    self.push_system_hint(hint);
+                }
+            }
+            BudgetZone::Critical => {
+                if !self.budget.concluded {
+                    self.budget.concluded = true;
+                    warn!(
+                        consumed = self.budget.consumed_steps(),
+                        limit = self.budget.effective_limit(),
+                        "agent reached budget limit — stripping tools for final conclusion"
+                    );
+                    self.tools.clear();
+                    self.plan_tools.clear();
+                    self.handoff_tools.clear();
+                    let hint = format!(
+                        "[SYSTEM] {}. This is your FINAL opportunity to respond. \
+                         You MUST provide a complete answer now — no further tool \
+                         calls are available.",
+                        self.budget.status_line()
+                    );
+                    self.push_system_hint(hint);
+                    self.stop_reason = orka_core::stream::AgentStopReason::SoftLimit;
+                }
+            }
+            BudgetZone::Exhausted => {
+                warn!(
+                    consumed = self.budget.consumed_steps(),
+                    limit = self.budget.effective_limit(),
+                    "agent exhausted budget — hard stop"
+                );
+                self.final_response = Some(format!(
+                    "I've reached the maximum number of steps ({}) for this request. \
+                     Please try rephrasing or breaking the task into smaller parts.",
+                    self.budget.effective_limit()
+                ));
+                self.stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
+                return IterationOutcome::Done;
+            }
+        }
+
+        IterationOutcome::Continue
+    }
+
+    /// Append a `[SYSTEM]` text block to the last message in the history.
+    fn push_system_hint(&mut self, text: String) {
+        if let Some(msg) = self.messages.last_mut()
+            && let ChatContent::Blocks(blocks) = &mut msg.content
+        {
+            blocks.push(ContentBlockInput::Text { text });
+        }
     }
 
     async fn execute_skill_batch_parallel(
@@ -1557,15 +1669,27 @@ fn push_tool_call_assistant_message(
     ));
 }
 
+/// Outcome of a plan step update — used to inform the `BudgetTracker` about
+/// plan progress so it can dynamically extend or shrink the budget.
+enum PlanStepSignal {
+    /// No plan-step status change (e.g. `create_plan` or `in_progress`).
+    None,
+    /// A plan step was marked completed.
+    Completed,
+    /// A plan step was marked failed or skipped.
+    Failed,
+}
+
 async fn handle_plan_tool(
     agent: &Agent,
     ctx: &ExecutionContext,
     call: &ToolCall,
-) -> Option<(String, bool)> {
+    budget: &BudgetTracker,
+) -> Option<((String, bool), PlanStepSignal)> {
     if call.name != "create_plan" && call.name != "update_plan_step" {
         return None;
     }
-    let result = match call.name.as_str() {
+    let (result, signal) = match call.name.as_str() {
         "create_plan" => {
             let goal = call
                 .input
@@ -1591,27 +1715,44 @@ async fn handle_plan_tool(
                         .collect()
                 })
                 .unwrap_or_default();
+            let n_steps = steps.len();
             let plan = Plan { goal, steps };
             let summary = plan.display_summary();
             if let Ok(json) = serde_json::to_value(&plan) {
                 ctx.set(&agent.id, SlotKey::shared(PLAN_SLOT), json).await;
             }
-            (format!("Plan created.\n{summary}"), false)
+            let budget_note = format!(
+                "\nBudget: {} ({} steps → ~{} tool calls each).",
+                budget.status_line(),
+                n_steps,
+                budget.budget_per_plan_step(n_steps)
+            );
+            (
+                (format!("Plan created.\n{summary}{budget_note}"), false),
+                PlanStepSignal::None,
+            )
         }
-        "update_plan_step" => execute_update_plan_step(agent, ctx, call).await,
+        "update_plan_step" => {
+            let (text, is_err, signal) = execute_update_plan_step(agent, ctx, call, budget).await;
+            ((text, is_err), signal)
+        }
         other => {
             tracing::warn!(call_name = %other, "unexpected plan-related tool call — skipped");
-            (format!("Error: unrecognized plan call '{other}'"), true)
+            (
+                (format!("Error: unrecognized plan call '{other}'"), true),
+                PlanStepSignal::None,
+            )
         }
     };
-    Some(result)
+    Some((result, signal))
 }
 
 async fn execute_update_plan_step(
     agent: &Agent,
     ctx: &ExecutionContext,
     call: &ToolCall,
-) -> (String, bool) {
+    budget: &BudgetTracker,
+) -> (String, bool, PlanStepSignal) {
     let step_id = call
         .input
         .get("step_id")
@@ -1630,29 +1771,48 @@ async fn execute_update_plan_step(
         .unwrap_or("")
         .to_string();
     let plan_key = SlotKey::shared(PLAN_SLOT);
+    let mut signal = PlanStepSignal::None;
     let updated = if let Some(json) = ctx.get(&plan_key).await {
         match serde_json::from_value::<Plan>(json) {
             Ok(mut plan) => {
                 if let Some(step) = plan.steps.iter_mut().find(|s| s.id == step_id) {
                     step.status = match status_str {
                         "in_progress" => StepStatus::InProgress,
-                        "failed" => StepStatus::Failed { summary },
-                        "skipped" => StepStatus::Skipped { summary },
-                        _ => StepStatus::Completed { summary },
+                        "failed" => {
+                            signal = PlanStepSignal::Failed;
+                            StepStatus::Failed { summary }
+                        }
+                        "skipped" => {
+                            signal = PlanStepSignal::Failed;
+                            StepStatus::Skipped { summary }
+                        }
+                        _ => {
+                            signal = PlanStepSignal::Completed;
+                            StepStatus::Completed { summary }
+                        }
                     };
                 }
+                let completed = plan
+                    .steps
+                    .iter()
+                    .filter(|s| matches!(s.status, StepStatus::Completed { .. }))
+                    .count();
+                let total = plan.steps.len();
                 let s = plan.display_summary();
                 if let Ok(json) = serde_json::to_value(&plan) {
                     ctx.set(&agent.id, plan_key, json).await;
                 }
-                s
+                format!(
+                    "{s}\n[Progress: {completed}/{total} steps done, {}]",
+                    budget.status_line()
+                )
             }
             Err(_) => "Error: plan data is corrupt.".to_string(),
         }
     } else {
         "Error: no active plan. Call create_plan first.".to_string()
     };
-    (updated, false)
+    (updated, false, signal)
 }
 
 fn handle_progressive_tool(
@@ -2178,11 +2338,17 @@ mod tests {
         // Queue enough tool-call responses to saturate max_turns.
         // The skill registry is empty so every tool call returns an error,
         // keeping the loop running until it hits the cap.
+        //
+        // With the soft-limit system the agent gets one extra "grace" iteration
+        // where tools are stripped and it is asked to conclude.  Because the
+        // mock still returns a tool-use response even with an empty tool list
+        // (real LLMs would not), the budget hits Exhausted on that grace turn
+        // and the hard stop fires.  So total iterations = max_turns + 1 = 4.
         let tool_resp = CompletionResponseBuilder::new()
             .tool_use("id1", "nonexistent", serde_json::json!({}))
             .stop_reason(StopReason::ToolUse)
             .build();
-        let mock = (0..5).fold(MockLlmClient::new(), |m, _| {
+        let mock = (0..6).fold(MockLlmClient::new(), |m, _| {
             m.with_tool_response(tool_resp.clone())
         });
 
@@ -2195,7 +2361,8 @@ mod tests {
 
         let result = run_agent_node(&agent, &ctx, &deps, &graph).await.unwrap();
 
-        assert_eq!(result.iterations, 3);
+        // 3 normal steps + 1 grace step = 4 iterations before hard stop.
+        assert_eq!(result.iterations, 4);
         assert_eq!(
             result.stop_reason,
             orka_core::stream::AgentStopReason::MaxTurns

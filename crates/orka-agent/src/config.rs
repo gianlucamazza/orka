@@ -237,6 +237,9 @@ async fn build_agent_from_def(
     agent.max_turns = cfg.max_turns;
     agent.llm_call_timeout_secs = cfg.llm_call_timeout_secs;
     agent.max_run_secs = cfg.max_run_secs;
+    agent.max_budget_extensions = cfg.max_budget_extensions;
+    agent.budget_extension_size = cfg.budget_extension_size;
+    agent.reflection_interval = cfg.reflection_interval;
 
     let thinking = cfg
         .thinking

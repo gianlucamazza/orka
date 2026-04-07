@@ -99,6 +99,19 @@ pub struct AgentConfig {
     /// Maximum concurrent skill invocations (reserved for future use).
     #[serde(default)]
     pub max_concurrent_skills: Option<usize>,
+    /// Maximum budget extensions granted when the agent completes plan steps
+    /// while under budget pressure (default: 2). Each extension adds
+    /// `budget_extension_size` turns to the effective limit.
+    #[serde(default = "defaults::default_max_budget_extensions")]
+    pub max_budget_extensions: usize,
+    /// Turns added per budget extension (default: 5).
+    #[serde(default = "defaults::default_budget_extension_size")]
+    pub budget_extension_size: usize,
+    /// Steps between self-reflection checkpoints injected into LLM context
+    /// (default: `None` — disabled). When set to e.g. `7`, a progress hint is
+    /// injected every 7 consumed steps prompting the agent to reassess.
+    #[serde(default)]
+    pub reflection_interval: Option<usize>,
 }
 
 impl Default for AgentConfig {
@@ -123,6 +136,9 @@ impl Default for AgentConfig {
             llm_call_timeout_secs: defaults::default_llm_call_timeout_secs(),
             max_run_secs: None,
             max_concurrent_skills: None,
+            max_budget_extensions: defaults::default_max_budget_extensions(),
+            budget_extension_size: defaults::default_budget_extension_size(),
+            reflection_interval: None,
         }
     }
 }

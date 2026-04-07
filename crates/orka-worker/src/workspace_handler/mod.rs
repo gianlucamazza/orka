@@ -9,6 +9,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use orka_agent::budget::{BudgetTracker, BudgetZone, synthetic_tool_cost};
 use orka_core::{
     CommandArgs, DomainEvent, DomainEventKind, Envelope, MemoryEntry, MemoryScope, OutboundMessage,
     Payload, Result, Session, SessionId,
@@ -607,6 +608,9 @@ impl AgentHandler for WorkspaceHandler {
         let soul_model = agent.model.clone();
         let soul_max_tokens = agent.max_tokens;
         let max_turns = agent.max_turns;
+        let max_budget_extensions = agent.max_budget_extensions;
+        let budget_extension_size = agent.budget_extension_size;
+        let reflection_interval = agent.reflection_interval;
         let context_window = self.default_context_window;
 
         // Apply input guardrail
@@ -627,7 +631,7 @@ impl AgentHandler for WorkspaceHandler {
 
         // If LLM is configured, run the agent loop
         if let Some(ref llm) = self.llm {
-            let tools = self.build_tool_definitions();
+            let mut tools = self.build_tool_definitions();
 
             // Load conversation history, summary, and token usage in parallel
             let memory_key = format!("conversation:{}", session.id);
@@ -847,7 +851,8 @@ impl AgentHandler for WorkspaceHandler {
             // Track per-tool-name consecutive error counts for self-correction
             let mut tool_error_counts: HashMap<String, u32> = HashMap::new();
             let mut lm_calls: usize = 0;
-            let mut tool_turns_count: usize = 0;
+            let mut step_budget =
+                BudgetTracker::new(max_turns, max_budget_extensions, budget_extension_size);
             loop {
                 let iteration = lm_calls;
                 lm_calls += 1;
@@ -1137,6 +1142,99 @@ impl AgentHandler for WorkspaceHandler {
                     corrected_blocks.push(ContentBlockInput::Text { text: hint });
                 }
 
+                // Compute per-call costs from Skill::budget_cost() or synthetic fallback,
+                // then apply zone-based budget pressure before committing to messages.
+                let batch_costs: Vec<(&str, f32)> = tool_calls
+                    .iter()
+                    .map(|c| {
+                        let cost = self
+                            .skills
+                            .get(&c.name)
+                            .map_or_else(|| synthetic_tool_cost(&c.name), |s| s.budget_cost());
+                        (c.name.as_str(), cost)
+                    })
+                    .collect();
+                let batch_inputs: Vec<(&str, &serde_json::Value)> = tool_calls
+                    .iter()
+                    .map(|c| (c.name.as_str(), &c.input))
+                    .collect();
+                step_budget.observe_calls(&batch_inputs);
+                let zone = step_budget.record_batch(&batch_costs);
+
+                if step_budget.loop_detected() {
+                    warn!("workspace handler loop detected — injecting redirect");
+                    corrected_blocks.push(ContentBlockInput::Text {
+                        text: "[SYSTEM] Loop detected: you have repeated the same action \
+                               multiple times. This costs extra budget. Try a completely \
+                               different approach."
+                            .to_string(),
+                    });
+                }
+
+                if let Some(interval) = reflection_interval {
+                    let consumed = step_budget.consumed_steps();
+                    if consumed > 0 && consumed.is_multiple_of(interval) {
+                        corrected_blocks.push(ContentBlockInput::Text {
+                            text: format!(
+                                "[SYSTEM CHECKPOINT] {}. Assess: are you making progress \
+                                 toward the goal? Should you change your approach?",
+                                step_budget.status_line()
+                            ),
+                        });
+                    }
+                }
+
+                let should_break = match zone {
+                    BudgetZone::Normal => false,
+                    BudgetZone::Warning => {
+                        if !step_budget.warned {
+                            step_budget.warned = true;
+                            corrected_blocks.push(ContentBlockInput::Text {
+                                text: format!(
+                                    "[SYSTEM] Budget notice: {}. Begin wrapping up your work \
+                                     and move toward a final answer.",
+                                    step_budget.status_line()
+                                ),
+                            });
+                        }
+                        false
+                    }
+                    BudgetZone::Critical => {
+                        if !step_budget.concluded {
+                            step_budget.concluded = true;
+                            warn!(
+                                consumed = step_budget.consumed_steps(),
+                                limit = step_budget.effective_limit(),
+                                "workspace handler reached budget limit — forcing conclusion"
+                            );
+                            tools = vec![];
+                            corrected_blocks.push(ContentBlockInput::Text {
+                                text: format!(
+                                    "[SYSTEM] {}. This is your FINAL opportunity to respond. \
+                                     You MUST provide a complete answer now — no further tool \
+                                     calls are available.",
+                                    step_budget.status_line()
+                                ),
+                            });
+                            agent_stop_reason = orka_core::stream::AgentStopReason::SoftLimit;
+                        }
+                        false
+                    }
+                    BudgetZone::Exhausted => {
+                        warn!(
+                            max_turns,
+                            "workspace handler exhausted step budget — hard stop"
+                        );
+                        final_text = format!(
+                            "I've reached the maximum number of steps ({}) for this request. \
+                             Please try rephrasing or breaking the task into smaller parts.",
+                            step_budget.effective_limit()
+                        );
+                        agent_stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
+                        true
+                    }
+                };
+
                 // Add tool results as a user message
                 messages.push(ChatMessage::new(
                     orka_llm::client::Role::User,
@@ -1154,10 +1252,7 @@ impl AgentHandler for WorkspaceHandler {
                     }))
                     .await;
 
-                tool_turns_count += 1;
-                if tool_turns_count >= max_turns {
-                    warn!(max_turns, "agent loop reached max tool turns");
-                    agent_stop_reason = orka_core::stream::AgentStopReason::MaxTurns;
+                if should_break {
                     break;
                 }
             }

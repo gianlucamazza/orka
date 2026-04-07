@@ -143,6 +143,8 @@ pub enum AgentStopReason {
     Complete,
     /// Agent loop exhausted `max_turns`.
     MaxTurns,
+    /// Agent was warned of budget pressure and forced to conclude gracefully.
+    SoftLimit,
     /// The LLM's final response was truncated by the output token limit.
     MaxTokens,
     /// Human-in-the-loop interrupt.

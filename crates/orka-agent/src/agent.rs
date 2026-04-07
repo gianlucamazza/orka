@@ -234,6 +234,12 @@ pub struct Agent {
     /// Maximum wall-clock run time in seconds across all iterations.
     /// `None` means no limit beyond `max_turns`.
     pub max_run_secs: Option<u64>,
+    /// Maximum budget extensions granted for plan progress (default: 2).
+    pub max_budget_extensions: usize,
+    /// Turns added per budget extension (default: 5).
+    pub budget_extension_size: usize,
+    /// Steps between self-reflection checkpoints (default: None = disabled).
+    pub reflection_interval: Option<usize>,
 }
 
 impl Agent {
@@ -259,6 +265,9 @@ impl Agent {
             tool_result_max_chars: 50_000,
             llm_call_timeout_secs: 120,
             max_run_secs: None,
+            max_budget_extensions: 2,
+            budget_extension_size: 5,
+            reflection_interval: None,
         }
     }
 }

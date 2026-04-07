@@ -559,6 +559,11 @@ async fn termination_terminal_agent_policy() {
 
 /// When an agent exhausts `max_turns` without producing a final response, the
 /// graph terminates instead of re-scheduling the same node.
+///
+/// With the soft-limit system the agent gets one extra "grace" iteration where
+/// tools are stripped so the LLM can wrap up.  The mock queue must therefore
+/// contain two tool-call responses so that both the normal step and the grace
+/// step hit the dispatcher and the budget reaches `Exhausted`.
 #[tokio::test]
 async fn max_turns_stops_graph_without_rerunning_agent() {
     let a = AgentId::new("a");
@@ -582,10 +587,18 @@ async fn max_turns_stops_graph_without_rerunning_agent() {
         },
     );
 
-    let llm = Arc::new(MockLlm::new(vec![MockResp::ToolCallResp {
-        name: "nonexistent".into(),
-        input: serde_json::json!({}),
-    }]));
+    // Two tool-call responses: one for the normal step and one for the grace
+    // conclusion step (the mock ignores the empty tool list).
+    let llm = Arc::new(MockLlm::new(vec![
+        MockResp::ToolCallResp {
+            name: "nonexistent".into(),
+            input: serde_json::json!({}),
+        },
+        MockResp::ToolCallResp {
+            name: "nonexistent".into(),
+            input: serde_json::json!({}),
+        },
+    ]));
     let ctx = make_ctx();
     let result = GraphExecutor::new(make_deps(llm))
         .execute(&graph, &ctx)

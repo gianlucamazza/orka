@@ -2,6 +2,7 @@
 #![warn(missing_docs)]
 
 pub mod agent;
+pub mod budget;
 pub mod config;
 pub mod context;
 mod context_adapters;
