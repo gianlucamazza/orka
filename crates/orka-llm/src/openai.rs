@@ -670,6 +670,32 @@ impl LlmClient for OpenAiClient {
                                 Err(_) => continue,
                             };
 
+                            // Usage — must be checked before the choices guard because
+                            // OpenAI sends a final dedicated chunk with `choices: []`
+                            // and a populated `usage` object when
+                            // `stream_options.include_usage` is set.
+                            if let Some(usage) = event["usage"].as_object() {
+                                let reasoning_tokens =
+                                    event["usage"]["completion_tokens_details"]["reasoning_tokens"]
+                                        .as_u64()
+                                        .unwrap_or(0) as u32;
+                                events.push(StreamEvent::Usage(Usage {
+                                    input_tokens: usage
+                                        .get("prompt_tokens")
+                                        .and_then(serde_json::Value::as_u64)
+                                        .unwrap_or(0)
+                                        as u32,
+                                    output_tokens: usage
+                                        .get("completion_tokens")
+                                        .and_then(serde_json::Value::as_u64)
+                                        .unwrap_or(0)
+                                        as u32,
+                                    cache_read_input_tokens: 0,
+                                    cache_creation_input_tokens: 0,
+                                    reasoning_tokens,
+                                }));
+                            }
+
                             let Some(choice) = event["choices"].as_array().and_then(|a| a.first())
                             else {
                                 continue;
@@ -756,29 +782,6 @@ impl LlmClient for OpenAiClient {
                                 } else if reason == "length" {
                                     events.push(StreamEvent::Stop(StopReason::MaxTokens));
                                 }
-                            }
-
-                            // Usage (some OpenAI responses include it in the final chunk)
-                            if let Some(usage) = event["usage"].as_object() {
-                                let reasoning_tokens =
-                                    event["usage"]["completion_tokens_details"]["reasoning_tokens"]
-                                        .as_u64()
-                                        .unwrap_or(0) as u32;
-                                events.push(StreamEvent::Usage(Usage {
-                                    input_tokens: usage
-                                        .get("prompt_tokens")
-                                        .and_then(serde_json::Value::as_u64)
-                                        .unwrap_or(0)
-                                        as u32,
-                                    output_tokens: usage
-                                        .get("completion_tokens")
-                                        .and_then(serde_json::Value::as_u64)
-                                        .unwrap_or(0)
-                                        as u32,
-                                    cache_read_input_tokens: 0,
-                                    cache_creation_input_tokens: 0,
-                                    reasoning_tokens,
-                                }));
                             }
                         }
                         Ok(events)
