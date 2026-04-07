@@ -36,6 +36,10 @@ impl Skill for ProcessListSkill {
         "List running processes with CPU and memory usage."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",
@@ -154,6 +158,10 @@ impl Skill for ProcessInfoSkill {
 
     fn description(&self) -> &'static str {
         "Get detailed information about a specific process by PID."
+    }
+
+    fn budget_cost(&self) -> f32 {
+        0.5
     }
 
     fn schema(&self) -> SkillSchema {

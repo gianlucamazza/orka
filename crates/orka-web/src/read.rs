@@ -51,6 +51,10 @@ impl Skill for WebReadSkill {
         "Fetch and read a web page. Returns extracted readable text from the URL. Use start_index to paginate through long pages."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",

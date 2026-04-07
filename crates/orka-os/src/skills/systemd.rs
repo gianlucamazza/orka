@@ -48,6 +48,10 @@ impl Skill for ServiceStatusSkill {
         "Get the status of a systemd service."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",
@@ -112,6 +116,10 @@ impl Skill for ServiceListSkill {
 
     fn description(&self) -> &'static str {
         "List systemd service units."
+    }
+
+    fn budget_cost(&self) -> f32 {
+        0.5
     }
 
     fn schema(&self) -> SkillSchema {
@@ -179,6 +187,10 @@ impl Skill for JournalReadSkill {
 
     fn description(&self) -> &'static str {
         "Read systemd journal logs. Can filter by unit, time range, and priority."
+    }
+
+    fn budget_cost(&self) -> f32 {
+        0.5
     }
 
     fn schema(&self) -> SkillSchema {

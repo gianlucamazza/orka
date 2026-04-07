@@ -40,6 +40,10 @@ impl Skill for GitBlameSkill {
          Optionally limit to a line range."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",
@@ -208,6 +212,10 @@ impl Skill for GitGrepSkill {
     fn description(&self) -> &'static str {
         "Search for a pattern in tracked files using git grep. \
          Faster than filesystem grep because it searches only indexed files."
+    }
+
+    fn budget_cost(&self) -> f32 {
+        0.5
     }
 
     fn schema(&self) -> SkillSchema {

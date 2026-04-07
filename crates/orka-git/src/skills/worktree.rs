@@ -131,6 +131,10 @@ impl Skill for GitWorktreeListSkill {
         "List all active git worktrees with their paths, branches, and metadata."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",

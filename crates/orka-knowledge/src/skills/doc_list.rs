@@ -36,6 +36,10 @@ impl Skill for ListDocumentsSkill {
         "List documents that have been ingested into the knowledge base."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",

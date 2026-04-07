@@ -44,6 +44,10 @@ impl Skill for GitLogSkill {
          and file path. Returns structured commit entries."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",

@@ -34,6 +34,10 @@ impl Skill for NetworkInfoSkill {
         "List network interfaces with their traffic statistics."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",
@@ -90,6 +94,10 @@ impl Skill for NetworkCheckSkill {
 
     fn description(&self) -> &'static str {
         "Check network connectivity to a host by attempting a TCP connection."
+    }
+
+    fn budget_cost(&self) -> f32 {
+        0.5
     }
 
     fn schema(&self) -> SkillSchema {

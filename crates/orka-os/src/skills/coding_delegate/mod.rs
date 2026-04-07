@@ -240,6 +240,10 @@ impl Skill for CodingDelegateSkill {
         "Delegate a complete coding task through Orka's coding router. Orka selects the configured provider, executes the task, and returns a normalized summary."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.0
+    }
+
     fn schema(&self) -> SkillSchema {
         schema()
     }

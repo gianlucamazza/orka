@@ -45,6 +45,10 @@ impl Skill for GitBranchListSkill {
          Marks the currently checked-out branch."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",

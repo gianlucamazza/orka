@@ -78,6 +78,10 @@ impl Skill for PackageSearchSkill {
         "Search for packages in the system package manager."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",
@@ -162,6 +166,10 @@ impl Skill for PackageInfoSkill {
         "Get detailed information about an installed or available package."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",
@@ -244,6 +252,10 @@ impl Skill for PackageListSkill {
 
     fn description(&self) -> &'static str {
         "List installed packages, optionally filtered."
+    }
+
+    fn budget_cost(&self) -> f32 {
+        0.5
     }
 
     fn schema(&self) -> SkillSchema {
@@ -353,6 +365,10 @@ impl Skill for PackageUpdatesSkill {
 
     fn description(&self) -> &'static str {
         "Check for available package updates."
+    }
+
+    fn budget_cost(&self) -> f32 {
+        0.5
     }
 
     fn schema(&self) -> SkillSchema {

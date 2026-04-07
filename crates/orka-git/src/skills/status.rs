@@ -36,6 +36,10 @@ impl Skill for GitStatusSkill {
          and current branch info (ahead/behind counts)."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",

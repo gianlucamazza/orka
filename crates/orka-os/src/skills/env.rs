@@ -35,6 +35,10 @@ impl Skill for EnvGetSkill {
         "Get the value of an environment variable."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",
@@ -93,6 +97,10 @@ impl Skill for EnvListSkill {
 
     fn description(&self) -> &'static str {
         "List environment variables. Sensitive values are masked."
+    }
+
+    fn budget_cost(&self) -> f32 {
+        0.5
     }
 
     fn schema(&self) -> SkillSchema {

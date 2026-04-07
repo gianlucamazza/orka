@@ -59,6 +59,10 @@ impl Skill for FsReadSkill {
         "Read a file's contents. Supports text (UTF-8) and binary (base64) encoding."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",
@@ -188,6 +192,10 @@ impl Skill for FsListSkill {
 
     fn description(&self) -> &'static str {
         "List files and directories at a given path."
+    }
+
+    fn budget_cost(&self) -> f32 {
+        0.5
     }
 
     fn schema(&self) -> SkillSchema {
@@ -341,6 +349,10 @@ impl Skill for FsInfoSkill {
         "Get detailed metadata for a file or directory (size, type, permissions, timestamps)."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",
@@ -429,6 +441,10 @@ impl Skill for FsSearchSkill {
 
     fn description(&self) -> &'static str {
         "Search for files by name (glob), or search file contents for a pattern."
+    }
+
+    fn budget_cost(&self) -> f32 {
+        0.5
     }
 
     fn schema(&self) -> SkillSchema {

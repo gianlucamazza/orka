@@ -129,6 +129,10 @@ impl Skill for DesktopScreenshotSkill {
         "Take a screenshot of the desktop. Uses grim (Wayland) or scrot (X11)."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",

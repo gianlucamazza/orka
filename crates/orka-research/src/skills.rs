@@ -154,6 +154,10 @@ impl Skill for CandidateCompareSkill {
         "Compare baseline and candidate metrics deterministically and report whether the candidate should be kept."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",

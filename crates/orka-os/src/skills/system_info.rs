@@ -32,6 +32,10 @@ impl Skill for SystemInfoSkill {
         "Get system information: CPU, memory, disk, network interfaces, OS details, and uptime."
     }
 
+    fn budget_cost(&self) -> f32 {
+        0.5
+    }
+
     fn schema(&self) -> SkillSchema {
         SkillSchema::new(serde_json::json!({
             "type": "object",
