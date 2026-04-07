@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-04-07
+
+### Added
+
+- Adaptive budget management: `BudgetTracker` replaces flat `max_turns` with weighted
+  skill costs, graduated pressure zones (Normal/Warning/Critical/Exhausted), dynamic
+  extensions, and loop detection
+- `Skill::budget_cost()` trait method — all built-in skills declare their cost weight
+  (read-only = 0.5, delegation = 0.0)
+- `AgentStopReason::SoftLimit` stream event for budget-exhausted stops
+- Secret management API: `GET/POST/DELETE /api/v1/secrets` — CLI `orka secret` commands
+  now route through the server, enabling remote secret management
+- Research campaign CLI commands wired up (`orka research campaign/run/candidate/promotion`)
+- `/reset` slash command registered in the worker command registry
+
+### Changed
+
+- CLI `orka secret` bypasses the local store no longer; all operations go through the
+  server API (requires server ≥ 1.8.0)
+- `OrkaClient::delete_ok` convenience method added alongside `get_json` and `post_json`
+- Lazy adapter client construction — the HTTP adapter client is only built for `send`
+  and `chat` subcommands
+- `workspace_cmd` module renamed to `workspace`; local discovery moved to `ws_discovery`
+- `runtime_secret_config` extracted to `cmd::util` — no more duplication between
+  `secret.rs` and `mcp_serve.rs`
+
+### Removed
+
+- Standalone `orka sudo` command (SEC-004/SEC-005 in `orka doctor` cover the same checks)
+- `orka version --check` flag (use `orka update --check` for dry-run update checks)
+- Legacy WASM plugin ABI v2 (`plugin_abi.rs`) — replaced by the WIT Component Model
+- Dead `guard` field from `GitBranchListSkill`
+- Dead `started_at`/`has_streamed()` from `ChatRenderer`
+
+### Fixed
+
+- Stale `#[allow(dead_code)]` annotations removed from `memory_store.rs` and `jsonrpc.rs`
+- `#[cfg(not(unix))]`-scoped `warn` import in `worktree.rs` — no more `unused_imports`
+  suppression
+
 ## [1.7.0] - 2026-04-05
 
 ### Added
