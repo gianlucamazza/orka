@@ -5,92 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-04-08
+
+### Added
+
+- add ollama-cloud provider
+
+### Fixed
+
+- complete PlatformContext propagation to outbound path
+- parse OpenAI streaming usage before choices guard
+- flatten release.toml — remove invalid [workspace] section
+- run hook from workspace root — cd to git toplevel
 ## [1.9.0] - 2026-04-07
 
 ### Added
 
-- **`orka-contracts` crate** — new shared contract layer with canonical types:
-  `PlatformContext`, `InboundInteraction`, `TrustLevel`, `IntegrationClass`,
-  `Capability`, `CapabilitySet`, `RealtimeEvent` (snake_case, adjacently-tagged),
-  `SenderInfo`, `TraceContext`, and all interaction content variants
-- **Trust-level enforcement in gateway** — inbound envelopes claiming
-  `TrustLevel::UserAuthenticated` from any channel other than `"mobile"` are
-  dropped with a warning; 4 unit tests cover all trust scenarios
-- **`AdapterInfo`** exposed on `GET /api/v1/info` with per-adapter
-  `channel_id`, `integration_class`, `trust_level`, and `capabilities`
-- **OpenAPI schema** for `AdapterInfo`, `ServerFeatures`, `ServerInfo`,
-  `TrustLevel`, `IntegrationClass`, and `Capability`
-- `ChannelAdapter` trait methods: `capabilities()`, `integration_class()`,
-  `trust_level()` — all adapters implement them with correct defaults
+- adaptive budget management with weighted costs and loop detection
+- add budget_cost annotations to all skills
+- wire up research campaign commands
+- register /reset slash command
+- add secret management API endpoints
+- introduce orka-contracts crate and modernize core types
+- trust enforcement, AdapterInfo, RealtimeEvent unification
 
 ### Changed
 
-- **Adapters split into modular files**: Discord, Slack, and WhatsApp monolithic
-  `lib.rs` files (700–1200 LOC) are split into `api.rs`, `types.rs`, and
-  `gateway.rs`/`webhook.rs` — `lib.rs` is now a thin coordinator only
-- **Trust wiring** — all 5 adapters (Telegram, Discord, Slack, WhatsApp, Custom)
-  thread `trust_level()` through internal state into every `PlatformContext`
-  construction site (9 sites total); every `InboundInteraction` now carries
-  `trust_level: Some(...)`
-- **`MobileEventHub` now carries `RealtimeEvent` directly** — `MobileStreamEvent`
-  deleted; both mobile SSE and custom WebSocket use the same canonical type
-- `Envelope.platform_context: Option<PlatformContext>` replaces scattered
-  platform-specific metadata keys (`telegram_chat_id`, `slack_channel`, etc.)
-- CLI streaming protocol updated to consume `RealtimeEvent` variants directly
-
-### Removed
-
-- `MobileStreamEvent` — superseded by `RealtimeEvent` from `orka-contracts`
-
-## [1.8.0] - 2026-04-07
-
-### Added
-
-- Adaptive budget management: `BudgetTracker` replaces flat `max_turns` with weighted
-  skill costs, graduated pressure zones (Normal/Warning/Critical/Exhausted), dynamic
-  extensions, and loop detection
-- `Skill::budget_cost()` trait method — all built-in skills declare their cost weight
-  (read-only = 0.5, delegation = 0.0)
-- `AgentStopReason::SoftLimit` stream event for budget-exhausted stops
-- Secret management API: `GET/POST/DELETE /api/v1/secrets` — CLI `orka secret` commands
-  now route through the server, enabling remote secret management
-- Research campaign CLI commands wired up (`orka research campaign/run/candidate/promotion`)
-- `/reset` slash command registered in the worker command registry
-
-### Changed
-
-- CLI `orka secret` bypasses the local store no longer; all operations go through the
-  server API (requires server ≥ 1.8.0)
-- `OrkaClient::delete_ok` convenience method added alongside `get_json` and `post_json`
-- Lazy adapter client construction — the HTTP adapter client is only built for `send`
-  and `chat` subcommands
-- `workspace_cmd` module renamed to `workspace`; local discovery moved to `ws_discovery`
-- `runtime_secret_config` extracted to `cmd::util` — no more duplication between
-  `secret.rs` and `mcp_serve.rs`
-
-### Removed
-
-- Standalone `orka sudo` command (SEC-004/SEC-005 in `orka doctor` cover the same checks)
-- `orka version --check` flag (use `orka update --check` for dry-run update checks)
-- Legacy WASM plugin ABI v2 (`plugin_abi.rs`) — replaced by the WIT Component Model
-- Dead `guard` field from `GitBranchListSkill`
-- Dead `started_at`/`has_streamed()` from `ChatRenderer`
-
-### Fixed
-
-- Stale `#[allow(dead_code)]` annotations removed from `memory_store.rs` and `jsonrpc.rs`
-- `#[cfg(not(unix))]`-scoped `warn` import in `worktree.rs` — no more `unused_imports`
-  suppression
-
+- remove dead code, unused deps, and stale annotations
+- rename workspace_cmd module to workspace
+- extract shared runtime_secret_config helper
+- lazy adapter_client construction
+- remove standalone sudo command
+- consolidate update check into Update command
+- standardize HTTP response handling
+- split monolithic files and wire trust-level
+- adopt RealtimeEvent streaming contract
 ## [1.7.0] - 2026-04-05
 
 ### Added
 
-- `server.public_url`: optional config field that overrides the URL embedded in mobile
-  pairing QR codes; when set, the server's canonical public URL is used instead of the
-  URL supplied by the CLI, enabling reliable pairing via Tailscale, reverse proxies, or
-  any hostname that differs from the CLI's `--server` address
-
+- add server.public_url for stable pairing QR codes
 ## [1.6.0] - 2026-04-05
 
 ### Added
@@ -100,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - auto-migrate plaintext secrets when encryption key is added
+- correct maintainer name and email
 
 ### Changed
 
@@ -437,6 +392,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - remove hardcoded user home paths from tests and config
 - move homelab registry URL out of Justfile into env var
+[1.10.0]: https://github.com/gianlucamazza/orka/compare/v1.9.0...v1.10.0
+[1.9.0]: https://github.com/gianlucamazza/orka/compare/v1.7.0...v1.9.0
+[1.7.0]: https://github.com/gianlucamazza/orka/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/gianlucamazza/orka/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/gianlucamazza/orka/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/gianlucamazza/orka/compare/v1.3.0...v1.4.0
