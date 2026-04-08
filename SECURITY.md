@@ -48,7 +48,7 @@ Please include:
 **Out of scope:**
 
 - Denial-of-service against a self-hosted instance you control
-- Security of third-party LLM providers (Anthropic, OpenAI, Ollama)
+- Security of third-party LLM providers (Anthropic, OpenAI, Ollama, Ollama Cloud)
 - Issues requiring physical access to the host machine
 
 ## Security Architecture

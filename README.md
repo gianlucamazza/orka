@@ -62,7 +62,7 @@ flowchart TD
             Exp["Experience<br/>Principles + Reflection"]
         end
         Loop["Agentic Loop<br/>LLM call → stream → tool calls → repeat"]
-        LLM["LLM Router<br/>Anthropic · OpenAI · Ollama<br/>Circuit Breaker per provider"]
+        LLM["LLM Router<br/>Anthropic · OpenAI · Ollama · Ollama Cloud<br/>Circuit Breaker per provider"]
         Skills["Skill Registry<br/>Shell · Code · Web · HTTP · Knowledge<br/>Schedule · MCP · Filesystem · System · WASM"]
         Loop --> LLM
         Loop --> Skills
@@ -96,7 +96,7 @@ For a detailed description of each subsystem and their interactions, see [docs/r
 
 - **Multi-channel messaging** — Telegram, Discord, Slack, WhatsApp, custom HTTP/WebSocket
 - **Priority queue** — Redis Sorted Sets with Urgent / Normal / Background lanes
-- **LLM integration** — Anthropic Claude, OpenAI, and Ollama (OpenAI-compatible) with streaming support
+- **LLM integration** — Anthropic Claude, OpenAI, Ollama, and Ollama Cloud (OpenAI-compatible) with streaming support
 - **Skill system** — Pluggable skills with schema validation and WASM plugin support
 - **MCP server** — Model Context Protocol over JSON-RPC 2.0
 - **A2A protocol** — Agent-to-Agent communication
@@ -338,7 +338,7 @@ orka/
 │   ├── orka-memory/          # Key-value memory store
 │   ├── orka-secrets/         # Secret management (AES-256-GCM)
 │   ├── orka-workspace/       # Workspace loader & watcher
-│   ├── orka-llm/             # LLM providers (Anthropic, Moonshot, OpenAI, Ollama)
+│   ├── orka-llm/             # LLM providers (Anthropic, Moonshot, OpenAI, Ollama, Ollama Cloud)
 │   ├── orka-mcp/             # Model Context Protocol server
 │   ├── orka-a2a/             # Agent-to-Agent protocol
 │   ├── orka-guardrails/      # Input/output guardrails
@@ -391,7 +391,7 @@ Some root files exist for local tool integration rather than core runtime archit
 
 Orka does not collect telemetry, usage data, or analytics of any kind. No data leaves your infrastructure unless you explicitly configure it to do so.
 
-- **LLM API calls** are made directly from your deployment to the provider you configure (Anthropic, Moonshot, OpenAI, Ollama, etc.). Orka does not proxy or inspect these requests.
+- **LLM API calls** are made directly from your deployment to the provider you configure (Anthropic, Moonshot, OpenAI, Ollama, Ollama Cloud, etc.). Orka does not proxy or inspect these requests.
 - **Messages and sessions** are stored in your own Redis instance. Nothing is sent to third-party services without your configuration.
 - **WASM plugins** run in a sandboxed environment with explicit memory and CPU limits. They cannot make outbound network calls unless the host grants access.
 - **Knowledge base** (RAG) data is stored in your own Qdrant instance.

@@ -318,7 +318,7 @@ Each `[[llm.providers]]` supports:
 | Key | Type | Notes |
 | --- | --- | --- |
 | `name` | `string` | Unique provider name |
-| `provider` | `string` | `anthropic`, `moonshot`, `openai`, `ollama`, etc. |
+| `provider` | `string` | `anthropic`, `moonshot`, `openai`, `ollama`, `ollama-cloud`, etc. |
 | `auth_kind` | `enum` | `auto`, `api_key`, `auth_token`, `subscription`, `cli` |
 | `base_url` | `string?` | Optional override |
 | `model` | `string?` | Default model for that provider |

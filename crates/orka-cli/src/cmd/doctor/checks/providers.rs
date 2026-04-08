@@ -72,7 +72,7 @@ impl DoctorCheck for PrvApiKeysResolvable {
         let mut sources = Vec::new();
 
         for provider in &config.llm.providers {
-            // Ollama doesn't need an API key
+            // Local Ollama doesn't need an API key
             if provider.provider == "ollama" {
                 sources.push(format!("{}: no key required (ollama)", provider.name));
                 continue;
@@ -293,6 +293,7 @@ async fn probe_provider_url(
         "openai" => base_url.unwrap_or("https://api.openai.com"),
         "moonshot" => base_url.unwrap_or("https://api.moonshot.ai"),
         "ollama" => base_url.unwrap_or("http://localhost:11434"),
+        "ollama-cloud" => base_url.unwrap_or("https://ollama.com"),
         _ => match base_url {
             Some(url) => url,
             None => return "unknown provider",

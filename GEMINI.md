@@ -23,7 +23,7 @@ The system follows a **Modular Monolith** architecture that is **Distributed-Rea
 - **Web Framework:** `axum`
 - **Messaging & State:** `redis` (Streams, Sorted Sets, KV)
 - **Vector Database:** `qdrant-client`
-- **LLM Integration:** Abstracted providers (Anthropic, OpenAI, Ollama)
+- **LLM Integration:** Abstracted providers (Anthropic, OpenAI, Ollama, Ollama Cloud)
 - **Sandboxing:** `wasmtime` (WASM Component Model)
 - **Observability:** `opentelemetry`, `prometheus`, `tracing`
 - **Serialization:** `serde`, `serde_json`
@@ -109,7 +109,7 @@ The workspace is organized into specialized crates in the `crates/` directory:
 | **`orka-bus`** | Message bus implementation (Redis Streams + in-memory). |
 | **`orka-server`** | Main entry point and API server. |
 | **`orka-worker`** | Worker pool implementation and agent supervisor. |
-| **`orka-llm`** | LLM provider abstractions (Anthropic, OpenAI, Ollama). |
+| **`orka-llm`** | LLM provider abstractions (Anthropic, OpenAI, Ollama, Ollama Cloud). |
 | **`orka-memory`** | Long-term memory and session storage. |
 | **`orka-knowledge`** | RAG pipeline — document ingestion, embeddings, semantic search via Qdrant. |
 | **`orka-experience`** | Self-learning loop — trajectory recording, LLM reflection, offline distillation. |

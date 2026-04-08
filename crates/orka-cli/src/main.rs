@@ -61,7 +61,7 @@ struct Cli {
 enum Commands {
     /// Initialize Orka with a guided LLM-driven configuration wizard
     Init {
-        /// LLM provider (anthropic, openai, google, ollama, custom)
+        /// LLM provider (anthropic, openai, google, ollama, ollama-cloud, custom)
         #[arg(long)]
         provider: Option<String>,
         /// API key (skip interactive prompt)
@@ -70,7 +70,7 @@ enum Commands {
         /// Model override
         #[arg(long)]
         model: Option<String>,
-        /// Base URL (for ollama/custom OpenAI-compatible providers)
+        /// Base URL (for ollama/ollama-cloud/custom OpenAI-compatible providers)
         #[arg(long)]
         base_url: Option<String>,
         /// Output path for the generated config

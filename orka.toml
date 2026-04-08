@@ -196,6 +196,13 @@ max_retries = 3
 # model = "llama3"
 # base_url = "http://localhost:11434/v1"
 
+# [[llm.providers]]
+# name = "ollama-cloud"
+# provider = "ollama-cloud"
+# model = "llama3.3:70b"
+# api_key_env = "OLLAMA_API_KEY"          # from ollama.com/settings/keys
+# base_url = "https://ollama.com/v1"      # default, can be omitted
+
 [web]
 search_provider = "tavily"
 api_key_env = "TAVILY_API_KEY"

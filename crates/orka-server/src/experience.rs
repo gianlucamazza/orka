@@ -93,7 +93,7 @@ pub(crate) fn create_experience_service(
                     .to_string()
             }),
         )),
-        "ollama" => Arc::new(orka_llm::OllamaClient::new(model)),
+        "ollama" | "ollama-cloud" => Arc::new(orka_llm::OllamaClient::new(model)),
         _ => Arc::new(orka_llm::AnthropicClient::with_auth_options(
             credential,
             orka_llm::AnthropicClientConfig {

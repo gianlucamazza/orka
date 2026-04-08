@@ -21,7 +21,7 @@ pub mod config;
 pub mod context;
 /// Structured error types for LLM provider failures.
 pub mod error;
-/// Ollama client — delegates to OpenAI-compatible local API.
+/// Ollama client — delegates to OpenAI-compatible API (local or cloud).
 #[cfg(feature = "ollama")]
 pub mod ollama;
 /// `OpenAI` Chat Completions API client with retry and streaming support.

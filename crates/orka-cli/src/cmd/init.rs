@@ -408,6 +408,7 @@ fn build_client(
                 4096,
                 1,
                 url,
+                None,
             ))
         }
         other => return Err(format!("unsupported provider: {other}").into()),

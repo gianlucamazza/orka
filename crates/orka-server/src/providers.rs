@@ -9,6 +9,7 @@ use tracing::{info, warn};
 
 pub(crate) const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub(crate) const MOONSHOT_BASE_URL: &str = "https://api.moonshot.ai/v1";
+pub(crate) const OLLAMA_CLOUD_BASE_URL: &str = "https://ollama.com/v1";
 
 /// Default environment variable name for a provider's API key.
 pub(crate) fn default_env_var(provider: &str) -> &str {
@@ -16,6 +17,7 @@ pub(crate) fn default_env_var(provider: &str) -> &str {
         "anthropic" => "ANTHROPIC_API_KEY",
         "openai" => "OPENAI_API_KEY",
         "moonshot" => "MOONSHOT_API_KEY",
+        "ollama-cloud" => "OLLAMA_API_KEY",
         _ => "",
     }
 }
@@ -32,6 +34,7 @@ pub(crate) fn default_base_url(provider: &str) -> Option<&'static str> {
     match provider {
         "openai" => Some(OPENAI_BASE_URL),
         "moonshot" => Some(MOONSHOT_BASE_URL),
+        "ollama-cloud" => Some(OLLAMA_CLOUD_BASE_URL),
         _ => None,
     }
 }
@@ -403,7 +406,30 @@ pub(crate) async fn build_llm_clients(
                     pc.max_tokens.unwrap_or(8192),
                     pc.max_retries.unwrap_or(2),
                     url,
+                    None,
                 )) as Arc<dyn orka_llm::LlmClient>)
+            }
+            "ollama-cloud" => {
+                let credential = resolve_llm_credential("ollama-cloud", pc, secrets).await;
+                credential.map(|resolved| {
+                    let model = pc
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| config.llm.default_model.clone());
+                    let url = pc
+                        .base_url
+                        .clone()
+                        .unwrap_or_else(|| OLLAMA_CLOUD_BASE_URL.into());
+                    Arc::new(orka_llm::OllamaClient::with_options(
+                        model,
+                        pc.timeout_secs
+                            .unwrap_or(defaults::default_llm_timeout_secs()),
+                        pc.max_tokens.unwrap_or(defaults::default_llm_max_tokens()),
+                        pc.max_retries.unwrap_or(defaults::default_llm_max_retries()),
+                        url,
+                        Some(resolved.value),
+                    )) as Arc<dyn orka_llm::LlmClient>
+                })
             }
             other => {
                 warn!(provider = other, "unknown LLM provider");
@@ -523,9 +549,22 @@ mod tests {
     }
 
     #[test]
+    fn default_env_var_supports_ollama_cloud() {
+        assert_eq!(default_env_var("ollama-cloud"), "OLLAMA_API_KEY");
+    }
+
+    #[test]
     fn default_base_url_supports_moonshot() {
         assert_eq!(default_base_url("moonshot"), Some(MOONSHOT_BASE_URL));
         assert_eq!(default_base_url("openai"), Some(OPENAI_BASE_URL));
+    }
+
+    #[test]
+    fn default_base_url_supports_ollama_cloud() {
+        assert_eq!(
+            default_base_url("ollama-cloud"),
+            Some(OLLAMA_CLOUD_BASE_URL)
+        );
     }
 
     #[test]
