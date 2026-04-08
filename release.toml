@@ -8,15 +8,10 @@ tag-name = "v{{version}}"
 tag-message = "Release {{version}}"
 pre-release-commit-message = "release: {{version}}"
 
+# Hooks run once at workspace level before the release commit.
+# git-cliff regenerates CHANGELOG.md; sed updates the PKGBUILD version.
 pre-release-hook = [
-  "git-cliff",
-  "--output",
-  "CHANGELOG.md",
-  "--tag",
-  "v{{version}}",
+  "bash",
+  "-c",
+  "cd $(git rev-parse --show-toplevel) && git-cliff --output CHANGELOG.md --tag v{{version}} && sed -i 's/pkgver=.*/pkgver={{version}}/' PKGBUILD",
 ]
-
-[[pre-release-replacements]]
-file = "PKGBUILD"
-search = "pkgver=.*"
-replace = "pkgver={{version}}"
