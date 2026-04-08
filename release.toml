@@ -1,6 +1,5 @@
 # cargo-release configuration — https://github.com/crate-ci/cargo-release
 
-[workspace]
 shared-version = "workspace"
 consolidate-commits = true
 publish = false
