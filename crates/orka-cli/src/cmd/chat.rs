@@ -605,8 +605,7 @@ pub async fn run(
 
                         match classify_ws_message(&text) {
                             WsMessage::Stream(RealtimeEvent::AgentSwitch {
-                                display_name,
-                                ..
+                                display_name, ..
                             }) => {
                                 renderer.on_agent_switch(display_name);
                             }

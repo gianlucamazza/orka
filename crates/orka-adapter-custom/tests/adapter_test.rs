@@ -21,7 +21,13 @@ async fn post_message_arrives_on_sink() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let router = app_router(tx, ws_registry, StreamRegistry::new(), None, orka_contracts::TrustLevel::UserAuthenticated);
+    let router = app_router(
+        tx,
+        ws_registry,
+        StreamRegistry::new(),
+        None,
+        orka_contracts::TrustLevel::UserAuthenticated,
+    );
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
@@ -58,7 +64,13 @@ async fn health_endpoint_returns_ok() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let router = app_router(tx, ws_registry, StreamRegistry::new(), None, orka_contracts::TrustLevel::UserAuthenticated);
+    let router = app_router(
+        tx,
+        ws_registry,
+        StreamRegistry::new(),
+        None,
+        orka_contracts::TrustLevel::UserAuthenticated,
+    );
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });
@@ -125,7 +137,13 @@ async fn ws_connect_and_receive_outbound() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let router = app_router(sink_tx, ws_registry, StreamRegistry::new(), None, orka_contracts::TrustLevel::UserAuthenticated);
+    let router = app_router(
+        sink_tx,
+        ws_registry,
+        StreamRegistry::new(),
+        None,
+        orka_contracts::TrustLevel::UserAuthenticated,
+    );
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
     });

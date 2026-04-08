@@ -1,12 +1,11 @@
 //! Discord REST API helpers: message sending and command registration.
 
-use reqwest::Client;
-use tracing::{debug, info, warn};
-
 use orka_core::{
     Error, Result, SecretStr,
     types::{OutboundMessage, Payload},
 };
+use reqwest::Client;
+use tracing::{debug, info, warn};
 
 /// Build a Discord API v10 URL from a path segment.
 pub(crate) fn api_url(path: &str) -> String {
@@ -225,6 +224,9 @@ pub(crate) async fn register_commands(
         });
     }
 
-    info!(count = commands.len(), "Discord: registered global slash commands");
+    info!(
+        count = commands.len(),
+        "Discord: registered global slash commands"
+    );
     Ok(())
 }

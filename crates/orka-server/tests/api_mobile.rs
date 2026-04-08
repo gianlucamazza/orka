@@ -7,12 +7,12 @@ use std::time::Duration;
 use axum::body::{Body, Bytes};
 use futures_util::StreamExt;
 use http::{Request, StatusCode};
+use orka_contracts::RealtimeEvent;
 use orka_core::{
     Conversation, ConversationId, ConversationMessage, ConversationMessageRole, MessageId, Payload,
     SessionId, StreamChunk, StreamChunkKind,
     traits::{ArtifactStore, ConversationStore, MessageBus},
 };
-use orka_contracts::RealtimeEvent;
 use tower::ServiceExt;
 
 const JWT_SECRET: &str = "test-secret-key-at-least-32-bytes-long!";
@@ -602,7 +602,10 @@ async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestRe
         .await;
     let (event, data) = parse_sse_frame(&next_sse_frame(&mut stream, &mut buffer).await?)?;
     assert_eq!(event, "artifact_ready");
-    assert_eq!(data["event"]["data"]["artifact"]["filename"], "artifact.txt");
+    assert_eq!(
+        data["event"]["data"]["artifact"]["filename"],
+        "artifact.txt"
+    );
 
     let message = ConversationMessage::new(
         MessageId::new(),
@@ -622,7 +625,10 @@ async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestRe
         .await;
     let (event, data) = parse_sse_frame(&next_sse_frame(&mut stream, &mut buffer).await?)?;
     assert_eq!(event, "message_completed");
-    assert_eq!(data["event"]["data"]["message"]["id"], message.id.to_string());
+    assert_eq!(
+        data["event"]["data"]["message"]["id"],
+        message.id.to_string()
+    );
     assert_eq!(data["event"]["data"]["message"]["text"], "final answer");
 
     ctx.stream_registry.send(StreamChunk::new(

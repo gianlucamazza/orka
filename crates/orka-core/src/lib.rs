@@ -50,7 +50,8 @@ pub mod stream;
 /// Shared utility functions (e.g., string helpers).
 pub mod util;
 
-/// Domain service for conversation lifecycle operations (cancel, retry, delete, mark-read).
+/// Domain service for conversation lifecycle operations (cancel, retry, delete,
+/// mark-read).
 pub mod conversation_controller;
 
 /// Configuration types for the Orka platform.

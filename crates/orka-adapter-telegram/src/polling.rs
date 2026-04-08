@@ -213,7 +213,10 @@ pub(crate) async fn process_message(
     };
 
     let mut extensions = serde_json::Map::new();
-    extensions.insert("telegram_message_id".into(), serde_json::json!(msg.message_id));
+    extensions.insert(
+        "telegram_message_id".into(),
+        serde_json::json!(msg.message_id),
+    );
     if let Some(tid) = msg.message_thread_id {
         extensions.insert("telegram_message_thread_id".into(), serde_json::json!(tid));
     }
@@ -221,11 +224,14 @@ pub(crate) async fn process_message(
         extensions.insert("telegram_edited".into(), serde_json::json!(true));
     }
 
-    let sender = msg.from.as_ref().map_or_else(SenderInfo::default, |from| SenderInfo {
-        platform_user_id: Some(from.id.to_string()),
-        display_name: user_name.clone(),
-        user_id: None,
-    });
+    let sender = msg
+        .from
+        .as_ref()
+        .map_or_else(SenderInfo::default, |from| SenderInfo {
+            platform_user_id: Some(from.id.to_string()),
+            display_name: user_name.clone(),
+            user_id: None,
+        });
 
     let interaction = InboundInteraction {
         id: Uuid::now_v7(),
@@ -295,7 +301,10 @@ fn parse_command(text: &str) -> InteractionContent {
     if !rest.trim().is_empty() {
         args.insert("text".into(), serde_json::json!(rest.trim()));
     }
-    InteractionContent::Command(CommandContent { name: cmd_name, args })
+    InteractionContent::Command(CommandContent {
+        name: cmd_name,
+        args,
+    })
 }
 
 pub(crate) async fn process_callback_query(
@@ -332,7 +341,10 @@ pub(crate) async fn process_callback_query(
     });
 
     let mut extensions = serde_json::Map::new();
-    extensions.insert("telegram_callback_query_id".into(), serde_json::json!(cq.id));
+    extensions.insert(
+        "telegram_callback_query_id".into(),
+        serde_json::json!(cq.id),
+    );
 
     let interaction = InboundInteraction {
         id: Uuid::now_v7(),

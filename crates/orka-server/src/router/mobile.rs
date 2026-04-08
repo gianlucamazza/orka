@@ -1054,7 +1054,11 @@ async fn handle_delete_message(
         Ok(id) => id,
         Err(response) => return response,
     };
-    if let Err(e) = state.controller.load_owned(&identity.principal, conversation_id).await {
+    if let Err(e) = state
+        .controller
+        .load_owned(&identity.principal, conversation_id)
+        .await
+    {
         return map_control_error(e);
     }
 
@@ -1063,13 +1067,19 @@ async fn handle_delete_message(
         Err(_) => return error_response(StatusCode::BAD_REQUEST, "invalid message id"),
     };
 
-    match state.controller.delete_message(&conversation_id, &message_id).await {
+    match state
+        .controller
+        .delete_message(&conversation_id, &message_id)
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => map_control_error(e),
     }
 }
 
-fn map_control_error(e: orka_core::conversation_controller::ControlError) -> axum::response::Response {
+fn map_control_error(
+    e: orka_core::conversation_controller::ControlError,
+) -> axum::response::Response {
     use orka_core::conversation_controller::ControlError;
     match e {
         ControlError::NotFound | ControlError::NotOwned => {
@@ -1110,11 +1120,14 @@ async fn handle_cancel_generation(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let mut conversation =
-        match state.controller.load_owned(&identity.principal, conversation_id).await {
-            Ok(c) => c,
-            Err(e) => return map_control_error(e),
-        };
+    let mut conversation = match state
+        .controller
+        .load_owned(&identity.principal, conversation_id)
+        .await
+    {
+        Ok(c) => c,
+        Err(e) => return map_control_error(e),
+    };
 
     match state.controller.cancel_generation(&mut conversation).await {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
@@ -1149,11 +1162,14 @@ async fn handle_retry_generation(
         Ok(id) => id,
         Err(response) => return response,
     };
-    let mut conversation =
-        match state.controller.load_owned(&identity.principal, conversation_id).await {
-            Ok(c) => c,
-            Err(e) => return map_control_error(e),
-        };
+    let mut conversation = match state
+        .controller
+        .load_owned(&identity.principal, conversation_id)
+        .await
+    {
+        Ok(c) => c,
+        Err(e) => return map_control_error(e),
+    };
 
     match state.controller.retry_generation(&mut conversation).await {
         Ok(result) => (

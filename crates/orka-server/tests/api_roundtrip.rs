@@ -22,12 +22,12 @@ use std::{sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 use orka_adapter_custom::{routes::app_router, ws::WsRegistry};
+use orka_contracts::TrustLevel;
 use orka_core::{
     Payload, SessionId, StreamRegistry,
     testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
     traits::MessageBus,
 };
-use orka_contracts::TrustLevel;
 use orka_gateway::{Gateway, GatewayConfig, GatewayDeps};
 use orka_worker::{EchoHandler, HandlerDispatcher, WorkerPool};
 use orka_workspace::WorkspaceLoader;
@@ -98,7 +98,13 @@ async fn start_pipeline() -> common::TestResult<(
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
 
-    let router = app_router(sink_tx, ws_registry.clone(), StreamRegistry::new(), None, TrustLevel::UserAuthenticated);
+    let router = app_router(
+        sink_tx,
+        ws_registry.clone(),
+        StreamRegistry::new(),
+        None,
+        TrustLevel::UserAuthenticated,
+    );
     tokio::spawn(async move {
         axum::serve(listener, router).await.ok();
     });

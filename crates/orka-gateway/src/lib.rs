@@ -358,7 +358,7 @@ mod tests {
     use std::time::Duration;
 
     use orka_core::{
-        DomainEventKind, PlatformContext, SessionId, SenderInfo,
+        DomainEventKind, PlatformContext, SenderInfo, SessionId,
         testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
     };
 

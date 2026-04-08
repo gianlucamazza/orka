@@ -1,4 +1,5 @@
-//! Slack Events API webhook handlers: signature verification and event dispatch.
+//! Slack Events API webhook handlers: signature verification and event
+//! dispatch.
 
 use axum::{Json, body::Bytes, extract::State, http::HeaderMap};
 use hmac::Mac;
@@ -119,7 +120,9 @@ pub(crate) async fn process_message_event(event: SlackEvent, state: &AppState) {
     let Some(channel) = event.channel else { return };
     let session_id = {
         let mut sessions = state.sessions.lock().await;
-        *sessions.entry(channel.clone()).or_insert_with(SessionId::new)
+        *sessions
+            .entry(channel.clone())
+            .or_insert_with(SessionId::new)
     };
     let chat_type = match event.channel_type.as_deref() {
         Some("im") => "direct",

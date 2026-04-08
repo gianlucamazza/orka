@@ -78,7 +78,11 @@ impl ConversationController {
         bus: Arc<dyn MessageBus>,
         cancel_tokens: SessionCancelTokens,
     ) -> Self {
-        Self { conversations, bus, cancel_tokens }
+        Self {
+            conversations,
+            bus,
+            cancel_tokens,
+        }
     }
 
     /// Load a conversation and verify that `user_id` is the owner.
@@ -152,7 +156,9 @@ impl ConversationController {
         conversation: &mut Conversation,
     ) -> std::result::Result<RetryResult, ControlError> {
         if conversation.status != ConversationStatus::Failed {
-            return Err(ControlError::InvalidState("conversation is not in failed state"));
+            return Err(ControlError::InvalidState(
+                "conversation is not in failed state",
+            ));
         }
 
         let messages = self
@@ -165,11 +171,15 @@ impl ConversationController {
             .ok_or(ControlError::NotFound)?
             .clone();
 
-        delete_trailing_messages(&self.conversations, &conversation.id, &messages, &user_message)
-            .await?;
+        delete_trailing_messages(
+            &self.conversations,
+            &conversation.id,
+            &messages,
+            &user_message,
+        )
+        .await?;
 
-        let mut envelope =
-            Envelope::text("mobile", conversation.session_id, &user_message.text);
+        let mut envelope = Envelope::text("mobile", conversation.session_id, &user_message.text);
         envelope.id = user_message.id;
 
         conversation.status = ConversationStatus::Active;
@@ -241,7 +251,10 @@ impl ConversationController {
 }
 
 fn find_last_user_message(messages: &[ConversationMessage]) -> Option<&ConversationMessage> {
-    messages.iter().rev().find(|m| m.role == ConversationMessageRole::User)
+    messages
+        .iter()
+        .rev()
+        .find(|m| m.role == ConversationMessageRole::User)
 }
 
 async fn delete_trailing_messages(
@@ -279,8 +292,10 @@ impl ConversationController {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
 
     use tokio_util::sync::CancellationToken;
 
@@ -354,7 +369,10 @@ mod tests {
 
         let tokens = make_cancel_tokens();
         let token = CancellationToken::new();
-        tokens.lock().unwrap().insert(conv.session_id, token.clone());
+        tokens
+            .lock()
+            .unwrap()
+            .insert(conv.session_id, token.clone());
 
         let ctrl = make_controller(store, tokens);
         ctrl.cancel_generation(&mut conv).await.unwrap();

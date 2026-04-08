@@ -9,7 +9,9 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::{SinkExt, StreamExt};
-use orka_contracts::{InboundInteraction, InteractionContent, PlatformContext, SenderInfo, TraceContext};
+use orka_contracts::{
+    InboundInteraction, InteractionContent, PlatformContext, SenderInfo, TraceContext,
+};
 use orka_core::{InteractionSink, SessionId, StreamRegistry};
 use serde::Deserialize;
 use tower_http::{
@@ -37,7 +39,8 @@ pub struct AppState {
     pub ws_registry: WsRegistry,
     /// Registry for streaming SSE/WS responses back to clients.
     pub stream_registry: StreamRegistry,
-    /// Trust level declared by this adapter, stamped on every inbound interaction.
+    /// Trust level declared by this adapter, stamped on every inbound
+    /// interaction.
     pub trust_level: orka_contracts::TrustLevel,
 }
 

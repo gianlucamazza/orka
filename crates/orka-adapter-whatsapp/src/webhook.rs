@@ -115,14 +115,16 @@ async fn handle_whatsapp_message(msg: WhatsAppMessage, state: &AppState) {
             .or_insert_with(SessionId::new)
     };
 
-    let maybe_media: Option<(&crate::types::WhatsAppMedia, &str)> =
-        match msg.msg_type.as_str() {
-            "image" => msg.image.as_ref().map(|m| (m, "image/jpeg")),
-            "video" => msg.video.as_ref().map(|m| (m, "video/mp4")),
-            "audio" => msg.audio.as_ref().map(|m| (m, "audio/ogg")),
-            "document" => msg.document.as_ref().map(|m| (m, "application/octet-stream")),
-            _ => None,
-        };
+    let maybe_media: Option<(&crate::types::WhatsAppMedia, &str)> = match msg.msg_type.as_str() {
+        "image" => msg.image.as_ref().map(|m| (m, "image/jpeg")),
+        "video" => msg.video.as_ref().map(|m| (m, "video/mp4")),
+        "audio" => msg.audio.as_ref().map(|m| (m, "audio/ogg")),
+        "document" => msg
+            .document
+            .as_ref()
+            .map(|m| (m, "application/octet-stream")),
+        _ => None,
+    };
 
     if let Some((media_obj, default_mime)) = maybe_media {
         let url = match resolve_media_url(
@@ -145,7 +147,10 @@ async fn handle_whatsapp_message(msg: WhatsAppMessage, state: &AppState) {
             session_id: session_id.as_uuid(),
             timestamp: chrono::Utc::now(),
             content: InteractionContent::Media(MediaAttachment {
-                mime_type: media_obj.mime_type.clone().unwrap_or_else(|| default_mime.into()),
+                mime_type: media_obj
+                    .mime_type
+                    .clone()
+                    .unwrap_or_else(|| default_mime.into()),
                 url,
                 filename: None,
                 caption: media_obj.caption.clone(),

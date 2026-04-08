@@ -10,11 +10,7 @@ use axum::{
     routing::post,
 };
 use orka_contracts::TrustLevel;
-use orka_core::{
-    InteractionSink,
-    traits::MemoryStore,
-    types::SessionId,
-};
+use orka_core::{InteractionSink, traits::MemoryStore, types::SessionId};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 

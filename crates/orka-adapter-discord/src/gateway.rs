@@ -83,7 +83,15 @@ pub(crate) async fn run_gateway(
             || initial_ws_url.clone(),
             |u| format!("{u}/?v=10&encoding=json"),
         );
-        match connect_and_run(&ws_url, &ctx, &mut shutdown_rx, &mut resume, &mut reconnect_count).await {
+        match connect_and_run(
+            &ws_url,
+            &ctx,
+            &mut shutdown_rx,
+            &mut resume,
+            &mut reconnect_count,
+        )
+        .await
+        {
             ConnectionOutcome::Reconnect => {}
             ConnectionOutcome::Shutdown => break,
         }
@@ -126,17 +134,26 @@ async fn connect_and_run(
                 "d": seq.map_or(serde_json::Value::Null, serde_json::Value::from)
             });
             let mut w = write_hb.lock().await;
-            if w.send(tokio_tungstenite::tungstenite::Message::Text(hb.to_string().into()))
-                .await
-                .is_err()
+            if w.send(tokio_tungstenite::tungstenite::Message::Text(
+                hb.to_string().into(),
+            ))
+            .await
+            .is_err()
             {
                 break;
             }
         }
     });
 
-    let outcome =
-        run_message_loop(read, ctx, shutdown_rx, resume, &sequence_shared, &heartbeat_handle).await;
+    let outcome = run_message_loop(
+        read,
+        ctx,
+        shutdown_rx,
+        resume,
+        &sequence_shared,
+        &heartbeat_handle,
+    )
+    .await;
     heartbeat_handle.abort();
     if matches!(outcome, ConnectionOutcome::Reconnect) {
         *reconnect_count = reconnect_count.saturating_add(1);
@@ -144,13 +161,9 @@ async fn connect_and_run(
     outcome
 }
 
-type WsStream = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
-type WsWriter = futures_util::stream::SplitSink<
-    WsStream,
-    tokio_tungstenite::tungstenite::Message,
->;
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type WsWriter = futures_util::stream::SplitSink<WsStream, tokio_tungstenite::tungstenite::Message>;
 type WsReader = futures_util::stream::SplitStream<WsStream>;
 
 /// Connect to the Discord WebSocket gateway and complete the handshake.
@@ -182,8 +195,7 @@ async fn connect_and_handshake(
     };
 
     // Resume (op 6) or Identify (op 2)
-    let handshake = if let (Some(sid), Some(seq)) =
-        (resume.session_id.as_deref(), resume.sequence)
+    let handshake = if let (Some(sid), Some(seq)) = (resume.session_id.as_deref(), resume.sequence)
     {
         serde_json::json!({
             "op": 6,
@@ -308,7 +320,8 @@ async fn handle_message_create(
     let channel_id = d["channel_id"].as_str().unwrap_or("");
     let session_id = {
         let mut s = sessions.lock().await;
-        *s.entry(channel_id.to_string()).or_insert_with(SessionId::new)
+        *s.entry(channel_id.to_string())
+            .or_insert_with(SessionId::new)
     };
     let chat_type = if d.get("guild_id").and_then(|v| v.as_str()).is_some() {
         "group"
@@ -390,7 +403,8 @@ async fn handle_message_create(
     false
 }
 
-/// Handle an `INTERACTION_CREATE` dispatch event (`APPLICATION_COMMAND`, type 2).
+/// Handle an `INTERACTION_CREATE` dispatch event (`APPLICATION_COMMAND`, type
+/// 2).
 ///
 /// Returns `true` if the sink is closed and the gateway loop should terminate.
 async fn handle_interaction_create(
@@ -443,7 +457,8 @@ async fn handle_interaction_create(
 
     let session_id = {
         let mut s = sessions.lock().await;
-        *s.entry(channel_id.to_string()).or_insert_with(SessionId::new)
+        *s.entry(channel_id.to_string())
+            .or_insert_with(SessionId::new)
     };
 
     let interaction = InboundInteraction {
@@ -451,7 +466,10 @@ async fn handle_interaction_create(
         source_channel: "discord".into(),
         session_id: session_id.as_uuid(),
         timestamp: chrono::Utc::now(),
-        content: InteractionContent::Command(CommandContent { name: cmd_name, args }),
+        content: InteractionContent::Command(CommandContent {
+            name: cmd_name,
+            args,
+        }),
         context: PlatformContext {
             sender: SenderInfo {
                 platform_user_id: d["member"]["user"]["id"]
