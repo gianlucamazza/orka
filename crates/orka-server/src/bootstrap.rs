@@ -1104,6 +1104,7 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         sessions: deps.infra.sessions.clone(),
         conversations: deps.infra.conversations.clone(),
         artifacts: deps.infra.artifacts.clone(),
+        memory: deps.infra.memory.clone(),
         scheduler_store: deps.skill_bundle.scheduler_store.clone(),
         checkpoint_store: deps.checkpoint_store,
         workspace_registry: Arc::clone(deps.workspace_registry),

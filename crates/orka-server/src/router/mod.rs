@@ -25,8 +25,8 @@ use orka_agent::AgentGraph;
 use orka_auth::AuthLayer;
 use orka_checkpoint::CheckpointStore;
 use orka_core::traits::{
-    ArtifactStore, ConversationStore, DeadLetterQueue, MessageBus, PriorityQueue, SecretManager,
-    SessionStore,
+    ArtifactStore, ConversationStore, DeadLetterQueue, MemoryStore, MessageBus, PriorityQueue,
+    SecretManager, SessionStore,
 };
 use orka_experience::ExperienceService;
 use orka_observe::metrics::PrometheusHandle;
@@ -269,6 +269,8 @@ pub struct RouterParams {
     pub conversations: Arc<dyn ConversationStore>,
     /// Product-facing artifact store.
     pub artifacts: Arc<dyn ArtifactStore>,
+    /// Memory store used by mobile routes to persist workspace overrides.
+    pub memory: Arc<dyn MemoryStore>,
     /// Schedule store (for /api/v1/schedules*; `None` = scheduler disabled).
     pub scheduler_store: Option<Arc<dyn ScheduleStore>>,
     /// Checkpoint store (for /api/v1/runs*; `None` = checkpointing disabled).
@@ -365,6 +367,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         sessions,
         conversations,
         artifacts,
+        memory,
         scheduler_store,
         checkpoint_store,
         workspace_registry,
@@ -471,6 +474,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
 
     // --- Protected API routes ---
 
+    let workspace_registry_mobile = workspace_registry.clone();
     let api_routes = dlq::routes(dlq)
         .merge(schedules::routes(scheduler_store))
         .merge(checkpoints::routes(checkpoint_store, queue.clone()))
@@ -498,6 +502,8 @@ pub fn build_router(p: RouterParams) -> axum::Router {
             mobile_events,
             controller,
             mobile_auth,
+            memory,
+            workspace_registry_mobile,
         )
         .layer(axum::middleware::from_fn_with_state(
             rate_limiters,
