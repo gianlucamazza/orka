@@ -30,6 +30,10 @@ impl RedisConversationStore {
         format!("orka:user_conversations:{user_id}")
     }
 
+    fn user_workspace_index_key(user_id: &str, workspace: &str) -> String {
+        format!("orka:user_conversations:{user_id}:ws:{workspace}")
+    }
+
     fn messages_key(id: &ConversationId) -> String {
         format!("orka:conversation_messages:{id}")
     }
@@ -66,6 +70,15 @@ impl ConversationStore for RedisConversationStore {
             .await
             .map_err(|e| Error::bus(format!("redis ZADD error: {e}")))?;
 
+        // Maintain a per-workspace sorted set for efficient workspace filtering.
+        if let Some(ws) = &conversation.workspace {
+            let ws_index_key = Self::user_workspace_index_key(&conversation.user_id, ws);
+            let _: () = conn
+                .zadd(&ws_index_key, conversation.id.to_string(), score)
+                .await
+                .map_err(|e| Error::bus(format!("redis ZADD (workspace index) error: {e}")))?;
+        }
+
         Ok(())
     }
 
@@ -89,10 +102,17 @@ impl ConversationStore for RedisConversationStore {
         limit: usize,
         offset: usize,
         include_archived: bool,
+        workspace: Option<&str>,
     ) -> Result<Vec<Conversation>> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
             .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+
+        // Choose the index to query: per-workspace or global.
+        let index_key = workspace.map_or_else(
+            || Self::user_index_key(user_id),
+            |ws| Self::user_workspace_index_key(user_id, ws),
+        );
 
         // Fetch enough IDs to satisfy the page after filtering. We overfetch
         // (3x) when excluding archived items to reduce round-trips.
@@ -104,7 +124,7 @@ impl ConversationStore for RedisConversationStore {
         let start = offset as isize;
         let stop = offset.saturating_add(fetch_limit).saturating_sub(1) as isize;
         let ids: Vec<String> = redis::cmd("ZREVRANGE")
-            .arg(Self::user_index_key(user_id))
+            .arg(&index_key)
             .arg(start)
             .arg(stop)
             .query_async(&mut *conn)
@@ -156,6 +176,17 @@ impl ConversationStore for RedisConversationStore {
                     )
                     .await
                     .map_err(|e| Error::bus(format!("redis ZREM error: {e}")))?;
+                if let Some(ws) = &conversation.workspace {
+                    let _: () = conn
+                        .zrem(
+                            Self::user_workspace_index_key(&conversation.user_id, ws),
+                            conversation.id.to_string(),
+                        )
+                        .await
+                        .map_err(|e| {
+                            Error::bus(format!("redis ZREM (workspace index) error: {e}"))
+                        })?;
+                }
             }
             let _: () = conn
                 .del(&conversation_key)
