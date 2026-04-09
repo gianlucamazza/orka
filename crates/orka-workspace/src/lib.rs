@@ -23,7 +23,7 @@ pub mod watcher;
 
 pub use config::SoulFrontmatter;
 pub use loader::{WorkspaceEvent, WorkspaceLoader};
-pub use parse::{Document, strip_frontmatter};
+pub use parse::{Document, serialize_document, strip_frontmatter};
 pub use registry::WorkspaceRegistry;
 pub use state::WorkspaceState;
 pub use watcher::WorkspaceWatcher;

@@ -1,4 +1,4 @@
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Serialize};
 
 /// A parsed markdown document with typed YAML frontmatter and a plain-text
 /// body.
@@ -37,6 +37,14 @@ pub fn parse_document<T: DeserializeOwned>(raw: &str) -> Result<Document<T>, ork
         .map_err(|e| orka_core::Error::Workspace(format!("failed to parse frontmatter: {e}")))?;
 
     Ok(Document { frontmatter, body })
+}
+
+/// Serialize a [`Document`] back into the `---` frontmatter + body format.
+pub fn serialize_document<T: Serialize>(doc: &Document<T>) -> Result<String, orka_core::Error> {
+    let yaml = serde_yml::to_string(&doc.frontmatter).map_err(|e| {
+        orka_core::Error::Workspace(format!("failed to serialize frontmatter: {e}"))
+    })?;
+    Ok(format!("---\n{yaml}---\n{}", doc.body))
 }
 
 /// Extract body from a markdown file, stripping optional YAML frontmatter.

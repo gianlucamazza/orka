@@ -60,6 +60,38 @@ impl WorkspaceLoader {
         Ok(())
     }
 
+    /// Write a SOUL.md document to disk atomically, then reload in-memory state.
+    pub async fn save_soul(
+        &self,
+        doc: &crate::parse::Document<crate::config::SoulFrontmatter>,
+    ) -> orka_core::Result<()> {
+        let content = crate::parse::serialize_document(doc)?;
+        self.atomic_write("SOUL.md", &content).await?;
+        self.load_file("SOUL.md").await;
+        Ok(())
+    }
+
+    /// Write TOOLS.md content to disk atomically, then reload in-memory state.
+    pub async fn save_tools(&self, body: &str) -> orka_core::Result<()> {
+        self.atomic_write("TOOLS.md", body).await?;
+        self.load_file("TOOLS.md").await;
+        Ok(())
+    }
+
+    /// Write content to a temporary file in the workspace root, then rename
+    /// atomically over the target (same filesystem, so rename is atomic).
+    async fn atomic_write(&self, filename: &str, content: &str) -> orka_core::Result<()> {
+        let target = self.root.join(filename);
+        let tmp = self.root.join(format!(".{filename}.tmp"));
+        tokio::fs::write(&tmp, content)
+            .await
+            .map_err(|e| orka_core::Error::Workspace(format!("failed to write {filename}: {e}")))?;
+        tokio::fs::rename(&tmp, &target)
+            .await
+            .map_err(|e| orka_core::Error::Workspace(format!("failed to rename {filename}: {e}")))?;
+        Ok(())
+    }
+
     /// Load a single file by name, updating state. Logs warnings on errors.
     pub async fn load_file(&self, filename: &str) {
         let path = self.root.join(filename);

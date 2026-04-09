@@ -3,9 +3,9 @@
 use std::sync::Arc;
 
 use orka_workspace::{
-    config::*,
+    Document, SoulFrontmatter, config::*,
     loader::WorkspaceLoader,
-    parse::{parse_document, strip_frontmatter},
+    parse::{parse_document, serialize_document, strip_frontmatter},
 };
 use tempfile::TempDir;
 use tokio::fs;
@@ -152,6 +152,131 @@ async fn loader_malformed_file() {
     let binding = loader.state();
     let state = binding.read().await;
     assert!(state.soul.is_none());
+}
+
+// --- Serialize tests ---
+
+#[test]
+fn serialize_document_roundtrip() {
+    let raw = "---\nname: TestAgent\nversion: '1.0'\ndescription: A test agent\n---\nHello body";
+    let doc = parse_document::<SoulFrontmatter>(raw).unwrap();
+    let serialized = serialize_document(&doc).unwrap();
+    let reparsed = parse_document::<SoulFrontmatter>(&serialized).unwrap();
+    assert_eq!(reparsed.frontmatter.name, doc.frontmatter.name);
+    assert_eq!(reparsed.frontmatter.version, doc.frontmatter.version);
+    assert_eq!(reparsed.frontmatter.description, doc.frontmatter.description);
+    assert_eq!(reparsed.body, doc.body);
+}
+
+#[test]
+fn serialize_document_empty_body() {
+    let doc = Document {
+        frontmatter: SoulFrontmatter {
+            name: Some("Agent".to_string()),
+            version: None,
+            description: None,
+        },
+        body: String::new(),
+    };
+    let out = serialize_document(&doc).unwrap();
+    assert!(out.starts_with("---\n"));
+    let reparsed = parse_document::<SoulFrontmatter>(&out).unwrap();
+    assert_eq!(reparsed.frontmatter.name.as_deref(), Some("Agent"));
+    assert_eq!(reparsed.body, "");
+}
+
+#[test]
+fn serialize_document_preserves_body_content() {
+    let doc = Document {
+        frontmatter: SoulFrontmatter {
+            name: Some("A".to_string()),
+            version: None,
+            description: None,
+        },
+        body: "Line 1\nLine 2\n## Section\n".to_string(),
+    };
+    let out = serialize_document(&doc).unwrap();
+    let reparsed = parse_document::<SoulFrontmatter>(&out).unwrap();
+    assert_eq!(reparsed.body, "Line 1\nLine 2\n## Section\n");
+}
+
+// --- Save method tests ---
+
+#[tokio::test]
+async fn save_soul_writes_file_and_updates_state() {
+    let dir = TempDir::new().unwrap();
+    let loader = WorkspaceLoader::new(dir.path());
+
+    let doc = Document {
+        frontmatter: SoulFrontmatter {
+            name: Some("SavedAgent".to_string()),
+            version: Some("2.0".to_string()),
+            description: Some("Saved description".to_string()),
+        },
+        body: "Saved body content".to_string(),
+    };
+
+    loader.save_soul(&doc).await.unwrap();
+
+    // File on disk must exist and be valid.
+    let on_disk = fs::read_to_string(dir.path().join("SOUL.md")).await.unwrap();
+    assert!(on_disk.contains("SavedAgent"));
+    assert!(on_disk.contains("Saved body content"));
+
+    // In-memory state must reflect the update.
+    let state = loader.state();
+    let state = state.read().await;
+    assert_eq!(
+        state.soul.as_ref().unwrap().frontmatter.name.as_deref(),
+        Some("SavedAgent")
+    );
+    assert_eq!(state.soul.as_ref().unwrap().body, "Saved body content");
+}
+
+#[tokio::test]
+async fn save_tools_writes_file_and_updates_state() {
+    let dir = TempDir::new().unwrap();
+    let loader = WorkspaceLoader::new(dir.path());
+
+    loader.save_tools("## My Tools\n\nUse them wisely.").await.unwrap();
+
+    let on_disk = fs::read_to_string(dir.path().join("TOOLS.md")).await.unwrap();
+    assert_eq!(on_disk, "## My Tools\n\nUse them wisely.");
+
+    let state = loader.state();
+    let state = state.read().await;
+    assert_eq!(
+        state.tools_body.as_deref(),
+        Some("## My Tools\n\nUse them wisely.")
+    );
+}
+
+#[tokio::test]
+async fn save_soul_preserves_tools_body() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("TOOLS.md"),
+        "## Existing tools",
+    )
+    .await
+    .unwrap();
+    let loader = WorkspaceLoader::new(dir.path());
+    loader.load_all().await.unwrap();
+
+    let doc = Document {
+        frontmatter: SoulFrontmatter {
+            name: Some("NewAgent".to_string()),
+            version: None,
+            description: None,
+        },
+        body: String::new(),
+    };
+    loader.save_soul(&doc).await.unwrap();
+
+    // TOOLS.md must be untouched.
+    let state = loader.state();
+    let state = state.read().await;
+    assert_eq!(state.tools_body.as_deref(), Some("## Existing tools"));
 }
 
 // --- Watcher test ---
