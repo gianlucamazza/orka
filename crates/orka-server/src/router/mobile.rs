@@ -260,6 +260,28 @@ pub(super) struct UpdateConversationRequest {
     workspace: Option<String>,
 }
 
+// ── Workspace management ─────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(super) struct UpdateWorkspaceRequest {
+    /// Agent display name (maps to SOUL.md frontmatter `name`).
+    #[serde(default)]
+    agent_name: Option<String>,
+    /// One-line workspace description (maps to SOUL.md frontmatter
+    /// `description`).
+    #[serde(default)]
+    description: Option<String>,
+    /// Semantic version string (maps to SOUL.md frontmatter `version`).
+    #[serde(default)]
+    version: Option<String>,
+    /// Markdown body of SOUL.md (content after the frontmatter block).
+    #[serde(default)]
+    soul_body: Option<String>,
+    /// Full content of TOOLS.md.
+    #[serde(default)]
+    tools_body: Option<String>,
+}
+
 // ── Device management ────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -504,7 +526,7 @@ pub(super) fn protected_routes(
         .route("/mobile/v1/workspaces", get(handle_list_workspaces))
         .route(
             "/mobile/v1/workspaces/{name}",
-            get(handle_get_workspace),
+            get(handle_get_workspace).patch(handle_update_workspace),
         )
         .with_state(state)
 }
@@ -2382,16 +2404,103 @@ async fn handle_get_workspace(
         Some(loader) => {
             let ws_state = loader.state();
             let ws_state = ws_state.read().await;
-            let fm = ws_state.soul.as_ref().map(|d| &d.frontmatter);
-            Json(serde_json::json!({
-                "name": ws_name,
-                "agent_name": fm.and_then(|f| f.name.as_deref()),
-                "description": fm.and_then(|f| f.description.as_deref()),
-                "version": fm.and_then(|f| f.version.as_deref()),
-                "soul_body": ws_state.soul.as_ref().map(|d| d.body.as_str()),
-                "tools_body": ws_state.tools_body.as_deref(),
-            }))
-            .into_response()
+            workspace_detail_response(&ws_name, &ws_state)
         }
     }
+}
+
+/// PATCH `/mobile/v1/workspaces/{name}` — update workspace SOUL.md / TOOLS.md.
+async fn handle_update_workspace(
+    State(state): State<ProtectedMobileState>,
+    Path(ws_name): Path<String>,
+    Json(body): Json<UpdateWorkspaceRequest>,
+) -> impl IntoResponse {
+    // Require at least one field.
+    if body.agent_name.is_none()
+        && body.description.is_none()
+        && body.version.is_none()
+        && body.soul_body.is_none()
+        && body.tools_body.is_none()
+    {
+        return error_response(StatusCode::BAD_REQUEST, "no fields to update");
+    }
+
+    let loader = match state.workspace_registry.get(&ws_name) {
+        Some(l) => Arc::clone(l),
+        None => {
+            return error_response(
+                StatusCode::NOT_FOUND,
+                format!("workspace '{ws_name}' not found"),
+            )
+        }
+    };
+
+    // Update SOUL.md if any soul-related field was provided.
+    let soul_changed = body.agent_name.is_some()
+        || body.description.is_some()
+        || body.version.is_some()
+        || body.soul_body.is_some();
+
+    if soul_changed {
+        // Merge partial update on top of the current in-memory state.
+        let (mut fm, mut body_text) = {
+            let ws_state = loader.state();
+            let ws_state = ws_state.read().await;
+            let (fm, b) = ws_state.soul.as_ref().map_or_else(
+                || (orka_workspace::SoulFrontmatter::default(), String::new()),
+                |d| (d.frontmatter.clone(), d.body.clone()),
+            );
+            (fm, b)
+        };
+
+        if let Some(name) = body.agent_name {
+            fm.name = if name.is_empty() { None } else { Some(name) };
+        }
+        if let Some(desc) = body.description {
+            fm.description = if desc.is_empty() { None } else { Some(desc) };
+        }
+        if let Some(ver) = body.version {
+            fm.version = if ver.is_empty() { None } else { Some(ver) };
+        }
+        if let Some(soul) = body.soul_body {
+            body_text = soul;
+        }
+
+        let doc = orka_workspace::Document {
+            frontmatter: fm,
+            body: body_text,
+        };
+        if let Err(e) = loader.save_soul(&doc).await {
+            return internal_error(e);
+        }
+    }
+
+    // Update TOOLS.md if provided.
+    if let Some(tools) = body.tools_body {
+        if let Err(e) = loader.save_tools(&tools).await {
+            return internal_error(e);
+        }
+    }
+
+    // Return the updated workspace detail.
+    let ws_state = loader.state();
+    let ws_state = ws_state.read().await;
+    workspace_detail_response(&ws_name, &ws_state)
+}
+
+/// Build the JSON response for a workspace detail (shared by GET and PATCH).
+fn workspace_detail_response(
+    name: &str,
+    ws_state: &orka_workspace::WorkspaceState,
+) -> axum::response::Response {
+    let fm = ws_state.soul.as_ref().map(|d| &d.frontmatter);
+    Json(serde_json::json!({
+        "name": name,
+        "agent_name": fm.and_then(|f| f.name.as_deref()),
+        "description": fm.and_then(|f| f.description.as_deref()),
+        "version": fm.and_then(|f| f.version.as_deref()),
+        "soul_body": ws_state.soul.as_ref().map(|d| d.body.as_str()),
+        "tools_body": ws_state.tools_body.as_deref(),
+    }))
+    .into_response()
 }
