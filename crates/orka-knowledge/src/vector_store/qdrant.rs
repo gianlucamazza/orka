@@ -82,18 +82,69 @@ impl VectorStore for QdrantStore {
             orka_core::Error::Knowledge(format!("qdrant collection_exists failed: {e}"))
         })?;
 
-        if !exists {
-            client
-                .create_collection(CreateCollectionBuilder::new(name).vectors_config(
-                    VectorParamsBuilder::new(dimensions as u64, Distance::Cosine),
+        if exists {
+            // Validate that the existing collection dimensions match the requested ones.
+            // A mismatch occurs when the embedding provider or dimension config changes
+            // after a collection has already been created.
+            let info = client.collection_info(name).await.map_err(|e| {
+                orka_core::Error::Knowledge(format!(
+                    "qdrant collection_info failed for '{name}': {e}"
                 ))
-                .await
-                .map_err(|e| {
-                    orka_core::Error::Knowledge(format!(
-                        "failed to create collection '{name}': {e}"
-                    ))
-                })?;
+            })?;
+            let result = info.result;
+            let existing_dims = result
+                .as_ref()
+                .and_then(|r| r.config.as_ref())
+                .and_then(|c| c.params.as_ref())
+                .and_then(|p| p.vectors_config.as_ref())
+                .and_then(|v| match &v.config {
+                    Some(qdrant_client::qdrant::vectors_config::Config::Params(p)) => {
+                        Some(p.size as usize)
+                    }
+                    _ => None,
+                });
+            let point_count = result.as_ref().and_then(|r| r.points_count).unwrap_or(u64::MAX);
+
+            if let Some(existing) = existing_dims {
+                if existing != dimensions {
+                    // Check point count — if empty we can safely recreate.
+                    let count = point_count;
+                    if count == 0 {
+                        tracing::warn!(
+                            collection = name,
+                            existing_dims = existing,
+                            requested_dims = dimensions,
+                            "dimension mismatch on empty collection — recreating"
+                        );
+                        client.delete_collection(name).await.map_err(|e| {
+                            orka_core::Error::Knowledge(format!(
+                                "failed to delete mismatched collection '{name}': {e}"
+                            ))
+                        })?;
+                    } else {
+                        return Err(orka_core::Error::Knowledge(format!(
+                            "collection '{name}' has {existing} dimensions but {dimensions} were \
+                             requested; delete the collection or update vector_store.dimension in config"
+                        )));
+                    }
+                } else {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
         }
+
+        client
+            .create_collection(CreateCollectionBuilder::new(name).vectors_config(
+                VectorParamsBuilder::new(dimensions as u64, Distance::Cosine),
+            ))
+            .await
+            .map_err(|e| {
+                orka_core::Error::Knowledge(format!(
+                    "failed to create collection '{name}': {e}"
+                ))
+            })?;
 
         Ok(())
     }

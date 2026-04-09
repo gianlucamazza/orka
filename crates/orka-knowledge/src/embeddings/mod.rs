@@ -1,4 +1,6 @@
-/// Embedding vector dimensions for `OpenAI` ada-002 model.
+/// Default embedding vector dimensions for OpenAI models (e.g. `text-embedding-3-large`, `ada-002`).
+/// Models that support Matryoshka embeddings (e.g. `text-embedding-3-small`) can use fewer
+/// dimensions — configure via `knowledge.vector_store.dimension` in `orka.toml`.
 #[cfg(feature = "openai-embeddings")]
 pub const OPENAI_EMBEDDING_DIMS: u32 = 1536;
 /// Embedding vector dimensions for local BGE-small model.

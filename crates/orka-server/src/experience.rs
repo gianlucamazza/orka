@@ -126,7 +126,12 @@ pub(crate) fn create_experience_service(
                 orka_knowledge::embeddings::openai::OpenAiEmbeddingProvider::new(
                     SecretStr::new(api_key),
                     config.knowledge.embeddings.model.clone(),
-                    orka_knowledge::embeddings::OPENAI_EMBEDDING_DIMS,
+                    config
+                        .knowledge
+                        .vector_store
+                        .dimension
+                        .try_into()
+                        .unwrap_or(orka_knowledge::embeddings::OPENAI_EMBEDDING_DIMS),
                 ),
             )
         }
