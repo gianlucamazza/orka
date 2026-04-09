@@ -191,13 +191,15 @@ pub trait ConversationStore: Send + Sync + 'static {
     /// List recent conversations for a user.
     ///
     /// When `include_archived` is `false` (the default for callers), archived
-    /// conversations are excluded from the result.
+    /// conversations are excluded from the result.  When `workspace` is
+    /// `Some(name)`, only conversations bound to that workspace are returned.
     async fn list_conversations(
         &self,
         user_id: &str,
         limit: usize,
         offset: usize,
         include_archived: bool,
+        workspace: Option<&str>,
     ) -> Result<Vec<Conversation>>;
 
     /// Permanently delete a conversation and its transcript.
@@ -273,7 +275,7 @@ pub trait ConversationStore: Send + Sync + 'static {
         offset: usize,
     ) -> Result<(Vec<SearchHit>, usize)> {
         let conversations = self
-            .list_conversations(user_id, usize::MAX, 0, false)
+            .list_conversations(user_id, usize::MAX, 0, false, None)
             .await?;
         let query_lower = query.to_lowercase();
         let mut hits: Vec<SearchHit> = Vec::new();

@@ -161,11 +161,16 @@ impl ConversationStore for InMemoryConversationStore {
         limit: usize,
         offset: usize,
         include_archived: bool,
+        workspace: Option<&str>,
     ) -> Result<Vec<Conversation>> {
         let conversations = self.conversations.lock().await;
         let mut result: Vec<_> = conversations
             .values()
-            .filter(|c| c.user_id == user_id && (include_archived || c.archived_at.is_none()))
+            .filter(|c| {
+                c.user_id == user_id
+                    && (include_archived || c.archived_at.is_none())
+                    && workspace.map_or(true, |ws| c.workspace.as_deref() == Some(ws))
+            })
             .cloned()
             .collect();
         result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));

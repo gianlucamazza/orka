@@ -1432,6 +1432,10 @@ pub struct Conversation {
     /// User-defined labels attached to this conversation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// Workspace this conversation is bound to, or `None` for the server
+    /// default workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
     /// Conversation creation time.
     pub created_at: DateTime<Utc>,
     /// Last update time.
@@ -1532,9 +1536,17 @@ impl Conversation {
             archived_at: None,
             pinned: false,
             tags: Vec::new(),
+            workspace: None,
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// Bind this conversation to a named workspace.
+    #[must_use]
+    pub fn with_workspace(mut self, workspace: impl Into<String>) -> Self {
+        self.workspace = Some(workspace.into());
+        self
     }
 }
 
