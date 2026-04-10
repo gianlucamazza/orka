@@ -1,6 +1,6 @@
 # Maintainer: Gianluca Mazza <info@gianlucamazza.it>
 pkgname=orka-git
-pkgver=1.10.0
+pkgver=1.10.1
 pkgrel=1
 pkgdesc="AI agent orchestration server and CLI"
 arch=('x86_64')

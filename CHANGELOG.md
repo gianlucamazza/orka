@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] - 2026-04-10
+
+### Added
+
+- add workspace field to Conversation
+- add per-workspace Redis sorted set index
+- expose workspace management in mobile API
+- add serialize_document and save methods to WorkspaceLoader
+- add PATCH /mobile/v1/workspaces/{name} endpoint
+- async CRUD lifecycle with domain events and CLI
+
+### Fixed
+
+- use config dimensions for embeddings and validate collection dims
+- allow unwrap/expect in event.rs tests
+- drop systemd 254+ restart directives and improve node detection
+
+### Changed
+
+- split types.rs into sub-modules and consolidate configs
+- extract workspace handlers with OpenAPI annotations and add module docs
 ## [1.10.0] - 2026-04-08
 
 ### Added
@@ -392,6 +413,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - remove hardcoded user home paths from tests and config
 - move homelab registry URL out of Justfile into env var
+[1.10.1]: https://github.com/gianlucamazza/orka/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/gianlucamazza/orka/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/gianlucamazza/orka/compare/v1.7.0...v1.9.0
 [1.7.0]: https://github.com/gianlucamazza/orka/compare/v1.6.0...v1.7.0
