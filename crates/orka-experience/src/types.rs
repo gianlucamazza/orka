@@ -84,15 +84,7 @@ pub struct Principle {
     pub relevance_score: f32,
 }
 
-/// Whether a principle is something to do or avoid.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum PrincipleKind {
-    /// A positive pattern: something the agent should do.
-    Do,
-    /// A negative pattern: something the agent should avoid.
-    Avoid,
-}
+pub use orka_core::PrincipleKind;
 
 /// Outcome signal for a completed interaction, used to decide whether to
 /// reflect.

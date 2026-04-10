@@ -32,7 +32,13 @@ experience = ["dep:orka-experience"]
 
 [dependencies]
 orka-auth.workspace = true
+orka-gateway.workspace = true
 orka-infra.workspace = true
+orka-memory.workspace = true
+orka-observe.workspace = true
+orka-secrets.workspace = true
+orka-wasm.workspace = true
+orka-web.workspace = true
 orka-os.workspace = true
 orka-scheduler.workspace = true
 orka-skills.workspace = true

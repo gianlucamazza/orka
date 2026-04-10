@@ -103,32 +103,33 @@ impl VectorStore for QdrantStore {
                     }
                     _ => None,
                 });
-            let point_count = result.as_ref().and_then(|r| r.points_count).unwrap_or(u64::MAX);
+            let point_count = result
+                .as_ref()
+                .and_then(|r| r.points_count)
+                .unwrap_or(u64::MAX);
 
             if let Some(existing) = existing_dims {
-                if existing != dimensions {
-                    // Check point count — if empty we can safely recreate.
-                    let count = point_count;
-                    if count == 0 {
-                        tracing::warn!(
-                            collection = name,
-                            existing_dims = existing,
-                            requested_dims = dimensions,
-                            "dimension mismatch on empty collection — recreating"
-                        );
-                        client.delete_collection(name).await.map_err(|e| {
-                            orka_core::Error::Knowledge(format!(
-                                "failed to delete mismatched collection '{name}': {e}"
-                            ))
-                        })?;
-                    } else {
-                        return Err(orka_core::Error::Knowledge(format!(
-                            "collection '{name}' has {existing} dimensions but {dimensions} were \
-                             requested; delete the collection or update vector_store.dimension in config"
-                        )));
-                    }
-                } else {
+                if existing == dimensions {
                     return Ok(());
+                }
+                // Dimension mismatch — check point count to decide if we can safely recreate.
+                if point_count == 0 {
+                    tracing::warn!(
+                        collection = name,
+                        existing_dims = existing,
+                        requested_dims = dimensions,
+                        "dimension mismatch on empty collection — recreating"
+                    );
+                    client.delete_collection(name).await.map_err(|e| {
+                        orka_core::Error::Knowledge(format!(
+                            "failed to delete mismatched collection '{name}': {e}"
+                        ))
+                    })?;
+                } else {
+                    return Err(orka_core::Error::Knowledge(format!(
+                        "collection '{name}' has {existing} dimensions but {dimensions} were \
+                         requested; delete the collection or update vector_store.dimension in config"
+                    )));
                 }
             } else {
                 return Ok(());
@@ -141,9 +142,7 @@ impl VectorStore for QdrantStore {
             ))
             .await
             .map_err(|e| {
-                orka_core::Error::Knowledge(format!(
-                    "failed to create collection '{name}': {e}"
-                ))
+                orka_core::Error::Knowledge(format!("failed to create collection '{name}': {e}"))
             })?;
 
         Ok(())

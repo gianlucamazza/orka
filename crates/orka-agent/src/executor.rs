@@ -212,7 +212,9 @@ impl ExecutionResult {
                 Some(ctx.trigger.id),
             );
             msg.metadata.clone_from(&ctx.trigger.metadata);
-            ctx.trigger.platform_context.clone_into(&mut msg.platform_context);
+            ctx.trigger
+                .platform_context
+                .clone_into(&mut msg.platform_context);
             msg.metadata
                 .entry("source_channel".into())
                 .or_insert_with(|| serde_json::Value::String(ctx.trigger.channel.clone()));
@@ -237,7 +239,9 @@ impl ExecutionResult {
                 Some(ctx.trigger.id),
             );
             media_msg.metadata.clone_from(&ctx.trigger.metadata);
-            ctx.trigger.platform_context.clone_into(&mut media_msg.platform_context);
+            ctx.trigger
+                .platform_context
+                .clone_into(&mut media_msg.platform_context);
             media_msg
                 .metadata
                 .entry("source_channel".into())

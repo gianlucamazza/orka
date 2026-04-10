@@ -1,28 +1,9 @@
 use std::{collections::HashMap, fmt::Write as _};
 
+pub use orka_core::SoftSkillSelectionMode;
 use orka_prompts::template::TemplateRegistry;
 
 use crate::soft_skill::{SoftSkill, SoftSkillSummary};
-
-/// Controls which soft skills are injected into the agent system prompt.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum SoftSkillSelectionMode {
-    /// Inject all registered soft skills (default, backward-compatible).
-    #[default]
-    All,
-    /// Inject only soft skills whose name or tags match words in the user's
-    /// message. Reduces prompt bloat when many skills are registered.
-    Keyword,
-}
-
-impl From<&str> for SoftSkillSelectionMode {
-    fn from(s: &str) -> Self {
-        match s {
-            "keyword" => Self::Keyword,
-            _ => Self::All,
-        }
-    }
-}
 
 /// Registry for instruction-based soft skills.
 ///

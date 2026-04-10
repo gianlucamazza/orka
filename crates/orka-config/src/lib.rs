@@ -11,7 +11,6 @@ use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 
 mod runtime;
-mod subsystem_config;
 
 #[cfg(feature = "a2a")]
 pub use orka_a2a::A2aConfig;
@@ -34,6 +33,7 @@ pub use orka_core::{
 };
 #[cfg(feature = "experience")]
 pub use orka_experience::ExperienceConfig;
+pub use orka_gateway::GatewayConfig;
 pub use orka_git::{GitAuthorshipConfig, GitAuthorshipMode, GitConfig, GitWorktreeConfig};
 pub use orka_guardrails::{
     GuardrailRules, GuardrailsConfig, LlmModerationConfig, ModerationCategory, RedactPattern,
@@ -47,6 +47,8 @@ pub use orka_knowledge::{
 pub use orka_llm::{LlmAuthKind, LlmConfig, LlmProviderConfig};
 #[cfg(feature = "mcp")]
 pub use orka_mcp::{McpAuthEntry, McpClientConfig, McpConfig, McpServerEntry};
+pub use orka_memory::{MemoryBackend, MemoryConfig};
+pub use orka_observe::{AuditConfig, ObserveConfig};
 pub use orka_os::{
     ApprovalPolicy, ClaudeCodeConfig, CodexConfig, CodingConfig, CodingProvider,
     CodingProvidersConfig, CodingSelectionPolicy, OpenCodeConfig, OsConfig, SandboxMode,
@@ -56,14 +58,13 @@ pub use orka_prompts::PromptsConfig;
 #[cfg(feature = "research")]
 pub use orka_research::ResearchConfig;
 pub use orka_scheduler::{ScheduledJob, SchedulerConfig};
+pub use orka_secrets::{SecretBackend, SecretConfig};
 pub use orka_skills::{PluginCapabilities, PluginConfig, PluginInstanceConfig, SoftSkillConfig};
+pub use orka_wasm::{SandboxConfig, SandboxLimitsConfig};
+pub use orka_web::{HttpClientConfig, SearchProviderKind, WebConfig};
 pub use runtime::{
     LogLevel, LoggingConfig, QueueConfig, RedisConfig, SYSTEM_CONFIG_PATH, ServerConfig,
     WorkerConfig, WorkspaceEntry,
-};
-pub use subsystem_config::{
-    AuditConfig, GatewayConfig, HttpClientConfig, MemoryBackend, MemoryConfig, ObserveConfig,
-    SandboxConfig, SandboxLimitsConfig, SearchProviderKind, SecretBackend, SecretConfig, WebConfig,
 };
 
 /// Tool enable/disable configuration.

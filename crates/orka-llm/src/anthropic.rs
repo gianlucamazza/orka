@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use orka_core::{Error, Result, SecretStr, retry::retry_with_backoff};
+use orka_core::{Error, Result, SecretStr, retry_with_backoff};
 use reqwest::Client;
 use serde_json::json;
 use tracing::debug;

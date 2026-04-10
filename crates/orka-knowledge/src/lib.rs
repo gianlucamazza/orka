@@ -73,7 +73,11 @@ fn create_embedding_and_store(
             Arc::new(embeddings::openai::OpenAiEmbeddingProvider::new(
                 SecretStr::new(api_key),
                 config.embeddings.model.clone(),
-                config.vector_store.dimension.try_into().unwrap_or(embeddings::OPENAI_EMBEDDING_DIMS),
+                config
+                    .vector_store
+                    .dimension
+                    .try_into()
+                    .unwrap_or(embeddings::OPENAI_EMBEDDING_DIMS),
             ))
         }
         #[cfg(not(feature = "openai-embeddings"))]

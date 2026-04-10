@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use orka_core::Result;
+use orka_core::{PrincipleKind, Result, SoftSkillSelectionMode};
 use serde_json::Value;
 
 use super::types::{SessionContext, WorkspaceContext};
@@ -32,14 +32,6 @@ pub struct Principle {
     pub text: String,
     /// The kind of principle (Do or Avoid).
     pub kind: PrincipleKind,
-}
-
-/// Kind of principle - what the principle represents.
-pub enum PrincipleKind {
-    /// A positive behavior the agent should do.
-    Do,
-    /// A negative behavior the agent should avoid.
-    Avoid,
 }
 
 impl ExperienceContextProvider {
@@ -139,14 +131,6 @@ pub trait SoftSkillRegistry: Send + Sync {
     fn list(&self) -> Vec<&str>;
     /// Filter skills by message content.
     fn filter_by_message(&self, message: &str) -> Vec<&str>;
-}
-
-/// Selection mode for soft skills - how to choose which skills apply.
-pub enum SoftSkillSelectionMode {
-    /// Use all available soft skills.
-    All,
-    /// Select skills based on keyword matching.
-    Keyword,
 }
 
 impl SoftSkillsContextProvider {

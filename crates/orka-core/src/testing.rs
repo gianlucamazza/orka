@@ -169,7 +169,7 @@ impl ConversationStore for InMemoryConversationStore {
             .filter(|c| {
                 c.user_id == user_id
                     && (include_archived || c.archived_at.is_none())
-                    && workspace.map_or(true, |ws| c.workspace.as_deref() == Some(ws))
+                    && workspace.is_none_or(|ws| c.workspace.as_deref() == Some(ws))
             })
             .cloned()
             .collect();

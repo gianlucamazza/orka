@@ -35,7 +35,7 @@
 /// Unified error type and `Result` alias.
 pub mod error;
 /// Slash-command parser for user input.
-pub mod slash_command;
+pub(crate) mod slash_command;
 /// Core traits that define the Orka abstraction layer.
 pub mod traits;
 /// Core data types: envelopes, sessions, events, payloads, and IDs.
@@ -44,11 +44,11 @@ pub mod types;
 /// Progress bridge: forwards coding-delegate events to chat platforms.
 pub mod progress_bridge;
 /// Generic retry-with-backoff executor.
-pub mod retry;
+pub(crate) mod retry;
 /// Streaming infrastructure for real-time LLM response delivery.
 pub mod stream;
 /// Shared utility functions (e.g., string helpers).
-pub mod util;
+pub(crate) mod util;
 
 /// Domain service for conversation lifecycle operations (cancel, retry, delete,
 /// mark-read).
@@ -75,6 +75,7 @@ pub use orka_contracts::{
     Capability, CapabilitySet, InboundInteraction, IntegrationClass, PlatformContext,
     RealtimeEvent, SenderInfo, TraceContext, TrustLevel,
 };
+pub use retry::retry_with_backoff;
 pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry, forward_delegate_progress};
 pub use traits::{MessageCursor, NoopEventSink, SearchHit, apply_message_cursors, extract_snippet};
@@ -83,8 +84,9 @@ pub use types::{
     ConversationArtifactOrigin, ConversationId, ConversationMessage, ConversationMessageRole,
     ConversationMessageStatus, ConversationStatus, DomainEvent, DomainEventKind, Envelope,
     ErrorCategory, EventId, EventPayload, InteractionSink, MediaPayload, MemoryEntry, MemoryKind,
-    MemoryScope, MessageId, MessageSink, MessageStream, OutboundMessage, Payload, Priority,
-    RichInputPayload, RunId, SecretStr, SecretValue, Session, SessionCancelTokens, SessionId,
-    SkillBudget, SkillContext, SkillInput, SkillOutput, SkillSchema, backoff_delay,
+    MemoryScope, MessageId, MessageSink, MessageStream, OutboundMessage, Payload, PrincipleKind,
+    Priority, RichInputPayload, RunId, SecretStr, SecretValue, Session, SessionCancelTokens,
+    SessionId, SkillBudget, SkillContext, SkillInput, SkillOutput, SkillSchema,
+    SoftSkillSelectionMode, backoff_delay,
 };
 pub use util::truncate_tool_result;

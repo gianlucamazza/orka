@@ -14,8 +14,10 @@ use std::sync::Arc;
 
 use orka_core::traits::{MemoryStore, SessionLock};
 
-use crate::config::MemoryBackend;
-pub use crate::{config::MemoryConfig, redis_store::RedisMemoryStore};
+pub use crate::{
+    config::{MemoryBackend, MemoryConfig},
+    redis_store::RedisMemoryStore,
+};
 
 /// Paired trait objects produced by [`create_memory_store`].
 ///

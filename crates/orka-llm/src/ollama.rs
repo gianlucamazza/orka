@@ -18,13 +18,21 @@ pub struct OllamaClient {
 impl OllamaClient {
     /// Create a client with defaults (localhost:11434, 120s timeout).
     pub fn new(model: String) -> Self {
-        Self::with_options(model, 120, 4096, 1, "http://localhost:11434/v1".into(), None)
+        Self::with_options(
+            model,
+            120,
+            4096,
+            1,
+            "http://localhost:11434/v1".into(),
+            None,
+        )
     }
 
     /// Create a client with full configuration.
     ///
     /// Pass `api_key = None` for local Ollama (no auth required).
-    /// Pass `api_key = Some(key)` for Ollama Cloud or other authenticated deployments.
+    /// Pass `api_key = Some(key)` for Ollama Cloud or other authenticated
+    /// deployments.
     pub fn with_options(
         model: String,
         timeout_secs: u64,
@@ -34,14 +42,8 @@ impl OllamaClient {
         api_key: Option<SecretStr>,
     ) -> Self {
         let key = api_key.unwrap_or_else(|| SecretStr::new(""));
-        let inner = OpenAiClient::with_options(
-            key,
-            model,
-            timeout_secs,
-            max_tokens,
-            max_retries,
-            base_url,
-        );
+        let inner =
+            OpenAiClient::with_options(key, model, timeout_secs, max_tokens, max_retries, base_url);
         Self { inner }
     }
 }

@@ -8,10 +8,10 @@ mod provider;
 mod types;
 
 pub use concrete_providers::{
-    ContextCoordinator, ExperienceContextProvider, ExperienceService, Principle, PrincipleKind,
-    SectionsContextProvider, ShellContextProvider, SoftSkillRegistry, SoftSkillSelectionMode,
-    SoftSkillsContextProvider,
+    ContextCoordinator, ExperienceContextProvider, ExperienceService, Principle,
+    SectionsContextProvider, ShellContextProvider, SoftSkillRegistry, SoftSkillsContextProvider,
 };
+pub use orka_core::{PrincipleKind, SoftSkillSelectionMode};
 pub use provider::{ContextProvider, PrinciplesProvider, WorkspaceProvider};
 pub use types::{PrincipleContext, SessionContext, WorkspaceContext};
 
