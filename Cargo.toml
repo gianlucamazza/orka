@@ -328,6 +328,12 @@ libc = "0.2"
 split-debuginfo = "unpacked"
 debug = "line-tables-only"
 
+# Compile external dependencies with optimizations even in dev mode.
+# This significantly speeds up the overall build since most compile time
+# is spent on third-party crates, while keeping local crate compilation fast.
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.test]
 inherits = "dev"
 opt-level = 1
