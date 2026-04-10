@@ -5,8 +5,7 @@ use std::{future::IntoFuture, sync::Arc};
 
 use anyhow::Context;
 use orka_config::{
-    CodingConfig, CodingProvider, CodingSelectionPolicy, MemoryBackend, OrkaConfig,
-    SearchProviderKind, SecretBackend,
+    CodingConfig, CodingProvider, CodingSelectionPolicy, OrkaConfig, SearchProviderKind,
 };
 use orka_core::{
     ConversationArtifact, ConversationArtifactOrigin, ConversationMessage, ConversationMessageRole,
@@ -154,115 +153,6 @@ fn select_coding_backend(
     }
 }
 
-fn to_runtime_memory_config(config: &orka_config::MemoryConfig) -> orka_memory::MemoryConfig {
-    let backend = match config.backend {
-        MemoryBackend::Auto => orka_memory::config::MemoryBackend::Auto,
-        MemoryBackend::Redis => orka_memory::config::MemoryBackend::Redis,
-        MemoryBackend::Memory => orka_memory::config::MemoryBackend::Memory,
-    };
-    let mut runtime = orka_memory::MemoryConfig::default();
-    runtime.backend = backend;
-    runtime.max_entries = config.max_entries;
-    runtime
-}
-
-fn to_runtime_secret_config(config: &orka_config::SecretConfig) -> orka_secrets::SecretConfig {
-    let backend = match config.backend {
-        SecretBackend::Redis => orka_secrets::SecretBackend::Redis,
-        SecretBackend::File => orka_secrets::SecretBackend::File,
-        _ => orka_secrets::SecretBackend::default(),
-    };
-    let mut runtime = orka_secrets::SecretConfig::default();
-    runtime.backend = backend;
-    runtime.file_path.clone_from(&config.file_path);
-    runtime
-        .encryption_key_path
-        .clone_from(&config.encryption_key_path);
-    runtime
-        .encryption_key_env
-        .clone_from(&config.encryption_key_env);
-    runtime.redis.url.clone_from(&config.redis.url);
-    runtime
-}
-
-fn to_runtime_observe_config(config: &orka_config::ObserveConfig) -> orka_observe::ObserveConfig {
-    let mut runtime = orka_observe::ObserveConfig::default();
-    runtime.enabled = config.enabled;
-    runtime.backend.clone_from(&config.backend);
-    runtime.otlp_endpoint.clone_from(&config.otlp_endpoint);
-    runtime.batch_size = config.batch_size;
-    runtime.flush_interval_ms = config.flush_interval_ms;
-    runtime.service_name.clone_from(&config.service_name);
-    runtime.service_version.clone_from(&config.service_version);
-    runtime
-}
-
-fn to_runtime_audit_config(config: &orka_config::AuditConfig) -> orka_observe::AuditConfig {
-    let mut runtime = orka_observe::AuditConfig::default();
-    runtime.enabled = config.enabled;
-    runtime.output.clone_from(&config.output);
-    runtime.path.clone_from(&config.path);
-    runtime.redis_key.clone_from(&config.redis_key);
-    runtime
-}
-
-fn to_runtime_sandbox_config(config: &orka_config::SandboxConfig) -> orka_wasm::SandboxConfig {
-    let mut runtime = orka_wasm::SandboxConfig::default();
-    runtime.backend.clone_from(&config.backend);
-    runtime.limits.timeout_secs = config.limits.timeout_secs;
-    runtime.limits.max_memory_bytes = config.limits.max_memory_bytes;
-    runtime.limits.max_output_bytes = config.limits.max_output_bytes;
-    runtime.limits.max_open_files = config.limits.max_open_files;
-    runtime.limits.max_pids = config.limits.max_pids;
-    runtime.allowed_paths.clone_from(&config.allowed_paths);
-    runtime.denied_paths.clone_from(&config.denied_paths);
-    runtime
-}
-
-fn to_runtime_web_config(config: &orka_config::WebConfig) -> orka_web::WebConfig {
-    let search_provider = match config.search_provider {
-        SearchProviderKind::Tavily => orka_web::SearchProviderKind::Tavily,
-        SearchProviderKind::Brave => orka_web::SearchProviderKind::Brave,
-        SearchProviderKind::Searxng => orka_web::SearchProviderKind::Searxng,
-        SearchProviderKind::None => orka_web::SearchProviderKind::None,
-    };
-    orka_web::WebConfig {
-        search_provider,
-        api_key: config.api_key.clone(),
-        api_key_env: config.api_key_env.clone(),
-        searxng_base_url: config.searxng_base_url.clone(),
-        max_results: config.max_results,
-        max_read_chars: config.max_read_chars,
-        cache_ttl_secs: config.cache_ttl_secs,
-        max_content_chars: config.max_content_chars,
-        read_timeout_secs: config.read_timeout_secs,
-        user_agent: config.user_agent.clone(),
-    }
-}
-
-fn to_runtime_http_config(config: &orka_config::HttpClientConfig) -> orka_web::HttpClientConfig {
-    let mut runtime = orka_web::HttpClientConfig::default();
-    runtime.timeout_secs = config.timeout_secs;
-    runtime.max_redirects = config.max_redirects;
-    runtime.user_agent.clone_from(&config.user_agent);
-    runtime.default_headers.clone_from(&config.default_headers);
-    runtime.webhooks = config
-        .webhooks
-        .iter()
-        .map(|webhook| {
-            let mut runtime_webhook = orka_web::WebhookConfig::default();
-            runtime_webhook.name.clone_from(&webhook.name);
-            runtime_webhook.url.clone_from(&webhook.url);
-            runtime_webhook.method.clone_from(&webhook.method);
-            runtime_webhook.secret.clone_from(&webhook.secret);
-            runtime_webhook.retry.max_retries = webhook.retry.max_retries;
-            runtime_webhook.retry.delay_secs = webhook.retry.delay_secs;
-            runtime_webhook
-        })
-        .collect();
-    runtime
-}
-
 // ---------------------------------------------------------------------------
 // Step 0–2: config loading + tracing
 // ---------------------------------------------------------------------------
@@ -344,21 +234,17 @@ fn init_infra(
         create_artifact_store(&config.redis.url).context("failed to create artifact store")?;
     let QueueBundle { queue, dlq } =
         create_queue(&config.redis.url).context("failed to create priority queue")?;
-    let memory_config = to_runtime_memory_config(&config.memory);
     let orka_memory::MemoryBundle {
         store: memory,
         lock: memory_lock,
-    } = orka_memory::create_memory_store(&memory_config, &config.redis.url)
+    } = orka_memory::create_memory_store(&config.memory, &config.redis.url)
         .context("failed to create memory store")?;
     info!("memory store ready");
-    let secret_config = to_runtime_secret_config(&config.secrets);
-    let secrets = orka_secrets::create_secret_manager(&secret_config, &config.redis.url)
+    let secrets = orka_secrets::create_secret_manager(&config.secrets, &config.redis.url)
         .context("failed to create secret manager")?;
     info!("secret manager ready");
-    let observe_config = to_runtime_observe_config(&config.observe);
-    let audit_config = to_runtime_audit_config(&config.audit);
     let event_sink =
-        orka_observe::create_event_sink(&observe_config, &audit_config, &config.redis.url);
+        orka_observe::create_event_sink(&config.observe, &config.audit, &config.redis.url);
     info!("event sink ready");
 
     // 3b. Install Prometheus metrics recorder
@@ -619,8 +505,7 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
     skills.register(Arc::new(orka_skills::EchoSkill));
 
     // 4b. Sandbox + SandboxSkill
-    let sandbox_config = to_runtime_sandbox_config(&config.sandbox);
-    let sandbox = orka_wasm::create_sandbox(&sandbox_config).context("failed to create sandbox")?;
+    let sandbox = orka_wasm::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
     skills.register(Arc::new(orka_wasm::SandboxSkill::new(sandbox)));
 
     // 4c. Shared WASM engine + WASM plugins
@@ -651,8 +536,7 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
 
     // 4e. Web skills
     if config.web.search_provider != SearchProviderKind::None {
-        let web_config = to_runtime_web_config(&config.web);
-        match orka_web::create_web_skills(&web_config) {
+        match orka_web::create_web_skills(&config.web) {
             Ok(web_skills) => {
                 for skill in web_skills {
                     skills.register(skill);
@@ -663,8 +547,7 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
     }
 
     // 4f. HTTP skills
-    let http_config = to_runtime_http_config(&config.http);
-    match orka_web::create_http_skills(&http_config) {
+    match orka_web::create_http_skills(&config.http) {
         Ok(http_skills) => {
             for skill in http_skills {
                 skills.register(skill);
@@ -730,16 +613,28 @@ async fn load_workspaces(config: &OrkaConfig) -> anyhow::Result<Arc<WorkspaceReg
     let registry = if config.workspaces.is_empty() {
         let loader = Arc::new(WorkspaceLoader::new(&config.workspace_dir));
         loader.load_all().await?;
-        let mut reg = WorkspaceRegistry::new("default".into());
-        reg.register("default".into(), loader);
-        info!("workspace loaded (single, default)");
+        let reg = Arc::new(WorkspaceRegistry::new("default".into(), None));
+        let watcher = match orka_workspace::WorkspaceWatcher::start(loader.clone()) {
+            Ok(w) => {
+                info!("workspace loaded (single, default)");
+                Some(w)
+            }
+            Err(e) => {
+                warn!(%e, "failed to start workspace watcher");
+                None
+            }
+        };
+        reg.register_with_watcher("default".into(), loader, watcher)
+            .await;
         reg
     } else {
         let default_name = config
             .default_workspace
             .clone()
             .unwrap_or_else(|| config.workspaces[0].name.clone());
-        let mut reg = WorkspaceRegistry::new(default_name);
+        // Use workspace_dir as the base for dynamically created workspaces.
+        let base_dir = Some(std::path::PathBuf::from(&config.workspace_dir));
+        let reg = Arc::new(WorkspaceRegistry::new(default_name, base_dir));
         let mut load_set = tokio::task::JoinSet::new();
         let entries = config.workspaces.clone();
         for entry in &entries {
@@ -757,22 +652,17 @@ async fn load_workspaces(config: &OrkaConfig) -> anyhow::Result<Arc<WorkspaceReg
         while let Some(result) = load_set.join_next().await {
             let (name, dir, loader) = result.context("workspace load task panicked")??;
             info!(workspace = %name, dir = %dir, "workspace loaded");
-            reg.register(name, loader);
+            let watcher = match orka_workspace::WorkspaceWatcher::start(loader.clone()) {
+                Ok(w) => Some(w),
+                Err(e) => {
+                    warn!(workspace = %name, %e, "failed to start workspace watcher");
+                    None
+                }
+            };
+            reg.register_with_watcher(name, loader, watcher).await;
         }
         reg
     };
-
-    let registry = Arc::new(registry);
-
-    // Start workspace file watchers for hot-reload
-    for ws_name in registry.list_names() {
-        if let Some(loader) = registry.get(ws_name) {
-            match orka_workspace::WorkspaceWatcher::start(loader.clone()) {
-                Ok(_w) => {}
-                Err(e) => warn!(workspace = %ws_name, %e, "failed to start workspace watcher"),
-            }
-        }
-    }
     info!("workspace watchers started");
 
     Ok(registry)
@@ -857,7 +747,7 @@ fn build_mobile_auth_service(config: &OrkaConfig) -> Option<Arc<dyn MobileAuthSe
 // ---------------------------------------------------------------------------
 
 /// Spawn the gateway loop and return its join handle.
-fn spawn_gateway(
+async fn spawn_gateway(
     infra: &InfraBundle,
     workspace_registry: &Arc<WorkspaceRegistry>,
     config: &OrkaConfig,
@@ -870,8 +760,8 @@ fn spawn_gateway(
             queue: infra.queue.clone(),
             workspace: workspace_registry
                 .default_loader()
-                .context("default workspace not registered")?
-                .clone(),
+                .await
+                .context("default workspace not registered")?,
             event_sink: infra.event_sink.clone(),
         },
         GatewayConfig {
@@ -1152,6 +1042,7 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         mobile_enabled: config.auth.jwt.is_some(),
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
+        event_sink: deps.infra.event_sink.clone(),
     }
 }
 
@@ -1201,7 +1092,7 @@ fn spawn_scheduler_loop(
 
 /// Spawn the experience distillation loop. Returns `None` if distillation is
 /// disabled or no experience service is configured.
-fn spawn_distillation_loop(
+async fn spawn_distillation_loop(
     experience_service: Option<Arc<orka_experience::ExperienceService>>,
     workspace_registry: &Arc<WorkspaceRegistry>,
     event_sink: &Arc<dyn EventSink>,
@@ -1212,11 +1103,7 @@ fn spawn_distillation_loop(
     if interval_secs == 0 {
         return None;
     }
-    let workspace_names: Vec<String> = workspace_registry
-        .list_names()
-        .into_iter()
-        .map(std::string::ToString::to_string)
-        .collect();
+    let workspace_names: Vec<String> = workspace_registry.list_names().await;
     let sink = event_sink.clone();
     Some(tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
@@ -1789,7 +1676,8 @@ impl Bootstrap {
         let start_time = std::time::Instant::now();
 
         // 8. Gateway
-        let gateway_handle = spawn_gateway(&infra, &workspace_registry, &config, shutdown.clone())?;
+        let gateway_handle =
+            spawn_gateway(&infra, &workspace_registry, &config, shutdown.clone()).await?;
 
         // 9. Experience / self-learning service
         let experience_service = if config.experience.enabled {
@@ -1889,6 +1777,7 @@ impl Bootstrap {
         let lock = self
             .workspace_registry
             .default_state()
+            .await
             .context("default workspace not registered")?;
         let templates = lock.read().await.templates.clone();
 
@@ -1942,7 +1831,8 @@ impl Bootstrap {
             &self.infra.event_sink,
             self.config.experience.distillation_interval_secs,
             self.shutdown.clone(),
-        );
+        )
+        .await;
 
         // 17. Outbound bridge
         let outbound_handle = spawn_outbound_bridge(
@@ -2188,123 +2078,5 @@ mod tests {
             select_coding_backend(&cfg, true, true, true),
             Some(CodingProvider::OpenCode)
         );
-    }
-
-    // --- to_runtime_observe_config ---
-
-    #[test]
-    fn to_runtime_observe_maps_all_fields() {
-        let mut src = orka_config::ObserveConfig::default();
-        src.enabled = true;
-        src.backend = "prometheus".to_string();
-        src.otlp_endpoint = Some("http://otel:4317".to_string());
-        src.batch_size = 42;
-        src.flush_interval_ms = 500;
-        src.service_name = "my-service".to_string();
-        src.service_version = "1.2.3".to_string();
-        let dst = to_runtime_observe_config(&src);
-        assert!(dst.enabled);
-        assert_eq!(dst.backend, "prometheus");
-        assert_eq!(dst.otlp_endpoint.as_deref(), Some("http://otel:4317"));
-        assert_eq!(dst.batch_size, 42);
-        assert_eq!(dst.flush_interval_ms, 500);
-        assert_eq!(dst.service_name, "my-service");
-        assert_eq!(dst.service_version, "1.2.3");
-    }
-
-    // --- to_runtime_audit_config ---
-
-    #[test]
-    fn to_runtime_audit_maps_all_fields() {
-        let mut src = orka_config::AuditConfig::default();
-        src.enabled = true;
-        src.output = "redis".to_string();
-        src.path = Some("/tmp/audit.log".into());
-        src.redis_key = Some("orka:audit".to_string());
-        let dst = to_runtime_audit_config(&src);
-        assert!(dst.enabled);
-        assert_eq!(dst.output, "redis");
-        assert_eq!(
-            dst.path.as_deref(),
-            Some(std::path::Path::new("/tmp/audit.log"))
-        );
-        assert_eq!(dst.redis_key.as_deref(), Some("orka:audit"));
-    }
-
-    // --- to_runtime_memory_config ---
-
-    #[test]
-    fn to_runtime_memory_maps_max_entries() {
-        let mut src = orka_config::MemoryConfig::default();
-        src.max_entries = 250;
-        let dst = to_runtime_memory_config(&src);
-        assert_eq!(dst.max_entries, 250);
-    }
-
-    #[test]
-    fn to_runtime_memory_maps_redis_backend() {
-        let mut src = orka_config::MemoryConfig::default();
-        src.backend = MemoryBackend::Redis;
-        let dst = to_runtime_memory_config(&src);
-        assert!(matches!(
-            dst.backend,
-            orka_memory::config::MemoryBackend::Redis
-        ));
-    }
-
-    #[test]
-    fn to_runtime_memory_maps_memory_backend() {
-        let mut src = orka_config::MemoryConfig::default();
-        src.backend = MemoryBackend::Memory;
-        let dst = to_runtime_memory_config(&src);
-        assert!(matches!(
-            dst.backend,
-            orka_memory::config::MemoryBackend::Memory
-        ));
-    }
-
-    // --- to_runtime_secret_config ---
-
-    #[test]
-    fn to_runtime_secret_maps_file_path() {
-        let mut src = orka_config::SecretConfig::default();
-        src.file_path = Some("/etc/orka/secrets.json".to_string());
-        let dst = to_runtime_secret_config(&src);
-        assert_eq!(dst.file_path.as_deref(), Some("/etc/orka/secrets.json"));
-    }
-
-    #[test]
-    fn to_runtime_secret_maps_encryption_key_path() {
-        let mut src = orka_config::SecretConfig::default();
-        src.encryption_key_path = Some("/etc/orka/key.pem".to_string());
-        let dst = to_runtime_secret_config(&src);
-        assert_eq!(
-            dst.encryption_key_path.as_deref(),
-            Some("/etc/orka/key.pem")
-        );
-    }
-
-    // --- to_runtime_sandbox_config ---
-
-    #[test]
-    fn to_runtime_sandbox_maps_backend_and_limits() {
-        let mut src = orka_config::SandboxConfig::default();
-        src.backend = "wasmtime".to_string();
-        src.limits.timeout_secs = 10;
-        src.limits.max_memory_bytes = 64 * 1024 * 1024;
-        let dst = to_runtime_sandbox_config(&src);
-        assert_eq!(dst.backend, "wasmtime");
-        assert_eq!(dst.limits.timeout_secs, 10);
-        assert_eq!(dst.limits.max_memory_bytes, 64 * 1024 * 1024);
-    }
-
-    #[test]
-    fn to_runtime_sandbox_maps_allowed_denied_paths() {
-        let mut src = orka_config::SandboxConfig::default();
-        src.allowed_paths = vec!["/tmp".to_string(), "/data".to_string()];
-        src.denied_paths = vec!["/etc".to_string()];
-        let dst = to_runtime_sandbox_config(&src);
-        assert_eq!(dst.allowed_paths, vec!["/tmp", "/data"]);
-        assert_eq!(dst.denied_paths, vec!["/etc"]);
     }
 }

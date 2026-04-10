@@ -214,9 +214,10 @@ async fn build_agent_from_def(
     // workspace (covers agents promoted from the legacy [agent] single-entry).
     let mut system_prompt = SystemPrompt::default();
     let ws_name = def.id.as_str();
-    let state_lock = workspace_registry
-        .state(ws_name)
-        .or_else(|| workspace_registry.default_state());
+    let state_lock = match workspace_registry.state(ws_name).await {
+        Some(s) => Some(s),
+        None => workspace_registry.default_state().await,
+    };
     if let Some(state_lock) = state_lock {
         let state = state_lock.read().await;
         if let Some(soul) = &state.soul {
@@ -314,9 +315,10 @@ mod tests {
     use orka_core::config::{AgentDef, EdgeDef, GraphDef};
     use orka_workspace::{WorkspaceLoader, WorkspaceRegistry};
 
-    fn make_registry() -> WorkspaceRegistry {
-        let mut reg = WorkspaceRegistry::new("default".into());
-        reg.register("default".into(), Arc::new(WorkspaceLoader::new(".")));
+    async fn make_registry() -> WorkspaceRegistry {
+        let reg = WorkspaceRegistry::new("default".into(), None);
+        reg.register("default".into(), Arc::new(WorkspaceLoader::new(".")))
+            .await;
         reg
     }
 
@@ -337,7 +339,7 @@ mod tests {
     async fn single_agent_config_builds_one_node_graph() {
         let agents = vec![agent_def("orka")];
         let graph_def = GraphDef::default();
-        let registry = make_registry();
+        let registry = make_registry().await;
         let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build_graph_from_config failed");
@@ -356,7 +358,7 @@ mod tests {
         graph_def.max_hops = 20;
         graph_def.edges = vec![edge];
 
-        let registry = make_registry();
+        let registry = make_registry().await;
         let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build_graph_from_config failed");
@@ -385,7 +387,7 @@ mod tests {
         graph_def.edges = vec![EdgeDef::new("router", "worker")];
         let agents = vec![router, worker];
 
-        let registry = make_registry();
+        let registry = make_registry().await;
         let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
@@ -404,7 +406,7 @@ mod tests {
         graph_def.entry = Some("b".to_string());
         graph_def.edges = vec![EdgeDef::new("b", "a")];
 
-        let registry = make_registry();
+        let registry = make_registry().await;
         let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
@@ -418,7 +420,7 @@ mod tests {
         let mut graph_def = GraphDef::default();
         graph_def.edges = vec![EdgeDef::new("src", "dst")];
 
-        let registry = make_registry();
+        let registry = make_registry().await;
         let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
@@ -446,7 +448,7 @@ mod tests {
         ];
         let agents = vec![fanout, agent_def("worker_a"), agent_def("worker_b")];
 
-        let registry = make_registry();
+        let registry = make_registry().await;
         let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
@@ -461,7 +463,7 @@ mod tests {
     #[tokio::test]
     async fn agents_without_graph_section_returns_error() {
         let agents = vec![agent_def("solo")];
-        let registry = make_registry();
+        let registry = make_registry().await;
         let result = build_graph(&agents, None, &registry).await;
         assert!(result.is_err());
     }
@@ -470,7 +472,7 @@ mod tests {
     async fn thinking_effort_high_builds_adaptive_config() {
         let mut def = agent_def("thinker");
         def.config.thinking = Some(orka_core::config::primitives::ThinkingEffort::High);
-        let registry = make_registry();
+        let registry = make_registry().await;
         let agent =
             super::build_agent_from_def(&def, &orka_llm::LlmConfig::default(), &registry).await;
         assert!(matches!(
@@ -485,7 +487,7 @@ mod tests {
     async fn thinking_effort_max_builds_adaptive_config() {
         let mut def = agent_def("thinker");
         def.config.thinking = Some(orka_core::config::primitives::ThinkingEffort::Max);
-        let registry = make_registry();
+        let registry = make_registry().await;
         let agent =
             super::build_agent_from_def(&def, &orka_llm::LlmConfig::default(), &registry).await;
         assert!(matches!(
@@ -499,7 +501,7 @@ mod tests {
     #[tokio::test]
     async fn thinking_absent_leaves_thinking_none() {
         let def = agent_def("plain");
-        let registry = make_registry();
+        let registry = make_registry().await;
         let agent =
             super::build_agent_from_def(&def, &orka_llm::LlmConfig::default(), &registry).await;
         assert!(agent.llm_config.thinking.is_none());
@@ -511,7 +513,7 @@ mod tests {
         let mut graph_def = GraphDef::default();
         graph_def.max_hops = 42;
 
-        let registry = make_registry();
+        let registry = make_registry().await;
         let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
@@ -523,7 +525,7 @@ mod tests {
     async fn tool_result_max_chars_from_config() {
         let mut def = agent_def("worker");
         def.config.tool_result_max_chars = 1234;
-        let registry = make_registry();
+        let registry = make_registry().await;
         let agent =
             super::build_agent_from_def(&def, &orka_llm::LlmConfig::default(), &registry).await;
         assert_eq!(agent.tool_result_max_chars, 1234);
@@ -534,7 +536,7 @@ mod tests {
         let mut def = agent_def("worker");
         def.config.system_prompt = "You are a test agent.".to_string();
         // Use a registry that has no SOUL.md for this agent.
-        let registry = make_registry();
+        let registry = make_registry().await;
         let agent =
             super::build_agent_from_def(&def, &orka_llm::LlmConfig::default(), &registry).await;
         assert_eq!(agent.system_prompt.persona, "You are a test agent.");
@@ -548,7 +550,7 @@ mod tests {
         let mut graph_def = GraphDef::default();
         graph_def.execution_mode = GraphExecutionMode::Sequential;
 
-        let registry = make_registry();
+        let registry = make_registry().await;
         let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
@@ -582,7 +584,7 @@ mod tests {
         let mut graph_def = GraphDef::default();
         graph_def.execution_mode = GraphExecutionMode::Parallel;
 
-        let registry = make_registry();
+        let registry = make_registry().await;
         let graph = build_graph(&agents, Some(&graph_def), &registry)
             .await
             .expect("build failed");
@@ -604,7 +606,7 @@ mod tests {
         let mut llm_config = orka_llm::LlmConfig::default();
         llm_config.default_temperature = 0.3;
 
-        let registry = make_registry();
+        let registry = make_registry().await;
         let agent = super::build_agent_from_def(&def, &llm_config, &registry).await;
         assert_eq!(agent.llm_config.temperature, Some(0.3));
     }
@@ -617,7 +619,7 @@ mod tests {
         let mut llm_config = orka_llm::LlmConfig::default();
         llm_config.default_temperature = 0.3;
 
-        let registry = make_registry();
+        let registry = make_registry().await;
         let agent = super::build_agent_from_def(&def, &llm_config, &registry).await;
         assert_eq!(agent.llm_config.temperature, Some(0.9));
     }

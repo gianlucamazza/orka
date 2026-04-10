@@ -46,6 +46,7 @@ impl ServerCommand for StartCommand {
         let state_lock = self
             .workspace_registry
             .default_state()
+            .await
             .ok_or_else(|| Error::Workspace("default workspace not registered".into()))?;
         let state = state_lock.read().await;
 
@@ -82,7 +83,9 @@ impl ServerCommand for StartCommand {
             Some(envelope.id),
         );
         msg.metadata.clone_from(&envelope.metadata);
-        envelope.platform_context.clone_into(&mut msg.platform_context);
+        envelope
+            .platform_context
+            .clone_into(&mut msg.platform_context);
         Ok(vec![msg])
     }
 }

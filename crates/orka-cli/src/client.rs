@@ -133,6 +133,23 @@ impl OrkaClient {
         Ok(result)
     }
 
+    pub async fn patch_json(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let resp = self
+            .request_builder(reqwest::Method::PATCH, path)
+            .json(body)
+            .send()
+            .await?;
+        let result = Self::ensure_ok(resp)
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(result)
+    }
+
     pub async fn get(&self, path: &str) -> std::result::Result<reqwest::Response, reqwest::Error> {
         self.request_builder(reqwest::Method::GET, path)
             .send()

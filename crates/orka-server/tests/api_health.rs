@@ -12,7 +12,7 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn health_returns_ok() -> common::TestResult {
-    let app = common::test_router();
+    let app = common::test_router().await;
     let req = common::request(Request::builder().uri("/health"), Body::empty())?;
     let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -27,7 +27,7 @@ async fn health_returns_ok() -> common::TestResult {
 
 #[tokio::test]
 async fn health_live_returns_ok() -> common::TestResult {
-    let app = common::test_router();
+    let app = common::test_router().await;
     let req = common::request(Request::builder().uri("/health/live"), Body::empty())?;
     let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -39,7 +39,7 @@ async fn health_live_returns_ok() -> common::TestResult {
 
 #[tokio::test]
 async fn version_returns_build_info() -> common::TestResult {
-    let app = common::test_router();
+    let app = common::test_router().await;
     let req = common::request(Request::builder().uri("/api/v1/version"), Body::empty())?;
     let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -53,7 +53,7 @@ async fn version_returns_build_info() -> common::TestResult {
 
 #[tokio::test]
 async fn openapi_spec_accessible() -> common::TestResult {
-    let app = common::test_router();
+    let app = common::test_router().await;
     let req = common::request(
         Request::builder().uri("/api-doc/openapi.json"),
         Body::empty(),
@@ -72,7 +72,7 @@ async fn openapi_spec_accessible() -> common::TestResult {
 
 #[tokio::test]
 async fn security_headers_present() -> common::TestResult {
-    let app = common::test_router();
+    let app = common::test_router().await;
     let req = common::request(Request::builder().uri("/health/live"), Body::empty())?;
     let resp = app.oneshot(req).await?;
 

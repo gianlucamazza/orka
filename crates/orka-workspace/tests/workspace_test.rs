@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use orka_workspace::{
-    Document, SoulFrontmatter, config::*,
+    Document, SoulFrontmatter, WorkspaceRegistry,
     loader::WorkspaceLoader,
     parse::{parse_document, serialize_document, strip_frontmatter},
 };
@@ -164,7 +164,10 @@ fn serialize_document_roundtrip() {
     let reparsed = parse_document::<SoulFrontmatter>(&serialized).unwrap();
     assert_eq!(reparsed.frontmatter.name, doc.frontmatter.name);
     assert_eq!(reparsed.frontmatter.version, doc.frontmatter.version);
-    assert_eq!(reparsed.frontmatter.description, doc.frontmatter.description);
+    assert_eq!(
+        reparsed.frontmatter.description,
+        doc.frontmatter.description
+    );
     assert_eq!(reparsed.body, doc.body);
 }
 
@@ -219,7 +222,9 @@ async fn save_soul_writes_file_and_updates_state() {
     loader.save_soul(&doc).await.unwrap();
 
     // File on disk must exist and be valid.
-    let on_disk = fs::read_to_string(dir.path().join("SOUL.md")).await.unwrap();
+    let on_disk = fs::read_to_string(dir.path().join("SOUL.md"))
+        .await
+        .unwrap();
     assert!(on_disk.contains("SavedAgent"));
     assert!(on_disk.contains("Saved body content"));
 
@@ -238,9 +243,14 @@ async fn save_tools_writes_file_and_updates_state() {
     let dir = TempDir::new().unwrap();
     let loader = WorkspaceLoader::new(dir.path());
 
-    loader.save_tools("## My Tools\n\nUse them wisely.").await.unwrap();
+    loader
+        .save_tools("## My Tools\n\nUse them wisely.")
+        .await
+        .unwrap();
 
-    let on_disk = fs::read_to_string(dir.path().join("TOOLS.md")).await.unwrap();
+    let on_disk = fs::read_to_string(dir.path().join("TOOLS.md"))
+        .await
+        .unwrap();
     assert_eq!(on_disk, "## My Tools\n\nUse them wisely.");
 
     let state = loader.state();
@@ -254,12 +264,9 @@ async fn save_tools_writes_file_and_updates_state() {
 #[tokio::test]
 async fn save_soul_preserves_tools_body() {
     let dir = TempDir::new().unwrap();
-    fs::write(
-        dir.path().join("TOOLS.md"),
-        "## Existing tools",
-    )
-    .await
-    .unwrap();
+    fs::write(dir.path().join("TOOLS.md"), "## Existing tools")
+        .await
+        .unwrap();
     let loader = WorkspaceLoader::new(dir.path());
     loader.load_all().await.unwrap();
 
@@ -330,4 +337,175 @@ async fn watcher_detects_change() {
     );
 
     watcher.stop();
+}
+
+// --- WorkspaceRegistry create/remove tests ---
+
+fn make_registry_with_base(base: &TempDir) -> Arc<WorkspaceRegistry> {
+    Arc::new(WorkspaceRegistry::new(
+        "default".into(),
+        Some(base.path().to_path_buf()),
+    ))
+}
+
+#[tokio::test]
+async fn create_workspace_creates_dir_and_soul_md() {
+    let base = TempDir::new().unwrap();
+    let registry = make_registry_with_base(&base);
+
+    let soul = Document {
+        frontmatter: SoulFrontmatter {
+            name: Some("My Agent".to_string()),
+            description: Some("Does stuff".to_string()),
+            version: None,
+        },
+        body: "Agent persona".to_string(),
+    };
+    let loader = registry
+        .create_workspace("my-agent", Some(soul), None)
+        .await
+        .unwrap();
+
+    // Directory created
+    assert!(base.path().join("my-agent").is_dir());
+
+    // SOUL.md written to disk
+    let soul_md = fs::read_to_string(base.path().join("my-agent").join("SOUL.md"))
+        .await
+        .unwrap();
+    assert!(soul_md.contains("My Agent"));
+    assert!(soul_md.contains("Agent persona"));
+
+    // Loader state loaded
+    let state = loader.state();
+    let state = state.read().await;
+    assert_eq!(
+        state.soul.as_ref().unwrap().frontmatter.name.as_deref(),
+        Some("My Agent")
+    );
+
+    // Registered in registry
+    assert!(registry.contains("my-agent").await);
+}
+
+#[tokio::test]
+async fn create_workspace_with_tools() {
+    let base = TempDir::new().unwrap();
+    let registry = make_registry_with_base(&base);
+
+    registry
+        .create_workspace("with-tools", None, Some("## Tools\n\nSome tools."))
+        .await
+        .unwrap();
+
+    let tools_md = fs::read_to_string(base.path().join("with-tools").join("TOOLS.md"))
+        .await
+        .unwrap();
+    assert!(tools_md.contains("Some tools."));
+}
+
+#[tokio::test]
+async fn create_workspace_rejects_invalid_name() {
+    let base = TempDir::new().unwrap();
+    let registry = make_registry_with_base(&base);
+
+    for bad in &[
+        "",
+        "default",
+        "My-Workspace",
+        "-starts-with-hyphen",
+        "ends-with-hyphen-",
+        "has space",
+    ] {
+        let result = registry.create_workspace(bad, None, None).await;
+        assert!(result.is_err(), "'{bad}' should be rejected");
+    }
+}
+
+#[tokio::test]
+async fn create_workspace_rejects_duplicate() {
+    let base = TempDir::new().unwrap();
+    let registry = make_registry_with_base(&base);
+
+    registry
+        .create_workspace("alpha", None, None)
+        .await
+        .unwrap();
+    match registry.create_workspace("alpha", None, None).await {
+        Err(e) => assert!(
+            e.to_string().contains("already exists"),
+            "unexpected error: {e}"
+        ),
+        Ok(_) => panic!("expected duplicate error"),
+    }
+}
+
+#[tokio::test]
+async fn create_workspace_rejects_single_mode() {
+    let registry = Arc::new(WorkspaceRegistry::new("default".into(), None));
+    match registry.create_workspace("new-ws", None, None).await {
+        Err(e) => assert!(
+            e.to_string().contains("single-workspace"),
+            "unexpected error: {e}"
+        ),
+        Ok(_) => panic!("expected error for single-workspace mode"),
+    }
+}
+
+#[tokio::test]
+async fn remove_workspace_archives_dir() {
+    let base = TempDir::new().unwrap();
+    let registry = Arc::new(WorkspaceRegistry::new(
+        "main".into(),
+        Some(base.path().to_path_buf()),
+    ));
+    registry
+        .create_workspace("removable", None, None)
+        .await
+        .unwrap();
+    assert!(base.path().join("removable").is_dir());
+
+    registry.remove_workspace("removable").await.unwrap();
+
+    // Original dir gone, archived dir exists
+    assert!(!base.path().join("removable").is_dir());
+    let entries: Vec<_> = std::fs::read_dir(base.path())
+        .unwrap()
+        .filter_map(std::result::Result::ok)
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("removable.archived-")
+        })
+        .collect();
+    assert_eq!(entries.len(), 1, "archived directory should exist");
+
+    // No longer in registry
+    assert!(!registry.contains("removable").await);
+}
+
+#[tokio::test]
+async fn remove_workspace_rejects_default() {
+    let base = TempDir::new().unwrap();
+    let registry = Arc::new(WorkspaceRegistry::new(
+        "default".into(),
+        Some(base.path().to_path_buf()),
+    ));
+    let result = registry.remove_workspace("default").await;
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("cannot delete the default"),
+        "unexpected error: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn remove_workspace_not_found() {
+    let base = TempDir::new().unwrap();
+    let registry = make_registry_with_base(&base);
+    let result = registry.remove_workspace("nonexistent").await;
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("not found"), "unexpected error: {msg}");
 }

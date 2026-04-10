@@ -61,7 +61,8 @@ struct Cli {
 enum Commands {
     /// Initialize Orka with a guided LLM-driven configuration wizard
     Init {
-        /// LLM provider (anthropic, openai, google, ollama, ollama-cloud, custom)
+        /// LLM provider (anthropic, openai, google, ollama, ollama-cloud,
+        /// custom)
         #[arg(long)]
         provider: Option<String>,
         /// API key (skip interactive prompt)
@@ -70,7 +71,8 @@ enum Commands {
         /// Model override
         #[arg(long)]
         model: Option<String>,
-        /// Base URL (for ollama/ollama-cloud/custom OpenAI-compatible providers)
+        /// Base URL (for ollama/ollama-cloud/custom OpenAI-compatible
+        /// providers)
         #[arg(long)]
         base_url: Option<String>,
         /// Output path for the generated config
@@ -365,6 +367,36 @@ enum WorkspaceAction {
     Show {
         /// Workspace name
         name: String,
+    },
+    /// Create a new workspace
+    Create {
+        /// Workspace name
+        name: String,
+        #[arg(long)]
+        agent_name: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Update an existing workspace
+    Update {
+        /// Workspace name
+        name: String,
+        #[arg(long)]
+        agent_name: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Delete a workspace
+    Delete {
+        /// Workspace name
+        name: String,
+        /// Skip confirmation prompt
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 }
 
@@ -750,6 +782,27 @@ async fn main() {
         Commands::Workspace { action } => match action {
             WorkspaceAction::List => cmd::workspace::list(&server_client).await,
             WorkspaceAction::Show { name } => cmd::workspace::show(&server_client, &name).await,
+            WorkspaceAction::Create {
+                name,
+                agent_name,
+                description,
+                version,
+            } => {
+                cmd::workspace::create(&server_client, &name, agent_name, description, version)
+                    .await
+            }
+            WorkspaceAction::Update {
+                name,
+                agent_name,
+                description,
+                version,
+            } => {
+                cmd::workspace::update(&server_client, &name, agent_name, description, version)
+                    .await
+            }
+            WorkspaceAction::Delete { name, yes } => {
+                cmd::workspace::delete(&server_client, &name, yes).await
+            }
         },
         Commands::Graph { dot } => cmd::graph::show(&server_client, dot).await,
         Commands::Experience { action } => match action {

@@ -82,8 +82,8 @@ async fn test_workspace_registry(name: &str, body: &str) -> Arc<WorkspaceRegistr
     let state_lock = loader.state();
     *state_lock.write().await = state;
 
-    let mut registry = WorkspaceRegistry::new("default".into());
-    registry.register("default".into(), loader);
+    let registry = WorkspaceRegistry::new("default".into(), None);
+    registry.register("default".into(), loader).await;
     Arc::new(registry)
 }
 

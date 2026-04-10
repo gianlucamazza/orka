@@ -20,7 +20,7 @@ const JWT_ISSUER: &str = "orka-tests";
 
 #[tokio::test]
 async fn protected_route_without_key_returns_401() -> common::TestResult {
-    let app = common::test_router_with_auth(TEST_KEY);
+    let app = common::test_router_with_auth(TEST_KEY).await;
     let req = common::request(Request::builder().uri(PROTECTED), Body::empty())?;
     let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -29,7 +29,7 @@ async fn protected_route_without_key_returns_401() -> common::TestResult {
 
 #[tokio::test]
 async fn protected_route_with_valid_key_returns_200() -> common::TestResult {
-    let app = common::test_router_with_auth(TEST_KEY);
+    let app = common::test_router_with_auth(TEST_KEY).await;
     let req = common::request(
         Request::builder()
             .uri(PROTECTED)
@@ -43,7 +43,7 @@ async fn protected_route_with_valid_key_returns_200() -> common::TestResult {
 
 #[tokio::test]
 async fn protected_route_with_wrong_key_returns_401() -> common::TestResult {
-    let app = common::test_router_with_auth(TEST_KEY);
+    let app = common::test_router_with_auth(TEST_KEY).await;
     let req = common::request(
         Request::builder()
             .uri(PROTECTED)
@@ -57,7 +57,7 @@ async fn protected_route_with_wrong_key_returns_401() -> common::TestResult {
 
 #[tokio::test]
 async fn public_route_always_ok() -> common::TestResult {
-    let app = common::test_router_with_auth(TEST_KEY);
+    let app = common::test_router_with_auth(TEST_KEY).await;
     let req = common::request(Request::builder().uri(PUBLIC), Body::empty())?;
     let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -66,7 +66,7 @@ async fn public_route_always_ok() -> common::TestResult {
 
 #[tokio::test]
 async fn composite_auth_accepts_api_key_and_jwt() -> common::TestResult {
-    let app = common::test_router_with_composite_auth(TEST_KEY, JWT_SECRET, JWT_ISSUER);
+    let app = common::test_router_with_composite_auth(TEST_KEY, JWT_SECRET, JWT_ISSUER).await;
     let jwt = common::make_jwt(JWT_SECRET, JWT_ISSUER, "user-123", &["chat:read"]);
 
     let operator_req = common::request(
@@ -114,7 +114,7 @@ fn a2a_body() -> Body {
 
 #[tokio::test]
 async fn a2a_agent_card_is_always_public_when_auth_enabled() -> common::TestResult {
-    let app = common::test_router_with_a2a(TEST_KEY, true);
+    let app = common::test_router_with_a2a(TEST_KEY, true).await;
     let req = common::request(Request::builder().uri(A2A_AGENT_CARD), Body::empty())?;
     let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -123,7 +123,7 @@ async fn a2a_agent_card_is_always_public_when_auth_enabled() -> common::TestResu
 
 #[tokio::test]
 async fn a2a_rpc_without_key_returns_401_when_auth_enabled() -> common::TestResult {
-    let app = common::test_router_with_a2a(TEST_KEY, true);
+    let app = common::test_router_with_a2a(TEST_KEY, true).await;
     let req = common::request(
         Request::builder()
             .method("POST")
@@ -138,7 +138,7 @@ async fn a2a_rpc_without_key_returns_401_when_auth_enabled() -> common::TestResu
 
 #[tokio::test]
 async fn a2a_rpc_with_valid_key_returns_200_when_auth_enabled() -> common::TestResult {
-    let app = common::test_router_with_a2a(TEST_KEY, true);
+    let app = common::test_router_with_a2a(TEST_KEY, true).await;
     let req = common::request(
         Request::builder()
             .method("POST")
@@ -154,7 +154,7 @@ async fn a2a_rpc_with_valid_key_returns_200_when_auth_enabled() -> common::TestR
 
 #[tokio::test]
 async fn a2a_rpc_without_key_returns_200_when_auth_disabled() -> common::TestResult {
-    let app = common::test_router_with_a2a(TEST_KEY, false);
+    let app = common::test_router_with_a2a(TEST_KEY, false).await;
     let req = common::request(
         Request::builder()
             .method("POST")
@@ -172,7 +172,7 @@ async fn a2a_rpc_without_key_returns_200_when_auth_disabled() -> common::TestRes
 
 #[tokio::test]
 async fn a2a_agents_discovery_returns_empty_list() -> common::TestResult {
-    let app = common::test_router_with_a2a(TEST_KEY, false);
+    let app = common::test_router_with_a2a(TEST_KEY, false).await;
     let req = common::request(Request::builder().uri("/api/v1/a2a/agents"), Body::empty())?;
     let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::OK);

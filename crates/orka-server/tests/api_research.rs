@@ -31,7 +31,7 @@ fn as_array(value: &serde_json::Value) -> TestResult<&Vec<serde_json::Value>> {
 
 #[tokio::test]
 async fn research_not_enabled_returns_503() -> TestResult {
-    let app = common::test_router();
+    let app = common::test_router().await;
 
     let req = request(
         Request::builder().uri("/api/v1/research/campaigns"),
@@ -44,7 +44,7 @@ async fn research_not_enabled_returns_503() -> TestResult {
 
 #[tokio::test]
 async fn get_nonexistent_campaign_returns_404() -> TestResult {
-    let app = common::test_router_with_research();
+    let app = common::test_router_with_research().await;
 
     let req = request(
         Request::builder().uri("/api/v1/research/campaigns/does-not-exist"),
@@ -57,7 +57,7 @@ async fn get_nonexistent_campaign_returns_404() -> TestResult {
 
 #[tokio::test]
 async fn create_campaign_with_invalid_body_returns_error() -> TestResult {
-    let app = common::test_router_with_research();
+    let app = common::test_router_with_research().await;
 
     // Missing required fields (name, task, etc.)
     let req = request(
@@ -81,7 +81,7 @@ async fn create_campaign_with_invalid_body_returns_error() -> TestResult {
 
 #[tokio::test]
 async fn delete_campaign_removes_it() -> TestResult {
-    let app = common::test_router_with_research();
+    let app = common::test_router_with_research().await;
 
     let create = request(
         Request::builder()
@@ -126,7 +126,7 @@ async fn delete_campaign_removes_it() -> TestResult {
 
 #[tokio::test]
 async fn reject_promotion_request() -> TestResult {
-    let app = common::test_router_with_research();
+    let app = common::test_router_with_research().await;
 
     // Create campaign
     let create = request(
@@ -201,7 +201,7 @@ async fn reject_promotion_request() -> TestResult {
 
 #[tokio::test]
 async fn create_and_list_research_campaigns() -> TestResult {
-    let app = common::test_router_with_research();
+    let app = common::test_router_with_research().await;
 
     let create = request(
         Request::builder()
@@ -240,7 +240,7 @@ async fn create_and_list_research_campaigns() -> TestResult {
 
 #[tokio::test]
 async fn pause_research_campaign_updates_state() -> TestResult {
-    let app = common::test_router_with_research();
+    let app = common::test_router_with_research().await;
 
     let create = request(
         Request::builder()
@@ -280,7 +280,7 @@ async fn pause_research_campaign_updates_state() -> TestResult {
 
 #[tokio::test]
 async fn promotion_request_can_be_created_and_approved() -> TestResult {
-    let app = common::test_router_with_research();
+    let app = common::test_router_with_research().await;
 
     let create = request(
         Request::builder()

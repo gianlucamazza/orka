@@ -123,6 +123,7 @@ sha2.workspace = true
 async-trait.workspace = true
 jsonwebtoken.workspace = true
 http-body-util = "0.1"
+tempfile.workspace = true
 
 [lints]
 workspace = true

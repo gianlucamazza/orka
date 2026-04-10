@@ -188,7 +188,9 @@ impl WorkspaceHandler {
             Some(envelope.id),
         );
         msg.metadata.clone_from(&envelope.metadata);
-        envelope.platform_context.clone_into(&mut msg.platform_context);
+        envelope
+            .platform_context
+            .clone_into(&mut msg.platform_context);
         msg.metadata
             .entry("source_channel".into())
             .or_insert_with(|| serde_json::Value::String(envelope.channel.clone()));
@@ -240,10 +242,12 @@ impl WorkspaceHandler {
     /// Resolve workspace from the registry by name. Falls back to default if
     /// not found.
     async fn resolve_from_registry(&self, ws_name: &str) -> (String, String, String) {
-        let state_lock = self.workspace_registry.state(ws_name).or_else(|| {
+        let state_lock = if let Some(s) = self.workspace_registry.state(ws_name).await {
+            Some(s)
+        } else {
             warn!(workspace = %ws_name, "workspace not found in registry, using default");
-            self.workspace_registry.default_state()
-        });
+            self.workspace_registry.default_state().await
+        };
         let Some(state_lock) = state_lock else {
             return (self.agent_config.name.clone(), String::new(), String::new());
         };
@@ -282,7 +286,7 @@ impl WorkspaceHandler {
                     (self.agent_config.name.clone(), raw.to_string())
                 }
             }
-        } else if let Some(state_lock) = self.workspace_registry.default_state() {
+        } else if let Some(state_lock) = self.workspace_registry.default_state().await {
             let state = state_lock.read().await;
             let name = state
                 .soul
@@ -301,7 +305,7 @@ impl WorkspaceHandler {
 
         let tools = if let Some(raw) = raw_tools {
             orka_workspace::strip_frontmatter(raw)
-        } else if let Some(state_lock) = self.workspace_registry.default_state() {
+        } else if let Some(state_lock) = self.workspace_registry.default_state().await {
             let state = state_lock.read().await;
             state.tools_body.clone().unwrap_or_default()
         } else {
@@ -322,19 +326,20 @@ impl WorkspaceHandler {
     ) -> Option<(String, bool)> {
         match call.name.as_str() {
             "workspace_info" => {
-                let names = self.workspace_registry.list_names();
+                let names = self.workspace_registry.list_names().await;
                 let mut workspaces = Vec::new();
                 for name in &names {
-                    let is_current = *name == current_workspace;
-                    let soul_name = if let Some(state_lock) = self.workspace_registry.state(name) {
-                        let state = state_lock.read().await;
-                        state
-                            .soul
-                            .as_ref()
-                            .and_then(|doc| doc.frontmatter.name.clone())
-                    } else {
-                        None
-                    };
+                    let is_current = name.as_str() == current_workspace;
+                    let soul_name =
+                        if let Some(state_lock) = self.workspace_registry.state(name).await {
+                            let state = state_lock.read().await;
+                            state
+                                .soul
+                                .as_ref()
+                                .and_then(|doc| doc.frontmatter.name.clone())
+                        } else {
+                            None
+                        };
                     workspaces.push(serde_json::json!({
                         "name": name,
                         "soul_name": soul_name,
@@ -356,8 +361,8 @@ impl WorkspaceHandler {
                 if target.is_empty() {
                     return Some(("Error: missing required parameter 'name'".into(), true));
                 }
-                if self.workspace_registry.get(target).is_none() {
-                    let available = self.workspace_registry.list_names().join(", ");
+                if self.workspace_registry.get(target).await.is_none() {
+                    let available = self.workspace_registry.list_names().await.join(", ");
                     return Some((
                         format!("Error: workspace '{target}' not found. Available: {available}"),
                         true,
@@ -686,8 +691,8 @@ impl AgentHandler for WorkspaceHandler {
             let mut messages = history;
             messages.push(ChatMessage::user(text.clone()));
 
-            let available_ws = self.workspace_registry.list_names();
-            let available_ws_refs: Vec<&str> = available_ws.clone();
+            let available_ws = self.workspace_registry.list_names().await;
+            let available_ws_refs: Vec<&str> = available_ws.iter().map(String::as_str).collect();
 
             // Determine the resolved workspace name for awareness
             let resolved_workspace = if let Some(ref entry) = ws_override {
@@ -757,7 +762,7 @@ impl AgentHandler for WorkspaceHandler {
 
             // Get template registry from workspace state
             let template_registry =
-                if let Some(state_lock) = self.workspace_registry.default_state() {
+                if let Some(state_lock) = self.workspace_registry.default_state().await {
                     let state = state_lock.read().await;
                     state.templates.clone()
                 } else {
@@ -1417,8 +1422,8 @@ mod tests {
         let state_lock = loader.state();
         *state_lock.write().await = state;
 
-        let mut registry = WorkspaceRegistry::new("default".into());
-        registry.register("default".into(), loader);
+        let registry = WorkspaceRegistry::new("default".into(), None);
+        registry.register("default".into(), loader).await;
         Arc::new(registry)
     }
 
@@ -1609,7 +1614,7 @@ mod tests {
     async fn multi_workspace_registry() -> Arc<WorkspaceRegistry> {
         use orka_workspace::{config::SoulFrontmatter, parse::Document, state::WorkspaceState};
 
-        let mut registry = WorkspaceRegistry::new("main".into());
+        let registry = WorkspaceRegistry::new("main".into(), None);
 
         let main_loader = Arc::new(WorkspaceLoader::new("."));
         *main_loader.state().write().await = WorkspaceState {
@@ -1622,7 +1627,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        registry.register("main".into(), main_loader);
+        registry.register("main".into(), main_loader).await;
 
         let support_loader = Arc::new(WorkspaceLoader::new("workspaces/support"));
         *support_loader.state().write().await = WorkspaceState {
@@ -1635,7 +1640,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        registry.register("support".into(), support_loader);
+        registry.register("support".into(), support_loader).await;
 
         Arc::new(registry)
     }

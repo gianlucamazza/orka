@@ -60,7 +60,8 @@ impl WorkspaceLoader {
         Ok(())
     }
 
-    /// Write a SOUL.md document to disk atomically, then reload in-memory state.
+    /// Write a SOUL.md document to disk atomically, then reload in-memory
+    /// state.
     pub async fn save_soul(
         &self,
         doc: &crate::parse::Document<crate::config::SoulFrontmatter>,
@@ -86,9 +87,9 @@ impl WorkspaceLoader {
         tokio::fs::write(&tmp, content)
             .await
             .map_err(|e| orka_core::Error::Workspace(format!("failed to write {filename}: {e}")))?;
-        tokio::fs::rename(&tmp, &target)
-            .await
-            .map_err(|e| orka_core::Error::Workspace(format!("failed to rename {filename}: {e}")))?;
+        tokio::fs::rename(&tmp, &target).await.map_err(|e| {
+            orka_core::Error::Workspace(format!("failed to rename {filename}: {e}"))
+        })?;
         Ok(())
     }
 

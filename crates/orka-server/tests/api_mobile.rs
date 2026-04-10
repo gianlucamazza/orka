@@ -121,7 +121,7 @@ fn multipart_upload_request(
 
 #[tokio::test]
 async fn mobile_me_returns_authenticated_identity() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let req = common::request(
         Request::builder().uri("/mobile/v1/me").header(
             "Authorization",
@@ -143,7 +143,7 @@ async fn mobile_me_returns_authenticated_identity() -> common::TestResult {
 
 #[tokio::test]
 async fn mobile_conversation_list_supports_pagination() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let now = chrono::Utc::now();
     let _older = seed_conversation(
         ctx.conversations.as_ref(),
@@ -184,7 +184,7 @@ async fn mobile_conversation_list_supports_pagination() -> common::TestResult {
 async fn mobile_message_list_cursor_pagination() -> common::TestResult {
     use tower::ServiceExt as _;
 
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let conversation = seed_conversation(
         ctx.conversations.as_ref(),
         "user-a",
@@ -253,7 +253,7 @@ async fn mobile_message_list_cursor_pagination() -> common::TestResult {
 
 #[tokio::test]
 async fn mobile_send_persists_user_message_and_publishes_inbound_envelope() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let conversation = seed_conversation(
         ctx.conversations.as_ref(),
         "user-a",
@@ -298,7 +298,7 @@ async fn mobile_send_persists_user_message_and_publishes_inbound_envelope() -> c
 
 #[tokio::test]
 async fn mobile_upload_returns_metadata_and_content() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let file_bytes = b"artifact-body";
     let upload_req = multipart_upload_request(
         "/mobile/v1/uploads",
@@ -376,7 +376,7 @@ async fn mobile_upload_returns_metadata_and_content() -> common::TestResult {
 #[tokio::test]
 async fn mobile_send_with_artifacts_persists_attachment_and_publishes_rich_input()
 -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let conversation = seed_conversation(
         ctx.conversations.as_ref(),
         "user-a",
@@ -480,7 +480,7 @@ async fn mobile_send_with_artifacts_persists_attachment_and_publishes_rich_input
 
 #[tokio::test]
 async fn mobile_delete_artifact_removes_unattached_upload() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let upload_req = multipart_upload_request(
         "/mobile/v1/uploads",
         bearer("user-a", &["chat:write"]),
@@ -519,7 +519,7 @@ async fn mobile_delete_artifact_removes_unattached_upload() -> common::TestResul
 
 #[tokio::test]
 async fn mobile_routes_hide_other_users_conversations() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let conversation = seed_conversation(
         ctx.conversations.as_ref(),
         "owner",
@@ -541,7 +541,7 @@ async fn mobile_routes_hide_other_users_conversations() -> common::TestResult {
 
 #[tokio::test]
 async fn mobile_stream_emits_delta_completed_and_done_frames() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let conversation = seed_conversation(
         ctx.conversations.as_ref(),
         "user-a",
@@ -679,7 +679,7 @@ async fn assert_refresh_token_rotation(
 #[tokio::test]
 async fn mobile_pairing_create_complete_and_refresh_issue_valid_mobile_session()
 -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
 
     let create_req = common::request(
         Request::builder()
@@ -769,7 +769,7 @@ async fn mobile_pairing_create_complete_and_refresh_issue_valid_mobile_session()
 
 #[tokio::test]
 async fn mobile_pairing_cannot_be_completed_twice() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
 
     let create_req = common::request(
         Request::builder()
@@ -813,7 +813,7 @@ async fn mobile_pairing_cannot_be_completed_twice() -> common::TestResult {
 
 #[tokio::test]
 async fn openapi_spec_includes_mobile_paths() -> common::TestResult {
-    let app = common::test_router();
+    let app = common::test_router().await;
     let req = common::request(
         Request::builder().uri("/api-doc/openapi.json"),
         Body::empty(),
@@ -843,7 +843,7 @@ async fn openapi_spec_includes_mobile_paths() -> common::TestResult {
 
 #[tokio::test]
 async fn mobile_conversation_archive_and_unarchive() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let conversation = seed_conversation(
         ctx.conversations.as_ref(),
         "user-a",
@@ -956,7 +956,7 @@ async fn mobile_conversation_archive_and_unarchive() -> common::TestResult {
 
 #[tokio::test]
 async fn mobile_conversation_delete() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let conversation = seed_conversation(
         ctx.conversations.as_ref(),
         "user-a",
@@ -1018,7 +1018,7 @@ async fn mobile_conversation_delete() -> common::TestResult {
 
 #[tokio::test]
 async fn mobile_conversation_archive_delete_ownership() -> common::TestResult {
-    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_with_jwt(JWT_SECRET, JWT_ISSUER).await;
     let conversation = seed_conversation(
         ctx.conversations.as_ref(),
         "user-a",
@@ -1064,7 +1064,7 @@ async fn mobile_conversation_archive_delete_ownership() -> common::TestResult {
 #[tokio::test]
 async fn mobile_rate_limit_returns_429() -> common::TestResult {
     // Use a router with a 1-req/min limit so the 2nd request triggers 429.
-    let ctx = common::test_mobile_router_low_rate_limit(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_low_rate_limit(JWT_SECRET, JWT_ISSUER).await;
     let auth = bearer("rate-test-user", &["chat:read"]);
 
     // First request — within limit.
@@ -1102,7 +1102,7 @@ async fn mobile_rate_limit_returns_429() -> common::TestResult {
 #[tokio::test]
 async fn mobile_rate_limit_different_users_are_independent() -> common::TestResult {
     // Each user has their own bucket — user-b should not be blocked by user-a.
-    let ctx = common::test_mobile_router_low_rate_limit(JWT_SECRET, JWT_ISSUER);
+    let ctx = common::test_mobile_router_low_rate_limit(JWT_SECRET, JWT_ISSUER).await;
     let auth_a = bearer("user-alpha", &["chat:read"]);
     let auth_b = bearer("user-beta", &["chat:read"]);
 

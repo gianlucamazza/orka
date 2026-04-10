@@ -1,4 +1,4 @@
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 /// A parsed markdown document with typed YAML frontmatter and a plain-text
 /// body.

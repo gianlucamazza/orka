@@ -43,7 +43,9 @@ impl MemoryCommand {
             Some(envelope.id),
         );
         msg.metadata.clone_from(&envelope.metadata);
-        envelope.platform_context.clone_into(&mut msg.platform_context);
+        envelope
+            .platform_context
+            .clone_into(&mut msg.platform_context);
         msg
     }
 
@@ -137,7 +139,8 @@ impl ServerCommand for MemoryCommand {
                                 .get("workspace")
                                 .is_some_and(|ws| ws == &workspace),
                             MemoryScope::Global => true,
-                            MemoryScope::User => false,
+                            // User-scoped and any future scopes are excluded from this listing
+                            _ => false,
                         })
                         .count()
                 } else {

@@ -76,6 +76,7 @@ pub fn export_markdown(conversation: &Conversation, messages: &[ConversationMess
         let role_label = match message.role {
             ConversationMessageRole::User => "**User**",
             ConversationMessageRole::Assistant => "**Assistant**",
+            _ => "**Other**",
         };
         let _ = writeln!(out, "### {role_label}\n");
         out.push_str(&message.text);
@@ -128,6 +129,7 @@ pub fn export_pdf(
         let role_label = match message.role {
             ConversationMessageRole::User => "User",
             ConversationMessageRole::Assistant => "Assistant",
+            _ => "Other",
         };
         layer.use_text(role_label, 10.0, Mm(MARGIN), Mm(y), &font_bold);
         y -= LINE_H;

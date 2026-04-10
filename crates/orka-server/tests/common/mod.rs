@@ -3,16 +3,19 @@
 //! Provides [`test_router`] and [`test_router_with_auth`] which build the
 //! full production router backed by in-memory test doubles.
 
-#![allow(dead_code, missing_docs)]
+#![allow(dead_code, missing_docs, clippy::expect_used, clippy::unwrap_used)]
 
 use std::{error::Error, sync::Arc};
 
 use axum::{body::Body, response::Response};
 use orka_a2a::AgentDirectory;
 use orka_agent::{Agent, AgentGraph, AgentId, GraphNode, NodeKind, TerminationPolicy};
-use orka_core::testing::{
-    InMemoryArtifactStore, InMemoryBus, InMemoryConversationStore, InMemoryQueue,
-    InMemorySessionStore,
+use orka_core::{
+    testing::{
+        InMemoryArtifactStore, InMemoryBus, InMemoryConversationStore, InMemoryMemoryStore,
+        InMemoryQueue, InMemorySessionStore,
+    },
+    traits::NoopEventSink,
 };
 use orka_server::{
     mobile_auth::{InMemoryMobileAuthService, MobileAuthConfig, MobileAuthService},
@@ -141,11 +144,17 @@ fn test_graph() -> Arc<AgentGraph> {
 }
 
 /// Build a minimal `WorkspaceRegistry` with an empty default workspace.
-fn test_workspace_registry() -> Arc<WorkspaceRegistry> {
-    let loader = Arc::new(WorkspaceLoader::new("."));
-    let mut reg = WorkspaceRegistry::new("default".to_string());
-    reg.register("default".to_string(), loader);
-    Arc::new(reg)
+///
+/// Uses a temporary directory as `base_dir` so CRUD operations (create,
+/// delete) work in tests without polluting the source tree.
+async fn test_workspace_registry() -> (Arc<WorkspaceRegistry>, tempfile::TempDir) {
+    let dir = tempfile::TempDir::new().expect("tempdir creation should succeed");
+    let default_dir = dir.path().join("default");
+    std::fs::create_dir_all(&default_dir).expect("default workspace dir creation should succeed");
+    let loader = Arc::new(WorkspaceLoader::new(&default_dir));
+    let reg = WorkspaceRegistry::new("default".to_string(), Some(dir.path().to_path_buf()));
+    reg.register("default".to_string(), loader).await;
+    (Arc::new(reg), dir)
 }
 
 fn test_features() -> ServerFeatures {
@@ -168,14 +177,10 @@ fn test_mobile_auth_service() -> Arc<dyn MobileAuthService> {
     )))
 }
 
-/// Build the full server router backed by in-memory test doubles.
-///
-/// - No auth (all routes accessible without API key)
-/// - No A2A
-/// - No scheduler
-/// - No experience service
-/// - One registered skill: `EchoSkill`
-pub(crate) fn test_router() -> axum::Router {
+/// Build the full server router together with a live `TempDir` for workspace
+/// CRUD tests.  The caller must keep the returned `TempDir` alive for the
+/// duration of the test; dropping it removes the workspace base directory.
+pub(crate) async fn test_router_with_workspace_dir() -> (axum::Router, tempfile::TempDir) {
     let mut skills = SkillRegistry::new();
     skills.register(Arc::new(EchoSkill));
 
@@ -190,7 +195,8 @@ pub(crate) fn test_router() -> axum::Router {
             Arc::default(),
         ),
     );
-    build_router(RouterParams {
+    let (workspace_registry, dir) = test_workspace_registry().await;
+    let app = build_router(RouterParams {
         bus,
         queue: q.clone(),
         dlq: q,
@@ -199,9 +205,10 @@ pub(crate) fn test_router() -> axum::Router {
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations,
         artifacts,
+        memory: Arc::new(InMemoryMemoryStore::new()),
         scheduler_store: None,
         checkpoint_store: None,
-        workspace_registry: test_workspace_registry(),
+        workspace_registry,
         graph: test_graph(),
         experience_service: None,
         start_time: std::time::Instant::now(),
@@ -232,6 +239,77 @@ pub(crate) fn test_router() -> axum::Router {
         controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
+        event_sink: Arc::new(NoopEventSink),
+    });
+    (app, dir)
+}
+
+/// Build the full server router backed by in-memory test doubles.
+///
+/// - No auth (all routes accessible without API key)
+/// - No A2A
+/// - No scheduler
+/// - No experience service
+/// - One registered skill: `EchoSkill`
+pub(crate) async fn test_router() -> axum::Router {
+    let mut skills = SkillRegistry::new();
+    skills.register(Arc::new(EchoSkill));
+
+    let q = Arc::new(InMemoryQueue::new());
+    let bus = Arc::new(InMemoryBus::new());
+    let conversations = Arc::new(InMemoryConversationStore::new());
+    let artifacts = Arc::new(InMemoryArtifactStore::new());
+    let controller = Arc::new(
+        orka_core::conversation_controller::ConversationController::new(
+            conversations.clone(),
+            bus.clone(),
+            Arc::default(),
+        ),
+    );
+    build_router(RouterParams {
+        bus,
+        queue: q.clone(),
+        dlq: q,
+        skills: Arc::new(skills),
+        soft_skills: None,
+        sessions: Arc::new(InMemorySessionStore::new()),
+        conversations,
+        artifacts,
+        memory: Arc::new(InMemoryMemoryStore::new()),
+        scheduler_store: None,
+        checkpoint_store: None,
+        workspace_registry: test_workspace_registry().await.0,
+        graph: test_graph(),
+        experience_service: None,
+        start_time: std::time::Instant::now(),
+        concurrency: 1,
+        redis_url: "redis://127.0.0.1:6379".to_string(),
+        qdrant_url: None,
+        auth_layer: None,
+        a2a_state: None,
+        a2a_auth_enabled: false,
+        agent_directory: Arc::new(AgentDirectory::new()),
+        metrics_handle: None,
+        agent_name: "Test Agent".to_string(),
+        agent_model: "claude-sonnet-4-6".to_string(),
+        mcp_server_count: 0,
+        features: test_features(),
+        thinking: None,
+        agent_count: 1,
+        auth_enabled: false,
+        adapters: vec![],
+        coding_backend: None,
+        web_search: None,
+        secret_manager: Arc::new(orka_core::testing::InMemorySecretManager::new()),
+        research_service: None,
+        stream_registry: orka_core::StreamRegistry::new(),
+        mobile_events: MobileEventHub::new(),
+        mobile_auth: None,
+        mobile_enabled: false,
+        controller,
+        mobile_read_rate_limit_per_minute: None,
+        mobile_write_rate_limit_per_minute: None,
+        event_sink: Arc::new(NoopEventSink),
     })
 }
 
@@ -241,7 +319,7 @@ pub(crate) fn test_router() -> axum::Router {
 /// When `auth_enabled` is `true`:
 /// - `GET /.well-known/agent.json` remains public.
 /// - `POST /a2a` requires `X-Api-Key: <key>`.
-pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::Router {
+pub(crate) async fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::Router {
     use orka_a2a::{
         A2aState, InMemoryPushNotificationStore, InMemoryTaskStore, WebhookDeliverer,
         build_agent_card,
@@ -294,9 +372,10 @@ pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::R
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations,
         artifacts,
+        memory: Arc::new(InMemoryMemoryStore::new()),
         scheduler_store: None,
         checkpoint_store: None,
-        workspace_registry: test_workspace_registry(),
+        workspace_registry: test_workspace_registry().await.0,
         graph: test_graph(),
         experience_service: None,
         start_time: std::time::Instant::now(),
@@ -327,13 +406,14 @@ pub(crate) fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> axum::R
         controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
+        event_sink: Arc::new(NoopEventSink),
     })
 }
 
 /// Build the server router with API-key authentication enabled.
 ///
 /// Protected routes require `X-Api-Key: <key>`.
-pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
+pub(crate) async fn test_router_with_auth(key: &str) -> axum::Router {
     use orka_auth::{
         ApiKeyAuthenticator, ApiKeyEntry, AuthLayer, middleware::AuthMiddlewareConfig,
     };
@@ -368,9 +448,10 @@ pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations,
         artifacts,
+        memory: Arc::new(InMemoryMemoryStore::new()),
         scheduler_store: None,
         checkpoint_store: None,
-        workspace_registry: test_workspace_registry(),
+        workspace_registry: test_workspace_registry().await.0,
         graph: test_graph(),
         experience_service: None,
         start_time: std::time::Instant::now(),
@@ -401,6 +482,7 @@ pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
         controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
+        event_sink: Arc::new(NoopEventSink),
     })
 }
 
@@ -408,7 +490,7 @@ pub(crate) fn test_router_with_auth(key: &str) -> axum::Router {
 ///
 /// Uses in-memory stub skills so the full research pipeline can run
 /// without external tools.
-pub(crate) fn test_router_with_research() -> axum::Router {
+pub(crate) async fn test_router_with_research() -> axum::Router {
     use orka_core::testing::InMemorySecretManager;
     use orka_research::{
         InMemoryResearchStore, ResearchConfig, create_research_service, create_research_skills,
@@ -456,9 +538,10 @@ pub(crate) fn test_router_with_research() -> axum::Router {
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations,
         artifacts,
+        memory: Arc::new(InMemoryMemoryStore::new()),
         scheduler_store: None,
         checkpoint_store: None,
-        workspace_registry: test_workspace_registry(),
+        workspace_registry: test_workspace_registry().await.0,
         graph: test_graph(),
         experience_service: None,
         start_time: std::time::Instant::now(),
@@ -497,6 +580,7 @@ pub(crate) fn test_router_with_research() -> axum::Router {
         controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
+        event_sink: Arc::new(NoopEventSink),
     })
 }
 
@@ -509,7 +593,7 @@ pub(crate) struct MobileTestContext {
     pub mobile_events: MobileEventHub,
 }
 
-pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileTestContext {
+pub(crate) async fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileTestContext {
     use orka_auth::{AuthLayer, JwtAuthenticator, middleware::AuthMiddlewareConfig};
 
     let mut skills = SkillRegistry::new();
@@ -545,9 +629,10 @@ pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileT
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations: conversations.clone(),
         artifacts: artifacts.clone(),
+        memory: Arc::new(InMemoryMemoryStore::new()),
         scheduler_store: None,
         checkpoint_store: None,
-        workspace_registry: test_workspace_registry(),
+        workspace_registry: test_workspace_registry().await.0,
         graph: test_graph(),
         experience_service: None,
         start_time: std::time::Instant::now(),
@@ -578,6 +663,7 @@ pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileT
         controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
+        event_sink: Arc::new(NoopEventSink),
     });
 
     MobileTestContext {
@@ -592,7 +678,10 @@ pub(crate) fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> MobileT
 
 /// Build the mobile router with a very low rate limit (1 req/min) to exercise
 /// the 429 path in tests without sending 120 requests.
-pub(crate) fn test_mobile_router_low_rate_limit(secret: &str, issuer: &str) -> MobileTestContext {
+pub(crate) async fn test_mobile_router_low_rate_limit(
+    secret: &str,
+    issuer: &str,
+) -> MobileTestContext {
     use orka_auth::{AuthLayer, JwtAuthenticator, middleware::AuthMiddlewareConfig};
 
     let mut skills = SkillRegistry::new();
@@ -628,9 +717,10 @@ pub(crate) fn test_mobile_router_low_rate_limit(secret: &str, issuer: &str) -> M
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations: conversations.clone(),
         artifacts: artifacts.clone(),
+        memory: Arc::new(InMemoryMemoryStore::new()),
         scheduler_store: None,
         checkpoint_store: None,
-        workspace_registry: test_workspace_registry(),
+        workspace_registry: test_workspace_registry().await.0,
         graph: test_graph(),
         experience_service: None,
         start_time: std::time::Instant::now(),
@@ -661,6 +751,7 @@ pub(crate) fn test_mobile_router_low_rate_limit(secret: &str, issuer: &str) -> M
         controller,
         mobile_read_rate_limit_per_minute: Some(1),
         mobile_write_rate_limit_per_minute: Some(1),
+        event_sink: Arc::new(NoopEventSink),
     });
 
     MobileTestContext {
@@ -673,7 +764,7 @@ pub(crate) fn test_mobile_router_low_rate_limit(secret: &str, issuer: &str) -> M
     }
 }
 
-pub(crate) fn test_router_with_composite_auth(
+pub(crate) async fn test_router_with_composite_auth(
     api_key: &str,
     jwt_secret: &str,
     issuer: &str,
@@ -721,9 +812,10 @@ pub(crate) fn test_router_with_composite_auth(
         sessions: Arc::new(InMemorySessionStore::new()),
         conversations,
         artifacts,
+        memory: Arc::new(InMemoryMemoryStore::new()),
         scheduler_store: None,
         checkpoint_store: None,
-        workspace_registry: test_workspace_registry(),
+        workspace_registry: test_workspace_registry().await.0,
         graph: test_graph(),
         experience_service: None,
         start_time: std::time::Instant::now(),
@@ -754,6 +846,7 @@ pub(crate) fn test_router_with_composite_auth(
         controller,
         mobile_read_rate_limit_per_minute: None,
         mobile_write_rate_limit_per_minute: None,
+        event_sink: Arc::new(NoopEventSink),
     })
 }
 

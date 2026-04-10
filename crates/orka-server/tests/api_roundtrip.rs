@@ -103,7 +103,8 @@ async fn start_pipeline() -> common::TestResult<(
         ws_registry.clone(),
         StreamRegistry::new(),
         None,
-        TrustLevel::UserAuthenticated,
+        TrustLevel::TrustedOperator,
+        None,
     );
     tokio::spawn(async move {
         axum::serve(listener, router).await.ok();

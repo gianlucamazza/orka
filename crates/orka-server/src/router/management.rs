@@ -10,10 +10,57 @@ use axum::{
     response::IntoResponse,
 };
 use orka_agent::AgentGraph;
-use orka_core::traits::SessionStore;
+use orka_core::{
+    DomainEvent,
+    traits::{EventSink, SessionStore},
+    types::DomainEventKind,
+};
 use orka_experience::ExperienceService;
 use orka_skills::{SkillRegistry, SoftSkillRegistry};
-use orka_workspace::WorkspaceRegistry;
+use orka_workspace::{Document, SoulFrontmatter, WorkspaceRegistry};
+use serde::Deserialize;
+
+/// Request body for `POST /api/v1/workspaces`.
+#[derive(Debug, Deserialize)]
+struct CreateWorkspaceRequest {
+    /// Workspace identifier (lowercase letters, digits, hyphens; 1–64 chars).
+    name: String,
+    /// Agent display name (maps to SOUL.md frontmatter `name`).
+    #[serde(default)]
+    agent_name: Option<String>,
+    /// One-line description (maps to SOUL.md frontmatter `description`).
+    #[serde(default)]
+    description: Option<String>,
+    /// Semantic version string (maps to SOUL.md frontmatter `version`).
+    #[serde(default)]
+    version: Option<String>,
+    /// Initial SOUL.md body (markdown content after the frontmatter block).
+    #[serde(default)]
+    soul_body: Option<String>,
+    /// Initial TOOLS.md content.
+    #[serde(default)]
+    tools_body: Option<String>,
+}
+
+/// Request body for `PATCH /api/v1/workspaces/{name}`.
+#[derive(Debug, Deserialize)]
+struct UpdateWorkspaceRequest {
+    /// Agent display name override.
+    #[serde(default)]
+    agent_name: Option<String>,
+    /// Description override.
+    #[serde(default)]
+    description: Option<String>,
+    /// Version override.
+    #[serde(default)]
+    version: Option<String>,
+    /// SOUL.md body override.
+    #[serde(default)]
+    soul_body: Option<String>,
+    /// TOOLS.md content override.
+    #[serde(default)]
+    tools_body: Option<String>,
+}
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn routes(
@@ -23,13 +70,20 @@ pub(super) fn routes(
     workspace_registry: Arc<WorkspaceRegistry>,
     graph: Arc<AgentGraph>,
     experience_service: Option<Arc<ExperienceService>>,
+    event_sink: Arc<dyn EventSink>,
 ) -> axum::Router {
     let s1 = skills.clone();
     let s2 = skills.clone();
     let s3 = skills;
     let soft1 = soft_skills;
     let w1 = workspace_registry.clone();
-    let w2 = workspace_registry;
+    let w2 = workspace_registry.clone();
+    let w3 = workspace_registry.clone();
+    let w4 = workspace_registry.clone();
+    let w5 = workspace_registry;
+    let ev1 = event_sink.clone();
+    let ev2 = event_sink.clone();
+    let ev3 = event_sink;
     let g1 = graph;
     let e1 = experience_service.clone();
     let e2 = experience_service.clone();
@@ -142,8 +196,8 @@ pub(super) fn routes(
                 let registry = w1.clone();
                 async move {
                     let mut list = Vec::new();
-                    for name in registry.list_names() {
-                        if let Some(loader) = registry.get(name) {
+                    for name in registry.list_names().await {
+                        if let Some(loader) = registry.get(&name).await {
                             let state = loader.state();
                             let state = state.read().await;
                             let (agent_name, description) = state
@@ -165,6 +219,61 @@ pub(super) fn routes(
                     }
                     axum::Json(list)
                 }
+            })
+            .post(move |Json(body): Json<CreateWorkspaceRequest>| {
+                let registry = w3.clone();
+                let sink = ev1.clone();
+                async move {
+                    let soul = Document {
+                        frontmatter: SoulFrontmatter {
+                            name: body.agent_name,
+                            description: body.description,
+                            version: body.version,
+                        },
+                        body: body.soul_body.unwrap_or_default(),
+                    };
+                    match registry
+                        .create_workspace(&body.name, Some(soul), body.tools_body.as_deref())
+                        .await
+                    {
+                        Ok(loader) => {
+                            let ws_state = loader.state();
+                            let ws_state = ws_state.read().await;
+                            let fm = ws_state.soul.as_ref().map(|d| &d.frontmatter);
+                            sink.emit(DomainEvent::new(DomainEventKind::WorkspaceCreated {
+                                name: body.name.clone(),
+                                agent_name: fm.and_then(|f| f.name.clone()),
+                            }))
+                            .await;
+                            (
+                                StatusCode::CREATED,
+                                axum::Json(serde_json::json!({
+                                    "name": body.name,
+                                    "agent_name": fm.and_then(|f| f.name.as_deref()),
+                                    "description": fm.and_then(|f| f.description.as_deref()),
+                                    "version": fm.and_then(|f| f.version.as_deref()),
+                                    "soul_body": ws_state.soul.as_ref().map(|d| d.body.as_str()),
+                                    "tools_body": ws_state.tools_body.as_deref(),
+                                })),
+                            )
+                                .into_response()
+                        }
+                        Err(e) => {
+                            let msg = e.to_string();
+                            let status = if msg.contains("already exists") {
+                                StatusCode::CONFLICT
+                            } else if msg.contains("single-workspace")
+                                || msg.contains("invalid")
+                                || msg.contains("name must")
+                            {
+                                StatusCode::BAD_REQUEST
+                            } else {
+                                StatusCode::INTERNAL_SERVER_ERROR
+                            };
+                            (status, msg).into_response()
+                        }
+                    }
+                }
             }),
         )
         .route(
@@ -172,7 +281,7 @@ pub(super) fn routes(
             axum::routing::get(move |Path(ws_name): Path<String>| {
                 let registry = w2.clone();
                 async move {
-                    match registry.get(&ws_name) {
+                    match registry.get(&ws_name).await {
                         None => (
                             StatusCode::NOT_FOUND,
                             format!("workspace '{ws_name}' not found"),
@@ -191,6 +300,130 @@ pub(super) fn routes(
                                 "tools_body": state.tools_body.as_deref(),
                             }))
                             .into_response()
+                        }
+                    }
+                }
+            })
+            .patch(
+                move |Path(ws_name): Path<String>, Json(body): Json<UpdateWorkspaceRequest>| {
+                    let registry = w4.clone();
+                    let sink = ev2.clone();
+                    async move {
+                        if body.agent_name.is_none()
+                            && body.description.is_none()
+                            && body.version.is_none()
+                            && body.soul_body.is_none()
+                            && body.tools_body.is_none()
+                        {
+                            return (StatusCode::BAD_REQUEST, "no fields to update").into_response();
+                        }
+
+                        let Some(loader) = registry.get(&ws_name).await else {
+                            return (
+                                StatusCode::NOT_FOUND,
+                                format!("workspace '{ws_name}' not found"),
+                            )
+                                .into_response();
+                        };
+
+                        let soul_changed = body.agent_name.is_some()
+                            || body.description.is_some()
+                            || body.version.is_some()
+                            || body.soul_body.is_some();
+
+                        // Track which fields change for the domain event.
+                        let mut changed_fields: Vec<String> = Vec::new();
+
+                        if soul_changed {
+                            let (mut fm, mut body_text) = {
+                                let ws_state = loader.state();
+                                let ws_state = ws_state.read().await;
+                                let (fm, b) = ws_state.soul.as_ref().map_or_else(
+                                    || (SoulFrontmatter::default(), String::new()),
+                                    |d| (d.frontmatter.clone(), d.body.clone()),
+                                );
+                                (fm, b)
+                            };
+                            if let Some(name) = body.agent_name {
+                                fm.name = if name.is_empty() { None } else { Some(name) };
+                                changed_fields.push("agent_name".into());
+                            }
+                            if let Some(desc) = body.description {
+                                fm.description =
+                                    if desc.is_empty() { None } else { Some(desc) };
+                                changed_fields.push("description".into());
+                            }
+                            if let Some(ver) = body.version {
+                                fm.version = if ver.is_empty() { None } else { Some(ver) };
+                                changed_fields.push("version".into());
+                            }
+                            if let Some(soul) = body.soul_body {
+                                body_text = soul;
+                                changed_fields.push("soul_body".into());
+                            }
+                            let doc = Document {
+                                frontmatter: fm,
+                                body: body_text,
+                            };
+                            if let Err(e) = loader.save_soul(&doc).await {
+                                return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                                    .into_response();
+                            }
+                        }
+
+                        if let Some(tools) = body.tools_body {
+                            if let Err(e) = loader.save_tools(&tools).await {
+                                return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+                                    .into_response();
+                            }
+                            changed_fields.push("tools_body".into());
+                        }
+
+                        sink.emit(DomainEvent::new(DomainEventKind::WorkspaceUpdated {
+                            name: ws_name.clone(),
+                            changed_fields,
+                        }))
+                        .await;
+
+                        let ws_state = loader.state();
+                        let ws_state = ws_state.read().await;
+                        let fm = ws_state.soul.as_ref().map(|d| &d.frontmatter);
+                        axum::Json(serde_json::json!({
+                            "name": ws_name,
+                            "agent_name": fm.and_then(|f| f.name.as_deref()),
+                            "description": fm.and_then(|f| f.description.as_deref()),
+                            "version": fm.and_then(|f| f.version.as_deref()),
+                            "soul_body": ws_state.soul.as_ref().map(|d| d.body.as_str()),
+                            "tools_body": ws_state.tools_body.as_deref(),
+                        }))
+                        .into_response()
+                    }
+                },
+            )
+            .delete(move |Path(ws_name): Path<String>| {
+                let registry = w5.clone();
+                let sink = ev3.clone();
+                async move {
+                    match registry.remove_workspace(&ws_name).await {
+                        Ok(()) => {
+                            sink.emit(DomainEvent::new(DomainEventKind::WorkspaceRemoved {
+                                name: ws_name,
+                            }))
+                            .await;
+                            StatusCode::NO_CONTENT.into_response()
+                        }
+                        Err(e) => {
+                            let msg = e.to_string();
+                            let status = if msg.contains("not found") {
+                                StatusCode::NOT_FOUND
+                            } else if msg.contains("cannot delete the default")
+                                || msg.contains("single-workspace")
+                            {
+                                StatusCode::BAD_REQUEST
+                            } else {
+                                StatusCode::INTERNAL_SERVER_ERROR
+                            };
+                            (status, msg).into_response()
                         }
                     }
                 }

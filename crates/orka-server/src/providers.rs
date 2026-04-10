@@ -425,7 +425,8 @@ pub(crate) async fn build_llm_clients(
                         pc.timeout_secs
                             .unwrap_or(defaults::default_llm_timeout_secs()),
                         pc.max_tokens.unwrap_or(defaults::default_llm_max_tokens()),
-                        pc.max_retries.unwrap_or(defaults::default_llm_max_retries()),
+                        pc.max_retries
+                            .unwrap_or(defaults::default_llm_max_retries()),
                         url,
                         Some(resolved.value),
                     )) as Arc<dyn orka_llm::LlmClient>

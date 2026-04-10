@@ -25,8 +25,8 @@ use orka_agent::AgentGraph;
 use orka_auth::AuthLayer;
 use orka_checkpoint::CheckpointStore;
 use orka_core::traits::{
-    ArtifactStore, ConversationStore, DeadLetterQueue, MemoryStore, MessageBus, PriorityQueue,
-    SecretManager, SessionStore,
+    ArtifactStore, ConversationStore, DeadLetterQueue, EventSink, MemoryStore, MessageBus,
+    PriorityQueue, SecretManager, SessionStore,
 };
 use orka_experience::ExperienceService;
 use orka_observe::metrics::PrometheusHandle;
@@ -350,6 +350,9 @@ pub struct RouterParams {
     /// Defaults to 60 when `None`. Set to a low value in tests to exercise
     /// the 429 path without sending hundreds of requests.
     pub mobile_write_rate_limit_per_minute: Option<u32>,
+    /// Event sink for domain events emitted by management and mobile workspace
+    /// operations.
+    pub event_sink: Arc<dyn EventSink>,
 }
 
 /// Build the complete server `Router` from the given parameters.
@@ -401,6 +404,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
         mobile_enabled,
         mobile_read_rate_limit_per_minute,
         mobile_write_rate_limit_per_minute,
+        event_sink,
     } = p;
 
     // --- Public routes (no auth) ---
@@ -475,6 +479,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
     // --- Protected API routes ---
 
     let workspace_registry_mobile = workspace_registry.clone();
+    let event_sink_mobile = event_sink.clone();
     let api_routes = dlq::routes(dlq)
         .merge(schedules::routes(scheduler_store))
         .merge(checkpoints::routes(checkpoint_store, queue.clone()))
@@ -486,6 +491,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
             workspace_registry,
             graph,
             experience_service,
+            event_sink,
         ))
         .merge(research::routes(research_service, stream_registry.clone()));
 
@@ -494,7 +500,7 @@ pub fn build_router(p: RouterParams) -> axum::Router {
             mobile_read_rate_limit_per_minute.unwrap_or(300),
             mobile_write_rate_limit_per_minute.unwrap_or(60),
         );
-        let mobile_routes = mobile::protected_routes(
+        let mobile_routes = mobile::protected_routes(mobile::ProtectedMobileState {
             conversations,
             artifacts,
             bus,
@@ -503,8 +509,9 @@ pub fn build_router(p: RouterParams) -> axum::Router {
             controller,
             mobile_auth,
             memory,
-            workspace_registry_mobile,
-        )
+            workspace_registry: workspace_registry_mobile,
+            event_sink: event_sink_mobile,
+        })
         .layer(axum::middleware::from_fn_with_state(
             rate_limiters,
             mobile::rate_limit_middleware,

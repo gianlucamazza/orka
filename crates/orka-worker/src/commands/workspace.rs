@@ -33,7 +33,9 @@ impl WorkspaceCommand {
             Some(envelope.id),
         );
         msg.metadata.clone_from(&envelope.metadata);
-        envelope.platform_context.clone_into(&mut msg.platform_context);
+        envelope
+            .platform_context
+            .clone_into(&mut msg.platform_context);
         msg
     }
 
@@ -74,10 +76,10 @@ impl ServerCommand for WorkspaceCommand {
                     .current_workspace_name(session)
                     .await
                     .unwrap_or_else(|| self.workspace_registry.default_name().to_string());
-                let names = self.workspace_registry.list_names();
+                let names = self.workspace_registry.list_names().await;
                 let mut lines = vec!["**Available workspaces:**".to_string()];
                 for name in &names {
-                    if *name == current {
+                    if name.as_str() == current {
                         lines.push(format!("• **{name}** ✓ (current)"));
                     } else {
                         lines.push(format!("• {name}"));
@@ -109,10 +111,11 @@ impl ServerCommand for WorkspaceCommand {
             }
             name => {
                 // Try to switch to the named workspace.
-                if self.workspace_registry.get(name).is_none() {
+                if self.workspace_registry.get(name).await.is_none() {
                     let available = self
                         .workspace_registry
                         .list_names()
+                        .await
                         .into_iter()
                         .map(|s| format!("`{s}`"))
                         .collect::<Vec<_>>()

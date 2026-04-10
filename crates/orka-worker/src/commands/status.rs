@@ -46,6 +46,7 @@ impl ServerCommand for StatusCommand {
         let state_lock = self
             .workspace_registry
             .default_state()
+            .await
             .ok_or_else(|| Error::Workspace("default workspace not registered".into()))?;
         let state = state_lock.read().await;
 
@@ -58,7 +59,7 @@ impl ServerCommand for StatusCommand {
             .unwrap_or("(unnamed)");
 
         let workspace_name = self.workspace_registry.default_name();
-        let workspaces = self.workspace_registry.list_names().join(", ");
+        let workspaces = self.workspace_registry.list_names().await.join(", ");
 
         let text = format!(
             "**Session status**\n\
@@ -79,7 +80,9 @@ impl ServerCommand for StatusCommand {
             Some(envelope.id),
         );
         msg.metadata.clone_from(&envelope.metadata);
-        envelope.platform_context.clone_into(&mut msg.platform_context);
+        envelope
+            .platform_context
+            .clone_into(&mut msg.platform_context);
         Ok(vec![msg])
     }
 }

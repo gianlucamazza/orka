@@ -18,9 +18,10 @@ use orka_auth::AuthIdentity;
 use orka_contracts::RealtimeEvent;
 use orka_core::{
     ArtifactId, Conversation, ConversationArtifact, ConversationArtifactOrigin, ConversationId,
-    ConversationMessage, ConversationMessageRole, ConversationStatus, MediaPayload, MemoryEntry,
-    MessageCursor, MessageId, Payload, RichInputPayload, SessionId, StreamRegistry,
-    traits::{ArtifactStore, ConversationStore, MemoryStore, MessageBus},
+    ConversationMessage, ConversationMessageRole, ConversationStatus, DomainEvent, MediaPayload,
+    MemoryEntry, MessageCursor, MessageId, Payload, RichInputPayload, SessionId, StreamRegistry,
+    traits::{ArtifactStore, ConversationStore, EventSink, MemoryStore, MessageBus},
+    types::DomainEventKind,
 };
 use orka_workspace::WorkspaceRegistry;
 use serde::{Deserialize, Serialize};
@@ -151,15 +152,16 @@ impl MobileEventHub {
 
 #[derive(Clone)]
 pub(super) struct ProtectedMobileState {
-    conversations: Arc<dyn ConversationStore>,
-    artifacts: Arc<dyn ArtifactStore>,
-    bus: Arc<dyn MessageBus>,
-    stream_registry: StreamRegistry,
-    mobile_events: MobileEventHub,
-    controller: Arc<orka_core::conversation_controller::ConversationController>,
-    mobile_auth: Option<Arc<dyn MobileAuthService>>,
-    memory: Arc<dyn MemoryStore>,
-    workspace_registry: Arc<WorkspaceRegistry>,
+    pub(super) conversations: Arc<dyn ConversationStore>,
+    pub(super) artifacts: Arc<dyn ArtifactStore>,
+    pub(super) bus: Arc<dyn MessageBus>,
+    pub(super) stream_registry: StreamRegistry,
+    pub(super) mobile_events: MobileEventHub,
+    pub(super) controller: Arc<orka_core::conversation_controller::ConversationController>,
+    pub(super) mobile_auth: Option<Arc<dyn MobileAuthService>>,
+    pub(super) memory: Arc<dyn MemoryStore>,
+    pub(super) workspace_registry: Arc<WorkspaceRegistry>,
+    pub(super) event_sink: Arc<dyn EventSink>,
 }
 
 #[derive(Clone)]
@@ -278,6 +280,27 @@ pub(super) struct UpdateWorkspaceRequest {
     #[serde(default)]
     soul_body: Option<String>,
     /// Full content of TOOLS.md.
+    #[serde(default)]
+    tools_body: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(super) struct CreateWorkspaceRequest {
+    /// Workspace identifier (lowercase letters, digits, hyphens; 1–64 chars).
+    name: String,
+    /// Agent display name.
+    #[serde(default)]
+    agent_name: Option<String>,
+    /// One-line description.
+    #[serde(default)]
+    description: Option<String>,
+    /// Semantic version string.
+    #[serde(default)]
+    version: Option<String>,
+    /// Initial SOUL.md body (markdown content after the frontmatter block).
+    #[serde(default)]
+    soul_body: Option<String>,
+    /// Initial TOOLS.md content.
     #[serde(default)]
     tools_body: Option<String>,
 }
@@ -435,29 +458,7 @@ pub(super) fn public_routes(mobile_auth: Option<Arc<dyn MobileAuthService>>) -> 
 }
 
 /// Build the protected mobile product API routes.
-pub(super) fn protected_routes(
-    conversations: Arc<dyn ConversationStore>,
-    artifacts: Arc<dyn ArtifactStore>,
-    bus: Arc<dyn MessageBus>,
-    stream_registry: StreamRegistry,
-    mobile_events: MobileEventHub,
-    controller: Arc<orka_core::conversation_controller::ConversationController>,
-    mobile_auth: Option<Arc<dyn MobileAuthService>>,
-    memory: Arc<dyn MemoryStore>,
-    workspace_registry: Arc<WorkspaceRegistry>,
-) -> Router {
-    let state = ProtectedMobileState {
-        conversations,
-        artifacts,
-        bus,
-        stream_registry,
-        mobile_events,
-        controller,
-        mobile_auth,
-        memory,
-        workspace_registry,
-    };
-
+pub(super) fn protected_routes(state: ProtectedMobileState) -> Router {
     Router::new()
         .route("/mobile/v1/me", get(handle_me))
         .route("/mobile/v1/conversations", get(handle_list_conversations))
@@ -523,10 +524,15 @@ pub(super) fn protected_routes(
             get(handle_export_conversation),
         )
         // Workspaces
-        .route("/mobile/v1/workspaces", get(handle_list_workspaces))
+        .route(
+            "/mobile/v1/workspaces",
+            get(handle_list_workspaces).post(handle_create_workspace),
+        )
         .route(
             "/mobile/v1/workspaces/{name}",
-            get(handle_get_workspace).patch(handle_update_workspace),
+            get(handle_get_workspace)
+                .patch(handle_update_workspace)
+                .delete(handle_delete_workspace),
         )
         .with_state(state)
 }
@@ -803,13 +809,13 @@ async fn handle_create_conversation(
     Json(body): Json<CreateConversationRequest>,
 ) -> impl IntoResponse {
     // Validate workspace name when provided.
-    if let Some(ws) = &body.workspace {
-        if state.workspace_registry.get(ws).is_none() {
-            return error_response(
-                StatusCode::BAD_REQUEST,
-                format!("workspace '{ws}' not found"),
-            );
-        }
+    if let Some(ws) = &body.workspace
+        && state.workspace_registry.get(ws).await.is_none()
+    {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            format!("workspace '{ws}' not found"),
+        );
     }
 
     let conversation_id = ConversationId::new();
@@ -828,11 +834,8 @@ async fn handle_create_conversation(
         // Persist the workspace binding into the memory store so the worker's
         // 3-tier resolution picks it up automatically on the first message.
         let override_key = format!("workspace_override:{session_id}");
-        let entry = MemoryEntry::new(
-            &override_key,
-            serde_json::json!({ "workspace_name": ws }),
-        )
-        .with_source("mobile_api");
+        let entry = MemoryEntry::new(&override_key, serde_json::json!({ "workspace_name": ws }))
+            .with_source("mobile_api");
         if let Err(error) = state.memory.store(&override_key, entry, None).await {
             return internal_error(error);
         }
@@ -909,13 +912,13 @@ async fn handle_update_conversation(
     }
 
     // Validate workspace name when provided.
-    if let Some(ws) = &body.workspace {
-        if state.workspace_registry.get(ws).is_none() {
-            return error_response(
-                StatusCode::BAD_REQUEST,
-                format!("workspace '{ws}' not found"),
-            );
-        }
+    if let Some(ws) = &body.workspace
+        && state.workspace_registry.get(ws).await.is_none()
+    {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            format!("workspace '{ws}' not found"),
+        );
     }
 
     let conversation_id = match parse_conversation_id(&id) {
@@ -947,11 +950,8 @@ async fn handle_update_conversation(
     if let Some(ws) = body.workspace {
         let session_id = SessionId::from(conversation_id);
         let override_key = format!("workspace_override:{session_id}");
-        let entry = MemoryEntry::new(
-            &override_key,
-            serde_json::json!({ "workspace_name": ws }),
-        )
-        .with_source("mobile_api");
+        let entry = MemoryEntry::new(&override_key, serde_json::json!({ "workspace_name": ws }))
+            .with_source("mobile_api");
         if let Err(error) = state.memory.store(&override_key, entry, None).await {
             return internal_error(error);
         }
@@ -2363,15 +2363,14 @@ async fn handle_export_conversation(
     response
 }
 
-// ── Workspace endpoints ───────────────────────────────────────────────────────
+// ── Workspace endpoints
+// ───────────────────────────────────────────────────────
 
 /// GET `/mobile/v1/workspaces` — list all registered workspaces.
-async fn handle_list_workspaces(
-    State(state): State<ProtectedMobileState>,
-) -> impl IntoResponse {
+async fn handle_list_workspaces(State(state): State<ProtectedMobileState>) -> impl IntoResponse {
     let mut list = Vec::new();
-    for name in state.workspace_registry.list_names() {
-        if let Some(loader) = state.workspace_registry.get(name) {
+    for name in state.workspace_registry.list_names().await {
+        if let Some(loader) = state.workspace_registry.get(&name).await {
             let ws_state = loader.state();
             let ws_state = ws_state.read().await;
             let (agent_name, description) = ws_state.soul.as_ref().map_or((None, None), |d| {
@@ -2396,7 +2395,7 @@ async fn handle_get_workspace(
     State(state): State<ProtectedMobileState>,
     Path(ws_name): Path<String>,
 ) -> impl IntoResponse {
-    match state.workspace_registry.get(&ws_name) {
+    match state.workspace_registry.get(&ws_name).await {
         None => error_response(
             StatusCode::NOT_FOUND,
             format!("workspace '{ws_name}' not found"),
@@ -2425,14 +2424,11 @@ async fn handle_update_workspace(
         return error_response(StatusCode::BAD_REQUEST, "no fields to update");
     }
 
-    let loader = match state.workspace_registry.get(&ws_name) {
-        Some(l) => Arc::clone(l),
-        None => {
-            return error_response(
-                StatusCode::NOT_FOUND,
-                format!("workspace '{ws_name}' not found"),
-            )
-        }
+    let Some(loader) = state.workspace_registry.get(&ws_name).await else {
+        return error_response(
+            StatusCode::NOT_FOUND,
+            format!("workspace '{ws_name}' not found"),
+        );
     };
 
     // Update SOUL.md if any soul-related field was provided.
@@ -2476,16 +2472,124 @@ async fn handle_update_workspace(
     }
 
     // Update TOOLS.md if provided.
-    if let Some(tools) = body.tools_body {
+    let tools_changed = if let Some(tools) = body.tools_body {
         if let Err(e) = loader.save_tools(&tools).await {
             return internal_error(e);
         }
+        true
+    } else {
+        false
+    };
+
+    // Build changed_fields list for the domain event.
+    let mut changed_fields: Vec<String> = Vec::new();
+    if soul_changed {
+        changed_fields.extend(["soul_body".into()]);
     }
+    if tools_changed {
+        changed_fields.push("tools_body".into());
+    }
+
+    state
+        .event_sink
+        .emit(DomainEvent::new(DomainEventKind::WorkspaceUpdated {
+            name: ws_name.clone(),
+            changed_fields,
+        }))
+        .await;
 
     // Return the updated workspace detail.
     let ws_state = loader.state();
     let ws_state = ws_state.read().await;
     workspace_detail_response(&ws_name, &ws_state)
+}
+
+/// POST `/mobile/v1/workspaces` — create a new workspace.
+async fn handle_create_workspace(
+    State(state): State<ProtectedMobileState>,
+    Json(body): Json<CreateWorkspaceRequest>,
+) -> impl IntoResponse {
+    use orka_workspace::{Document, SoulFrontmatter};
+
+    let soul = Document {
+        frontmatter: SoulFrontmatter {
+            name: body.agent_name,
+            description: body.description,
+            version: body.version,
+        },
+        body: body.soul_body.unwrap_or_default(),
+    };
+
+    let loader = match state
+        .workspace_registry
+        .create_workspace(&body.name, Some(soul), body.tools_body.as_deref())
+        .await
+    {
+        Ok(l) => l,
+        Err(e) => {
+            let msg = e.to_string();
+            let status = if msg.contains("already exists") {
+                StatusCode::CONFLICT
+            } else if msg.contains("single-workspace")
+                || msg.contains("invalid")
+                || msg.contains("name must")
+            {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            return error_response(status, msg);
+        }
+    };
+
+    let ws_state = loader.state();
+    let ws_state = ws_state.read().await;
+    let agent_name = ws_state
+        .soul
+        .as_ref()
+        .and_then(|d| d.frontmatter.name.clone());
+    state
+        .event_sink
+        .emit(DomainEvent::new(DomainEventKind::WorkspaceCreated {
+            name: body.name.clone(),
+            agent_name,
+        }))
+        .await;
+    (
+        StatusCode::CREATED,
+        workspace_detail_response(&body.name, &ws_state),
+    )
+        .into_response()
+}
+
+/// DELETE `/mobile/v1/workspaces/{name}` — delete (archive) a workspace.
+async fn handle_delete_workspace(
+    State(state): State<ProtectedMobileState>,
+    Path(ws_name): Path<String>,
+) -> impl IntoResponse {
+    match state.workspace_registry.remove_workspace(&ws_name).await {
+        Ok(()) => {
+            state
+                .event_sink
+                .emit(DomainEvent::new(DomainEventKind::WorkspaceRemoved {
+                    name: ws_name,
+                }))
+                .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            let status = if msg.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else if msg.contains("cannot delete the default") || msg.contains("single-workspace")
+            {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            error_response(status, msg)
+        }
+    }
 }
 
 /// Build the JSON response for a workspace detail (shared by GET and PATCH).

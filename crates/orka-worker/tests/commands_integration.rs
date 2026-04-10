@@ -47,7 +47,7 @@ fn command_registry_help_lists_all_commands() {
     let skills = Arc::new(SkillRegistry::default());
     let memory = Arc::new(InMemoryMemoryStore::new());
     let secrets = Arc::new(InMemorySecretManager::new());
-    let workspace_registry = Arc::new(orka_workspace::WorkspaceRegistry::new("main".into()));
+    let workspace_registry = Arc::new(orka_workspace::WorkspaceRegistry::new("main".into(), None));
     let agent_config = AgentConfig::default();
 
     let mut registry = CommandRegistry::new();
@@ -208,7 +208,7 @@ async fn rate_limiter_allows_commands_under_limit() {
     let skills = Arc::new(SkillRegistry::default());
     let memory = Arc::new(InMemoryMemoryStore::new());
     let secrets = Arc::new(InMemorySecretManager::new());
-    let workspace_registry = Arc::new(orka_workspace::WorkspaceRegistry::new("main".into()));
+    let workspace_registry = Arc::new(orka_workspace::WorkspaceRegistry::new("main".into(), None));
     let agent_config = AgentConfig::default();
 
     let mut registry = CommandRegistry::new();

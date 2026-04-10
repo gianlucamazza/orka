@@ -69,6 +69,7 @@ impl ChannelAdapter for CustomAdapter {
             self.stream_registry.clone(),
             self.auth_layer.clone(),
             self.trust_level(),
+            self.config.workspace.clone(),
         );
 
         *self.sink.lock().await = Some(sink);

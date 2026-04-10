@@ -27,6 +27,7 @@ async fn post_message_arrives_on_sink() {
         StreamRegistry::new(),
         None,
         orka_contracts::TrustLevel::UserAuthenticated,
+        None,
     );
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
@@ -70,6 +71,7 @@ async fn health_endpoint_returns_ok() {
         StreamRegistry::new(),
         None,
         orka_contracts::TrustLevel::UserAuthenticated,
+        None,
     );
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();
@@ -143,6 +145,7 @@ async fn ws_connect_and_receive_outbound() {
         StreamRegistry::new(),
         None,
         orka_contracts::TrustLevel::UserAuthenticated,
+        None,
     );
     tokio::spawn(async move {
         axum::serve(listener, router).await.unwrap();

@@ -42,6 +42,9 @@ pub struct AppState {
     /// Trust level declared by this adapter, stamped on every inbound
     /// interaction.
     pub trust_level: orka_contracts::TrustLevel,
+    /// Optional workspace name to inject into every inbound interaction's
+    /// extensions (Tier-2 workspace resolution).
+    pub workspace: Option<String>,
 }
 
 /// Middleware that adds security headers to all responses.
@@ -77,12 +80,14 @@ pub fn app_router(
     stream_registry: StreamRegistry,
     auth_layer: Option<orka_auth::AuthLayer>,
     trust_level: orka_contracts::TrustLevel,
+    workspace: Option<String>,
 ) -> Router {
     let state = AppState {
         sink,
         ws_registry,
         stream_registry,
         trust_level,
+        workspace,
     };
 
     let health = Router::new().route("/api/v1/health", get(handle_health));
@@ -137,6 +142,13 @@ pub async fn handle_message(
     let message_id = interaction_id.to_string();
     let session_id_str = session_uuid.to_string();
 
+    let mut extensions = req.metadata.unwrap_or_default();
+    if let Some(ref ws) = state.workspace {
+        extensions
+            .entry("workspace".to_string())
+            .or_insert_with(|| serde_json::json!(ws));
+    }
+
     let interaction = InboundInteraction {
         id: interaction_id,
         source_channel: "custom".into(),
@@ -148,7 +160,7 @@ pub async fn handle_message(
                 user_id: req.user_id,
                 ..Default::default()
             },
-            extensions: req.metadata.unwrap_or_default(),
+            extensions,
             trust_level: Some(state.trust_level),
             ..Default::default()
         },
