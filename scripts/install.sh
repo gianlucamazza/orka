@@ -548,10 +548,17 @@ detect_user_codex_installation() {
 
 	local resolved_codex node_path js_path
 	resolved_codex=$(readlink -f "$codex_path" 2>/dev/null) || return 1
-	node_path=$(readlink -f "$(dirname "$codex_path")/node" 2>/dev/null) || return 1
 	js_path="$resolved_codex"
 
-	[[ -x "$node_path" ]] || return 1
+	# Try node as sibling of codex (fnm / nvm layout), then fall back to
+	# the user's PATH (system node or other manager).
+	node_path=$(readlink -f "$(dirname "$codex_path")/node" 2>/dev/null) || true
+	if [[ ! -x "${node_path:-}" && -n "${SUDO_USER:-}" ]]; then
+		node_path=$(runuser -u "${SUDO_USER}" -- bash -lc 'command -v node 2>/dev/null || true' 2>/dev/null || true)
+		[[ -n "$node_path" ]] && node_path=$(readlink -f "$node_path" 2>/dev/null) || true
+	fi
+
+	[[ -x "${node_path:-}" ]] || return 1
 	[[ -f "$js_path" ]] || return 1
 
 	printf '%s|%s\n' "$node_path" "$js_path"

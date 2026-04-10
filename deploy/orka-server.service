@@ -18,8 +18,6 @@ ExecStart=@BINDIR@/orka-server
 
 Restart=on-failure
 RestartSec=5s
-RestartSteps=5
-RestartMaxDelaySec=60s
 
 # Allow coredumps for post-mortem debugging (requires systemd-coredump)
 LimitCORE=infinity
