@@ -1,3 +1,5 @@
+//! Secret value type with automatic zeroization on drop.
+
 /// Opaque secret value, securely zeroized on drop.
 ///
 /// Intentionally not `Clone` to prevent accidental copies of secrets

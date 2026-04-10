@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     Json,
-    extract::{Path, Query},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -18,11 +18,12 @@ use orka_core::{
 use orka_experience::ExperienceService;
 use orka_skills::{SkillRegistry, SoftSkillRegistry};
 use orka_workspace::{Document, SoulFrontmatter, WorkspaceRegistry};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// Request body for `POST /api/v1/workspaces`.
-#[derive(Debug, Deserialize)]
-struct CreateWorkspaceRequest {
+#[derive(Debug, Deserialize, ToSchema)]
+pub(super) struct CreateWorkspaceRequest {
     /// Workspace identifier (lowercase letters, digits, hyphens; 1–64 chars).
     name: String,
     /// Agent display name (maps to SOUL.md frontmatter `name`).
@@ -43,8 +44,8 @@ struct CreateWorkspaceRequest {
 }
 
 /// Request body for `PATCH /api/v1/workspaces/{name}`.
-#[derive(Debug, Deserialize)]
-struct UpdateWorkspaceRequest {
+#[derive(Debug, Deserialize, ToSchema)]
+pub(super) struct UpdateWorkspaceRequest {
     /// Agent display name override.
     #[serde(default)]
     agent_name: Option<String>,
@@ -62,6 +63,331 @@ struct UpdateWorkspaceRequest {
     tools_body: Option<String>,
 }
 
+/// Summary item in `GET /api/v1/workspaces` list response.
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct WorkspaceSummary {
+    /// Workspace slug identifier.
+    name: String,
+    /// Agent display name from SOUL.md frontmatter.
+    agent_name: Option<String>,
+    /// One-line description from SOUL.md frontmatter.
+    description: Option<String>,
+    /// Whether a TOOLS.md file exists for this workspace.
+    has_tools: bool,
+}
+
+/// Full workspace detail returned by GET / POST / PATCH workspace endpoints.
+#[derive(Debug, Serialize, ToSchema)]
+pub(super) struct WorkspaceDetail {
+    /// Workspace slug identifier.
+    name: String,
+    /// Agent display name from SOUL.md frontmatter.
+    agent_name: Option<String>,
+    /// One-line description from SOUL.md frontmatter.
+    description: Option<String>,
+    /// Semantic version from SOUL.md frontmatter.
+    version: Option<String>,
+    /// Markdown body of SOUL.md (content after the frontmatter block).
+    soul_body: Option<String>,
+    /// Full content of TOOLS.md.
+    tools_body: Option<String>,
+}
+
+/// Shared axum state for workspace management handlers.
+#[derive(Clone)]
+pub(super) struct WorkspaceState {
+    registry: Arc<WorkspaceRegistry>,
+    event_sink: Arc<dyn EventSink>,
+}
+
+// ── Workspace handlers
+// ────────────────────────────────────────────────────────
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/workspaces",
+    responses(
+        (status = 200, description = "List of registered workspaces", body = Vec<WorkspaceSummary>)
+    ),
+    tag = "management"
+)]
+pub(super) async fn handle_list_workspaces(State(s): State<WorkspaceState>) -> impl IntoResponse {
+    let mut list = Vec::new();
+    for name in s.registry.list_names().await {
+        if let Some(loader) = s.registry.get(&name).await {
+            let state = loader.state();
+            let state = state.read().await;
+            let (agent_name, description) = state.soul.as_ref().map_or((None, None), |d| {
+                (
+                    d.frontmatter.name.clone(),
+                    d.frontmatter.description.clone(),
+                )
+            });
+            list.push(serde_json::json!({
+                "name": name,
+                "agent_name": agent_name,
+                "description": description,
+                "has_tools": state.tools_body.is_some(),
+            }));
+        }
+    }
+    axum::Json(list)
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/workspaces/{name}",
+    params(
+        ("name" = String, Path, description = "Workspace slug identifier")
+    ),
+    responses(
+        (status = 200, description = "Workspace detail", body = WorkspaceDetail),
+        (status = 404, description = "Workspace not found")
+    ),
+    tag = "management"
+)]
+pub(super) async fn handle_get_workspace(
+    State(s): State<WorkspaceState>,
+    Path(ws_name): Path<String>,
+) -> impl IntoResponse {
+    match s.registry.get(&ws_name).await {
+        None => (
+            StatusCode::NOT_FOUND,
+            format!("workspace '{ws_name}' not found"),
+        )
+            .into_response(),
+        Some(loader) => {
+            let state = loader.state();
+            let state = state.read().await;
+            let fm = state.soul.as_ref().map(|d| &d.frontmatter);
+            axum::Json(serde_json::json!({
+                "name": ws_name,
+                "agent_name": fm.and_then(|f| f.name.as_deref()),
+                "description": fm.and_then(|f| f.description.as_deref()),
+                "version": fm.and_then(|f| f.version.as_deref()),
+                "soul_body": state.soul.as_ref().map(|d| d.body.as_str()),
+                "tools_body": state.tools_body.as_deref(),
+            }))
+            .into_response()
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/workspaces",
+    request_body = CreateWorkspaceRequest,
+    responses(
+        (status = 201, description = "Workspace created", body = WorkspaceDetail),
+        (status = 400, description = "Invalid workspace name or single-workspace mode"),
+        (status = 409, description = "Workspace already exists")
+    ),
+    tag = "management"
+)]
+pub(super) async fn handle_create_workspace(
+    State(s): State<WorkspaceState>,
+    Json(body): Json<CreateWorkspaceRequest>,
+) -> impl IntoResponse {
+    let soul = Document {
+        frontmatter: SoulFrontmatter {
+            name: body.agent_name,
+            description: body.description,
+            version: body.version,
+        },
+        body: body.soul_body.unwrap_or_default(),
+    };
+    match s
+        .registry
+        .create_workspace(&body.name, Some(soul), body.tools_body.as_deref())
+        .await
+    {
+        Ok(loader) => {
+            let ws_state = loader.state();
+            let ws_state = ws_state.read().await;
+            let fm = ws_state.soul.as_ref().map(|d| &d.frontmatter);
+            s.event_sink
+                .emit(DomainEvent::new(DomainEventKind::WorkspaceCreated {
+                    name: body.name.clone(),
+                    agent_name: fm.and_then(|f| f.name.clone()),
+                }))
+                .await;
+            (
+                StatusCode::CREATED,
+                axum::Json(serde_json::json!({
+                    "name": body.name,
+                    "agent_name": fm.and_then(|f| f.name.as_deref()),
+                    "description": fm.and_then(|f| f.description.as_deref()),
+                    "version": fm.and_then(|f| f.version.as_deref()),
+                    "soul_body": ws_state.soul.as_ref().map(|d| d.body.as_str()),
+                    "tools_body": ws_state.tools_body.as_deref(),
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            let status = if msg.contains("already exists") {
+                StatusCode::CONFLICT
+            } else if msg.contains("single-workspace")
+                || msg.contains("invalid")
+                || msg.contains("name must")
+            {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, msg).into_response()
+        }
+    }
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/workspaces/{name}",
+    params(
+        ("name" = String, Path, description = "Workspace slug identifier")
+    ),
+    request_body = UpdateWorkspaceRequest,
+    responses(
+        (status = 200, description = "Workspace updated", body = WorkspaceDetail),
+        (status = 400, description = "No fields to update"),
+        (status = 404, description = "Workspace not found")
+    ),
+    tag = "management"
+)]
+pub(super) async fn handle_update_workspace(
+    State(s): State<WorkspaceState>,
+    Path(ws_name): Path<String>,
+    Json(body): Json<UpdateWorkspaceRequest>,
+) -> impl IntoResponse {
+    if body.agent_name.is_none()
+        && body.description.is_none()
+        && body.version.is_none()
+        && body.soul_body.is_none()
+        && body.tools_body.is_none()
+    {
+        return (StatusCode::BAD_REQUEST, "no fields to update").into_response();
+    }
+
+    let Some(loader) = s.registry.get(&ws_name).await else {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("workspace '{ws_name}' not found"),
+        )
+            .into_response();
+    };
+
+    let soul_changed = body.agent_name.is_some()
+        || body.description.is_some()
+        || body.version.is_some()
+        || body.soul_body.is_some();
+
+    let mut changed_fields: Vec<String> = Vec::new();
+
+    if soul_changed {
+        let (mut fm, mut body_text) = {
+            let ws_state = loader.state();
+            let ws_state = ws_state.read().await;
+            let (fm, b) = ws_state.soul.as_ref().map_or_else(
+                || (SoulFrontmatter::default(), String::new()),
+                |d| (d.frontmatter.clone(), d.body.clone()),
+            );
+            (fm, b)
+        };
+        if let Some(name) = body.agent_name {
+            fm.name = if name.is_empty() { None } else { Some(name) };
+            changed_fields.push("agent_name".into());
+        }
+        if let Some(desc) = body.description {
+            fm.description = if desc.is_empty() { None } else { Some(desc) };
+            changed_fields.push("description".into());
+        }
+        if let Some(ver) = body.version {
+            fm.version = if ver.is_empty() { None } else { Some(ver) };
+            changed_fields.push("version".into());
+        }
+        if let Some(soul) = body.soul_body {
+            body_text = soul;
+            changed_fields.push("soul_body".into());
+        }
+        let doc = Document {
+            frontmatter: fm,
+            body: body_text,
+        };
+        if let Err(e) = loader.save_soul(&doc).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
+    }
+
+    if let Some(tools) = body.tools_body {
+        if let Err(e) = loader.save_tools(&tools).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
+        changed_fields.push("tools_body".into());
+    }
+
+    s.event_sink
+        .emit(DomainEvent::new(DomainEventKind::WorkspaceUpdated {
+            name: ws_name.clone(),
+            changed_fields,
+        }))
+        .await;
+
+    let ws_state = loader.state();
+    let ws_state = ws_state.read().await;
+    let fm = ws_state.soul.as_ref().map(|d| &d.frontmatter);
+    axum::Json(serde_json::json!({
+        "name": ws_name,
+        "agent_name": fm.and_then(|f| f.name.as_deref()),
+        "description": fm.and_then(|f| f.description.as_deref()),
+        "version": fm.and_then(|f| f.version.as_deref()),
+        "soul_body": ws_state.soul.as_ref().map(|d| d.body.as_str()),
+        "tools_body": ws_state.tools_body.as_deref(),
+    }))
+    .into_response()
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/workspaces/{name}",
+    params(
+        ("name" = String, Path, description = "Workspace slug identifier")
+    ),
+    responses(
+        (status = 204, description = "Workspace archived and removed"),
+        (status = 400, description = "Cannot delete the default workspace"),
+        (status = 404, description = "Workspace not found")
+    ),
+    tag = "management"
+)]
+pub(super) async fn handle_delete_workspace(
+    State(s): State<WorkspaceState>,
+    Path(ws_name): Path<String>,
+) -> impl IntoResponse {
+    match s.registry.remove_workspace(&ws_name).await {
+        Ok(()) => {
+            s.event_sink
+                .emit(DomainEvent::new(DomainEventKind::WorkspaceRemoved {
+                    name: ws_name,
+                }))
+                .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            let status = if msg.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else if msg.contains("cannot delete the default") || msg.contains("single-workspace")
+            {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, msg).into_response()
+        }
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 pub(super) fn routes(
     skills: Arc<SkillRegistry>,
@@ -76,14 +402,6 @@ pub(super) fn routes(
     let s2 = skills.clone();
     let s3 = skills;
     let soft1 = soft_skills;
-    let w1 = workspace_registry.clone();
-    let w2 = workspace_registry.clone();
-    let w3 = workspace_registry.clone();
-    let w4 = workspace_registry.clone();
-    let w5 = workspace_registry;
-    let ev1 = event_sink.clone();
-    let ev2 = event_sink.clone();
-    let ev3 = event_sink;
     let g1 = graph;
     let e1 = experience_service.clone();
     let e2 = experience_service.clone();
@@ -91,6 +409,22 @@ pub(super) fn routes(
     let ss1 = sessions.clone();
     let ss2 = sessions.clone();
     let ss3 = sessions;
+
+    let workspace_routes = axum::Router::<WorkspaceState>::new()
+        .route(
+            "/api/v1/workspaces",
+            axum::routing::get(handle_list_workspaces).post(handle_create_workspace),
+        )
+        .route(
+            "/api/v1/workspaces/{name}",
+            axum::routing::get(handle_get_workspace)
+                .patch(handle_update_workspace)
+                .delete(handle_delete_workspace),
+        )
+        .with_state(WorkspaceState {
+            registry: workspace_registry,
+            event_sink,
+        });
 
     axum::Router::new()
         // Skills
@@ -185,246 +519,6 @@ pub(super) fn routes(
                             format!("eval failed: {e}"),
                         )
                             .into_response(),
-                    }
-                }
-            }),
-        )
-        // Workspaces
-        .route(
-            "/api/v1/workspaces",
-            axum::routing::get(move || {
-                let registry = w1.clone();
-                async move {
-                    let mut list = Vec::new();
-                    for name in registry.list_names().await {
-                        if let Some(loader) = registry.get(&name).await {
-                            let state = loader.state();
-                            let state = state.read().await;
-                            let (agent_name, description) = state
-                                .soul
-                                .as_ref()
-                                .map_or((None, None), |d| {
-                                    (
-                                        d.frontmatter.name.clone(),
-                                        d.frontmatter.description.clone(),
-                                    )
-                                });
-                            list.push(serde_json::json!({
-                                "name": name,
-                                "agent_name": agent_name,
-                                "description": description,
-                                "has_tools": state.tools_body.is_some(),
-                            }));
-                        }
-                    }
-                    axum::Json(list)
-                }
-            })
-            .post(move |Json(body): Json<CreateWorkspaceRequest>| {
-                let registry = w3.clone();
-                let sink = ev1.clone();
-                async move {
-                    let soul = Document {
-                        frontmatter: SoulFrontmatter {
-                            name: body.agent_name,
-                            description: body.description,
-                            version: body.version,
-                        },
-                        body: body.soul_body.unwrap_or_default(),
-                    };
-                    match registry
-                        .create_workspace(&body.name, Some(soul), body.tools_body.as_deref())
-                        .await
-                    {
-                        Ok(loader) => {
-                            let ws_state = loader.state();
-                            let ws_state = ws_state.read().await;
-                            let fm = ws_state.soul.as_ref().map(|d| &d.frontmatter);
-                            sink.emit(DomainEvent::new(DomainEventKind::WorkspaceCreated {
-                                name: body.name.clone(),
-                                agent_name: fm.and_then(|f| f.name.clone()),
-                            }))
-                            .await;
-                            (
-                                StatusCode::CREATED,
-                                axum::Json(serde_json::json!({
-                                    "name": body.name,
-                                    "agent_name": fm.and_then(|f| f.name.as_deref()),
-                                    "description": fm.and_then(|f| f.description.as_deref()),
-                                    "version": fm.and_then(|f| f.version.as_deref()),
-                                    "soul_body": ws_state.soul.as_ref().map(|d| d.body.as_str()),
-                                    "tools_body": ws_state.tools_body.as_deref(),
-                                })),
-                            )
-                                .into_response()
-                        }
-                        Err(e) => {
-                            let msg = e.to_string();
-                            let status = if msg.contains("already exists") {
-                                StatusCode::CONFLICT
-                            } else if msg.contains("single-workspace")
-                                || msg.contains("invalid")
-                                || msg.contains("name must")
-                            {
-                                StatusCode::BAD_REQUEST
-                            } else {
-                                StatusCode::INTERNAL_SERVER_ERROR
-                            };
-                            (status, msg).into_response()
-                        }
-                    }
-                }
-            }),
-        )
-        .route(
-            "/api/v1/workspaces/{name}",
-            axum::routing::get(move |Path(ws_name): Path<String>| {
-                let registry = w2.clone();
-                async move {
-                    match registry.get(&ws_name).await {
-                        None => (
-                            StatusCode::NOT_FOUND,
-                            format!("workspace '{ws_name}' not found"),
-                        )
-                            .into_response(),
-                        Some(loader) => {
-                            let state = loader.state();
-                            let state = state.read().await;
-                            let fm = state.soul.as_ref().map(|d| &d.frontmatter);
-                            axum::Json(serde_json::json!({
-                                "name": ws_name,
-                                "agent_name": fm.and_then(|f| f.name.as_deref()),
-                                "description": fm.and_then(|f| f.description.as_deref()),
-                                "version": fm.and_then(|f| f.version.as_deref()),
-                                "soul_body": state.soul.as_ref().map(|d| d.body.as_str()),
-                                "tools_body": state.tools_body.as_deref(),
-                            }))
-                            .into_response()
-                        }
-                    }
-                }
-            })
-            .patch(
-                move |Path(ws_name): Path<String>, Json(body): Json<UpdateWorkspaceRequest>| {
-                    let registry = w4.clone();
-                    let sink = ev2.clone();
-                    async move {
-                        if body.agent_name.is_none()
-                            && body.description.is_none()
-                            && body.version.is_none()
-                            && body.soul_body.is_none()
-                            && body.tools_body.is_none()
-                        {
-                            return (StatusCode::BAD_REQUEST, "no fields to update").into_response();
-                        }
-
-                        let Some(loader) = registry.get(&ws_name).await else {
-                            return (
-                                StatusCode::NOT_FOUND,
-                                format!("workspace '{ws_name}' not found"),
-                            )
-                                .into_response();
-                        };
-
-                        let soul_changed = body.agent_name.is_some()
-                            || body.description.is_some()
-                            || body.version.is_some()
-                            || body.soul_body.is_some();
-
-                        // Track which fields change for the domain event.
-                        let mut changed_fields: Vec<String> = Vec::new();
-
-                        if soul_changed {
-                            let (mut fm, mut body_text) = {
-                                let ws_state = loader.state();
-                                let ws_state = ws_state.read().await;
-                                let (fm, b) = ws_state.soul.as_ref().map_or_else(
-                                    || (SoulFrontmatter::default(), String::new()),
-                                    |d| (d.frontmatter.clone(), d.body.clone()),
-                                );
-                                (fm, b)
-                            };
-                            if let Some(name) = body.agent_name {
-                                fm.name = if name.is_empty() { None } else { Some(name) };
-                                changed_fields.push("agent_name".into());
-                            }
-                            if let Some(desc) = body.description {
-                                fm.description =
-                                    if desc.is_empty() { None } else { Some(desc) };
-                                changed_fields.push("description".into());
-                            }
-                            if let Some(ver) = body.version {
-                                fm.version = if ver.is_empty() { None } else { Some(ver) };
-                                changed_fields.push("version".into());
-                            }
-                            if let Some(soul) = body.soul_body {
-                                body_text = soul;
-                                changed_fields.push("soul_body".into());
-                            }
-                            let doc = Document {
-                                frontmatter: fm,
-                                body: body_text,
-                            };
-                            if let Err(e) = loader.save_soul(&doc).await {
-                                return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                                    .into_response();
-                            }
-                        }
-
-                        if let Some(tools) = body.tools_body {
-                            if let Err(e) = loader.save_tools(&tools).await {
-                                return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                                    .into_response();
-                            }
-                            changed_fields.push("tools_body".into());
-                        }
-
-                        sink.emit(DomainEvent::new(DomainEventKind::WorkspaceUpdated {
-                            name: ws_name.clone(),
-                            changed_fields,
-                        }))
-                        .await;
-
-                        let ws_state = loader.state();
-                        let ws_state = ws_state.read().await;
-                        let fm = ws_state.soul.as_ref().map(|d| &d.frontmatter);
-                        axum::Json(serde_json::json!({
-                            "name": ws_name,
-                            "agent_name": fm.and_then(|f| f.name.as_deref()),
-                            "description": fm.and_then(|f| f.description.as_deref()),
-                            "version": fm.and_then(|f| f.version.as_deref()),
-                            "soul_body": ws_state.soul.as_ref().map(|d| d.body.as_str()),
-                            "tools_body": ws_state.tools_body.as_deref(),
-                        }))
-                        .into_response()
-                    }
-                },
-            )
-            .delete(move |Path(ws_name): Path<String>| {
-                let registry = w5.clone();
-                let sink = ev3.clone();
-                async move {
-                    match registry.remove_workspace(&ws_name).await {
-                        Ok(()) => {
-                            sink.emit(DomainEvent::new(DomainEventKind::WorkspaceRemoved {
-                                name: ws_name,
-                            }))
-                            .await;
-                            StatusCode::NO_CONTENT.into_response()
-                        }
-                        Err(e) => {
-                            let msg = e.to_string();
-                            let status = if msg.contains("not found") {
-                                StatusCode::NOT_FOUND
-                            } else if msg.contains("cannot delete the default")
-                                || msg.contains("single-workspace")
-                            {
-                                StatusCode::BAD_REQUEST
-                            } else {
-                                StatusCode::INTERNAL_SERVER_ERROR
-                            };
-                            (status, msg).into_response()
-                        }
                     }
                 }
             }),
@@ -635,4 +729,5 @@ pub(super) fn routes(
                 }
             }),
         )
+        .merge(workspace_routes)
 }

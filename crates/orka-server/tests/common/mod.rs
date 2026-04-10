@@ -12,8 +12,8 @@ use orka_a2a::AgentDirectory;
 use orka_agent::{Agent, AgentGraph, AgentId, GraphNode, NodeKind, TerminationPolicy};
 use orka_core::{
     testing::{
-        InMemoryArtifactStore, InMemoryBus, InMemoryConversationStore, InMemoryMemoryStore,
-        InMemoryQueue, InMemorySessionStore,
+        InMemoryArtifactStore, InMemoryBus, InMemoryConversationStore, InMemoryEventSink,
+        InMemoryMemoryStore, InMemoryQueue, InMemorySessionStore,
     },
     traits::NoopEventSink,
 };
@@ -242,6 +242,77 @@ pub(crate) async fn test_router_with_workspace_dir() -> (axum::Router, tempfile:
         event_sink: Arc::new(NoopEventSink),
     });
     (app, dir)
+}
+
+/// Build the server router wired with an [`InMemoryEventSink`] for asserting
+/// that domain events are emitted by workspace CRUD operations.
+///
+/// Returns `(router, tempdir, event_sink)`.  Keep `tempdir` alive for the
+/// duration of the test.
+pub(crate) async fn test_router_with_event_sink()
+-> (axum::Router, tempfile::TempDir, Arc<InMemoryEventSink>) {
+    let mut skills = SkillRegistry::new();
+    skills.register(Arc::new(EchoSkill));
+
+    let q = Arc::new(InMemoryQueue::new());
+    let bus = Arc::new(InMemoryBus::new());
+    let conversations = Arc::new(InMemoryConversationStore::new());
+    let artifacts = Arc::new(InMemoryArtifactStore::new());
+    let controller = Arc::new(
+        orka_core::conversation_controller::ConversationController::new(
+            conversations.clone(),
+            bus.clone(),
+            Arc::default(),
+        ),
+    );
+    let (workspace_registry, dir) = test_workspace_registry().await;
+    let event_sink = Arc::new(InMemoryEventSink::new());
+    let app = build_router(RouterParams {
+        bus,
+        queue: q.clone(),
+        dlq: q,
+        skills: Arc::new(skills),
+        soft_skills: None,
+        sessions: Arc::new(InMemorySessionStore::new()),
+        conversations,
+        artifacts,
+        memory: Arc::new(InMemoryMemoryStore::new()),
+        scheduler_store: None,
+        checkpoint_store: None,
+        workspace_registry,
+        graph: test_graph(),
+        experience_service: None,
+        start_time: std::time::Instant::now(),
+        concurrency: 1,
+        redis_url: "redis://127.0.0.1:6379".to_string(),
+        qdrant_url: None,
+        auth_layer: None,
+        a2a_state: None,
+        a2a_auth_enabled: false,
+        agent_directory: Arc::new(AgentDirectory::new()),
+        metrics_handle: None,
+        agent_name: "Test Agent".to_string(),
+        agent_model: "claude-sonnet-4-6".to_string(),
+        mcp_server_count: 0,
+        features: test_features(),
+        thinking: None,
+        agent_count: 1,
+        auth_enabled: false,
+        adapters: vec![],
+        coding_backend: None,
+        web_search: None,
+        secret_manager: Arc::new(orka_core::testing::InMemorySecretManager::new()),
+        research_service: None,
+        stream_registry: orka_core::StreamRegistry::new(),
+        mobile_events: MobileEventHub::new(),
+        mobile_auth: None,
+        mobile_enabled: false,
+        controller,
+        mobile_read_rate_limit_per_minute: None,
+        mobile_write_rate_limit_per_minute: None,
+        event_sink: event_sink.clone(),
+    });
+    (app, dir, event_sink)
 }
 
 /// Build the full server router backed by in-memory test doubles.

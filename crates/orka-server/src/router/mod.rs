@@ -81,6 +81,16 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         mobile::handle_get_pairing_status,
         mobile::handle_complete_pairing,
         mobile::handle_refresh_session,
+        mobile::handle_list_workspaces,
+        mobile::handle_get_workspace,
+        mobile::handle_create_workspace,
+        mobile::handle_update_workspace,
+        mobile::handle_delete_workspace,
+        management::handle_list_workspaces,
+        management::handle_get_workspace,
+        management::handle_create_workspace,
+        management::handle_update_workspace,
+        management::handle_delete_workspace,
     ),
     components(schemas(
         orka_core::Envelope,
@@ -143,12 +153,19 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         orka_contracts::TrustLevel,
         orka_contracts::IntegrationClass,
         orka_contracts::Capability,
+        management::WorkspaceSummary,
+        management::WorkspaceDetail,
+        management::CreateWorkspaceRequest,
+        management::UpdateWorkspaceRequest,
+        mobile::CreateWorkspaceRequest,
+        mobile::UpdateWorkspaceRequest,
     )),
     tags(
         (name = "messages", description = "Message endpoints"),
         (name = "health", description = "Health check endpoints"),
         (name = "a2a", description = "Agent-to-Agent (A2A) protocol endpoints"),
-        (name = "mobile", description = "Public mobile product API")
+        (name = "mobile", description = "Public mobile product API"),
+        (name = "management", description = "Server management API")
     )
 )]
 struct ApiDoc;

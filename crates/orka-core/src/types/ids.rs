@@ -1,3 +1,5 @@
+//! Strongly-typed identifier newtype wrappers (sessions, messages, agents, …).
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

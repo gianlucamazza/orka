@@ -1,3 +1,5 @@
+//! Skill input/output types, schema definitions, and soft-skill primitives.
+
 use std::{collections::HashMap, sync::Arc};
 
 use serde::{Deserialize, Serialize};

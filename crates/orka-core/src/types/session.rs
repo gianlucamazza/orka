@@ -1,3 +1,5 @@
+//! Session and session-store types for stateful agent interactions.
+
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};

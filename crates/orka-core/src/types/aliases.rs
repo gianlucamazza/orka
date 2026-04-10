@@ -1,3 +1,5 @@
+//! Type aliases used across the core domain model.
+
 use super::{envelope::Envelope, ids::SessionId};
 
 /// Type alias for the message sink passed to channel adapters.

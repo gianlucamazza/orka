@@ -1,3 +1,5 @@
+//! Conversation, message, and artifact types for the product-facing mobile API.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

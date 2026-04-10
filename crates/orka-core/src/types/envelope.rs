@@ -1,3 +1,5 @@
+//! Message envelope and payload types that flow through the bus.
+
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};

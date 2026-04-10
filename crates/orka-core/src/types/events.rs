@@ -1,3 +1,5 @@
+//! Domain event types and the [`DomainEventKind`] enum.
+
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};

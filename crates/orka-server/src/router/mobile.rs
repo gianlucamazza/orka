@@ -2366,8 +2366,19 @@ async fn handle_export_conversation(
 // ── Workspace endpoints
 // ───────────────────────────────────────────────────────
 
+#[utoipa::path(
+    get,
+    path = "/mobile/v1/workspaces",
+    responses(
+        (status = 200, description = "List of registered workspaces", body = Vec<super::management::WorkspaceSummary>),
+        (status = 401, description = "Authentication required", body = ApiError)
+    ),
+    tag = "mobile"
+)]
 /// GET `/mobile/v1/workspaces` — list all registered workspaces.
-async fn handle_list_workspaces(State(state): State<ProtectedMobileState>) -> impl IntoResponse {
+pub(super) async fn handle_list_workspaces(
+    State(state): State<ProtectedMobileState>,
+) -> impl IntoResponse {
     let mut list = Vec::new();
     for name in state.workspace_registry.list_names().await {
         if let Some(loader) = state.workspace_registry.get(&name).await {
@@ -2390,8 +2401,21 @@ async fn handle_list_workspaces(State(state): State<ProtectedMobileState>) -> im
     Json(list).into_response()
 }
 
+#[utoipa::path(
+    get,
+    path = "/mobile/v1/workspaces/{name}",
+    params(
+        ("name" = String, Path, description = "Workspace slug identifier")
+    ),
+    responses(
+        (status = 200, description = "Workspace detail", body = super::management::WorkspaceDetail),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Workspace not found", body = ApiError)
+    ),
+    tag = "mobile"
+)]
 /// GET `/mobile/v1/workspaces/{name}` — get workspace details.
-async fn handle_get_workspace(
+pub(super) async fn handle_get_workspace(
     State(state): State<ProtectedMobileState>,
     Path(ws_name): Path<String>,
 ) -> impl IntoResponse {
@@ -2408,8 +2432,23 @@ async fn handle_get_workspace(
     }
 }
 
+#[utoipa::path(
+    patch,
+    path = "/mobile/v1/workspaces/{name}",
+    params(
+        ("name" = String, Path, description = "Workspace slug identifier")
+    ),
+    request_body = UpdateWorkspaceRequest,
+    responses(
+        (status = 200, description = "Workspace updated", body = super::management::WorkspaceDetail),
+        (status = 400, description = "No fields to update or invalid request", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Workspace not found", body = ApiError)
+    ),
+    tag = "mobile"
+)]
 /// PATCH `/mobile/v1/workspaces/{name}` — update workspace SOUL.md / TOOLS.md.
-async fn handle_update_workspace(
+pub(super) async fn handle_update_workspace(
     State(state): State<ProtectedMobileState>,
     Path(ws_name): Path<String>,
     Json(body): Json<UpdateWorkspaceRequest>,
@@ -2504,8 +2543,20 @@ async fn handle_update_workspace(
     workspace_detail_response(&ws_name, &ws_state)
 }
 
+#[utoipa::path(
+    post,
+    path = "/mobile/v1/workspaces",
+    request_body = CreateWorkspaceRequest,
+    responses(
+        (status = 201, description = "Workspace created", body = super::management::WorkspaceDetail),
+        (status = 400, description = "Invalid workspace name or single-workspace mode", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 409, description = "Workspace already exists", body = ApiError)
+    ),
+    tag = "mobile"
+)]
 /// POST `/mobile/v1/workspaces` — create a new workspace.
-async fn handle_create_workspace(
+pub(super) async fn handle_create_workspace(
     State(state): State<ProtectedMobileState>,
     Json(body): Json<CreateWorkspaceRequest>,
 ) -> impl IntoResponse {
@@ -2562,8 +2613,22 @@ async fn handle_create_workspace(
         .into_response()
 }
 
+#[utoipa::path(
+    delete,
+    path = "/mobile/v1/workspaces/{name}",
+    params(
+        ("name" = String, Path, description = "Workspace slug identifier")
+    ),
+    responses(
+        (status = 204, description = "Workspace archived and removed"),
+        (status = 400, description = "Cannot delete the default workspace", body = ApiError),
+        (status = 401, description = "Authentication required", body = ApiError),
+        (status = 404, description = "Workspace not found", body = ApiError)
+    ),
+    tag = "mobile"
+)]
 /// DELETE `/mobile/v1/workspaces/{name}` — delete (archive) a workspace.
-async fn handle_delete_workspace(
+pub(super) async fn handle_delete_workspace(
     State(state): State<ProtectedMobileState>,
     Path(ws_name): Path<String>,
 ) -> impl IntoResponse {

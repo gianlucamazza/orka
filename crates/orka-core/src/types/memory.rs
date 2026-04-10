@@ -1,3 +1,5 @@
+//! Memory entry and cursor types for the agent memory store.
+
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};

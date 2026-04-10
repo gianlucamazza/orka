@@ -8,6 +8,7 @@ mod common;
 
 use axum::body::Body;
 use http::{Request, StatusCode};
+use orka_core::types::DomainEventKind;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -297,6 +298,116 @@ async fn delete_workspace_default() -> common::TestResult {
     )?;
     let resp = app.oneshot(req).await?;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    Ok(())
+}
+
+// ── DomainEvent assertion tests
+// ───────────────────────────────────────────────
+
+#[tokio::test]
+async fn create_workspace_emits_domain_event() -> common::TestResult {
+    let (app, _dir, event_sink) = common::test_router_with_event_sink().await;
+    let body = serde_json::json!({
+        "name": "event-ws",
+        "agent_name": "Event Agent",
+    });
+    let req = common::request(
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/workspaces")
+            .header("content-type", "application/json"),
+        axum::body::Body::from(serde_json::to_vec(&body)?),
+    )?;
+    let resp = app.oneshot(req).await?;
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    let events = event_sink.events().await;
+    assert!(
+        events.iter().any(|e| matches!(
+            &e.kind,
+            DomainEventKind::WorkspaceCreated { name, agent_name: Some(an) }
+            if name == "event-ws" && an == "Event Agent"
+        )),
+        "expected WorkspaceCreated event; got: {events:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn update_workspace_emits_domain_event() -> common::TestResult {
+    let (app, _dir, event_sink) = common::test_router_with_event_sink().await;
+
+    // Create workspace first
+    let create_body = serde_json::json!({ "name": "upd-event-ws" });
+    let create_req = common::request(
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/workspaces")
+            .header("content-type", "application/json"),
+        axum::body::Body::from(serde_json::to_vec(&create_body)?),
+    )?;
+    app.clone().oneshot(create_req).await?;
+    event_sink.clear().await;
+
+    // Update it
+    let update_body = serde_json::json!({ "description": "new desc" });
+    let update_req = common::request(
+        Request::builder()
+            .method("PATCH")
+            .uri("/api/v1/workspaces/upd-event-ws")
+            .header("content-type", "application/json"),
+        axum::body::Body::from(serde_json::to_vec(&update_body)?),
+    )?;
+    let resp = app.oneshot(update_req).await?;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let events = event_sink.events().await;
+    assert!(
+        events.iter().any(|e| matches!(
+            &e.kind,
+            DomainEventKind::WorkspaceUpdated { name, changed_fields }
+            if name == "upd-event-ws" && changed_fields.contains(&"description".to_string())
+        )),
+        "expected WorkspaceUpdated event; got: {events:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_workspace_emits_domain_event() -> common::TestResult {
+    let (app, _dir, event_sink) = common::test_router_with_event_sink().await;
+
+    // Create workspace first
+    let create_body = serde_json::json!({ "name": "del-event-ws" });
+    let create_req = common::request(
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/workspaces")
+            .header("content-type", "application/json"),
+        axum::body::Body::from(serde_json::to_vec(&create_body)?),
+    )?;
+    app.clone().oneshot(create_req).await?;
+    event_sink.clear().await;
+
+    // Delete it
+    let del_req = common::request(
+        Request::builder()
+            .method("DELETE")
+            .uri("/api/v1/workspaces/del-event-ws"),
+        Body::empty(),
+    )?;
+    let resp = app.oneshot(del_req).await?;
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let events = event_sink.events().await;
+    assert!(
+        events.iter().any(|e| matches!(
+            &e.kind,
+            DomainEventKind::WorkspaceRemoved { name }
+            if name == "del-event-ws"
+        )),
+        "expected WorkspaceRemoved event; got: {events:?}"
+    );
     Ok(())
 }
 
