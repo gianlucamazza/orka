@@ -87,7 +87,7 @@ async-trait.workspace = true
 dotenvy.workspace = true
 notify.workspace = true
 mimalloc = { version = "0.1", default-features = false }
-sd-notify = "0.4"
+sd-notify = "0.5"
 deadpool-redis.workspace = true
 jsonwebtoken.workspace = true
 sha2.workspace = true
@@ -95,9 +95,9 @@ base64.workspace = true
 rand.workspace = true
 url.workspace = true
 mime_guess = "2"
-infer = "0.16"
+infer = "0.19"
 governor.workspace = true
-printpdf = "0.7"
+printpdf = "0.9"
 
 [dev-dependencies]
 orka-core.workspace = true
