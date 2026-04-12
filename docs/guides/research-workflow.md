@@ -10,7 +10,7 @@ Orka's native `research` subsystem provides a structured loop for autonomous cod
 ## Prerequisites
 
 - Redis or Valkey available for normal Orka runtime state.
-- `[os.coding].enabled = true` so campaign runs can call `coding_delegate`.
+- `[coding].enabled = true` so campaign runs can call `coding_delegate`.
 - `[scheduler].enabled = true` only if you want recurring runs from `campaign.cron`.
 - A repository path that can be checked out into isolated git worktrees.
 

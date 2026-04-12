@@ -75,5 +75,5 @@ pub(crate) struct AppState {
     pub(crate) sink: Arc<Mutex<Option<InteractionSink>>>,
     pub(crate) sessions: Arc<Mutex<HashMap<String, SessionId>>>,
     pub(crate) app_secret: Option<Arc<SecretStr>>,
-    pub(crate) trust_level: orka_contracts::TrustLevel,
+    pub(crate) trust_level: orka_core::TrustLevel,
 }

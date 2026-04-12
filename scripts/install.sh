@@ -567,10 +567,10 @@ detect_user_codex_installation() {
 install_codex_wrapper() {
 	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
 	local codex_target
-	codex_target=$(get_config_value "$cfg" "os.coding.providers.codex" "executable_path")
+	codex_target=$(get_config_value "$cfg" "coding.providers.codex" "executable_path")
 	[[ -n "$codex_target" ]] || codex_target="/usr/local/bin/codex"
 
-	if ! config_section_enabled "$cfg" "os.coding.providers.codex"; then
+	if ! config_section_enabled "$cfg" "coding.providers.codex"; then
 		return 0
 	fi
 
@@ -598,7 +598,7 @@ EOF
 
 provision_codex_service_home() {
 	local cfg="${1:-${CONFIG_DIR}/orka.toml}"
-	config_section_enabled "$cfg" "os.coding.providers.codex" || return 0
+	config_section_enabled "$cfg" "coding.providers.codex" || return 0
 
 	local user_home service_home
 	user_home=$(sudo_user_home) || {

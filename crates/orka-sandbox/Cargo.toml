@@ -1,0 +1,32 @@
+[package]
+name = "orka-sandbox"
+description = "Sandboxed code execution (WASM + process backends) for Orka agents"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["wasm-backend", "test-util"]
+## Enable the WebAssembly (WASI) sandbox backend via Wasmtime.
+wasm-backend = ["dep:orka-wasm"]
+## Expose in-memory test helpers (InMemorySandbox).
+test-util = []
+
+[dependencies]
+orka-core.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tempfile.workspace = true
+nix = { workspace = true, features = ["resource"] }
+orka-wasm = { workspace = true, optional = true }
+
+[dev-dependencies]
+orka-core.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

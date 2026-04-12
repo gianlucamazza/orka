@@ -1,5 +1,4 @@
-use orka_contracts::RealtimeEvent;
-use orka_core::stream::AgentStopReason;
+use orka_core::{RealtimeEvent, stream::AgentStopReason};
 
 /// Classified WebSocket message.
 #[derive(Debug)]

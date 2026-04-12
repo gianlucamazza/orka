@@ -30,7 +30,6 @@ wasm = ["orka-skills/wasm"]
 
 [dependencies]
 orka-core.workspace = true
-orka-contracts.workspace = true
 orka-config.workspace = true
 orka-infra.workspace = true
 orka-gateway.workspace = true
@@ -42,17 +41,17 @@ orka-adapter-telegram = { workspace = true, optional = true }
 orka-adapter-discord = { workspace = true, optional = true }
 orka-adapter-slack = { workspace = true, optional = true }
 orka-adapter-whatsapp = { workspace = true, optional = true }
-orka-memory.workspace = true
-orka-secrets.workspace = true
 orka-observe.workspace = true
 orka-skills.workspace = true
 orka-circuit-breaker.workspace = true
 orka-wasm.workspace = true
+orka-sandbox.workspace = true
 orka-llm.workspace = true
 orka-mcp.workspace = true
 orka-guardrails.workspace = true
 orka-web.workspace = true
 orka-os.workspace = true
+orka-coding.workspace = true
 orka-a2a.workspace = true
 orka-knowledge.workspace = true
 orka-experience.workspace = true
@@ -87,13 +86,11 @@ utoipa-swagger-ui.workspace = true
 async-trait.workspace = true
 dotenvy.workspace = true
 notify.workspace = true
-arc-swap.workspace = true
 mimalloc = { version = "0.1", default-features = false }
 sd-notify = "0.4"
 deadpool-redis.workspace = true
 jsonwebtoken.workspace = true
 sha2.workspace = true
-hex.workspace = true
 base64.workspace = true
 rand.workspace = true
 url.workspace = true

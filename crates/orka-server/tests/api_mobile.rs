@@ -7,10 +7,9 @@ use std::time::Duration;
 use axum::body::{Body, Bytes};
 use futures_util::StreamExt;
 use http::{Request, StatusCode};
-use orka_contracts::RealtimeEvent;
 use orka_core::{
     Conversation, ConversationId, ConversationMessage, ConversationMessageRole, MessageId, Payload,
-    SessionId, StreamChunk, StreamChunkKind,
+    RealtimeEvent, SessionId, StreamChunk, StreamChunkKind,
     traits::{ArtifactStore, ConversationStore, MessageBus},
 };
 use tower::ServiceExt;

@@ -189,7 +189,7 @@ pub(crate) async fn test_router_with_workspace_dir() -> (axum::Router, tempfile:
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
     let controller = Arc::new(
-        orka_core::conversation_controller::ConversationController::new(
+        orka_server::conversation_controller::ConversationController::new(
             conversations.clone(),
             bus.clone(),
             Arc::default(),
@@ -259,7 +259,7 @@ pub(crate) async fn test_router_with_event_sink()
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
     let controller = Arc::new(
-        orka_core::conversation_controller::ConversationController::new(
+        orka_server::conversation_controller::ConversationController::new(
             conversations.clone(),
             bus.clone(),
             Arc::default(),
@@ -331,7 +331,7 @@ pub(crate) async fn test_router() -> axum::Router {
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
     let controller = Arc::new(
-        orka_core::conversation_controller::ConversationController::new(
+        orka_server::conversation_controller::ConversationController::new(
             conversations.clone(),
             bus.clone(),
             Arc::default(),
@@ -428,7 +428,7 @@ pub(crate) async fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> a
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
     let controller = Arc::new(
-        orka_core::conversation_controller::ConversationController::new(
+        orka_server::conversation_controller::ConversationController::new(
             conversations.clone(),
             bus.clone(),
             Arc::default(),
@@ -504,7 +504,7 @@ pub(crate) async fn test_router_with_auth(key: &str) -> axum::Router {
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
     let controller = Arc::new(
-        orka_core::conversation_controller::ConversationController::new(
+        orka_server::conversation_controller::ConversationController::new(
             conversations.clone(),
             bus.clone(),
             Arc::default(),
@@ -594,7 +594,7 @@ pub(crate) async fn test_router_with_research() -> axum::Router {
     let conversations = Arc::new(InMemoryConversationStore::new());
     let artifacts = Arc::new(InMemoryArtifactStore::new());
     let controller = Arc::new(
-        orka_core::conversation_controller::ConversationController::new(
+        orka_server::conversation_controller::ConversationController::new(
             conversations.clone(),
             bus.clone(),
             Arc::default(),
@@ -684,7 +684,7 @@ pub(crate) async fn test_mobile_router_with_jwt(secret: &str, issuer: &str) -> M
     let auth_layer = Some(AuthLayer::new(authenticator, auth_cfg));
     let q = Arc::new(InMemoryQueue::new());
     let controller = Arc::new(
-        orka_core::conversation_controller::ConversationController::new(
+        orka_server::conversation_controller::ConversationController::new(
             conversations.clone(),
             bus.clone(),
             Arc::default(),
@@ -772,7 +772,7 @@ pub(crate) async fn test_mobile_router_low_rate_limit(
     let auth_layer = Some(AuthLayer::new(authenticator, auth_cfg));
     let q = Arc::new(InMemoryQueue::new());
     let controller = Arc::new(
-        orka_core::conversation_controller::ConversationController::new(
+        orka_server::conversation_controller::ConversationController::new(
             conversations.clone(),
             bus.clone(),
             Arc::default(),
@@ -868,7 +868,7 @@ pub(crate) async fn test_router_with_composite_auth(
     let artifacts = Arc::new(InMemoryArtifactStore::new());
     let q = Arc::new(InMemoryQueue::new());
     let controller = Arc::new(
-        orka_core::conversation_controller::ConversationController::new(
+        orka_server::conversation_controller::ConversationController::new(
             conversations.clone(),
             bus.clone(),
             Arc::default(),

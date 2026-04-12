@@ -13,8 +13,7 @@ use std::{
 use colored::Colorize;
 use futures_util::{SinkExt, StreamExt, stream::SplitStream};
 use indicatif::MultiProgress;
-use orka_contracts::RealtimeEvent;
-use orka_core::parse_slash_command;
+use orka_core::{RealtimeEvent, parse_slash_command};
 use reedline::{FileBackedHistory, Reedline, Signal};
 use serde_json::json;
 use tokio_tungstenite::{

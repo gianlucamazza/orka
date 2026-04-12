@@ -11,6 +11,7 @@ pub mod graph;
 pub mod handoff;
 pub(crate) mod node_runner;
 pub mod planner;
+pub(crate) mod progress_bridge;
 pub mod reducer;
 pub(crate) mod tools;
 

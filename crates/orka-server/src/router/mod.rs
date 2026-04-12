@@ -150,9 +150,9 @@ const MAX_BODY_SIZE: usize = 1024 * 1024;
         AdapterInfo,
         ServerFeatures,
         ServerInfo,
-        orka_contracts::TrustLevel,
-        orka_contracts::IntegrationClass,
-        orka_contracts::Capability,
+        orka_core::TrustLevel,
+        orka_core::IntegrationClass,
+        orka_core::Capability,
         management::WorkspaceSummary,
         management::WorkspaceDetail,
         management::CreateWorkspaceRequest,
@@ -202,11 +202,11 @@ pub struct AdapterInfo {
     /// Unique channel identifier (e.g. `"telegram"`, `"discord"`).
     pub channel_id: String,
     /// Integration category (messaging, product client, operational, etc.).
-    pub integration_class: orka_contracts::IntegrationClass,
+    pub integration_class: orka_core::IntegrationClass,
     /// Trust level granted to messages from this adapter.
-    pub trust_level: orka_contracts::TrustLevel,
+    pub trust_level: orka_core::TrustLevel,
     /// Capabilities declared by this adapter.
-    pub capabilities: orka_contracts::CapabilitySet,
+    pub capabilities: orka_core::CapabilitySet,
 }
 
 /// Feature flags reported by the server in `/api/v1/info`.
@@ -350,7 +350,7 @@ pub struct RouterParams {
     /// Domain service for conversation lifecycle operations (cancel, retry,
     /// delete, mark-read).  Constructed from the worker's cancel-token map,
     /// the conversation store, and the message bus in `bootstrap.rs`.
-    pub controller: Arc<orka_core::conversation_controller::ConversationController>,
+    pub controller: Arc<crate::conversation_controller::ConversationController>,
     /// Optional mobile auth service for QR pairing and refresh.
     pub mobile_auth: Option<Arc<dyn MobileAuthService>>,
     /// Whether the mobile product API should be exposed.

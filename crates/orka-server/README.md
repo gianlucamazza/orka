@@ -45,7 +45,7 @@ orka-server (axum)
 orka-gateway          ← dedup, rate-limit, session resolution
     │  pushes to queue
     ▼
-orka-queue (Redis)    ← priority sorted set
+priority queue (Redis) ← sorted set via orka-infra
     │  pops
     ▼
 orka-worker           ← WorkspaceHandler (LLM agentic loop)

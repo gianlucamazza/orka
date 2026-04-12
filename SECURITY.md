@@ -41,7 +41,7 @@ Please include:
 - Remote code execution via the Orka API or adapters
 - Authentication / authorisation bypasses (`orka-auth`)
 - Secret exfiltration (AES-256-GCM encrypted secrets, API keys)
-- SSRF / CSRF vulnerabilities in `orka-http` or the custom adapter
+- SSRF / CSRF vulnerabilities in `orka-web` or the custom adapter
 - Sandbox escapes in `orka-sandbox` (process or WASM)
 - Prompt injection leading to privilege escalation via OS skills
 
@@ -72,7 +72,7 @@ Generate a key: `openssl rand -hex 32`.
 
 ### SSRF Protection
 
-The HTTP skill (`orka-http`) blocks requests to link-local and private ranges
+The HTTP skill (`orka-web`) blocks requests to link-local and private ranges
 by default. The deny-list is configured at `http.blocked_domains` and includes
 `169.254.169.254` (AWS metadata). Extend it to block additional internal hosts.
 

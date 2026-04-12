@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use deadpool_redis::{Config, Pool, Runtime};
+use deadpool_redis::Pool;
 use orka_core::{
     MessageId, Result,
     error::Error,
@@ -24,9 +24,7 @@ pub struct RedisPriorityQueue {
 impl RedisPriorityQueue {
     /// Create a new queue connected to the given Redis URL.
     pub fn new(redis_url: &str) -> Result<Self> {
-        let cfg = Config::from_url(redis_url);
-        let pool = cfg
-            .create_pool(Some(Runtime::Tokio1))
+        let pool = crate::create_redis_pool(redis_url)
             .map_err(|e| Error::queue(format!("failed to create Redis pool: {e}")))?;
         Ok(Self { pool })
     }

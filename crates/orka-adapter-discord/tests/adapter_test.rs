@@ -42,8 +42,10 @@ async fn session_map_consistency() {
 /// using the canonical `PlatformContext` routing model.
 #[tokio::test]
 async fn envelope_from_discord_message() {
-    use orka_contracts::platform::{PlatformContext, SenderInfo};
-    use orka_core::types::{Envelope, Payload};
+    use orka_core::{
+        PlatformContext, SenderInfo,
+        types::{Envelope, Payload},
+    };
 
     let session_id = SessionId::new();
     let mut envelope = Envelope::text("discord", session_id, "Hey there");

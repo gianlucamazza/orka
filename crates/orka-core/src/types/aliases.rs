@@ -9,9 +9,9 @@ pub type MessageSink = tokio::sync::mpsc::Sender<Envelope>;
 
 /// Type alias for the interaction sink passed to channel adapters.
 ///
-/// Adapters produce [`orka_contracts::InboundInteraction`] and send it to this
-/// sink. The bridge in `orka-server` converts to [`Envelope`] for the bus.
-pub type InteractionSink = tokio::sync::mpsc::Sender<orka_contracts::InboundInteraction>;
+/// Adapters produce [`crate::InboundInteraction`] and send it to this sink.
+/// The bridge in `orka-server` converts to [`Envelope`] for the bus.
+pub type InteractionSink = tokio::sync::mpsc::Sender<crate::InboundInteraction>;
 
 /// Type alias for the message stream returned by the bus.
 pub type MessageStream = tokio::sync::mpsc::Receiver<Envelope>;

@@ -80,8 +80,6 @@ fn payload_variants_serialize() -> serde_json::Result<()> {
     Ok(())
 }
 
-// ── Phase 1: orka-contracts integration ──────────────────────────────────────
-
 #[test]
 fn capability_set_serde_roundtrip() -> serde_json::Result<()> {
     use orka_core::{Capability, CapabilitySet};
@@ -99,7 +97,7 @@ fn capability_set_serde_roundtrip() -> serde_json::Result<()> {
 #[test]
 fn inbound_interaction_converts_to_envelope() {
     use chrono::Utc;
-    use orka_contracts::{
+    use orka_core::{
         InboundInteraction, InteractionContent, PlatformContext, SenderInfo, TraceContext,
     };
     use uuid::Uuid;
@@ -139,8 +137,7 @@ fn inbound_interaction_converts_to_envelope() {
 
 #[test]
 fn stream_chunk_kind_converts_to_realtime_event() {
-    use orka_contracts::RealtimeEvent;
-    use orka_core::StreamChunkKind;
+    use orka_core::{RealtimeEvent, StreamChunkKind};
 
     let delta = StreamChunkKind::Delta("hello".into());
     let event = RealtimeEvent::from(delta);
@@ -153,7 +150,7 @@ fn stream_chunk_kind_converts_to_realtime_event() {
 
 #[test]
 fn platform_context_serde_roundtrip() -> serde_json::Result<()> {
-    use orka_contracts::{PlatformContext, SenderInfo};
+    use orka_core::{PlatformContext, SenderInfo};
 
     let ctx = PlatformContext {
         sender: SenderInfo::default(),

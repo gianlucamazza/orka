@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
+use deadpool_redis::Pool;
 use orka_core::{
     Conversation, ConversationId, ConversationMessage, Error, Result,
     traits::{ConversationStore, MessageCursor, apply_message_cursors},
@@ -15,10 +15,8 @@ pub struct RedisConversationStore {
 impl RedisConversationStore {
     /// Connect to Redis and create a new conversation store.
     pub fn new(redis_url: &str) -> Result<Self> {
-        let cfg = DeadpoolConfig::from_url(redis_url);
-        let pool = cfg
-            .create_pool(Some(Runtime::Tokio1))
-            .map_err(|e| Error::bus(format!("failed to create Redis pool: {e}")))?;
+        let pool = crate::create_redis_pool(redis_url)
+            .map_err(|e| Error::conversation(format!("failed to create Redis pool: {e}")))?;
         Ok(Self { pool })
     }
 
@@ -54,7 +52,7 @@ impl ConversationStore for RedisConversationStore {
     async fn put_conversation(&self, conversation: &Conversation) -> Result<()> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis pool error: {e}")))?;
 
         let json = serde_json::to_string(conversation)?;
         let conversation_key = Self::conversation_key(&conversation.id);
@@ -64,11 +62,11 @@ impl ConversationStore for RedisConversationStore {
         let _: () = conn
             .set(&conversation_key, json)
             .await
-            .map_err(|e| Error::bus(format!("redis SET error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis SET error: {e}")))?;
         let _: () = conn
             .zadd(&user_index_key, conversation.id.to_string(), score)
             .await
-            .map_err(|e| Error::bus(format!("redis ZADD error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis ZADD error: {e}")))?;
 
         // Maintain a per-workspace sorted set for efficient workspace filtering.
         if let Some(ws) = &conversation.workspace {
@@ -76,7 +74,9 @@ impl ConversationStore for RedisConversationStore {
             let _: () = conn
                 .zadd(&ws_index_key, conversation.id.to_string(), score)
                 .await
-                .map_err(|e| Error::bus(format!("redis ZADD (workspace index) error: {e}")))?;
+                .map_err(|e| {
+                    Error::conversation(format!("redis ZADD (workspace index) error: {e}"))
+                })?;
         }
 
         Ok(())
@@ -85,11 +85,11 @@ impl ConversationStore for RedisConversationStore {
     async fn get_conversation(&self, id: &ConversationId) -> Result<Option<Conversation>> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis pool error: {e}")))?;
         let value: Option<String> = conn
             .get(Self::conversation_key(id))
             .await
-            .map_err(|e| Error::bus(format!("redis GET error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis GET error: {e}")))?;
         value
             .map(|json| serde_json::from_str(&json))
             .transpose()
@@ -106,7 +106,7 @@ impl ConversationStore for RedisConversationStore {
     ) -> Result<Vec<Conversation>> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis pool error: {e}")))?;
 
         // Choose the index to query: per-workspace or global.
         let index_key = workspace.map_or_else(
@@ -129,7 +129,7 @@ impl ConversationStore for RedisConversationStore {
             .arg(stop)
             .query_async(&mut *conn)
             .await
-            .map_err(|e| Error::bus(format!("redis ZREVRANGE error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis ZREVRANGE error: {e}")))?;
 
         let mut conversations = Vec::with_capacity(ids.len());
         for id in ids {
@@ -140,7 +140,7 @@ impl ConversationStore for RedisConversationStore {
                     })?,
                 )))
                 .await
-                .map_err(|e| Error::bus(format!("redis GET error: {e}")))?;
+                .map_err(|e| Error::conversation(format!("redis GET error: {e}")))?;
             if let Some(json) = value
                 && let Ok(conversation) = serde_json::from_str::<Conversation>(&json)
                 && (include_archived || conversation.archived_at.is_none())
@@ -158,14 +158,14 @@ impl ConversationStore for RedisConversationStore {
     async fn delete_conversation(&self, id: &ConversationId) -> Result<()> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis pool error: {e}")))?;
 
         // Retrieve the user_id needed to remove the sorted-set entry.
         let conversation_key = Self::conversation_key(id);
         let value: Option<String> = conn
             .get(&conversation_key)
             .await
-            .map_err(|e| Error::bus(format!("redis GET error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis GET error: {e}")))?;
 
         if let Some(json) = value {
             if let Ok(conversation) = serde_json::from_str::<Conversation>(&json) {
@@ -175,7 +175,7 @@ impl ConversationStore for RedisConversationStore {
                         conversation.id.to_string(),
                     )
                     .await
-                    .map_err(|e| Error::bus(format!("redis ZREM error: {e}")))?;
+                    .map_err(|e| Error::conversation(format!("redis ZREM error: {e}")))?;
                 if let Some(ws) = &conversation.workspace {
                     let _: () = conn
                         .zrem(
@@ -184,18 +184,18 @@ impl ConversationStore for RedisConversationStore {
                         )
                         .await
                         .map_err(|e| {
-                            Error::bus(format!("redis ZREM (workspace index) error: {e}"))
+                            Error::conversation(format!("redis ZREM (workspace index) error: {e}"))
                         })?;
                 }
             }
             let _: () = conn
                 .del(&conversation_key)
                 .await
-                .map_err(|e| Error::bus(format!("redis DEL error: {e}")))?;
+                .map_err(|e| Error::conversation(format!("redis DEL error: {e}")))?;
             let _: () = conn
                 .del(Self::messages_key(id))
                 .await
-                .map_err(|e| Error::bus(format!("redis DEL error: {e}")))?;
+                .map_err(|e| Error::conversation(format!("redis DEL error: {e}")))?;
         }
 
         Ok(())
@@ -208,12 +208,12 @@ impl ConversationStore for RedisConversationStore {
     async fn upsert_message(&self, message: &ConversationMessage) -> Result<()> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis pool error: {e}")))?;
         let key = Self::messages_key(&message.conversation_id);
         let values: Vec<String> = conn
             .lrange(&key, 0, -1)
             .await
-            .map_err(|e| Error::bus(format!("redis LRANGE error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis LRANGE error: {e}")))?;
         let replacement = serde_json::to_string(message)?;
         if let Some((index, _)) = values.iter().enumerate().find(|(_, json)| {
             serde_json::from_str::<ConversationMessage>(json)
@@ -223,12 +223,12 @@ impl ConversationStore for RedisConversationStore {
             let _: () = conn
                 .lset(&key, index as isize, replacement)
                 .await
-                .map_err(|e| Error::bus(format!("redis LSET error: {e}")))?;
+                .map_err(|e| Error::conversation(format!("redis LSET error: {e}")))?;
         } else {
             let _: () = conn
                 .rpush(&key, replacement)
                 .await
-                .map_err(|e| Error::bus(format!("redis RPUSH error: {e}")))?;
+                .map_err(|e| Error::conversation(format!("redis RPUSH error: {e}")))?;
         }
         Ok(())
     }
@@ -240,11 +240,11 @@ impl ConversationStore for RedisConversationStore {
     ) -> Result<Option<ConversationMessage>> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis pool error: {e}")))?;
         let values: Vec<String> = conn
             .lrange(Self::messages_key(conversation_id), 0, -1)
             .await
-            .map_err(|e| Error::bus(format!("redis LRANGE error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis LRANGE error: {e}")))?;
 
         Ok(values.into_iter().find_map(|json| {
             serde_json::from_str::<ConversationMessage>(&json)
@@ -262,11 +262,11 @@ impl ConversationStore for RedisConversationStore {
     ) -> Result<Vec<ConversationMessage>> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis pool error: {e}")))?;
         let values: Vec<String> = conn
             .lrange(Self::messages_key(conversation_id), 0, -1)
             .await
-            .map_err(|e| Error::bus(format!("redis LRANGE error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis LRANGE error: {e}")))?;
 
         let mut all = values
             .into_iter()
@@ -284,12 +284,12 @@ impl ConversationStore for RedisConversationStore {
     ) -> Result<()> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis pool error: {e}")))?;
         let key = Self::messages_key(conversation_id);
         let values: Vec<String> = conn
             .lrange(&key, 0, -1)
             .await
-            .map_err(|e| Error::bus(format!("redis LRANGE error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis LRANGE error: {e}")))?;
 
         let remaining: Vec<String> = values
             .into_iter()
@@ -304,12 +304,12 @@ impl ConversationStore for RedisConversationStore {
         let _: () = conn
             .del(&key)
             .await
-            .map_err(|e| Error::bus(format!("redis DEL error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis DEL error: {e}")))?;
         if !remaining.is_empty() {
             let _: () = conn
                 .rpush(&key, remaining)
                 .await
-                .map_err(|e| Error::bus(format!("redis RPUSH error: {e}")))?;
+                .map_err(|e| Error::conversation(format!("redis RPUSH error: {e}")))?;
         }
 
         Ok(())
@@ -323,7 +323,7 @@ impl ConversationStore for RedisConversationStore {
     ) -> Result<()> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis pool error: {e}")))?;
         let key = Self::read_receipts_key(user_id);
         let field = conversation_id.to_string();
 
@@ -331,7 +331,7 @@ impl ConversationStore for RedisConversationStore {
         let existing: Option<String> = conn
             .hget(&key, &field)
             .await
-            .map_err(|e| Error::bus(format!("redis HGET error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis HGET error: {e}")))?;
         let should_update = existing.is_none_or(|json| {
             serde_json::from_str::<WatermarkRecord>(&json).map_or(true, |rec| {
                 cursor.created_at_ms > rec.created_at_ms
@@ -348,7 +348,7 @@ impl ConversationStore for RedisConversationStore {
             let _: () = conn
                 .hset(&key, &field, json)
                 .await
-                .map_err(|e| Error::bus(format!("redis HSET error: {e}")))?;
+                .map_err(|e| Error::conversation(format!("redis HSET error: {e}")))?;
         }
         Ok(())
     }
@@ -360,14 +360,14 @@ impl ConversationStore for RedisConversationStore {
     ) -> Result<Option<MessageCursor>> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis pool error: {e}")))?;
         let value: Option<String> = conn
             .hget(
                 Self::read_receipts_key(user_id),
                 conversation_id.to_string(),
             )
             .await
-            .map_err(|e| Error::bus(format!("redis HGET error: {e}")))?;
+            .map_err(|e| Error::conversation(format!("redis HGET error: {e}")))?;
         let Some(json) = value else {
             return Ok(None);
         };

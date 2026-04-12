@@ -18,11 +18,7 @@ pub mod skills;
 
 use std::sync::Arc;
 
-pub use config::{
-    ApprovalPolicy, ClaudeCodeConfig, CodexConfig, CodingConfig, CodingProvider,
-    CodingProvidersConfig, CodingSelectionPolicy, OpenCodeConfig, OsConfig, SandboxMode,
-    SudoConfig,
-};
+pub use config::{OsConfig, PermissionLevel, SudoConfig};
 use orka_core::{Result, traits::Skill};
 pub use probe::{EnvironmentCapabilities, PackageUpdateMethod};
 use tracing::{info, warn};
@@ -45,7 +41,6 @@ pub fn has_no_new_privileges() -> bool {
     }
 }
 
-use config::PermissionLevel;
 use guard::PermissionGuard;
 
 /// Create OS skills from config, filtered by permission level and feature
@@ -169,38 +164,6 @@ pub fn create_os_skills(
                 result.push(Arc::new(skills::systemd::ServiceControlSkill::new(guard)));
             }
         }
-    }
-
-    // Coding delegation skills — routing entrypoint plus explicit backends.
-    let claude_enabled =
-        config.coding.providers.claude_code.enabled && caps.is_none_or(|c| c.claude_code.available);
-    let codex_enabled =
-        config.coding.providers.codex.enabled && caps.is_none_or(|c| c.codex.available);
-    let opencode_enabled =
-        config.coding.providers.opencode.enabled && caps.is_none_or(|c| c.opencode.available);
-
-    if config.coding.providers.claude_code.enabled && !claude_enabled {
-        warn!("coding provider claude_code disabled: CLI not functional in current environment");
-    }
-    if config.coding.providers.codex.enabled && !codex_enabled {
-        warn!("coding provider codex disabled: CLI not functional in current environment");
-    }
-    if config.coding.providers.opencode.enabled && !opencode_enabled {
-        warn!("coding provider opencode disabled: CLI not functional in current environment");
-    }
-
-    if config.coding.enabled && (claude_enabled || codex_enabled || opencode_enabled) {
-        result.push(Arc::new(skills::coding_delegate::CodingDelegateSkill::new(
-            config,
-        )));
-    }
-    if config.coding.enabled {
-        info!(
-            claude_code = claude_enabled,
-            codex = codex_enabled,
-            opencode = opencode_enabled,
-            "coding_delegate skill routing initialized"
-        );
     }
 
     info!(

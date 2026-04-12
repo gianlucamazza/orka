@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
+use deadpool_redis::Pool;
 use orka_core::{Envelope, Error, MessageId, MessageStream, Result, traits::MessageBus};
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, warn};
@@ -24,9 +24,7 @@ pub struct RedisBus {
 impl RedisBus {
     /// Connect to Redis and create a new bus with the given configuration.
     pub fn new(redis_url: &str, config: &BusConfig) -> Result<Self> {
-        let cfg = DeadpoolConfig::from_url(redis_url);
-        let pool = cfg
-            .create_pool(Some(Runtime::Tokio1))
+        let pool = crate::create_redis_pool(redis_url)
             .map_err(|e| Error::bus(format!("failed to create Redis pool: {e}")))?;
 
         let consumer = format!("orka-{}", uuid::Uuid::now_v7());

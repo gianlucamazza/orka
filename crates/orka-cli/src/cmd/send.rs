@@ -1,6 +1,6 @@
 use colored::Colorize;
 use futures_util::StreamExt;
-use orka_contracts::RealtimeEvent;
+use orka_core::RealtimeEvent;
 
 use crate::{
     client::{OrkaClient, Result},

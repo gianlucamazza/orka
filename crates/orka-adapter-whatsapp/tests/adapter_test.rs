@@ -48,8 +48,10 @@ async fn session_map_consistency() {
 /// the canonical `PlatformContext` routing model.
 #[tokio::test]
 async fn envelope_from_whatsapp_message() {
-    use orka_contracts::platform::{PlatformContext, SenderInfo};
-    use orka_core::types::{Envelope, Payload};
+    use orka_core::{
+        PlatformContext, SenderInfo,
+        types::{Envelope, Payload},
+    };
 
     let session_id = SessionId::new();
     let mut envelope = Envelope::text("whatsapp", session_id, "Hello from WhatsApp");

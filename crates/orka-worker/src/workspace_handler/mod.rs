@@ -14,6 +14,7 @@ use orka_core::{
     CommandArgs, DomainEvent, DomainEventKind, Envelope, MemoryEntry, MemoryScope, OutboundMessage,
     Payload, Result, Session, SessionId,
     config::AgentConfig,
+    stream::{StreamChunk, StreamChunkKind, StreamRegistry},
     traits::{EventSink, Guardrail, MemoryStore, SecretManager},
 };
 use orka_experience::ExperienceService;
@@ -32,11 +33,7 @@ use orka_skills::SkillRegistry;
 use orka_workspace::WorkspaceRegistry;
 use tracing::{Instrument, debug, info, info_span, warn};
 
-use crate::{
-    commands::CommandRegistry,
-    handler::AgentHandler,
-    stream::{StreamChunk, StreamChunkKind, StreamRegistry},
-};
+use crate::{commands::CommandRegistry, handler::AgentHandler};
 
 /// Configuration parameters for [`WorkspaceHandler`], grouped to reduce
 /// constructor arguments.

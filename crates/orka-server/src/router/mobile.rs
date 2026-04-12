@@ -15,11 +15,11 @@ use axum::{
 use chrono::{DateTime, Utc};
 use governor::{Quota, RateLimiter, state::keyed::DefaultKeyedStateStore};
 use orka_auth::AuthIdentity;
-use orka_contracts::RealtimeEvent;
 use orka_core::{
     ArtifactId, Conversation, ConversationArtifact, ConversationArtifactOrigin, ConversationId,
     ConversationMessage, ConversationMessageRole, ConversationStatus, DomainEvent, MediaPayload,
-    MemoryEntry, MessageCursor, MessageId, Payload, RichInputPayload, SessionId, StreamRegistry,
+    MemoryEntry, MessageCursor, MessageId, Payload, RealtimeEvent, RichInputPayload, SessionId,
+    StreamRegistry,
     traits::{ArtifactStore, ConversationStore, EventSink, MemoryStore, MessageBus},
     types::DomainEventKind,
 };
@@ -157,7 +157,7 @@ pub(super) struct ProtectedMobileState {
     pub(super) bus: Arc<dyn MessageBus>,
     pub(super) stream_registry: StreamRegistry,
     pub(super) mobile_events: MobileEventHub,
-    pub(super) controller: Arc<orka_core::conversation_controller::ConversationController>,
+    pub(super) controller: Arc<crate::conversation_controller::ConversationController>,
     pub(super) mobile_auth: Option<Arc<dyn MobileAuthService>>,
     pub(super) memory: Arc<dyn MemoryStore>,
     pub(super) workspace_registry: Arc<WorkspaceRegistry>,
@@ -1180,10 +1180,8 @@ async fn handle_delete_message(
     }
 }
 
-fn map_control_error(
-    e: orka_core::conversation_controller::ControlError,
-) -> axum::response::Response {
-    use orka_core::conversation_controller::ControlError;
+fn map_control_error(e: crate::conversation_controller::ControlError) -> axum::response::Response {
+    use crate::conversation_controller::ControlError;
     match e {
         ControlError::NotFound | ControlError::NotOwned => {
             error_response(StatusCode::NOT_FOUND, "not found")

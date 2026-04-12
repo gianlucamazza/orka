@@ -8,8 +8,9 @@
 use orka_adapter_custom::{
     CustomAdapter, CustomAdapterConfig, routes::app_router, types::InboundResponse, ws::WsRegistry,
 };
-use orka_contracts::InteractionContent;
-use orka_core::{OutboundMessage, Payload, SessionId, StreamRegistry, traits::ChannelAdapter};
+use orka_core::{
+    InteractionContent, OutboundMessage, Payload, SessionId, StreamRegistry, traits::ChannelAdapter,
+};
 use tokio::sync::mpsc;
 
 #[tokio::test]
@@ -26,7 +27,7 @@ async fn post_message_arrives_on_sink() {
         ws_registry,
         StreamRegistry::new(),
         None,
-        orka_contracts::TrustLevel::UserAuthenticated,
+        orka_core::TrustLevel::UserAuthenticated,
         None,
     );
     tokio::spawn(async move {
@@ -70,7 +71,7 @@ async fn health_endpoint_returns_ok() {
         ws_registry,
         StreamRegistry::new(),
         None,
-        orka_contracts::TrustLevel::UserAuthenticated,
+        orka_core::TrustLevel::UserAuthenticated,
         None,
     );
     tokio::spawn(async move {
@@ -144,7 +145,7 @@ async fn ws_connect_and_receive_outbound() {
         ws_registry,
         StreamRegistry::new(),
         None,
-        orka_contracts::TrustLevel::UserAuthenticated,
+        orka_core::TrustLevel::UserAuthenticated,
         None,
     );
     tokio::spawn(async move {

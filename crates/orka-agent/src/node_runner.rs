@@ -1017,8 +1017,8 @@ fn maybe_spawn_progress_bridge(
     }
     let bus = deps.bus.as_ref()?;
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let bridge_config = orka_core::progress_bridge::ProgressBridgeConfig::default();
-    tokio::spawn(orka_core::progress_bridge::forward_progress_to_chat(
+    let bridge_config = crate::progress_bridge::ProgressBridgeConfig::default();
+    tokio::spawn(crate::progress_bridge::forward_progress_to_chat(
         rx,
         bus.clone(),
         ctx.trigger.channel.clone(),

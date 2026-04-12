@@ -268,9 +268,9 @@ pub async fn forward_delegate_progress(
 /// This mapping is the authoritative translation between the internal worker
 /// streaming format and the public contract exposed to all integration
 /// surfaces.
-impl From<StreamChunkKind> for orka_contracts::RealtimeEvent {
+impl From<StreamChunkKind> for crate::RealtimeEvent {
     fn from(kind: StreamChunkKind) -> Self {
-        use orka_contracts::RealtimeEvent;
+        use crate::RealtimeEvent;
         match kind {
             StreamChunkKind::GenerationStarted => RealtimeEvent::GenerationStarted,
             StreamChunkKind::Delta(delta) => RealtimeEvent::MessageDelta { delta },

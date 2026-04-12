@@ -7,18 +7,10 @@ pub mod component;
 pub mod config;
 /// Core engine: compiles and caches WASM modules and components.
 pub mod engine;
-/// Per-invocation WASM instance with memory management (for core modules /
-/// sandbox).
+/// Per-invocation WASM instance with memory management (for core modules).
 pub mod instance;
-
-/// Sandboxed code execution (WASM + process backends).
-pub mod sandbox;
 
 pub use component::{PluginCapabilities, WasmComponent};
 pub use config::WasmLimits;
 pub use engine::{WasmEngine, WasmModule};
 pub use instance::WasmInstance;
-pub use sandbox::{
-    ProcessSandbox, SandboxConfig, SandboxExecutor, SandboxLang, SandboxLimits,
-    SandboxLimitsConfig, SandboxRequest, SandboxResult, SandboxSkill, WasmSandbox, create_sandbox,
-};

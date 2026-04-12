@@ -14,11 +14,11 @@ use std::{io::Write as _, path::PathBuf, sync::Arc};
 use async_trait::async_trait;
 use colored::Colorize as _;
 use orka_core::SecretStr;
+use orka_infra::create_file_secret_manager;
 use orka_llm::{
     ANTHROPIC_API_VERSION, AnthropicClient, CompletionOptions, LlmClient, OllamaClient,
     OpenAiClient,
 };
-use orka_secrets::create_file_secret_manager;
 
 use crate::{
     client::Result,
@@ -79,7 +79,7 @@ pub async fn run(args: InitArgs) -> Result<()> {
 
     // ── Phase 2: LLM-driven wizard ────────────────────────────────────────────
 
-    let secrets_path = orka_secrets::default_secrets_file_path();
+    let secrets_path = orka_infra::default_secrets_file_path();
     let secrets = create_file_secret_manager(&secrets_path)?;
 
     // Store bootstrap API key in the secret store (if provided).

@@ -163,8 +163,7 @@ and `sdk/`. Each crate has a single responsibility:
 - **orka-a2a**: Agent-to-Agent protocol
 - **orka-guardrails**: Input/output validation and content filtering
 - **orka-circuit-breaker**: Circuit breaker pattern for external services
-- **orka-wasm**: WASM runtime, Component Model plugins, and code sandbox (process + WASM)
-- **orka-secrets**: Secret management (AES-256-GCM)
+- **orka-wasm**: WASM runtime and Component Model plugins
 - **orka-auth**: JWT and API key authentication
 - **orka-web** (http submodule): HTTP request skill with SSRF protection
 - **orka-workspace**: Workspace loader and hot-reload watcher

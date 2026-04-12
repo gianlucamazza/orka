@@ -300,9 +300,8 @@ impl Default for SkillRegistry {
     clippy::items_after_statements
 )]
 mod tests {
-    use orka_core::testing::EchoSkill;
-
     use super::*;
+    use crate::EchoSkill;
 
     /// A skill that always fails with an environmental error.
     struct FailingSkill;

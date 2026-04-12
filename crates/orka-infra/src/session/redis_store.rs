@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
+use deadpool_redis::Pool;
 use orka_core::{Error, Result, Session, SessionId, traits::SessionStore};
 use redis::AsyncCommands;
 use tracing::debug;
@@ -14,10 +14,8 @@ pub struct RedisSessionStore {
 impl RedisSessionStore {
     /// Connect to Redis and create a new session store with the given TTL.
     pub fn new(redis_url: &str, ttl_secs: u64) -> Result<Self> {
-        let cfg = DeadpoolConfig::from_url(redis_url);
-        let pool = cfg
-            .create_pool(Some(Runtime::Tokio1))
-            .map_err(|e| Error::bus(format!("failed to create Redis pool: {e}")))?;
+        let pool = crate::create_redis_pool(redis_url)
+            .map_err(|e| Error::session(format!("failed to create Redis pool: {e}")))?;
 
         Ok(Self { pool, ttl_secs })
     }
@@ -32,12 +30,12 @@ impl SessionStore for RedisSessionStore {
     async fn get(&self, id: &SessionId) -> Result<Option<Session>> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::session(format!("redis pool error: {e}")))?;
 
         let value: Option<String> = conn
             .get(Self::key(id))
             .await
-            .map_err(|e| Error::bus(format!("redis GET error: {e}")))?;
+            .map_err(|e| Error::session(format!("redis GET error: {e}")))?;
 
         match value {
             Some(json) => {
@@ -52,7 +50,7 @@ impl SessionStore for RedisSessionStore {
     async fn put(&self, session: &Session) -> Result<()> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::session(format!("redis pool error: {e}")))?;
 
         let mut session = session.clone();
         session.updated_at = Utc::now();
@@ -61,7 +59,7 @@ impl SessionStore for RedisSessionStore {
         let _: () = conn
             .set_ex(Self::key(&session.id), json, self.ttl_secs)
             .await
-            .map_err(|e| Error::bus(format!("redis SET error: {e}")))?;
+            .map_err(|e| Error::session(format!("redis SET error: {e}")))?;
 
         debug!(session_id = %session.id, "session stored");
         Ok(())
@@ -70,12 +68,12 @@ impl SessionStore for RedisSessionStore {
     async fn delete(&self, id: &SessionId) -> Result<()> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::session(format!("redis pool error: {e}")))?;
 
         let _: () = conn
             .del(Self::key(id))
             .await
-            .map_err(|e| Error::bus(format!("redis DEL error: {e}")))?;
+            .map_err(|e| Error::session(format!("redis DEL error: {e}")))?;
 
         debug!(session_id = %id, "session deleted");
         Ok(())
@@ -84,7 +82,7 @@ impl SessionStore for RedisSessionStore {
     async fn list(&self, limit: usize) -> Result<Vec<Session>> {
         let mut conn = crate::retry::get_conn_with_retry(&self.pool)
             .await
-            .map_err(|e| Error::bus(format!("redis pool error: {e}")))?;
+            .map_err(|e| Error::session(format!("redis pool error: {e}")))?;
 
         // Iterate SCAN until cursor returns to 0, collecting up to `limit` keys.
         let mut cursor: i64 = 0;
@@ -98,7 +96,7 @@ impl SessionStore for RedisSessionStore {
                 .arg(100i64)
                 .query_async(&mut *conn)
                 .await
-                .map_err(|e| Error::bus(format!("redis SCAN error: {e}")))?;
+                .map_err(|e| Error::session(format!("redis SCAN error: {e}")))?;
             keys.extend(batch);
             cursor = next_cursor;
             if cursor == 0 || keys.len() >= limit {
@@ -112,7 +110,7 @@ impl SessionStore for RedisSessionStore {
             let value: Option<String> = conn
                 .get(key)
                 .await
-                .map_err(|e| Error::bus(format!("redis GET error: {e}")))?;
+                .map_err(|e| Error::session(format!("redis GET error: {e}")))?;
             if let Some(json) = value
                 && let Ok(session) = serde_json::from_str::<Session>(&json)
             {

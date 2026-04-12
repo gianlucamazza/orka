@@ -52,9 +52,9 @@ flowchart TD
 - **Conversation Store** — Persists conversation history (messages, tool calls,
   outcomes) in Redis for multi-turn context and mobile API access.
 
-### Memory Store (orka-memory)
+### Memory Store
 
-Long-term key-value memory, persisted in Redis. The `WorkspaceHandler` loads
+Long-term key-value memory, persisted in Redis (`orka-infra`). The `WorkspaceHandler` loads
 relevant memory entries into the system prompt before each LLM call so the agent
 has context from previous sessions.
 
@@ -101,12 +101,12 @@ Isolated execution environment for the `sandbox` skill. Two backends:
 - **WASM sandbox** — compiles and runs WASM modules in a `WasmInstance` with
   configurable memory and fuel limits.
 
-The sandbox implementation lives in `orka_wasm::sandbox` alongside the shared
+The sandbox implementation lives in `orka-wasm` alongside the shared
 WASM engine used by the plugin system.
 
-### Secrets (orka-secrets)
+### Secrets
 
-`SecretManager` implementations: Redis backend with optional AES-256-GCM
+`SecretManager` implementations live in `orka-infra`: Redis backend with optional AES-256-GCM
 encryption (default), and an in-memory backend for tests. The encryption key
 is supplied via the `ORKA_SECRET_ENCRYPTION_KEY` env var; without it secrets
 are stored in plaintext (development mode). Secrets are wrapped in

@@ -6,11 +6,11 @@ use tokio::sync::Mutex;
 use crate::{
     ArtifactId, Conversation, ConversationArtifact, ConversationId, ConversationMessage,
     DomainEvent, Envelope, Error, MemoryEntry, MessageId, MessageStream, Priority, Result,
-    SecretValue, Session, SessionId, SkillInput, SkillOutput, SkillSchema,
+    SecretValue, Session, SessionId,
     traits::{
         ArtifactStore, ConversationStore, DeadLetterQueue, EventSink, Guardrail, GuardrailDecision,
         MemoryStore, MessageBus, MessageCursor, PriorityQueue, SecretManager, SessionLock,
-        SessionStore, Skill, apply_message_cursors,
+        SessionStore, apply_message_cursors,
     },
 };
 
@@ -666,40 +666,6 @@ impl EventSink for InMemoryEventSink {
 }
 
 // ---------------------------------------------------------------------------
-// EchoSkill
-// ---------------------------------------------------------------------------
-
-/// Test [`Skill`] that echoes its input arguments back as JSON output.
-pub struct EchoSkill;
-
-#[async_trait]
-impl Skill for EchoSkill {
-    fn name(&self) -> &'static str {
-        "echo"
-    }
-
-    fn description(&self) -> &'static str {
-        "Echoes back the input arguments"
-    }
-
-    fn schema(&self) -> SkillSchema {
-        SkillSchema {
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": true
-            }),
-        }
-    }
-
-    async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        Ok(SkillOutput::new(
-            serde_json::to_value(input.args).map_err(|e| Error::Skill(e.to_string()))?,
-        ))
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Guardrail test doubles
 // ---------------------------------------------------------------------------
 
@@ -959,23 +925,6 @@ mod tests {
 
         sink.clear().await;
         assert!(sink.events().await.is_empty());
-    }
-
-    #[tokio::test]
-    async fn echo_skill_execute() -> Result<()> {
-        let skill = EchoSkill;
-        assert_eq!(skill.name(), "echo");
-        assert!(!skill.description().is_empty());
-
-        let input = SkillInput {
-            args: [("greeting".to_string(), serde_json::json!("hello"))]
-                .into_iter()
-                .collect(),
-            context: None,
-        };
-        let output = skill.execute(input).await?;
-        assert_eq!(output.data, serde_json::json!({"greeting": "hello"}));
-        Ok(())
     }
 
     #[tokio::test]

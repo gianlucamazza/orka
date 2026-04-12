@@ -16,8 +16,8 @@ use orka_a2a::{
     A2aState, AgentCard, InMemoryPushNotificationStore, InMemoryTaskStore, TaskState,
     WebhookDeliverer, a2a_router, build_agent_card, routes::extract_text_from_message,
 };
-use orka_core::testing::{EchoSkill, InMemorySecretManager};
-use orka_skills::SkillRegistry;
+use orka_core::testing::InMemorySecretManager;
+use orka_skills::{EchoSkill, SkillRegistry};
 use tower::ServiceExt;
 
 // ── Helpers

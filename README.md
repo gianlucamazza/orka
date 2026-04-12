@@ -335,8 +335,7 @@ orka/
 │   ├── orka-gateway/         # Inbound message gateway
 │   ├── orka-observe/         # Domain event observability
 │   ├── orka-skills/          # Skill registry & execution
-│   ├── orka-memory/          # Key-value memory store
-│   ├── orka-secrets/         # Secret management (AES-256-GCM)
+│   ├── orka-coding/          # Coding delegation skills (Claude Code, Codex, OpenCode)
 │   ├── orka-workspace/       # Workspace loader & watcher
 │   ├── orka-llm/             # LLM providers (Anthropic, Moonshot, OpenAI, Ollama, Ollama Cloud)
 │   ├── orka-mcp/             # Model Context Protocol server

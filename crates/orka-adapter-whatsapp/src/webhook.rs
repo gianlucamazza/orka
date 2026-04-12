@@ -7,11 +7,10 @@ use axum::{
     http::HeaderMap,
 };
 use hmac::Mac;
-use orka_contracts::{
-    InboundInteraction, InteractionContent, MediaAttachment, PlatformContext, SenderInfo,
-    TraceContext,
+use orka_core::{
+    InboundInteraction, InteractionContent, MediaAttachment, MessageId, PlatformContext,
+    SenderInfo, TraceContext, types::SessionId,
 };
-use orka_core::{MessageId, types::SessionId};
 use tracing::{error, warn};
 
 use crate::{

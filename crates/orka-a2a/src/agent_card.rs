@@ -106,7 +106,7 @@ fn build_security_schemes(auth_config: Option<&AuthConfig>) -> HashMap<String, S
 mod tests {
     use std::sync::Arc;
 
-    use orka_core::testing::EchoSkill;
+    use orka_skills::EchoSkill;
 
     use super::*;
 

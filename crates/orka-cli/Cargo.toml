@@ -22,12 +22,11 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 reqwest.workspace = true
-orka-contracts.workspace = true
-orka-core.workspace = true
+orka-core = { workspace = true, features = ["config", "testing"] }
 orka-config.workspace = true
 orka-llm.workspace = true
 orka-mcp.workspace = true
-orka-secrets.workspace = true
+orka-infra.workspace = true
 orka-skills.workspace = true
 orka-wasm = { workspace = true, optional = true }
 similar = { workspace = true }

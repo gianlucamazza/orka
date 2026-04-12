@@ -18,6 +18,13 @@ full = [
   "mcp",
   "knowledge",
   "experience",
+  "os",
+  "coding",
+  "git",
+  "web",
+  "sandbox",
+  "scheduler",
+  "guardrails",
 ]
 telegram = ["dep:orka-adapter-telegram"]
 discord = ["dep:orka-adapter-discord"]
@@ -29,20 +36,29 @@ a2a = ["dep:orka-a2a"]
 mcp = ["dep:orka-mcp"]
 knowledge = ["dep:orka-knowledge"]
 experience = ["dep:orka-experience"]
+os = ["dep:orka-os"]
+coding = ["dep:orka-coding"]
+git = ["dep:orka-git"]
+web = ["dep:orka-web"]
+sandbox = ["dep:orka-sandbox"]
+scheduler = ["dep:orka-scheduler"]
+guardrails = ["dep:orka-guardrails"]
 
 [dependencies]
 orka-auth.workspace = true
 orka-gateway.workspace = true
 orka-infra.workspace = true
-orka-memory.workspace = true
 orka-observe.workspace = true
-orka-secrets.workspace = true
-orka-wasm.workspace = true
-orka-web.workspace = true
-orka-os.workspace = true
-orka-scheduler.workspace = true
+orka-sandbox = { workspace = true, optional = true }
+orka-web = { workspace = true, optional = true }
+orka-os = { workspace = true, optional = true }
+orka-coding = { workspace = true, optional = true }
+orka-scheduler = { workspace = true, optional = true }
+orka-guardrails = { workspace = true, optional = true }
 orka-skills.workspace = true
-orka-core.workspace = true
+orka-core = { workspace = true, features = ["config"] }
+toml_edit.workspace = true
+thiserror.workspace = true
 orka-adapter-custom.workspace = true
 orka-adapter-discord = { workspace = true, optional = true }
 orka-adapter-slack = { workspace = true, optional = true }
@@ -50,8 +66,7 @@ orka-adapter-telegram = { workspace = true, optional = true }
 orka-adapter-whatsapp = { workspace = true, optional = true }
 orka-chart = { workspace = true, optional = true }
 orka-experience = { workspace = true, optional = true }
-orka-git.workspace = true
-orka-guardrails.workspace = true
+orka-git = { workspace = true, optional = true }
 orka-knowledge = { workspace = true, optional = true }
 orka-llm.workspace = true
 orka-mcp = { workspace = true, optional = true }

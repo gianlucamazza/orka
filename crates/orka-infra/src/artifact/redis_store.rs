@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
+use deadpool_redis::Pool;
 use orka_core::{
     ArtifactId, ConversationArtifact, ConversationId, Error, Result, traits::ArtifactStore,
 };
@@ -18,9 +18,7 @@ pub struct RedisArtifactStore {
 impl RedisArtifactStore {
     /// Connect to Redis and create a new artifact store.
     pub fn new(redis_url: &str) -> Result<Self> {
-        let cfg = DeadpoolConfig::from_url(redis_url);
-        let pool = cfg
-            .create_pool(Some(Runtime::Tokio1))
+        let pool = crate::create_redis_pool(redis_url)
             .map_err(|e| Error::artifact(format!("failed to create Redis pool: {e}")))?;
         Ok(Self { pool })
     }

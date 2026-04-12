@@ -3,16 +3,13 @@ resolver = "2"
 members = [
   # ── Core ──────────────────────────────────────────────────────────────────
   # Shared types, traits, error definitions, and standalone utilities
-  "crates/orka-contracts",
   "crates/orka-core",
   "crates/orka-circuit-breaker",
   "crates/orka-test-support",
 
   # ── Infrastructure ────────────────────────────────────────────────────────
-  # Redis-backed runtime services (bus, queue, session, memory, secrets, ...)
+  # Redis-backed runtime services (bus, queue, session, memory, secrets, encryption)
   "crates/orka-infra",
-  "crates/orka-memory",
-  "crates/orka-secrets",
   "crates/orka-scheduler",
   "crates/orka-observe",
 
@@ -25,9 +22,10 @@ members = [
   "crates/orka-experience",
 
   # ── Execution / Extensibility ─────────────────────────────────────────────
-  # Skill registry, WASM sandbox, MCP/A2A protocol clients, and skill-driven evals
+  # Skill registry, WASM engine, sandboxed execution, MCP/A2A protocol clients, and skill-driven evals
   "crates/orka-skills",
   "crates/orka-wasm",
+  "crates/orka-sandbox",
   "crates/orka-mcp",
   "crates/orka-a2a",
   "crates/orka-eval",
@@ -53,9 +51,11 @@ members = [
   "crates/orka-web",
   "crates/orka-auth",
   "crates/orka-os",
+  "crates/orka-coding",
 
   # ── Orchestration ─────────────────────────────────────────────────────────
-  # High-level composition: config surface, checkpointing, research, agent loop, runtime wiring
+  # High-level composition: config surface, checkpointing, agent loop, runtime wiring.
+  # orka-research operates at this layer (uses checkpoint + scheduler + skills) — not a domain skill.
   "crates/orka-config",
   "crates/orka-checkpoint",
   "crates/orka-research",
@@ -74,7 +74,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.10.1"
+version = "1.11.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
@@ -112,7 +112,6 @@ cast_sign_loss = "allow"
 
 [workspace.dependencies]
 # Internal crates
-orka-contracts = { path = "crates/orka-contracts" }
 
 # Async runtime
 tokio = { version = "1", features = [
@@ -264,8 +263,7 @@ orka-auth = { path = "crates/orka-auth" }
 orka-worker = { path = "crates/orka-worker" }
 orka-gateway = { path = "crates/orka-gateway" }
 orka-workspace = { path = "crates/orka-workspace" }
-orka-memory = { path = "crates/orka-memory" }
-orka-secrets = { path = "crates/orka-secrets" }
+
 orka-observe = { path = "crates/orka-observe" }
 orka-skills = { path = "crates/orka-skills" }
 orka-adapter-telegram = { path = "crates/orka-adapter-telegram" }
@@ -279,9 +277,11 @@ orka-circuit-breaker = { path = "crates/orka-circuit-breaker" }
 orka-mcp = { path = "crates/orka-mcp" }
 orka-a2a = { path = "crates/orka-a2a" }
 orka-wasm = { path = "crates/orka-wasm" }
+orka-sandbox = { path = "crates/orka-sandbox" }
 orka-cli = { path = "crates/orka-cli" }
 orka-web = { path = "crates/orka-web" }
 orka-os = { path = "crates/orka-os" }
+orka-coding = { path = "crates/orka-coding" }
 orka-knowledge = { path = "crates/orka-knowledge" }
 orka-scheduler = { path = "crates/orka-scheduler" }
 orka-experience = { path = "crates/orka-experience" }

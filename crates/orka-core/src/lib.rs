@@ -41,8 +41,6 @@ pub mod traits;
 /// Core data types: envelopes, sessions, events, payloads, and IDs.
 pub mod types;
 
-/// Progress bridge: forwards coding-delegate events to chat platforms.
-pub mod progress_bridge;
 /// Generic retry-with-backoff executor.
 pub(crate) mod retry;
 /// Streaming infrastructure for real-time LLM response delivery.
@@ -50,31 +48,24 @@ pub mod stream;
 /// Shared utility functions (e.g., string helpers).
 pub(crate) mod util;
 
-/// Domain service for conversation lifecycle operations (cancel, retry, delete,
-/// mark-read).
-pub mod conversation_controller;
+/// Canonical contracts: capability model, interaction types, platform context,
+/// and realtime event schema.
+pub mod contracts;
 
 /// Configuration types for the Orka platform.
 #[cfg(feature = "config")]
 pub mod config;
 
-/// Config versioning and migration engine.
-#[cfg(feature = "migrate")]
-pub mod migrate;
-
 /// In-memory test doubles for core traits.
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 
+pub use contracts::{
+    Capability, CapabilitySet, CommandContent, EventContent, InboundInteraction, IntegrationClass,
+    InteractionContent, MediaAttachment, OutboundInteraction, PlatformContext, RealtimeEvent,
+    RichInput, SenderInfo, TraceContext, TrustLevel,
+};
 pub use error::{Error, Result};
-#[cfg(feature = "migrate")]
-pub use migrate::{
-    MigrationError, MigrationResult, inspect_config_issues, migrate_for_write, migrate_if_needed,
-};
-pub use orka_contracts::{
-    Capability, CapabilitySet, InboundInteraction, IntegrationClass, PlatformContext,
-    RealtimeEvent, SenderInfo, TraceContext, TrustLevel,
-};
 pub use retry::retry_with_backoff;
 pub use slash_command::{ParsedCommand, parse_slash_command};
 pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry, forward_delegate_progress};

@@ -20,8 +20,6 @@ pub mod dispatcher;
 pub mod handler;
 /// Shared conversation-history helpers (compaction + persistence).
 pub mod history;
-/// Re-exports streaming types from `orka-core`.
-pub mod stream;
 /// LLM-powered agent handler with tool loops and guardrails.
 pub mod workspace_handler;
 
@@ -35,11 +33,11 @@ use chrono::{Duration as ChronoDuration, Utc};
 pub use commands::CommandRegistry;
 pub use dispatcher::{Dispatcher, GraphDispatcher, HandlerDispatcher};
 pub use handler::{AgentHandler, EchoHandler};
+pub use orka_core::stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 use orka_core::{
     DomainEvent, DomainEventKind, Envelope, OutboundMessage, Payload, Priority, Session,
     traits::{DeadLetterQueue, EventSink, MessageBus, PriorityQueue, SessionLock, SessionStore},
 };
-pub use stream::{StreamChunk, StreamChunkKind, StreamRegistry};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 pub use workspace_handler::{WorkspaceHandler, WorkspaceHandlerConfig, WorkspaceHandlerDeps};

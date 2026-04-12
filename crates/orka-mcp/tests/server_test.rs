@@ -2,12 +2,9 @@
 
 use std::sync::Arc;
 
-use orka_core::{
-    testing::{EchoSkill, InMemorySecretManager},
-    traits::SecretManager,
-};
+use orka_core::{testing::InMemorySecretManager, traits::SecretManager};
 use orka_mcp::McpServer;
-use orka_skills::SkillRegistry;
+use orka_skills::{EchoSkill, SkillRegistry};
 use serde_json::json;
 
 fn response(value: Option<serde_json::Value>) -> serde_json::Value {

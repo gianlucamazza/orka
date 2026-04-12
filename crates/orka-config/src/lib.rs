@@ -10,8 +10,14 @@ use std::path::Path;
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 
+/// Config versioning and migration engine.
+pub mod migrate;
 mod runtime;
 
+pub use migrate::{
+    CURRENT_CONFIG_VERSION, MigrationError, MigrationResult, inspect_config_issues,
+    migrate_for_write, migrate_if_needed,
+};
 #[cfg(feature = "a2a")]
 pub use orka_a2a::A2aConfig;
 pub use orka_adapter_custom::CustomAdapterConfig;
@@ -26,19 +32,24 @@ pub use orka_adapter_whatsapp::WhatsAppAdapterConfig;
 pub use orka_auth::{ApiKeyEntry, AuthConfig, JwtAuthConfig};
 #[cfg(feature = "chart")]
 pub use orka_chart::ChartConfig;
-pub use orka_core::{
-    MigrationError, MigrationResult,
-    config::{AgentConfig, AgentDef, GraphDef, NodeKindDef, defaults},
-    inspect_config_issues, migrate_for_write, migrate_if_needed,
+#[cfg(feature = "coding")]
+pub use orka_coding::{
+    ApprovalPolicy, ClaudeCodeConfig, CodexConfig, CodingConfig, CodingProvider,
+    CodingProvidersConfig, CodingSelectionPolicy, OpenCodeConfig, SandboxMode,
 };
+pub use orka_core::config::{AgentConfig, AgentDef, GraphDef, NodeKindDef, defaults};
 #[cfg(feature = "experience")]
 pub use orka_experience::ExperienceConfig;
 pub use orka_gateway::GatewayConfig;
+#[cfg(feature = "git")]
 pub use orka_git::{GitAuthorshipConfig, GitAuthorshipMode, GitConfig, GitWorktreeConfig};
+#[cfg(feature = "guardrails")]
 pub use orka_guardrails::{
     GuardrailRules, GuardrailsConfig, LlmModerationConfig, ModerationCategory, RedactPattern,
 };
-pub use orka_infra::{BusConfig, SessionConfig};
+pub use orka_infra::{
+    BusConfig, MemoryBackend, MemoryConfig, SecretBackend, SecretConfig, SessionConfig,
+};
 #[cfg(feature = "knowledge")]
 pub use orka_knowledge::{
     ChunkingConfig, EmbeddingProviderKind, EmbeddingsConfig, KnowledgeConfig, RetrievalConfig,
@@ -47,20 +58,18 @@ pub use orka_knowledge::{
 pub use orka_llm::{LlmAuthKind, LlmConfig, LlmProviderConfig};
 #[cfg(feature = "mcp")]
 pub use orka_mcp::{McpAuthEntry, McpClientConfig, McpConfig, McpServerEntry};
-pub use orka_memory::{MemoryBackend, MemoryConfig};
 pub use orka_observe::{AuditConfig, ObserveConfig};
-pub use orka_os::{
-    ApprovalPolicy, ClaudeCodeConfig, CodexConfig, CodingConfig, CodingProvider,
-    CodingProvidersConfig, CodingSelectionPolicy, OpenCodeConfig, OsConfig, SandboxMode,
-    SudoConfig,
-};
+#[cfg(feature = "os")]
+pub use orka_os::{OsConfig, PermissionLevel, SudoConfig};
 pub use orka_prompts::PromptsConfig;
 #[cfg(feature = "research")]
 pub use orka_research::ResearchConfig;
+#[cfg(feature = "sandbox")]
+pub use orka_sandbox::{SandboxConfig, SandboxLimitsConfig};
+#[cfg(feature = "scheduler")]
 pub use orka_scheduler::{ScheduledJob, SchedulerConfig};
-pub use orka_secrets::{SecretBackend, SecretConfig};
 pub use orka_skills::{PluginCapabilities, PluginConfig, PluginInstanceConfig, SoftSkillConfig};
-pub use orka_wasm::{SandboxConfig, SandboxLimitsConfig};
+#[cfg(feature = "web")]
 pub use orka_web::{HttpClientConfig, SearchProviderKind, WebConfig};
 pub use runtime::{
     LogLevel, LoggingConfig, QueueConfig, RedisConfig, SYSTEM_CONFIG_PATH, ServerConfig,
@@ -147,6 +156,7 @@ pub struct OrkaConfig {
     #[serde(default)]
     pub auth: AuthConfig,
     /// Code sandbox configuration.
+    #[cfg(feature = "sandbox")]
     #[serde(default)]
     pub sandbox: SandboxConfig,
     /// WASM plugin configuration.
@@ -181,14 +191,21 @@ pub struct OrkaConfig {
     #[serde(default)]
     pub mcp: McpConfig,
     /// Content guardrails configuration.
+    #[cfg(feature = "guardrails")]
     #[serde(default)]
     pub guardrails: GuardrailsConfig,
     /// Web search and content reading configuration.
+    #[cfg(feature = "web")]
     #[serde(default)]
     pub web: WebConfig,
     /// OS integration configuration.
+    #[cfg(feature = "os")]
     #[serde(default)]
     pub os: OsConfig,
+    /// Coding delegation configuration (Claude Code, Codex, `OpenCode`).
+    #[cfg(feature = "coding")]
+    #[serde(default)]
+    pub coding: CodingConfig,
     /// Agent-to-Agent protocol configuration.
     #[cfg(feature = "a2a")]
     #[serde(default)]
@@ -198,9 +215,11 @@ pub struct OrkaConfig {
     #[serde(default)]
     pub knowledge: KnowledgeConfig,
     /// Cron-based task scheduler configuration.
+    #[cfg(feature = "scheduler")]
     #[serde(default)]
     pub scheduler: SchedulerConfig,
     /// HTTP client configuration.
+    #[cfg(feature = "web")]
     #[serde(default)]
     pub http: HttpClientConfig,
     /// Prompt template configuration.
@@ -211,6 +230,7 @@ pub struct OrkaConfig {
     #[serde(default)]
     pub experience: ExperienceConfig,
     /// Git integration configuration.
+    #[cfg(feature = "git")]
     #[serde(default)]
     pub git: GitConfig,
     /// Multi-agent definitions.
@@ -246,6 +266,7 @@ impl Default for OrkaConfig {
             memory: MemoryConfig::default(),
             secrets: SecretConfig::default(),
             auth: AuthConfig::default(),
+            #[cfg(feature = "sandbox")]
             sandbox: SandboxConfig::default(),
             plugins: PluginConfig::default(),
             soft_skills: SoftSkillConfig::default(),
@@ -258,18 +279,26 @@ impl Default for OrkaConfig {
             gateway: GatewayConfig::default(),
             #[cfg(feature = "mcp")]
             mcp: McpConfig::default(),
+            #[cfg(feature = "guardrails")]
             guardrails: GuardrailsConfig::default(),
+            #[cfg(feature = "web")]
             web: WebConfig::default(),
+            #[cfg(feature = "os")]
             os: OsConfig::default(),
+            #[cfg(feature = "coding")]
+            coding: CodingConfig::default(),
             #[cfg(feature = "a2a")]
             a2a: A2aConfig::default(),
             #[cfg(feature = "knowledge")]
             knowledge: KnowledgeConfig::default(),
+            #[cfg(feature = "scheduler")]
             scheduler: SchedulerConfig::default(),
+            #[cfg(feature = "web")]
             http: HttpClientConfig::default(),
             prompts: PromptsConfig::default(),
             #[cfg(feature = "experience")]
             experience: ExperienceConfig::default(),
+            #[cfg(feature = "git")]
             git: GitConfig::default(),
             agents: Vec::new(),
             graph: None,
@@ -375,27 +404,34 @@ impl OrkaConfig {
         self.llm.validate()?;
         #[cfg(feature = "knowledge")]
         self.knowledge.validate()?;
+        #[cfg(feature = "web")]
         self.http.validate()?;
+        #[cfg(feature = "os")]
         self.os.validate()?;
         #[cfg(feature = "experience")]
         self.experience.validate()?;
         #[cfg(feature = "research")]
         self.research.validate()?;
+        #[cfg(feature = "scheduler")]
         self.scheduler.validate()?;
         #[cfg(feature = "mcp")]
         self.mcp.validate()?;
         self.auth.validate()?;
+        #[cfg(feature = "sandbox")]
         self.sandbox.validate()?;
         self.plugins.validate()?;
         self.soft_skills.validate()?;
         self.session.validate()?;
         self.observe.validate()?;
         self.audit.validate()?;
+        #[cfg(feature = "guardrails")]
         self.guardrails.validate()?;
+        #[cfg(feature = "web")]
         self.web.validate()?;
         #[cfg(feature = "a2a")]
         self.a2a.validate()?;
         self.prompts.validate()?;
+        #[cfg(feature = "git")]
         self.git.validate()?;
         #[cfg(feature = "chart")]
         self.chart.validate()?;
@@ -521,6 +557,7 @@ impl OrkaConfig {
     }
 
     fn warn_deprecations(&self) {
+        #[cfg(feature = "web")]
         if self.web.api_key.is_some() {
             tracing::warn!(
                 "web.api_key is deprecated; use web.api_key_env to avoid leaking credentials in the config file"

@@ -22,7 +22,7 @@ pub(crate) async fn start_adapter(
     shutdown: CancellationToken,
     workspace_name: Option<String>,
 ) -> anyhow::Result<()> {
-    let (sink_tx, mut sink_rx) = mpsc::channel::<orka_contracts::InboundInteraction>(256);
+    let (sink_tx, mut sink_rx) = mpsc::channel::<orka_core::InboundInteraction>(256);
     adapter.start(sink_tx).await?;
 
     let bus_for_bridge = bus.clone();

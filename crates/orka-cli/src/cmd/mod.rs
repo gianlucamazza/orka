@@ -18,5 +18,4 @@ pub mod session;
 pub mod skill;
 pub mod status;
 pub mod update;
-pub mod util;
 pub mod workspace;

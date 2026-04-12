@@ -9,10 +9,10 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::{SinkExt, StreamExt};
-use orka_contracts::{
-    InboundInteraction, InteractionContent, PlatformContext, SenderInfo, TraceContext,
+use orka_core::{
+    InboundInteraction, InteractionContent, InteractionSink, PlatformContext, SenderInfo,
+    SessionId, StreamRegistry, TraceContext,
 };
-use orka_core::{InteractionSink, SessionId, StreamRegistry};
 use serde::Deserialize;
 use tower_http::{
     cors::{AllowMethods, AllowOrigin, CorsLayer},
@@ -41,7 +41,7 @@ pub struct AppState {
     pub stream_registry: StreamRegistry,
     /// Trust level declared by this adapter, stamped on every inbound
     /// interaction.
-    pub trust_level: orka_contracts::TrustLevel,
+    pub trust_level: orka_core::TrustLevel,
     /// Optional workspace name to inject into every inbound interaction's
     /// extensions (Tier-2 workspace resolution).
     pub workspace: Option<String>,
@@ -79,7 +79,7 @@ pub fn app_router(
     ws_registry: WsRegistry,
     stream_registry: StreamRegistry,
     auth_layer: Option<orka_auth::AuthLayer>,
-    trust_level: orka_contracts::TrustLevel,
+    trust_level: orka_core::TrustLevel,
     workspace: Option<String>,
 ) -> Router {
     let state = AppState {
@@ -259,7 +259,7 @@ async fn handle_ws_connection(
                 // Stream chunks (real-time deltas, tool status) — always forwarded
                 chunk = stream_rx.recv() => {
                     if let Some(chunk) = chunk
-                        && let Ok(json) = serde_json::to_string(&orka_contracts::RealtimeEvent::from(chunk.kind.clone()))
+                        && let Ok(json) = serde_json::to_string(&orka_core::RealtimeEvent::from(chunk.kind.clone()))
                             && ws_sink.send(Message::Text(json.into())).await.is_err() {
                                 break;
                             }

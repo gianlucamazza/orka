@@ -4,11 +4,9 @@
 //! allowing skill registration to be conditioned on what actually works in the
 //! current process environment (e.g. under `NoNewPrivileges`).
 
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 
 use tracing::{debug, warn};
-
-use crate::config::OsConfig;
 
 /// Result of probing a single external capability.
 #[derive(Debug, Clone)]
@@ -65,17 +63,11 @@ pub struct EnvironmentCapabilities {
     pub journalctl: ProbeResult,
     /// The confirmed package update method, if `package_updates.available`.
     pub update_method: Option<PackageUpdateMethod>,
-    /// `claude` CLI availability.
-    pub claude_code: ProbeResult,
-    /// `codex` CLI availability.
-    pub codex: ProbeResult,
-    /// `opencode` CLI availability.
-    pub opencode: ProbeResult,
 }
 
 impl EnvironmentCapabilities {
     /// Probe the runtime environment and return a capability snapshot.
-    pub async fn probe(config: &OsConfig) -> Self {
+    pub async fn probe() -> Self {
         let no_new_privileges = crate::has_no_new_privileges();
 
         if no_new_privileges {
@@ -88,9 +80,6 @@ impl EnvironmentCapabilities {
         let (package_updates, update_method) = probe_package_updates(no_new_privileges).await;
         let systemctl = probe_systemctl().await;
         let journalctl = probe_journalctl().await;
-        let claude_code = probe_claude_code(config).await;
-        let codex = probe_codex(config).await;
-        let opencode = probe_opencode(config).await;
 
         debug!(
             no_new_privileges,
@@ -98,9 +87,6 @@ impl EnvironmentCapabilities {
             update_method = ?update_method,
             systemctl = systemctl.available,
             journalctl = journalctl.available,
-            claude_code = claude_code.available,
-            codex = codex.available,
-            opencode = opencode.available,
             "environment capabilities probed"
         );
 
@@ -110,9 +96,6 @@ impl EnvironmentCapabilities {
             systemctl,
             journalctl,
             update_method,
-            claude_code,
-            codex,
-            opencode,
         }
     }
 }
@@ -216,64 +199,6 @@ async fn probe_systemctl() -> ProbeResult {
     } else {
         ProbeResult::unavailable("systemctl --version failed or not found")
     }
-}
-
-async fn probe_claude_code(config: &OsConfig) -> ProbeResult {
-    let command = configured_command(
-        config
-            .coding
-            .providers
-            .claude_code
-            .executable_path
-            .as_deref()
-            .unwrap_or_else(|| Path::new("claude")),
-    );
-    let ok = run_probe(&command, &["--version"], Duration::from_secs(2)).await;
-    if ok {
-        ProbeResult::ok(format!("{command} --version"))
-    } else {
-        ProbeResult::unavailable("claude CLI not found or not functional")
-    }
-}
-
-async fn probe_codex(config: &OsConfig) -> ProbeResult {
-    let command = configured_command(
-        config
-            .coding
-            .providers
-            .codex
-            .executable_path
-            .as_deref()
-            .unwrap_or_else(|| Path::new("codex")),
-    );
-    let ok = run_probe(&command, &["--version"], Duration::from_secs(2)).await;
-    if ok {
-        ProbeResult::ok(format!("{command} --version"))
-    } else {
-        ProbeResult::unavailable("codex CLI not found or not functional")
-    }
-}
-
-async fn probe_opencode(config: &OsConfig) -> ProbeResult {
-    let command = configured_command(
-        config
-            .coding
-            .providers
-            .opencode
-            .executable_path
-            .as_deref()
-            .unwrap_or_else(|| Path::new("opencode")),
-    );
-    let ok = run_probe(&command, &["--version"], Duration::from_secs(2)).await;
-    if ok {
-        ProbeResult::ok(format!("{command} --version"))
-    } else {
-        ProbeResult::unavailable("opencode CLI not found or not functional")
-    }
-}
-
-fn configured_command(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
 }
 
 async fn probe_journalctl() -> ProbeResult {

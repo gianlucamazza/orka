@@ -9,6 +9,9 @@ license.workspace = true
 default = ["qdrant", "openai-embeddings", "pdf"]
 qdrant = ["dep:qdrant-client"]
 local-embeddings = ["dep:fastembed"]
+## Enable the OpenAI-compatible embedding provider.
+## Note: reqwest is a required dep regardless (used for URL ingestion in doc_ingest),
+## so this feature is a compile-time gate for the OpenAI provider module only.
 openai-embeddings = []
 pdf = ["dep:pdf-extract"]
 

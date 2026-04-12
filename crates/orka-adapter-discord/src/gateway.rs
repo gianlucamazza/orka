@@ -8,12 +8,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use futures_util::{SinkExt, StreamExt};
-use orka_contracts::{
-    CommandContent, InboundInteraction, InteractionContent, MediaAttachment, PlatformContext,
-    SenderInfo, TraceContext, TrustLevel,
-};
 use orka_core::{
-    InteractionSink, MessageId, SecretStr,
+    CommandContent, InboundInteraction, InteractionContent, InteractionSink, MediaAttachment,
+    MessageId, PlatformContext, SecretStr, SenderInfo, TraceContext, TrustLevel,
     types::{SessionId, backoff_delay},
 };
 use reqwest::Client;

@@ -1322,7 +1322,7 @@ async fn fan_in_continues_to_next_node() {
 /// produces the final response.
 #[tokio::test]
 async fn guardrail_block_prevents_skill_execution() {
-    use orka_core::testing::EchoSkill;
+    use orka_skills::EchoSkill;
 
     // LLM emits a tool call; the guardrail blocks it; the block message becomes
     // the tool result fed back to the LLM which then produces the final text.
@@ -1362,7 +1362,7 @@ async fn guardrail_block_prevents_skill_execution() {
 /// turns configured), the executor surfaces the block error as the response.
 #[tokio::test]
 async fn guardrail_block_surfaces_error_when_llm_exhausted() {
-    use orka_core::testing::EchoSkill;
+    use orka_skills::EchoSkill;
 
     let llm = Arc::new(MockLlm::new(vec![MockResp::ToolCallResp {
         name: "echo".into(),

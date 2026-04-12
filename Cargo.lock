@@ -3783,7 +3783,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello-plugin"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "orka-plugin-sdk-component",
  "wit-bindgen",
@@ -5788,7 +5788,7 @@ dependencies = [
 
 [[package]]
 name = "orka-a2a"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "axum 0.8.8",
@@ -5814,7 +5814,7 @@ dependencies = [
 
 [[package]]
 name = "orka-adapter-custom"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "axum 0.8.8",
@@ -5823,7 +5823,6 @@ dependencies = [
  "governor",
  "http",
  "orka-auth",
- "orka-contracts",
  "orka-core",
  "reqwest",
  "serde",
@@ -5839,12 +5838,11 @@ dependencies = [
 
 [[package]]
 name = "orka-adapter-discord"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
  "futures-util",
- "orka-contracts",
  "orka-core",
  "reqwest",
  "serde",
@@ -5856,14 +5854,13 @@ dependencies = [
 
 [[package]]
 name = "orka-adapter-slack"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "axum 0.8.8",
  "chrono",
  "hex",
  "hmac",
- "orka-contracts",
  "orka-core",
  "reqwest",
  "serde",
@@ -5875,14 +5872,13 @@ dependencies = [
 
 [[package]]
 name = "orka-adapter-telegram"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "axum 0.8.8",
  "chrono",
  "hex",
  "hmac",
- "orka-contracts",
  "orka-core",
  "pulldown-cmark",
  "reqwest",
@@ -5897,14 +5893,13 @@ dependencies = [
 
 [[package]]
 name = "orka-adapter-whatsapp"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "axum 0.8.8",
  "chrono",
  "hex",
  "hmac",
- "orka-contracts",
  "orka-core",
  "reqwest",
  "serde",
@@ -5916,7 +5911,7 @@ dependencies = [
 
 [[package]]
 name = "orka-agent"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5937,7 +5932,7 @@ dependencies = [
 
 [[package]]
 name = "orka-auth"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "axum 0.8.8",
@@ -5959,7 +5954,7 @@ dependencies = [
 
 [[package]]
 name = "orka-chart"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5975,7 +5970,7 @@ dependencies = [
 
 [[package]]
 name = "orka-checkpoint"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5994,7 +5989,7 @@ dependencies = [
 
 [[package]]
 name = "orka-circuit-breaker"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "thiserror 2.0.18",
  "tokio",
@@ -6003,7 +5998,7 @@ dependencies = [
 
 [[package]]
 name = "orka-cli"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "arboard",
  "async-trait",
@@ -6023,11 +6018,10 @@ dependencies = [
  "nu-ansi-term",
  "open",
  "orka-config",
- "orka-contracts",
  "orka-core",
+ "orka-infra",
  "orka-llm",
  "orka-mcp",
- "orka-secrets",
  "orka-skills",
  "orka-wasm",
  "pulldown-cmark",
@@ -6057,8 +6051,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "orka-coding"
+version = "1.11.0"
+dependencies = [
+ "async-trait",
+ "orka-core",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.23",
+ "tracing",
+]
+
+[[package]]
 name = "orka-config"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "config",
  "orka-a2a",
@@ -6069,6 +6077,7 @@ dependencies = [
  "orka-adapter-whatsapp",
  "orka-auth",
  "orka-chart",
+ "orka-coding",
  "orka-core",
  "orka-experience",
  "orka-gateway",
@@ -6078,54 +6087,38 @@ dependencies = [
  "orka-knowledge",
  "orka-llm",
  "orka-mcp",
- "orka-memory",
  "orka-observe",
  "orka-os",
  "orka-prompts",
  "orka-research",
+ "orka-sandbox",
  "orka-scheduler",
- "orka-secrets",
  "orka-skills",
- "orka-wasm",
  "orka-web",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.18",
+ "toml_edit 0.22.27",
  "tracing",
 ]
 
 [[package]]
-name = "orka-contracts"
-version = "1.10.1"
-dependencies = [
- "async-trait",
- "chrono",
- "insta",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "utoipa",
- "uuid",
-]
-
-[[package]]
 name = "orka-core"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
  "dashmap",
  "futures-util",
- "glob",
- "orka-contracts",
+ "insta",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "toml 0.8.23",
- "toml_edit 0.22.27",
  "tracing",
  "utoipa",
  "uuid",
@@ -6134,7 +6127,7 @@ dependencies = [
 
 [[package]]
 name = "orka-eval"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "glob",
  "orka-core",
@@ -6152,7 +6145,7 @@ dependencies = [
 
 [[package]]
 name = "orka-experience"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6170,12 +6163,11 @@ dependencies = [
 
 [[package]]
 name = "orka-gateway"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
  "deadpool-redis",
- "orka-contracts",
  "orka-core",
  "orka-infra",
  "orka-test-support",
@@ -6192,7 +6184,7 @@ dependencies = [
 
 [[package]]
 name = "orka-git"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6210,7 +6202,7 @@ dependencies = [
 
 [[package]]
 name = "orka-guardrails"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -6225,17 +6217,21 @@ dependencies = [
 
 [[package]]
 name = "orka-infra"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
+ "aes-gcm",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "deadpool-redis",
+ "hex",
  "orka-core",
  "orka-test-support",
  "redis",
  "serde",
  "serde_json",
  "serial_test",
+ "tempfile",
  "tokio",
  "tracing",
  "uuid",
@@ -6243,7 +6239,7 @@ dependencies = [
 
 [[package]]
 name = "orka-knowledge"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6265,7 +6261,7 @@ dependencies = [
 
 [[package]]
 name = "orka-llm"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -6282,7 +6278,7 @@ dependencies = [
 
 [[package]]
 name = "orka-mcp"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "axum 0.8.8",
@@ -6297,25 +6293,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "orka-memory"
-version = "1.10.1"
-dependencies = [
- "async-trait",
- "chrono",
- "deadpool-redis",
- "orka-core",
- "orka-infra",
- "orka-test-support",
- "redis",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "orka-observe"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6339,7 +6318,7 @@ dependencies = [
 
 [[package]]
 name = "orka-os"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6363,7 +6342,7 @@ dependencies = [
 
 [[package]]
 name = "orka-plugin-sdk"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6371,11 +6350,11 @@ dependencies = [
 
 [[package]]
 name = "orka-plugin-sdk-component"
-version = "1.10.1"
+version = "1.11.0"
 
 [[package]]
 name = "orka-prompts"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6395,7 +6374,7 @@ dependencies = [
 
 [[package]]
 name = "orka-research"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6417,8 +6396,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "orka-sandbox"
+version = "1.11.0"
+dependencies = [
+ "async-trait",
+ "nix",
+ "orka-core",
+ "orka-wasm",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "orka-scheduler"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6439,30 +6433,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "orka-secrets"
-version = "1.10.1"
-dependencies = [
- "aes-gcm",
- "async-trait",
- "base64 0.22.1",
- "deadpool-redis",
- "hex",
- "orka-core",
- "orka-test-support",
- "redis",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "orka-server"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "anyhow",
- "arc-swap",
  "async-trait",
  "axum 0.8.8",
  "base64 0.22.1",
@@ -6472,7 +6446,6 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "governor",
- "hex",
  "http",
  "http-body-util",
  "infer",
@@ -6491,8 +6464,8 @@ dependencies = [
  "orka-chart",
  "orka-checkpoint",
  "orka-circuit-breaker",
+ "orka-coding",
  "orka-config",
- "orka-contracts",
  "orka-core",
  "orka-eval",
  "orka-experience",
@@ -6503,12 +6476,11 @@ dependencies = [
  "orka-knowledge",
  "orka-llm",
  "orka-mcp",
- "orka-memory",
  "orka-observe",
  "orka-os",
  "orka-research",
+ "orka-sandbox",
  "orka-scheduler",
- "orka-secrets",
  "orka-skills",
  "orka-wasm",
  "orka-web",
@@ -6541,7 +6513,7 @@ dependencies = [
 
 [[package]]
 name = "orka-skills"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "jsonschema",
@@ -6559,7 +6531,7 @@ dependencies = [
 
 [[package]]
 name = "orka-test-support"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "anyhow",
  "testcontainers",
@@ -6569,15 +6541,10 @@ dependencies = [
 
 [[package]]
 name = "orka-wasm"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
- "async-trait",
  "cap-std",
- "nix",
  "orka-core",
- "serde",
- "serde_json",
- "tempfile",
  "tokio",
  "tracing",
  "wasmtime",
@@ -6586,7 +6553,7 @@ dependencies = [
 
 [[package]]
 name = "orka-web"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "hex",
@@ -6603,7 +6570,7 @@ dependencies = [
 
 [[package]]
 name = "orka-worker"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -6628,7 +6595,7 @@ dependencies = [
 
 [[package]]
 name = "orka-workspace"
-version = "1.10.1"
+version = "1.11.0"
 dependencies = [
  "notify",
  "orka-core",

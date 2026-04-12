@@ -106,11 +106,10 @@ The workspace is organized into specialized crates in the `crates/` directory:
 | :--- | :--- |
 | **`orka-core`** | Core traits (`MessageBus`, `Skill`), types (`Envelope`, `Session`), and errors. |
 | **`orka-agent`** | The "Brain": Agent loop, multi-agent graph execution, tool orchestration. |
-| **`orka-bus`** | Message bus implementation (Redis Streams + in-memory). |
+| **`orka-infra`** | Message bus, session, memory, secrets — all Redis-backed runtime services. |
 | **`orka-server`** | Main entry point and API server. |
 | **`orka-worker`** | Worker pool implementation and agent supervisor. |
 | **`orka-llm`** | LLM provider abstractions (Anthropic, OpenAI, Ollama, Ollama Cloud). |
-| **`orka-memory`** | Long-term memory and session storage. |
 | **`orka-knowledge`** | RAG pipeline — document ingestion, embeddings, semantic search via Qdrant. |
 | **`orka-experience`** | Self-learning loop — trajectory recording, LLM reflection, offline distillation. |
 | **`orka-prompts`** | Handlebars-based prompt template engine. |

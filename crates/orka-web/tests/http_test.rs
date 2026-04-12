@@ -1,4 +1,4 @@
-//! Unit tests for orka-http: SSRF guard and HTTP skill schema.
+//! Unit tests for orka-web: SSRF guard and HTTP skill schema.
 #![allow(clippy::unwrap_used)]
 
 use orka_web::SsrfGuard;

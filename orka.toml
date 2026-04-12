@@ -231,46 +231,6 @@ permission_level = "admin"
 # denied_paths = ["/etc/shadow", "/etc/gshadow", "~/.ssh/id_*"]
 # allowed_shell_commands = []           # explicit allow-list; empty means unrestricted
 
-# Delegate complete coding tasks through Orka's coding router.
-[os.coding]
-enabled = true
-default_provider = "auto"         # "auto" | "claude_code" | "codex" | "opencode"
-selection_policy = "availability" # "availability" | "prefer_claude" | "prefer_codex" | "prefer_opencode"
-inject_workspace_context = true
-require_verification = false
-allow_working_dir_override = true
-
-[os.coding.providers.claude_code]
-enabled = true
-executable_path = "/usr/local/bin/claude"
-model = "claude-sonnet-4-6"
-timeout_secs = 1800
-allow_file_modifications = true
-allow_command_execution = true
-allowed_tools = ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
-# max_turns = 10
-# append_system_prompt = "Respect the repository architecture. No workaround layers."
-
-[os.coding.providers.codex]
-enabled = true
-executable_path = "/usr/local/bin/codex"
-model = "gpt-5.4"
-timeout_secs = 1800
-sandbox_mode = "workspace-write"
-approval_policy = "never"
-allow_file_modifications = true
-allow_command_execution = true
-
-# [os.coding.providers.opencode]
-# enabled = true
-# executable_path = "/usr/bin/opencode"
-# model = "anthropic/claude-sonnet-4-6"  # format: provider/model
-# agent = "default"
-# variant = "high"                        # reasoning effort: high | max | minimal
-# timeout_secs = 300
-# allow_file_modifications = true
-# allow_command_execution = true
-
 [os.sudo]
 allowed = true
 allowed_commands = [
@@ -283,6 +243,46 @@ allowed_commands = [
 password_required = false
 # Package manager commands are added automatically by scripts/install.sh
 # based on detected distro (pacman, apt-get, dnf, zypper, apk)
+
+# Delegate complete coding tasks through Orka's coding router.
+[coding]
+enabled = true
+default_provider = "auto"         # "auto" | "claude_code" | "codex" | "opencode"
+selection_policy = "availability" # "availability" | "prefer_claude" | "prefer_codex" | "prefer_opencode"
+inject_workspace_context = true
+require_verification = false
+allow_working_dir_override = true
+
+[coding.providers.claude_code]
+enabled = true
+executable_path = "/usr/local/bin/claude"
+model = "claude-sonnet-4-6"
+timeout_secs = 1800
+allow_file_modifications = true
+allow_command_execution = true
+allowed_tools = ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
+# max_turns = 10
+# append_system_prompt = "Respect the repository architecture. No workaround layers."
+
+[coding.providers.codex]
+enabled = true
+executable_path = "/usr/local/bin/codex"
+model = "gpt-5.4"
+timeout_secs = 1800
+sandbox_mode = "workspace-write"
+approval_policy = "never"
+allow_file_modifications = true
+allow_command_execution = true
+
+# [coding.providers.opencode]
+# enabled = true
+# executable_path = "/usr/bin/opencode"
+# model = "anthropic/claude-sonnet-4-6"  # format: provider/model
+# agent = "default"
+# variant = "high"                        # reasoning effort: high | max | minimal
+# timeout_secs = 300
+# allow_file_modifications = true
+# allow_command_execution = true
 
 [http]
 timeout_secs = 30

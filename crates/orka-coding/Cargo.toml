@@ -1,0 +1,21 @@
+[package]
+name = "orka-coding"
+description = "Coding delegation skills and config for Orka (claude-code, codex, opencode)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+orka-core.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
+
+[lints]
+workspace = true

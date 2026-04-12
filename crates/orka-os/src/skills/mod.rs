@@ -1,5 +1,3 @@
-/// Unified coding delegation skills and backends.
-pub mod coding_delegate;
 /// Environment variable inspection skills.
 pub mod env;
 /// Filesystem skills: read, write, list, search, watch.

@@ -17,9 +17,8 @@ const RATE_LIMIT_WINDOW_SECS: i64 = 60;
 
 use chrono::Utc;
 use deadpool_redis::Pool;
-use orka_contracts::TrustLevel;
 use orka_core::{
-    DomainEvent, DomainEventKind, Envelope, Session,
+    DomainEvent, DomainEventKind, Envelope, Session, TrustLevel,
     traits::{EventSink, MessageBus, PriorityQueue, SessionStore},
 };
 use orka_workspace::WorkspaceLoader;

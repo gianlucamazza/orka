@@ -3,11 +3,10 @@
 
 use axum::{Json, body::Bytes, extract::State, http::HeaderMap};
 use hmac::Mac;
-use orka_contracts::{
-    InboundInteraction, InteractionContent, MediaAttachment, PlatformContext, SenderInfo,
-    TraceContext, TrustLevel,
+use orka_core::{
+    InboundInteraction, InteractionContent, MediaAttachment, MessageId, PlatformContext,
+    SenderInfo, TraceContext, TrustLevel, types::SessionId,
 };
-use orka_core::{MessageId, types::SessionId};
 use tracing::{error, warn};
 
 use crate::types::{AppState, HmacSha256, SlackEvent, SlackEventPayload};

@@ -40,6 +40,26 @@ pub enum Error {
         context: String,
     },
 
+    /// Session store operation failure.
+    #[error("session error: {context}")]
+    Session {
+        /// Root cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Human-readable context for the failure.
+        context: String,
+    },
+
+    /// Conversation store operation failure.
+    #[error("conversation error: {context}")]
+    Conversation {
+        /// Root cause.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        /// Human-readable context for the failure.
+        context: String,
+    },
+
     /// Authentication or authorization failure.
     #[error("auth error: {0}")]
     Auth(String),
@@ -167,11 +187,6 @@ pub enum Error {
         context: String,
     },
 
-    /// Config migration error.
-    #[cfg(feature = "migrate")]
-    #[error("config migration error: {0}")]
-    Migration(#[from] crate::migrate::MigrationError),
-
     /// I/O error.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
@@ -290,6 +305,10 @@ impl Error {
 
     error_factory!(msg: /// Create a bus error from a message string.
                         bus => Bus);
+    error_factory!(msg: /// Create a session error from a message string.
+                        session => Session);
+    error_factory!(msg: /// Create a conversation error from a message string.
+                        conversation => Conversation);
     error_factory!(msg: /// Create a queue error from a message string.
                         queue => Queue);
     error_factory!(msg: /// Create a memory error from a message string.

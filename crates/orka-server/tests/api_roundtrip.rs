@@ -22,9 +22,8 @@ use std::{sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 use orka_adapter_custom::{routes::app_router, ws::WsRegistry};
-use orka_contracts::TrustLevel;
 use orka_core::{
-    Payload, SessionId, StreamRegistry,
+    Payload, SessionId, StreamRegistry, TrustLevel,
     testing::{InMemoryBus, InMemoryEventSink, InMemoryQueue, InMemorySessionStore},
     traits::MessageBus,
 };

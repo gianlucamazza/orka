@@ -8,8 +8,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use orka_core::{SkillInput, SkillOutput, SkillSchema, testing::EchoSkill, traits::Skill};
-use orka_skills::SkillRegistry;
+use orka_core::{SkillInput, SkillOutput, SkillSchema, traits::Skill};
+use orka_skills::{EchoSkill, SkillRegistry};
 
 // ---------------------------------------------------------------------------
 // StrictSkill – requires a "name" field, no extra properties allowed

@@ -3,13 +3,13 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use orka_contracts::{
-    CommandContent, EventContent, InboundInteraction, InteractionContent, MediaAttachment,
-    PlatformContext, RichInput, TraceContext,
-};
 use serde::{Deserialize, Serialize};
 
 use super::ids::{MessageId, SessionId};
+use crate::contracts::{
+    CommandContent, EventContent, InboundInteraction, InteractionContent, MediaAttachment,
+    PlatformContext, RichInput, TraceContext,
+};
 
 /// Product-facing rich input payload combining text with media attachments.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -417,6 +417,7 @@ impl From<InboundInteraction> for Envelope {
             // `InteractionContent` is `#[non_exhaustive]`; future variants fall
             // back to an empty text payload so the envelope is never silently
             // dropped.
+            #[allow(unreachable_patterns)]
             _ => Payload::Text(String::new()),
         };
 

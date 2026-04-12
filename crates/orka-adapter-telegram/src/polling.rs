@@ -2,12 +2,9 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use orka_contracts::{
-    CommandContent, EventContent, InboundInteraction, InteractionContent, MediaAttachment,
-    PlatformContext, SenderInfo, TraceContext, TrustLevel,
-};
 use orka_core::{
-    InteractionSink, MemoryEntry,
+    CommandContent, EventContent, InboundInteraction, InteractionContent, InteractionSink,
+    MediaAttachment, MemoryEntry, PlatformContext, SenderInfo, TraceContext, TrustLevel,
     traits::MemoryStore,
     types::{SessionId, backoff_delay},
 };

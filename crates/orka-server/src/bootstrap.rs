@@ -234,13 +234,13 @@ fn init_infra(
         create_artifact_store(&config.redis.url).context("failed to create artifact store")?;
     let QueueBundle { queue, dlq } =
         create_queue(&config.redis.url).context("failed to create priority queue")?;
-    let orka_memory::MemoryBundle {
+    let orka_infra::memory::MemoryBundle {
         store: memory,
         lock: memory_lock,
-    } = orka_memory::create_memory_store(&config.memory, &config.redis.url)
+    } = orka_infra::memory::create_memory_store(&config.memory, &config.redis.url)
         .context("failed to create memory store")?;
     info!("memory store ready");
-    let secrets = orka_secrets::create_secret_manager(&config.secrets, &config.redis.url)
+    let secrets = orka_infra::create_secret_manager(&config.secrets, &config.redis.url)
         .context("failed to create secret manager")?;
     info!("secret manager ready");
     let event_sink =
@@ -401,6 +401,88 @@ fn register_knowledge_and_scheduler_skills(
     (fact_store, scheduler_store)
 }
 
+/// Probe a single CLI by running `cmd --version` with a 2-second timeout.
+async fn probe_cli(cmd: &str) -> bool {
+    use std::time::Duration;
+    matches!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            tokio::process::Command::new(cmd).arg("--version").output(),
+        )
+        .await,
+        Ok(Ok(out)) if out.status.code().is_some()
+    )
+}
+
+/// Probe coding CLIs and register [`orka_coding::CodingDelegateSkill`].
+///
+/// Returns `(claude_available, codex_available, opencode_available,
+/// selected_backend)`.
+async fn probe_and_register_coding(
+    coding: &CodingConfig,
+    skills: &mut orka_skills::SkillRegistry,
+) -> (bool, bool, bool, Option<CodingProvider>) {
+    let claude_cmd = coding
+        .providers
+        .claude_code
+        .executable_path
+        .as_deref()
+        .map_or_else(|| "claude".to_owned(), |p| p.to_string_lossy().into_owned());
+    let codex_cmd = coding
+        .providers
+        .codex
+        .executable_path
+        .as_deref()
+        .map_or_else(|| "codex".to_owned(), |p| p.to_string_lossy().into_owned());
+    let opencode_cmd = coding
+        .providers
+        .opencode
+        .executable_path
+        .as_deref()
+        .map_or_else(
+            || "opencode".to_owned(),
+            |p| p.to_string_lossy().into_owned(),
+        );
+
+    let claude_available = coding.providers.claude_code.enabled && probe_cli(&claude_cmd).await;
+    let codex_available = coding.providers.codex.enabled && probe_cli(&codex_cmd).await;
+    let opencode_available = coding.providers.opencode.enabled && probe_cli(&opencode_cmd).await;
+
+    if coding.providers.claude_code.enabled && !claude_available {
+        warn!("coding provider claude_code disabled: CLI not functional in current environment");
+    }
+    if coding.providers.codex.enabled && !codex_available {
+        warn!("coding provider codex disabled: CLI not functional in current environment");
+    }
+    if coding.providers.opencode.enabled && !opencode_available {
+        warn!("coding provider opencode disabled: CLI not functional in current environment");
+    }
+
+    let selected = select_coding_backend(
+        coding,
+        claude_available,
+        codex_available,
+        opencode_available,
+    );
+
+    if coding.enabled && (claude_available || codex_available || opencode_available) {
+        skills.register(Arc::new(orka_coding::CodingDelegateSkill::new(coding)));
+        info!(
+            claude_code = claude_available,
+            codex = codex_available,
+            opencode = opencode_available,
+            "coding_delegate skill routing initialized"
+        );
+    }
+
+    (
+        claude_available,
+        codex_available,
+        opencode_available,
+        selected,
+    )
+}
+
 /// Probe environment capabilities and register OS/coding skills.
 /// Returns the coding runtime status if OS skills are enabled.
 async fn register_os_skills(
@@ -410,49 +492,12 @@ async fn register_os_skills(
     if !config.os.enabled {
         return None;
     }
-    let caps = orka_os::EnvironmentCapabilities::probe(&config.os).await;
-    let claude_code_available =
-        config.os.coding.providers.claude_code.enabled && caps.claude_code.available;
-    let codex_available = config.os.coding.providers.codex.enabled && caps.codex.available;
-    let opencode_available = config.os.coding.providers.opencode.enabled && caps.opencode.available;
-    let selected_backend = select_coding_backend(
-        &config.os.coding,
-        claude_code_available,
-        codex_available,
-        opencode_available,
-    );
-    let (file_modifications_allowed, command_execution_allowed) = match selected_backend {
-        Some(CodingProvider::ClaudeCode) => (
-            config
-                .os
-                .coding
-                .providers
-                .claude_code
-                .allow_file_modifications,
-            config
-                .os
-                .coding
-                .providers
-                .claude_code
-                .allow_command_execution,
-        ),
-        Some(CodingProvider::Codex) => (
-            config.os.coding.providers.codex.allow_file_modifications,
-            config.os.coding.providers.codex.allow_command_execution,
-        ),
-        Some(CodingProvider::OpenCode) => (
-            config.os.coding.providers.opencode.allow_file_modifications,
-            config.os.coding.providers.opencode.allow_command_execution,
-        ),
-        _ => (false, false),
-    };
+    let caps = orka_os::EnvironmentCapabilities::probe().await;
     info!(
         no_new_privileges = caps.no_new_privileges,
         package_updates = caps.package_updates.available,
         systemctl = caps.systemctl.available,
         journalctl = caps.journalctl.available,
-        claude_code = caps.claude_code.available,
-        codex = caps.codex.available,
         "environment capabilities probed"
     );
     match orka_os::create_os_skills(&config.os, Some(&caps)) {
@@ -463,11 +508,30 @@ async fn register_os_skills(
         }
         Err(e) => warn!(%e, "failed to initialize OS skills"),
     }
+
+    let (claude_code_available, codex_available, opencode_available, selected_backend) =
+        probe_and_register_coding(&config.coding, skills).await;
+
+    let (file_modifications_allowed, command_execution_allowed) = match selected_backend {
+        Some(CodingProvider::ClaudeCode) => (
+            config.coding.providers.claude_code.allow_file_modifications,
+            config.coding.providers.claude_code.allow_command_execution,
+        ),
+        Some(CodingProvider::Codex) => (
+            config.coding.providers.codex.allow_file_modifications,
+            config.coding.providers.codex.allow_command_execution,
+        ),
+        Some(CodingProvider::OpenCode) => (
+            config.coding.providers.opencode.allow_file_modifications,
+            config.coding.providers.opencode.allow_command_execution,
+        ),
+        _ => (false, false),
+    };
     Some(orka_agent::executor::CodingRuntimeStatus {
-        tool_available: config.os.coding.enabled
+        tool_available: config.coding.enabled
             && (claude_code_available || codex_available || opencode_available),
-        default_provider: config.os.coding.default_provider.to_string(),
-        selection_policy: config.os.coding.selection_policy.to_string(),
+        default_provider: config.coding.default_provider.to_string(),
+        selection_policy: config.coding.selection_policy.to_string(),
         claude_code_available,
         codex_available,
         selected_backend: selected_backend.map(|p| p.to_string()),
@@ -505,8 +569,9 @@ async fn init_skills(config: &OrkaConfig) -> anyhow::Result<SkillBundle> {
     skills.register(Arc::new(orka_skills::EchoSkill));
 
     // 4b. Sandbox + SandboxSkill
-    let sandbox = orka_wasm::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
-    skills.register(Arc::new(orka_wasm::SandboxSkill::new(sandbox)));
+    let sandbox =
+        orka_sandbox::create_sandbox(&config.sandbox).context("failed to create sandbox")?;
+    skills.register(Arc::new(orka_sandbox::SandboxSkill::new(sandbox)));
 
     // 4c. Shared WASM engine + WASM plugins
     #[cfg(feature = "wasm")]
@@ -1032,7 +1097,7 @@ fn build_router_params(deps: HttpServerDeps<'_>) -> RouterParams {
         stream_registry: deps.stream_registry,
         mobile_events: deps.mobile_events,
         controller: Arc::new(
-            orka_core::conversation_controller::ConversationController::new(
+            orka_server::conversation_controller::ConversationController::new(
                 deps.infra.conversations.clone(),
                 deps.infra.bus.clone(),
                 deps.session_cancel_tokens.clone(),
@@ -1275,7 +1340,7 @@ async fn apply_outbound_payload(
             mobile_events
                 .publish(
                     conversation_id,
-                    orka_contracts::RealtimeEvent::ArtifactReady {
+                    orka_core::RealtimeEvent::ArtifactReady {
                         conversation_id: conversation_id.as_uuid(),
                         artifact: serde_json::to_value(&artifact).unwrap_or_default(),
                     },
@@ -1317,7 +1382,7 @@ async fn apply_outbound_payload(
                 mobile_events
                     .publish(
                         conversation_id,
-                        orka_contracts::RealtimeEvent::ArtifactReady {
+                        orka_core::RealtimeEvent::ArtifactReady {
                             conversation_id: conversation_id.as_uuid(),
                             artifact: serde_json::to_value(&artifact).unwrap_or_default(),
                         },
@@ -1396,7 +1461,7 @@ async fn persist_mobile_outbound(
             mobile_events
                 .publish(
                     conversation_id,
-                    orka_contracts::RealtimeEvent::MessageFailed {
+                    orka_core::RealtimeEvent::MessageFailed {
                         conversation_id: conversation_id.as_uuid(),
                         error: error_text,
                     },
@@ -1408,7 +1473,7 @@ async fn persist_mobile_outbound(
                 mobile_events
                     .publish(
                         conversation_id,
-                        orka_contracts::RealtimeEvent::MessageCompleted {
+                        orka_core::RealtimeEvent::MessageCompleted {
                             conversation_id: message.conversation_id.as_uuid(),
                             message: serde_json::to_value(&message).unwrap_or_default(),
                         },
@@ -1927,7 +1992,7 @@ mod tests {
             .await
             .expect("failure event should be emitted");
         match event {
-            orka_contracts::RealtimeEvent::MessageFailed {
+            orka_core::RealtimeEvent::MessageFailed {
                 conversation_id: event_conversation_id,
                 error,
             } => {
@@ -1985,7 +2050,7 @@ mod tests {
             .await
             .expect("completion event should be emitted");
         match event {
-            orka_contracts::RealtimeEvent::MessageCompleted { message, .. } => {
+            orka_core::RealtimeEvent::MessageCompleted { message, .. } => {
                 assert_eq!(
                     message["id"].as_str(),
                     Some(envelope.id.to_string().as_str())
