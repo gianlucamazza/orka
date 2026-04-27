@@ -19,7 +19,7 @@ glob.workspace = true
 
 # Pure-Rust git library for read operations (branch list, log, object read).
 # CLI is used for write operations (push, commit signing, worktree management).
-gix = { version = "0.81", default-features = false, features = [
+gix = { version = "0.82", default-features = false, features = [
   "revision",
   "sha1",
 ] }
