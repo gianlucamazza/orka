@@ -1,0 +1,20 @@
+# Configuration for the typos spell checker (CI: .github/workflows/typos.yml).
+
+[files]
+extend-exclude = [
+  # Internal analysis reports written in Italian; the English dictionary
+  # flags valid Italian words ("stati", "limite", "possibile", ...).
+  "docs/internal/",
+]
+
+[default.extend-words]
+# Crate name (terminal UI library), not a misspelling of "ratatouille".
+ratatui = "ratatui"
+# `rpmbuild -ba` flag and short local variables in test helpers.
+ba = "ba"
+# Hex colour example "#4CAF50" in orka-chart doc comments.
+caf = "caf"
+# Deliberately truncated payload in the HTTP range-request test.
+artifac = "artifac"
+# Short for "lowercased author filter" in orka-git.
+laf = "laf"

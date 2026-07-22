@@ -1576,8 +1576,8 @@ mod tests {
         }
     }
 
-    // Note: I test per format_current_datetime sono stati rimossi
-    // La formattazione datetime è ora gestita dalla pipeline in orka-prompts
+    // Note: the format_current_datetime tests were removed; datetime
+    // formatting is now handled by the pipeline in orka-prompts
 
     #[tokio::test]
     async fn build_tool_definitions_includes_registered_skills() {
@@ -1605,8 +1605,8 @@ mod tests {
         assert_eq!(defs[1].name, "workspace_switch");
     }
 
-    // Note: I test per system prompt sono stati spostati in orka-prompts
-    // dove vengono testati con la pipeline template-based
+    // Note: the system prompt tests were moved to orka-prompts where they
+    // are exercised through the template-based pipeline
 
     async fn multi_workspace_registry() -> Arc<WorkspaceRegistry> {
         use orka_workspace::{config::SoulFrontmatter, parse::Document, state::WorkspaceState};
