@@ -1,0 +1,23 @@
+# Configuration for cargo-audit (CI: "Security audit" step in ci.yml).
+# Keep the ignore list in sync with deny.toml ([advisories].ignore).
+
+[advisories]
+ignore = [
+  # tokio-tar: dev-only dependency via testcontainers; not present in
+  # production binaries. No fixed version available upstream.
+  "RUSTSEC-2025-0111",
+  # wasmtime/wasmtime-wasi 42.x has no patched release for these advisories;
+  # the fix requires wasmtime >= 43/44, which raises the required rustc above
+  # our MSRV (1.91). Revisit with the next wasmtime major bump.
+  "RUSTSEC-2026-0114",
+  "RUSTSEC-2026-0149",
+  "RUSTSEC-2026-0182",
+  "RUSTSEC-2026-0188",
+  # lopdf < 0.42 via printpdf 0.7 and pdf-extract 0.7; fixed only in
+  # lopdf 0.42, which needs major bumps of both upstream crates.
+  "RUSTSEC-2026-0187",
+  # quick-xml < 0.41 via syntect -> plist; fixed only in quick-xml 0.41,
+  # which needs upstream bumps.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+]
