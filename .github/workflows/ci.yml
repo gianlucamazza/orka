@@ -39,13 +39,17 @@ jobs:
         ports:
           - 6333:6333
           - 6334:6334
+        # The qdrant image ships neither curl nor wget; probe the TCP port
+        # with bash instead.
         options: >-
-          --health-cmd "curl -f http://localhost:6333/healthz || exit 1"
+          --health-cmd "bash -c ':> /dev/tcp/localhost/6333' || exit 1"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     steps:
       - uses: actions/checkout@v6
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -101,6 +105,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@1.91.0
       - uses: Swatinem/rust-cache@v2
       - name: cargo check on MSRV
@@ -124,13 +130,17 @@ jobs:
         ports:
           - 6333:6333
           - 6334:6334
+        # The qdrant image ships neither curl nor wget; probe the TCP port
+        # with bash instead.
         options: >-
-          --health-cmd "curl -f http://localhost:6333/healthz || exit 1"
+          --health-cmd "bash -c ':> /dev/tcp/localhost/6333' || exit 1"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     steps:
       - uses: actions/checkout@v6
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
