@@ -55,7 +55,8 @@ curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profil
 cp -r packaging/debian debian
 # -d: the Rust toolchain comes from rustup, not apt, so the cargo/rustc
 # build dependencies in debian/control cannot be satisfied by dpkg.
-RUSTC_WRAPPER= dpkg-buildpackage -us -uc -b -d
+# Unset RUSTFLAGS to avoid mold linker requirement from .cargo/config.toml
+RUSTC_WRAPPER= RUSTFLAGS= dpkg-buildpackage -us -uc -b -d
 lintian --fail-on error --display-info /work/*.changes
 '
 

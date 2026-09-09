@@ -57,7 +57,7 @@ jobs:
           components: clippy
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          components: rustfmt
+          components: rustfmt,clippy
       - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Configure sccache
         run: |
