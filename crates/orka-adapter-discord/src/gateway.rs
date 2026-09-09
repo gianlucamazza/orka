@@ -261,11 +261,10 @@ async fn run_message_loop(
                                         return ConnectionOutcome::Shutdown;
                                     }
                                 }
-                                Some("INTERACTION_CREATE") => {
-                                    if handle_interaction_create(d, ctx.sessions, ctx.http_client, ctx.bot_token, ctx.sink, heartbeat_handle, ctx.trust_level).await {
+                                Some("INTERACTION_CREATE")
+                                    if handle_interaction_create(d, ctx.sessions, ctx.http_client, ctx.bot_token, ctx.sink, heartbeat_handle, ctx.trust_level).await => {
                                         return ConnectionOutcome::Shutdown;
                                     }
-                                }
                                 _ => {}
                             }
                         }
