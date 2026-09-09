@@ -108,7 +108,7 @@ impl SessionStore for InMemorySessionStore {
     async fn list(&self, limit: usize) -> Result<Vec<Session>> {
         let sessions = self.sessions.lock().await;
         let mut result: Vec<Session> = sessions.values().cloned().collect();
-        result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        result.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         result.truncate(limit);
         Ok(result)
     }
@@ -173,7 +173,7 @@ impl ConversationStore for InMemoryConversationStore {
             })
             .cloned()
             .collect();
-        result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        result.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         let start = offset.min(result.len());
         let end = start.saturating_add(limit).min(result.len());
         result = result[start..end].to_vec();
@@ -543,7 +543,7 @@ impl MemoryStore for InMemoryMemoryStore {
             .filter(|(key, _)| prefix.is_none_or(|p| key.starts_with(p)))
             .map(|(_, (entry, _))| entry.clone())
             .collect();
-        results.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        results.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         results.truncate(limit);
         Ok(results)
     }
