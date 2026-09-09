@@ -118,7 +118,7 @@ impl SessionStore for RedisSessionStore {
                 sessions.push(session);
             }
         }
-        sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        sessions.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         Ok(sessions)
     }
 }
