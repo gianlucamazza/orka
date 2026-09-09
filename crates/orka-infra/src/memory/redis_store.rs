@@ -278,7 +278,7 @@ impl MemoryStore for RedisMemoryStore {
         }
 
         // Sort by updated_at descending (newest first)
-        entries.sort_by(|a, b| b.1.cmp(&a.1));
+        entries.sort_by_key(|a| std::cmp::Reverse(a.1));
 
         let to_delete: Vec<String> = entries[self.max_entries..]
             .iter()
