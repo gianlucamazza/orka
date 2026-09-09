@@ -1592,7 +1592,7 @@ async fn handle_send_message(
     };
     let mut conversation = match load_owned_conversation(&state, &identity, conversation_id).await {
         Ok(conversation) => conversation,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let text = body.text.trim();
@@ -1716,7 +1716,7 @@ async fn handle_stream(
     };
     let conversation = match load_owned_conversation(&state, &identity, conversation_id).await {
         Ok(conversation) => conversation,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     // Channel carries (sse_event_name, data_json) pairs.
