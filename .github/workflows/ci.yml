@@ -49,7 +49,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libfontconfig1-dev
+        run: |
+          sudo apt-get update || echo "apt-get update had failures, continuing anyway"
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -106,7 +108,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libfontconfig1-dev
+        run: |
+          sudo apt-get update || echo "apt-get update had failures, continuing anyway"
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@1.91.0
       - uses: Swatinem/rust-cache@v2
       - name: cargo check on MSRV
@@ -140,7 +144,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libfontconfig1-dev
+        run: |
+          sudo apt-get update || echo "apt-get update had failures, continuing anyway"
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
