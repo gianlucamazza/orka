@@ -93,7 +93,7 @@ impl ResearchStore for InMemoryResearchStore {
 
     async fn list_campaigns(&self) -> Result<Vec<ResearchCampaign>> {
         let mut campaigns: Vec<_> = self.campaigns.read().await.values().cloned().collect();
-        campaigns.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        campaigns.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         Ok(campaigns)
     }
 
@@ -115,7 +115,7 @@ impl ResearchStore for InMemoryResearchStore {
         if let Some(campaign_id) = campaign_id {
             runs.retain(|run| run.campaign_id == campaign_id);
         }
-        runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        runs.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         Ok(runs)
     }
 
@@ -140,7 +140,7 @@ impl ResearchStore for InMemoryResearchStore {
         if let Some(campaign_id) = campaign_id {
             candidates.retain(|candidate| candidate.campaign_id == campaign_id);
         }
-        candidates.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        candidates.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         Ok(candidates)
     }
 
@@ -174,7 +174,7 @@ impl ResearchStore for InMemoryResearchStore {
         if let Some(campaign_id) = campaign_id {
             requests.retain(|request| request.campaign_id == campaign_id);
         }
-        requests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        requests.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         Ok(requests)
     }
 
@@ -327,7 +327,7 @@ impl ResearchStore for RedisResearchStore {
                         items.push(serde_json::from_str::<ResearchCampaign>(&data)?);
                     }
                 }
-                items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                items.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
                 Ok(items)
             })
         })
@@ -418,7 +418,7 @@ impl ResearchStore for RedisResearchStore {
                         items.push(serde_json::from_str::<ResearchRun>(&data)?);
                     }
                 }
-                items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                items.sort_by_key(|a| std::cmp::Reverse(a.created_at));
                 Ok(items)
             })
         })
@@ -517,7 +517,7 @@ impl ResearchStore for RedisResearchStore {
                         items.push(serde_json::from_str::<ResearchCandidate>(&data)?);
                     }
                 }
-                items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                items.sort_by_key(|a| std::cmp::Reverse(a.created_at));
                 Ok(items)
             })
         })
@@ -622,7 +622,7 @@ impl ResearchStore for RedisResearchStore {
                         items.push(serde_json::from_str::<ResearchPromotionRequest>(&data)?);
                     }
                 }
-                items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                items.sort_by_key(|a| std::cmp::Reverse(a.created_at));
                 Ok(items)
             })
         })
