@@ -169,7 +169,8 @@ impl Skill for DesktopScreenshotSkill {
         let output = if is_wayland() {
             let mut cmd = tokio::process::Command::new("grim");
             if region == "selection" {
-                // Run slurp separately to get the selection geometry, then pass it to grim.
+                // Run slurp separately to get the selection geometry, then pass
+                // it to grim.
                 let slurp = tokio::process::Command::new("slurp")
                     .output()
                     .await

@@ -197,7 +197,8 @@ impl PermissionGuard {
         };
 
         // Check sudo allowed commands (prefix match at word boundary).
-        // Empty list = unrestricted (consistent with check_shell_command / check_path).
+        // Empty list = unrestricted (consistent with check_shell_command /
+        // check_path).
         if !self.sudo_allowed_commands.is_empty() {
             let allowed = self.sudo_allowed_commands.iter().any(|allowed_cmd| {
                 full == *allowed_cmd || full.starts_with(&format!("{allowed_cmd} "))
@@ -266,7 +267,8 @@ fn shellexpand(s: &str) -> String {
     }
 
     let home = std::env::var("HOME").ok().or_else(|| {
-        // Fallback: derive home from $USER or $LOGNAME (common Linux conventions)
+        // Fallback: derive home from $USER or $LOGNAME (common Linux
+        // conventions)
         std::env::var("USER")
             .or_else(|_| std::env::var("LOGNAME"))
             .ok()
@@ -342,7 +344,8 @@ mod tests {
 
     #[test]
     fn command_not_in_allowed_list_rejected() {
-        // With empty allowed_shell_commands, all commands are allowed (no restriction)
+        // With empty allowed_shell_commands, all commands are allowed (no
+        // restriction)
         let guard = PermissionGuard::new(&test_config());
         assert!(guard.check_command("ls", &["-la"]).is_ok());
     }

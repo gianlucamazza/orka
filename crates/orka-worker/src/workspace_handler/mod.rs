@@ -430,8 +430,9 @@ impl WorkspaceHandler {
                 Self::fallback_summary(old_messages)
             };
 
-            // Persist the summary separately so it can be injected into the system
-            // prompt on the next request without polluting the message list.
+            // Persist the summary separately so it can be injected into the
+            // system prompt on the next request without polluting
+            // the message list.
             let session_id = memory_key
                 .strip_prefix("conversation:")
                 .unwrap_or_default()
@@ -486,7 +487,8 @@ impl WorkspaceHandler {
 #[async_trait]
 impl AgentHandler for WorkspaceHandler {
     async fn handle(&self, envelope: &Envelope, session: &Session) -> Result<Vec<OutboundMessage>> {
-        // Dispatch structured commands directly without round-tripping through text.
+        // Dispatch structured commands directly without round-tripping through
+        // text.
         if let Payload::Command(cmd) = &envelope.payload {
             if !self
                 .command_rate_limiter
@@ -523,9 +525,9 @@ impl AgentHandler for WorkspaceHandler {
             }
         };
 
-        // Dispatch ALL slash commands before the guardrail.  Commands are trusted
-        // internal handlers — there is no reason to run a guardrail check on
-        // them.
+        // Dispatch ALL slash commands before the guardrail.  Commands are
+        // trusted internal handlers — there is no reason to run a
+        // guardrail check on them.
         if let Some(parsed) = orka_core::parse_slash_command(&text) {
             if !self
                 .command_rate_limiter
@@ -550,13 +552,15 @@ impl AgentHandler for WorkspaceHandler {
         }
 
         // 3-tier workspace resolution:
-        //   1. Per-session override from MemoryStore (CLI inline content or named
-        //      workspace)
-        //   2. Adapter-level workspace binding (workspace:name in envelope metadata)
+        //   1. Per-session override from MemoryStore (CLI inline content or
+        //      named workspace)
+        //   2. Adapter-level workspace binding (workspace:name in envelope
+        //      metadata)
         //   3. Default workspace from registry
         let override_key = format!("workspace_override:{}", session.id);
 
-        // Persist CLI metadata overrides into MemoryStore for session stickiness
+        // Persist CLI metadata overrides into MemoryStore for session
+        // stickiness
         let has_ws_meta = envelope.metadata.contains_key("workspace:soul")
             || envelope.metadata.contains_key("workspace:tools")
             || envelope.metadata.contains_key("workspace:cwd");
@@ -583,7 +587,8 @@ impl AgentHandler for WorkspaceHandler {
         let ws_override = self.memory.recall(&override_key).await.ok().flatten();
 
         let (soul_name, soul_body, tools_body) = if let Some(ref entry) = ws_override {
-            // Case 1a: named workspace override (e.g. stored by a prior API call)
+            // Case 1a: named workspace override (e.g. stored by a prior API
+            // call)
             if let Some(ws_name) = entry.value.get("workspace_name").and_then(|v| v.as_str()) {
                 self.resolve_from_registry(ws_name).await
             }
@@ -774,7 +779,8 @@ impl AgentHandler for WorkspaceHandler {
             let principles = if principles_section.is_empty() {
                 vec![]
             } else {
-                // Simple parsing: extract principle items from the formatted section
+                // Simple parsing: extract principle items from the formatted
+                // section
                 principles_section
                     .lines()
                     .filter(|line| line.contains(". [") && line.contains("] "))
@@ -1003,8 +1009,9 @@ impl AgentHandler for WorkspaceHandler {
                     tc.record_iteration(iteration_tokens);
                 }
 
-                // Check token budget (simplified - no per-session budget in new config)
-                // Token tracking still happens but no hard limit enforced
+                // Check token budget (simplified - no per-session budget in new
+                // config) Token tracking still happens but no
+                // hard limit enforced
 
                 if completion.stop_reason == Some(StopReason::MaxTokens) {
                     warn!("LLM response truncated (max_tokens reached)");
@@ -1026,7 +1033,8 @@ impl AgentHandler for WorkspaceHandler {
                     }
                 }
 
-                // Emit AgentReasoning only when extended thinking produced content
+                // Emit AgentReasoning only when extended thinking produced
+                // content
                 if !thinking_text.is_empty() {
                     self.event_sink
                         .emit(DomainEvent::new(DomainEventKind::AgentReasoning {
@@ -1094,7 +1102,8 @@ impl AgentHandler for WorkspaceHandler {
                     .instrument(tool_span)
                     .await;
 
-                // R1.3: Track per-tool error counts and inject self-correction hints
+                // R1.3: Track per-tool error counts and inject self-correction
+                // hints
                 let mut corrected_blocks = result_blocks;
                 for ((block, error_cat), call) in corrected_blocks
                     .iter()
@@ -1131,7 +1140,8 @@ impl AgentHandler for WorkspaceHandler {
                         }
                     }
                 }
-                // Inject self-correction hint if any tool has failed too many times
+                // Inject self-correction hint if any tool has failed too many
+                // times
                 let mut hint_text: Option<String> = None;
                 for (tool_name, count) in &tool_error_counts {
                     if *count >= max_tool_retries {
@@ -1145,8 +1155,9 @@ impl AgentHandler for WorkspaceHandler {
                     corrected_blocks.push(ContentBlockInput::Text { text: hint });
                 }
 
-                // Compute per-call costs from Skill::budget_cost() or synthetic fallback,
-                // then apply zone-based budget pressure before committing to messages.
+                // Compute per-call costs from Skill::budget_cost() or synthetic
+                // fallback, then apply zone-based budget
+                // pressure before committing to messages.
                 let batch_costs: Vec<(&str, f32)> = tool_calls
                     .iter()
                     .map(|c| {
@@ -1269,7 +1280,8 @@ impl AgentHandler for WorkspaceHandler {
             ));
 
             // Always persist conversation history, even if final_text is empty
-            // (e.g. when the LLM stream fails mid-turn, tool calls should still be saved).
+            // (e.g. when the LLM stream fails mid-turn, tool calls should still
+            // be saved).
             let max_entries = 50; // Default max history entries
             self.save_conversation_history(
                 messages,
@@ -1285,7 +1297,8 @@ impl AgentHandler for WorkspaceHandler {
             .await;
 
             if !final_text.is_empty() {
-                // Post-handler experience reflection (async, non-blocking for user response)
+                // Post-handler experience reflection (async, non-blocking for
+                // user response)
                 if let (Some(exp), Some(mut tc)) = (&self.experience, trajectory_collector.take()) {
                     tc.set_response(final_text.clone());
                     let trajectory = tc.finish();
@@ -1308,7 +1321,8 @@ impl AgentHandler for WorkspaceHandler {
                         }
                         match exp.maybe_reflect(&trajectory).await {
                             Ok(result) => {
-                                // Apply structural actions (disable skills with environmental
+                                // Apply structural actions (disable skills with
+                                // environmental
                                 // failures)
                                 for action in &result.actions {
                                     match action {
@@ -1569,7 +1583,8 @@ mod tests {
 
         let replies = handler.handle(&envelope, &session).await.unwrap();
         assert_eq!(replies.len(), 1);
-        // /test is not a registered command, so it returns the "Unknown command" error
+        // /test is not a registered command, so it returns the "Unknown
+        // command" error
         match &replies[0].payload {
             Payload::Text(t) => assert!(t.contains("Unknown command")),
             other => panic!("expected text payload, got {other:?}"),

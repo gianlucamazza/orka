@@ -391,7 +391,8 @@ impl PriorityQueue for InMemoryQueue {
     async fn push(&self, envelope: &Envelope) -> Result<()> {
         let mut items = self.items.lock().await;
         items.push(envelope.clone());
-        // Sort: lower bucket = higher priority, then by timestamp (earlier first)
+        // Sort: lower bucket = higher priority, then by timestamp (earlier
+        // first)
         items.sort_by(|a, b| {
             let ba = Self::priority_bucket(a.priority);
             let bb = Self::priority_bucket(b.priority);

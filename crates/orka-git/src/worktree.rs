@@ -159,7 +159,8 @@ impl WorktreeManager {
             let src = self.main_repo.join(dir);
             let dst = wt_path.join(dir);
             if src.exists() {
-                // Remove existing destination first (e.g., empty dir created by git)
+                // Remove existing destination first (e.g., empty dir created by
+                // git)
                 if dst.exists() || dst.symlink_metadata().is_ok() {
                     if dst.is_dir() && !dst.is_symlink() {
                         let _ = tokio::fs::remove_dir_all(&dst).await;

@@ -38,7 +38,8 @@ impl DoctorCheck for EnvRustToolchain {
         {
             Ok(output) if output.status.success() => {
                 let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                // Parse version number like "rustc 1.85.0 (4d91de4e0 2025-03-01)"
+                // Parse version number like "rustc 1.85.0 (4d91de4e0
+                // 2025-03-01)"
                 if let Some(version_str) = ver.split_whitespace().nth(1) {
                     if version_ok(version_str, MSRV) {
                         CheckOutcome::pass(ver)

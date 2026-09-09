@@ -68,7 +68,8 @@ impl ConversationStore for RedisConversationStore {
             .await
             .map_err(|e| Error::conversation(format!("redis ZADD error: {e}")))?;
 
-        // Maintain a per-workspace sorted set for efficient workspace filtering.
+        // Maintain a per-workspace sorted set for efficient workspace
+        // filtering.
         if let Some(ws) = &conversation.workspace {
             let ws_index_key = Self::user_workspace_index_key(&conversation.user_id, ws);
             let _: () = conn

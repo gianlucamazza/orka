@@ -68,7 +68,8 @@ impl EnvWatcher {
 
                 debug!(path = %env_path.display(), "env file changed, checking for key rotation");
 
-                // Parse env file into a map without polluting process environment
+                // Parse env file into a map without polluting process
+                // environment
                 let env_vars: HashMap<String, String> = match dotenvy::from_path_iter(&env_path) {
                     Ok(iter) => iter.filter_map(std::result::Result::ok).collect(),
                     Err(e) => {

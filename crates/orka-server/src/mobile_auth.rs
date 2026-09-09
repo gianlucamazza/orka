@@ -856,7 +856,8 @@ return {'ok', user_id, session_id, device_name, platform, created_at}
         current_device_id: &str,
     ) -> Result<Vec<DeviceInfo>, MobileAuthError> {
         let mut conn = self.pool.get().await.map_err(internal_redis_error)?;
-        // SCAN all mobile refresh keys and collect those belonging to this user.
+        // SCAN all mobile refresh keys and collect those belonging to this
+        // user.
         let mut cursor: u64 = 0;
         let mut records: Vec<(String, HashMap<String, String>)> = Vec::new();
         loop {

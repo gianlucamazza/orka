@@ -42,8 +42,8 @@ impl ServerCommand for CancelCommand {
         envelope: &Envelope,
         _session: &Session,
     ) -> Result<Vec<OutboundMessage>> {
-        // If we reach here the worker pool did not intercept the command (no active
-        // operation).
+        // If we reach here the worker pool did not intercept the command (no
+        // active operation).
         let mut msg = OutboundMessage::text(
             envelope.channel.clone(),
             envelope.session_id,

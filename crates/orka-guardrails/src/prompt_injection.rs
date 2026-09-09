@@ -95,7 +95,8 @@ impl PromptInjectionGuardrail {
 
     /// Detect base64-encoded payloads that might contain injections.
     fn detect_encoded_payload(content: &str) -> Option<String> {
-        // Look for base64-like strings (long alphanumeric with optional padding)
+        // Look for base64-like strings (long alphanumeric with optional
+        // padding)
         let base64_pattern = Regex::new(r"[A-Za-z0-9+/]{50,}={0,2}").ok()?;
 
         if let Some(m) = base64_pattern.find(content) {

@@ -933,7 +933,8 @@ impl Skill for FsWatchSkill {
         let mut watcher = notify::recommended_watcher(
             move |res: std::result::Result<notify::Event, notify::Error>| {
                 if let Ok(event) = res {
-                    // Receiver dropped means the watcher is shutting down — safe to ignore.
+                    // Receiver dropped means the watcher is shutting down —
+                    // safe to ignore.
                     let _ = tx.blocking_send(event);
                 }
             },

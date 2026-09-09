@@ -223,7 +223,8 @@ mod tests {
 
     #[test]
     fn cron_schedule_computes_next_run() {
-        // Verify that a valid cron expression parses and yields future timestamps
+        // Verify that a valid cron expression parses and yields future
+        // timestamps
         use cron::Schedule as CronSchedule;
 
         let expr = "0 * * * * *"; // every minute

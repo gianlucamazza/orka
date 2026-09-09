@@ -108,9 +108,10 @@ async fn run_probe(cmd: &str, args: &[&str], timeout: Duration) -> bool {
     .await
     {
         Ok(Ok(out)) => {
-            // For update-check commands, exit 0 (updates) or 2 (no updates, checkupdates)
-            // or 1 (no updates, pacman -Qu) are all "working" results.
-            // We accept any exit that isn't a crash/signal.
+            // For update-check commands, exit 0 (updates) or 2 (no updates,
+            // checkupdates) or 1 (no updates, pacman -Qu) are all
+            // "working" results. We accept any exit that isn't a
+            // crash/signal.
             out.status.code().is_some()
         }
         Ok(Err(e)) => {

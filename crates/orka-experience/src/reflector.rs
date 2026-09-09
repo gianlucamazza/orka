@@ -163,7 +163,8 @@ impl PrincipleReflector {
     }
 
     fn parse_principles(response: &str, workspace: &str) -> Vec<Principle> {
-        // Extract JSON array from the response (may be wrapped in markdown code blocks)
+        // Extract JSON array from the response (may be wrapped in markdown code
+        // blocks)
         let json_str = extract_json_array(response);
 
         let parsed: Vec<RawPrinciple> = match serde_json::from_str(&json_str) {

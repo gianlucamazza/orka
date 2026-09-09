@@ -170,9 +170,10 @@ fn migrate_v0_to_v1(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
     doc.insert("config_version", toml_edit::value(1i64));
 
     // Move config_version to the front of the document.
-    // toml_edit's Table doesn't have a move-to-front API, so we remove + re-insert
-    // all other keys after it. Instead, we just set it — it will appear at the
-    // insertion point. For a cleaner result, we accept it at the current position.
+    // toml_edit's Table doesn't have a move-to-front API, so we remove +
+    // re-insert all other keys after it. Instead, we just set it — it will
+    // appear at the insertion point. For a cleaner result, we accept it at
+    // the current position.
 
     warnings.push(
         "config_version was missing (legacy v0); set to 1. \
@@ -507,7 +508,8 @@ fn migrate_v4_to_v5(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
                 .into(),
         );
     }
-    // If [[agents]] already present (with or without a stale [agent]): keep as-is.
+    // If [[agents]] already present (with or without a stale [agent]): keep
+    // as-is.
 
     doc.insert("config_version", value(5i64));
 }
@@ -571,8 +573,8 @@ fn migrate_v6_to_v7(doc: &mut DocumentMut, warnings: &mut Vec<String>) {
 /// Also warns if the legacy `[agent]` table is still present (should have been
 /// promoted by the v4→v5 migration).
 fn inspect_agents_warnings(doc: &DocumentMut, warnings: &mut Vec<String>) {
-    // Warn if the legacy [agent] single-table is still present (migration missed
-    // it).
+    // Warn if the legacy [agent] single-table is still present (migration
+    // missed it).
     if doc.get("agent").and_then(Item::as_table).is_some() {
         warnings.push(
             "config key [agent] is legacy as of v5; it should have been promoted to [[agents]] \
@@ -1367,7 +1369,8 @@ permission_level = "read-only"
         let result = some(result, "should have migration result");
         assert_eq!(result.from_version, 1);
         assert_eq!(result.to_version, 7);
-        // v1→v2 emits 1 warning (added [agent]+[tools]+[os.sudo]); v4→v5 adds 1 more
+        // v1→v2 emits 1 warning (added [agent]+[tools]+[os.sudo]); v4→v5 adds 1
+        // more
         assert!(!result.warnings.is_empty());
         assert!(result.warnings[0].contains("[agent]"));
         assert!(result.warnings[0].contains("[tools]"));

@@ -356,7 +356,8 @@ impl GraphExecutor {
         let starting_node = AgentId::new(resume_node_id.as_str());
         let ctx = ExecutionContext::from_checkpoint(&checkpoint);
 
-        // Restore reducer strategies so fan-out writes merge correctly on resume.
+        // Restore reducer strategies so fan-out writes merge correctly on
+        // resume.
         if !graph.reducers.is_empty() {
             ctx.set_reducers(graph.reducers.clone()).await;
         }
@@ -492,7 +493,8 @@ impl GraphExecutor {
 
             match &node.kind {
                 NodeKind::Agent => {
-                    // Emit AgentSwitch so adapters can show which agent is responding
+                    // Emit AgentSwitch so adapters can show which agent is
+                    // responding
                     {
                         self.deps.stream_registry.send(StreamChunk::new(
                             ctx.session_id,
@@ -673,7 +675,8 @@ impl GraphExecutor {
                                 }
 
                                 if let Some(resp) = delegate_result.response {
-                                    // Feed the delegate result back as a tool result message
+                                    // Feed the delegate result back as a tool
+                                    // result message
                                     ctx.push_message(orka_llm::client::ChatMessage::user(format!(
                                         "[Delegate result from {}]: {resp}",
                                         handoff.to
@@ -798,8 +801,9 @@ impl GraphExecutor {
                 }
 
                 NodeKind::FanOut { max_concurrency } => {
-                    // Fan-out: dispatch Agent/Router/FanOut successors in parallel.
-                    // Any FanIn-kind successor is the continuation node reached after
+                    // Fan-out: dispatch Agent/Router/FanOut successors in
+                    // parallel. Any FanIn-kind successor is
+                    // the continuation node reached after
                     // all parallel branches complete.
                     let edges = graph.outgoing_edges(&current_id);
                     let semaphore = max_concurrency
@@ -825,8 +829,9 @@ impl GraphExecutor {
 
                         join_set.spawn(async move {
                             // Acquire a concurrency permit if a limit is set.
-                            // Dropping `_permit` at the end of this block releases
-                            // the slot for the next waiting branch.
+                            // Dropping `_permit` at the end of this block
+                            // releases the slot for
+                            // the next waiting branch.
                             let _permit = if let Some(s) = &sem {
                                 #[allow(clippy::expect_used)]
                                 Some(s.acquire().await.expect("fan-out semaphore closed"))
@@ -903,7 +908,8 @@ impl GraphExecutor {
                 }
 
                 NodeKind::FanIn => {
-                    // FanIn: synthesise parallel results, then continue graph traversal.
+                    // FanIn: synthesise parallel results, then continue graph
+                    // traversal.
                     {
                         self.deps.stream_registry.send(StreamChunk::new(
                             ctx.session_id,
@@ -946,7 +952,8 @@ impl GraphExecutor {
                     }
                     if let Some(resp) = result.response {
                         final_response = resp.clone();
-                        // Evaluate outgoing edges — FanIn can feed into further nodes.
+                        // Evaluate outgoing edges — FanIn can feed into further
+                        // nodes.
                         let next = self.evaluate_edges(graph, &current_id, &resp, ctx).await;
                         match next {
                             Some(next_id) => {

@@ -59,8 +59,8 @@ impl Skill for WasmPluginSkill {
     }
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
-        // Convert HashMap<String, Value> → Vec<(String, String)> (JSON-encode each
-        // value).
+        // Convert HashMap<String, Value> → Vec<(String, String)> (JSON-encode
+        // each value).
         let args: Vec<(String, String)> = input
             .args
             .into_iter()

@@ -84,7 +84,8 @@ impl SessionStore for RedisSessionStore {
             .await
             .map_err(|e| Error::session(format!("redis pool error: {e}")))?;
 
-        // Iterate SCAN until cursor returns to 0, collecting up to `limit` keys.
+        // Iterate SCAN until cursor returns to 0, collecting up to `limit`
+        // keys.
         let mut cursor: i64 = 0;
         let mut keys: Vec<String> = Vec::new();
         loop {

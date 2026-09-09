@@ -235,7 +235,8 @@ pub(crate) fn split_html(html: &str, max_len: usize) -> Vec<String> {
             .rev()
             .map(|t| close_tag(t))
             .collect::<String>();
-        // Only append closing if there are actually open tags (avoids trailing noise)
+        // Only append closing if there are actually open tags (avoids trailing
+        // noise)
         if closing.is_empty() {
             chunks.push(current);
         } else {

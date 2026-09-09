@@ -226,7 +226,8 @@ impl DoctorCheck for PrvProviderReachable {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        // Only run this check in verbose mode to avoid network overhead by default
+        // Only run this check in verbose mode to avoid network overhead by
+        // default
         if !ctx.verbose {
             return CheckOutcome::skip("run with --verbose to probe provider endpoints");
         }

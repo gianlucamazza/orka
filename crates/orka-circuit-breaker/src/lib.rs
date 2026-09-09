@@ -325,8 +325,8 @@ impl CircuitBreaker {
         self.failure_count.store(0, Ordering::SeqCst);
         self.success_count.store(0, Ordering::SeqCst);
         self.half_open_probes.store(0, Ordering::SeqCst);
-        // Store elapsed nanos since base_instant (minimum 1 to distinguish from "not
-        // open").
+        // Store elapsed nanos since base_instant (minimum 1 to distinguish from
+        // "not open").
         let nanos = self.base_instant.elapsed().as_nanos() as u64;
         self.open_since_nanos.store(nanos.max(1), Ordering::SeqCst);
     }

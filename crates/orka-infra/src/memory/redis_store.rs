@@ -304,7 +304,8 @@ impl SessionLock for RedisMemoryStore {
         let key = Self::lock_key(session_id);
         match self.pool.get().await {
             Ok(mut conn) => {
-                // Atomic SET key 1 NX PX ttl_ms — returns "OK" on success, nil if already held
+                // Atomic SET key 1 NX PX ttl_ms — returns "OK" on success, nil
+                // if already held
                 let result: Option<String> = redis::cmd("SET")
                     .arg(&key)
                     .arg("1")
@@ -317,8 +318,8 @@ impl SessionLock for RedisMemoryStore {
                 result.is_some()
             }
             Err(e) => {
-                // Fail-open: if Redis is unavailable, allow processing rather than stalling all
-                // workers
+                // Fail-open: if Redis is unavailable, allow processing rather
+                // than stalling all workers
                 warn!(%e, session_id, "redis conn failed for session lock; proceeding without lock");
                 true
             }

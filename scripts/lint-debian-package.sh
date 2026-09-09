@@ -49,7 +49,7 @@ set -euo pipefail
 # the cleanup trap on the host can remove the workdir.
 trap "chown -R \"\$(stat -c %u:%g /work)\" /work" EXIT
 apt-get update
-apt-get install -y ca-certificates curl build-essential pkg-config libssl-dev debhelper fakeroot dh-make lintian
+apt-get install -y ca-certificates curl build-essential clang pkg-config libssl-dev debhelper fakeroot dh-make lintian
 curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$REQUIRED_RUST"
 . "$HOME/.cargo/env"
 cp -r packaging/debian debian

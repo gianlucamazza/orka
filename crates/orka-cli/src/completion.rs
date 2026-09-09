@@ -631,8 +631,8 @@ mod tests {
         unsafe { std::env::set_var("NO_COLOR", "1") };
         let hint = hinter.handle("/qu", 3, &history, false, "");
         unsafe { std::env::remove_var("NO_COLOR") };
-        // With NO_COLOR=1 and use_ansi_coloring=false, hint should not contain ANSI
-        // escapes
+        // With NO_COLOR=1 and use_ansi_coloring=false, hint should not contain
+        // ANSI escapes
         assert!(
             !hint.contains('\x1b'),
             "hint should not contain ANSI: {hint:?}"

@@ -524,7 +524,8 @@ fn render_pie(spec: &ChartSpec) -> Result<Vec<u8>, Error> {
             let fraction = value / total;
             let sweep = fraction * 2.0 * std::f64::consts::PI;
             let end_angle = start_angle + sweep;
-            // Use palette index for pie slices regardless of series color field.
+            // Use palette index for pie slices regardless of series color
+            // field.
             let color = PALETTE[i % PALETTE.len()];
 
             let steps = ((sweep * 180.0 / std::f64::consts::PI) as usize).max(2);

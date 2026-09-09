@@ -70,15 +70,16 @@ impl ServerCommand for SkillCommand {
             )]);
         }
 
-        // Named args (from text `key=val` parsing or structured adapter options).
+        // Named args (from text `key=val` parsing or structured adapter
+        // options).
         let mut skill_args: HashMap<String, serde_json::Value> = HashMap::new();
         for (k, v) in args.named_iter() {
             skill_args.insert(k.to_string(), v.clone());
         }
 
-        // If there are positional tokens after the skill name and no named args were
-        // provided, try to map them to a single required parameter in the
-        // skill's schema.
+        // If there are positional tokens after the skill name and no named args
+        // were provided, try to map them to a single required parameter
+        // in the skill's schema.
         let extra_positional: Vec<&str> = args
             .positional_args()
             .iter()
