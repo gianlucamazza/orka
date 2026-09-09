@@ -983,9 +983,9 @@ fn build_coding_context(campaign: &ResearchCampaign) -> String {
 }
 
 fn branch_matches_any(branch: &str, patterns: &[String]) -> bool {
-    patterns.iter().any(|pattern| {
-        glob::Pattern::new(pattern).is_ok_and(|compiled| compiled.matches(branch))
-    })
+    patterns
+        .iter()
+        .any(|pattern| glob::Pattern::new(pattern).is_ok_and(|compiled| compiled.matches(branch)))
 }
 
 fn is_candidate_better(current: Option<f64>, candidate: Option<f64>) -> bool {
