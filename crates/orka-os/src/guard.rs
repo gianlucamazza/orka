@@ -71,7 +71,7 @@ impl PermissionGuard {
     /// Validate a path for reading: canonicalize and check allow/block lists.
     pub fn check_path(&self, path: &Path) -> orka_core::Result<PathBuf> {
         let canonical = path.canonicalize().map_err(|e| {
-            orka_core::Error::Skill(format!("cannot resolve path '{}': {}", path.display(), e,))
+            orka_core::Error::Skill(format!("cannot resolve path '{}': {}", path.display(), e))
         })?;
         self.validate_canonical_path(&canonical)?;
         Ok(canonical)
@@ -249,9 +249,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
             .replace(r"\*", ".*")
             .replace(r"\?", ".")
     );
-    Regex::new(&regex_str)
-        .map(|re| re.is_match(text))
-        .unwrap_or(false)
+    Regex::new(&regex_str).is_ok_and(|re| re.is_match(text))
 }
 
 /// Expand `~` to the user's home directory.

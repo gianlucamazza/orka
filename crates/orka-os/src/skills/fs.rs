@@ -284,9 +284,7 @@ async fn list_dir(
         }
 
         if let Some(pat) = pattern
-            && !glob::Pattern::new(pat)
-                .map(|p| p.matches(&name))
-                .unwrap_or(true)
+            && !glob::Pattern::new(pat).map_or(true, |p| p.matches(&name))
         {
             continue;
         }
