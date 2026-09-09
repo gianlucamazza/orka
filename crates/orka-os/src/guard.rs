@@ -71,7 +71,7 @@ impl PermissionGuard {
     /// Validate a path for reading: canonicalize and check allow/block lists.
     pub fn check_path(&self, path: &Path) -> orka_core::Result<PathBuf> {
         let canonical = path.canonicalize().map_err(|e| {
-            orka_core::Error::Skill(format!("cannot resolve path '{}': {}", path.display(), e,))
+            orka_core::Error::Skill(format!("cannot resolve path '{}': {}", path.display(), e))
         })?;
         self.validate_canonical_path(&canonical)?;
         Ok(canonical)
@@ -197,7 +197,8 @@ impl PermissionGuard {
         };
 
         // Check sudo allowed commands (prefix match at word boundary).
-        // Empty list = unrestricted (consistent with check_shell_command / check_path).
+        // Empty list = unrestricted (consistent with check_shell_command /
+        // check_path).
         if !self.sudo_allowed_commands.is_empty() {
             let allowed = self.sudo_allowed_commands.iter().any(|allowed_cmd| {
                 full == *allowed_cmd || full.starts_with(&format!("{allowed_cmd} "))
@@ -248,9 +249,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
             .replace(r"\*", ".*")
             .replace(r"\?", ".")
     );
-    Regex::new(&regex_str)
-        .map(|re| re.is_match(text))
-        .unwrap_or(false)
+    Regex::new(&regex_str).is_ok_and(|re| re.is_match(text))
 }
 
 /// Expand `~` to the user's home directory.
@@ -266,7 +265,8 @@ fn shellexpand(s: &str) -> String {
     }
 
     let home = std::env::var("HOME").ok().or_else(|| {
-        // Fallback: derive home from $USER or $LOGNAME (common Linux conventions)
+        // Fallback: derive home from $USER or $LOGNAME (common Linux
+        // conventions)
         std::env::var("USER")
             .or_else(|_| std::env::var("LOGNAME"))
             .ok()
@@ -342,7 +342,8 @@ mod tests {
 
     #[test]
     fn command_not_in_allowed_list_rejected() {
-        // With empty allowed_shell_commands, all commands are allowed (no restriction)
+        // With empty allowed_shell_commands, all commands are allowed (no
+        // restriction)
         let guard = PermissionGuard::new(&test_config());
         assert!(guard.check_command("ls", &["-la"]).is_ok());
     }

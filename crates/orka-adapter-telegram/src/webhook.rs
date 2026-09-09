@@ -37,7 +37,8 @@ struct WebhookState {
 fn verify_telegram_secret(headers: &HeaderMap, expected: &str) -> bool {
     match headers.get("X-Telegram-Bot-Api-Secret-Token") {
         Some(value) => {
-            // Constant-time comparison: same length check first, then byte-by-byte.
+            // Constant-time comparison: same length check first, then
+            // byte-by-byte.
             let provided = value.as_bytes();
             let expected_bytes = expected.as_bytes();
             if provided.len() != expected_bytes.len() {

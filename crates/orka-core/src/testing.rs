@@ -108,7 +108,7 @@ impl SessionStore for InMemorySessionStore {
     async fn list(&self, limit: usize) -> Result<Vec<Session>> {
         let sessions = self.sessions.lock().await;
         let mut result: Vec<Session> = sessions.values().cloned().collect();
-        result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        result.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         result.truncate(limit);
         Ok(result)
     }
@@ -173,7 +173,7 @@ impl ConversationStore for InMemoryConversationStore {
             })
             .cloned()
             .collect();
-        result.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        result.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         let start = offset.min(result.len());
         let end = start.saturating_add(limit).min(result.len());
         result = result[start..end].to_vec();
@@ -391,7 +391,8 @@ impl PriorityQueue for InMemoryQueue {
     async fn push(&self, envelope: &Envelope) -> Result<()> {
         let mut items = self.items.lock().await;
         items.push(envelope.clone());
-        // Sort: lower bucket = higher priority, then by timestamp (earlier first)
+        // Sort: lower bucket = higher priority, then by timestamp (earlier
+        // first)
         items.sort_by(|a, b| {
             let ba = Self::priority_bucket(a.priority);
             let bb = Self::priority_bucket(b.priority);
@@ -542,7 +543,7 @@ impl MemoryStore for InMemoryMemoryStore {
             .filter(|(key, _)| prefix.is_none_or(|p| key.starts_with(p)))
             .map(|(_, (entry, _))| entry.clone())
             .collect();
-        results.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        results.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         results.truncate(limit);
         Ok(results)
     }

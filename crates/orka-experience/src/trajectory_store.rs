@@ -100,7 +100,7 @@ impl TrajectoryStore {
             .collect();
 
         // Sort by timestamp descending (most recent first)
-        trajectories.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        trajectories.sort_by_key(|a| std::cmp::Reverse(a.timestamp));
         trajectories.truncate(limit);
 
         debug!(

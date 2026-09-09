@@ -221,11 +221,10 @@ impl BudgetTracker {
 
     /// Calculate per-step budget for a plan with `n` steps.
     pub fn budget_per_plan_step(&self, n: usize) -> usize {
-        if n == 0 {
-            self.remaining_steps()
-        } else {
-            (self.remaining_steps() / n).max(1)
-        }
+        self.remaining_steps()
+            .checked_div(n)
+            .unwrap_or(self.remaining_steps())
+            .max(1)
     }
 }
 

@@ -100,7 +100,8 @@ impl PriorityQueue for RedisPriorityQueue {
         };
 
         // Fetch and delete data key atomically via pipeline
-        // (BZPOPMIN already removed from ZSET, so we just need GET+DEL atomically)
+        // (BZPOPMIN already removed from ZSET, so we just need GET+DEL
+        // atomically)
         let dkey = data_key(&member);
         let data: Option<String> = redis::Script::new(
             r"

@@ -76,7 +76,7 @@ impl TaskStore for InMemoryTaskStore {
     async fn list(&self, params: &ListTasksParams) -> Result<ListTasksResult, A2aError> {
         let tasks = self.tasks.lock().await;
         let mut all: Vec<&Task> = tasks.values().collect();
-        all.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        all.sort_by_key(|a| a.created_at);
 
         let filtered: Vec<Task> = all
             .into_iter()

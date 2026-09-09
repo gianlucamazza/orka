@@ -109,7 +109,8 @@ impl MarkdownRenderer {
             match boundary {
                 Some(end) => {
                     let block: String = self.buffer[..end].to_string();
-                    // Skip the block and any leading newlines between blocks in one drain
+                    // Skip the block and any leading newlines between blocks in
+                    // one drain
                     let skip_nl = self.buffer[end..]
                         .bytes()
                         .take_while(|&b| b == b'\n')
@@ -142,9 +143,9 @@ impl MarkdownRenderer {
             return Some(pos);
         }
 
-        // UI-7: incremental flush threshold — render up to the last newline when
-        // the buffer grows large, so long paragraphs stream smoothly instead of
-        // waiting for a paragraph break.
+        // UI-7: incremental flush threshold — render up to the last newline
+        // when the buffer grows large, so long paragraphs stream
+        // smoothly instead of waiting for a paragraph break.
         #[allow(clippy::items_after_statements)]
         const INCREMENTAL_THRESHOLD: usize = 200;
         if buf.len() >= INCREMENTAL_THRESHOLD
@@ -164,11 +165,13 @@ impl MarkdownRenderer {
             return;
         }
 
-        // UI-8: use find_closing_fence_full for reliable complete-fence detection
+        // UI-8: use find_closing_fence_full for reliable complete-fence
+        // detection
         if trimmed.starts_with("```") && find_closing_fence_full(trimmed).is_some() {
             self.render_code_block_inline(trimmed);
         } else if trimmed.starts_with("```") {
-            // Unclosed code fence at flush — print raw to avoid markdown mangling
+            // Unclosed code fence at flush — print raw to avoid markdown
+            // mangling
             let mut guard = self
                 .output
                 .lock()
@@ -212,7 +215,8 @@ impl MarkdownRenderer {
         // Blockquote nesting depth
         let mut blockquote_depth: u32 = 0;
 
-        // List state — stack tracks whether each level is ordered and the next ordinal
+        // List state — stack tracks whether each level is ordered and the next
+        // ordinal
         struct ListEntry {
             ordered: bool,
             ordinal: u64,
@@ -557,8 +561,9 @@ impl MarkdownRenderer {
             } else {
                 match highlighter.highlight_line(line, &self.syntax_set) {
                     Ok(ranges) => {
-                        // Use 24-bit escape sequences only for true-color terminals;
-                        // fall back to the same sequence for 256-color (most terminals
+                        // Use 24-bit escape sequences only for true-color
+                        // terminals; fall back to the
+                        // same sequence for 256-color (most terminals
                         // accept 24-bit even when reporting 256color via TERM).
                         let escaped = as_24_bit_terminal_escaped(&ranges, false);
                         let _ = writeln!(out, "  {escaped}\x1b[0m");
@@ -596,8 +601,8 @@ fn find_closing_fence_full(s: &str) -> Option<usize> {
     let mut prev = 0;
     for (nl_pos, _) in rest.match_indices('\n') {
         let line = rest[prev..nl_pos].trim();
-        // Closing fence: exactly `fence_len` backticks, nothing else (no more backticks
-        // after)
+        // Closing fence: exactly `fence_len` backticks, nothing else (no more
+        // backticks after)
         if line == closing
             || (line.starts_with(&closing) && !line[closing.len()..].starts_with('`'))
         {
@@ -665,8 +670,9 @@ fn split_blocks(text: &str) -> Vec<&str> {
         } else if trimmed.is_empty() && i < text.len() {
             // If the current block contains list items, check whether the
             // content after this blank line continues the same list.  If so,
-            // keep accumulating to avoid splitting a numbered list across blocks
-            // (which would reset item numbering on each fragment).
+            // keep accumulating to avoid splitting a numbered list across
+            // blocks (which would reset item numbering on each
+            // fragment).
             let current_block = &text[start..line_start];
             let block_has_list = current_block
                 .lines()
@@ -676,8 +682,9 @@ fn split_blocks(text: &str) -> Vec<&str> {
                 let rest = &text[i..];
                 let next_nonempty = rest.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
                 let next_t = next_nonempty.trim_start();
-                // Keep accumulating if the next non-empty line is a list item or
-                // indented continuation (e.g. wrapped paragraph inside a list item).
+                // Keep accumulating if the next non-empty line is a list item
+                // or indented continuation (e.g. wrapped
+                // paragraph inside a list item).
                 let continues_list = has_list_start(next_t)
                     || next_nonempty.starts_with("  ")
                     || next_nonempty.starts_with('\t');

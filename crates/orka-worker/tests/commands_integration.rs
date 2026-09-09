@@ -236,7 +236,8 @@ async fn rate_limiter_allows_commands_under_limit() {
 #[tokio::test]
 async fn unknown_command_payload_does_not_panic() {
     // Sends an unknown /command via EchoHandler — EchoHandler echoes it back,
-    // which validates the pipeline doesn't panic on unexpected command payloads.
+    // which validates the pipeline doesn't panic on unexpected command
+    // payloads.
     let session = Session::new("test", "user1");
     let mut env = Envelope::text(&session.channel, session.id, "");
     env.payload = Payload::Command(CommandPayload::new(

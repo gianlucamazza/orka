@@ -160,7 +160,8 @@ async fn run_checks(
 ) -> Vec<(CheckMeta, CheckOutcome)> {
     let mut results = Vec::new();
 
-    // Phase 1: sequential — Config (order matters, early-abort on Critical fail)
+    // Phase 1: sequential — Config (order matters, early-abort on Critical
+    // fail)
     let mut config_critical_failed = false;
     for check in checks
         .iter()
@@ -213,8 +214,9 @@ async fn run_checks(
         match res {
             Ok(pair) => network_results.push(pair),
             Err(join_err) => {
-                // A check task panicked or was cancelled — surface it as a synthetic
-                // failure rather than silently dropping the result.
+                // A check task panicked or was cancelled — surface it as a
+                // synthetic failure rather than silently
+                // dropping the result.
                 let meta = CheckMeta {
                     id: CheckId::new("ERR-000"),
                     category: Category::Connectivity,

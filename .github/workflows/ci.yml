@@ -39,19 +39,25 @@ jobs:
         ports:
           - 6333:6333
           - 6334:6334
+        # The qdrant image ships neither curl nor wget; probe the TCP port
+        # with bash instead.
         options: >-
-          --health-cmd "curl -f http://localhost:6333/healthz || exit 1"
+          --health-cmd "bash -c ':> /dev/tcp/localhost/6333' || exit 1"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     steps:
       - uses: actions/checkout@v6
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update || echo "apt-get update had failures, continuing anyway"
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          components: rustfmt
+          components: rustfmt,clippy
       - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Configure sccache
         run: |
@@ -65,7 +71,7 @@ jobs:
       - name: Check formatting
         run: cargo +nightly fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets
+        run: cargo +stable clippy --workspace --all-targets
       - name: Security audit
         run: cargo audit
       - name: Dependency checks (licenses, advisories, bans)
@@ -101,6 +107,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update || echo "apt-get update had failures, continuing anyway"
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@1.91.0
       - uses: Swatinem/rust-cache@v2
       - name: cargo check on MSRV
@@ -124,13 +134,19 @@ jobs:
         ports:
           - 6333:6333
           - 6334:6334
+        # The qdrant image ships neither curl nor wget; probe the TCP port
+        # with bash instead.
         options: >-
-          --health-cmd "curl -f http://localhost:6333/healthz || exit 1"
+          --health-cmd "bash -c ':> /dev/tcp/localhost/6333' || exit 1"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     steps:
       - uses: actions/checkout@v6
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update || echo "apt-get update had failures, continuing anyway"
+          sudo apt-get install -y --no-install-recommends libfontconfig1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview

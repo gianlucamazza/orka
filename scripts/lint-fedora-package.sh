@@ -62,7 +62,7 @@ docker run --rm \
 	"$IMAGE" \
 	bash -lc "
 set -euo pipefail
-dnf -y install cargo gcc openssl-devel pkgconf-pkg-config rpm-build rpmlint systemd-devel systemd-rpm-macros tar gzip
+dnf -y install cargo gcc openssl-devel fontconfig-devel pkgconf-pkg-config rpm-build rpmlint systemd-devel systemd-rpm-macros tar gzip
 mkdir -p /work/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 cp /work/orka-${VERSION}.tar.gz /work/rpmbuild/SOURCES/
 cp /work/src/packaging/fedora/orka.spec /work/rpmbuild/SPECS/orka.spec
@@ -70,7 +70,7 @@ CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=gcc \
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS= \
 RUSTFLAGS= \
 RUSTC_WRAPPER= \
-rpmbuild -ba --define '_topdir /work/rpmbuild' --define "pkg_version ${VERSION}" /work/rpmbuild/SPECS/orka.spec
+rpmbuild -ba --define '_topdir /work/rpmbuild' --define \"pkg_version ${VERSION}\" /work/rpmbuild/SPECS/orka.spec
 rpmlint /work/rpmbuild/SRPMS/*.src.rpm /work/rpmbuild/RPMS/*/*.rpm
 "
 

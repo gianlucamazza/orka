@@ -23,7 +23,8 @@ impl WorkspaceWatcher {
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<notify::Event, notify::Error>| {
                 if let Ok(event) = res {
-                    // Receiver dropped means the watcher task is shutting down — ignore.
+                    // Receiver dropped means the watcher task is shutting down
+                    // — ignore.
                     let _ = tx.blocking_send(event);
                 }
             },

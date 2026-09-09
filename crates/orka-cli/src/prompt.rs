@@ -55,8 +55,9 @@ fn git_branch(cwd: &Path) -> String {
             // Git worktree: .git is a file containing "gitdir: <path>"
             let raw = std::fs::read_to_string(&git_path).unwrap_or_default();
             if let Some(gitdir) = raw.trim().strip_prefix("gitdir: ") {
-                // Resolve relative gitdir paths relative to the directory containing
-                // the .git file, not the process CWD.
+                // Resolve relative gitdir paths relative to the directory
+                // containing the .git file, not the process
+                // CWD.
                 let gitdir_path = std::path::PathBuf::from(gitdir);
                 let resolved = if gitdir_path.is_absolute() {
                     gitdir_path
@@ -126,8 +127,8 @@ mod tests {
         assert!(plain.contains("❯"));
         // Plain prompt must not contain any ANSI escape sequences
         assert!(!plain.contains('\x1b'));
-        // Colored prompt must contain the indicator (ANSI may be stripped in non-TTY
-        // tests)
+        // Colored prompt must contain the indicator (ANSI may be stripped in
+        // non-TTY tests)
         assert!(colored.contains("❯"));
     }
 

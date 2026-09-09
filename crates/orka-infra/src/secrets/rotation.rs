@@ -208,7 +208,8 @@ impl SecretManager for RotatingSecretManager {
                             Ok(secret)
                         }
                         Err(previous_err) => {
-                            // Both failed - return primary error as it's the current one
+                            // Both failed - return primary error as it's the
+                            // current one
                             warn!(
                                 path,
                                 %primary_err,
@@ -251,7 +252,8 @@ impl SecretManager for RotatingSecretManager {
     }
 
     async fn migrate_plaintext_secrets(&self) -> Result<usize> {
-        // Migrate in primary; also migrate previous if still in the overlap window.
+        // Migrate in primary; also migrate previous if still in the overlap
+        // window.
         let primary = self.primary.read().await;
         let mut migrated = primary.migrate_plaintext_secrets().await?;
 

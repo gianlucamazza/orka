@@ -55,7 +55,8 @@ impl Skill for McpToolBridge {
 
     async fn execute(&self, input: SkillInput) -> Result<SkillOutput> {
         // For shell-like tools, prefix the command with `cd <user_cwd>` so that
-        // commands run in the user's directory rather than the server process CWD.
+        // commands run in the user's directory rather than the server process
+        // CWD.
         let mut args = input.args.clone();
         if self.tool_name == "Bash"
             && let Some(cwd) = input.context.as_ref().and_then(|c| c.user_cwd.as_deref())

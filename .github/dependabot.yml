@@ -22,3 +22,8 @@ updates:
     commit-message:
       prefix: "ci"
     open-pull-requests-limit: 5
+    ignore:
+      # dtolnay/rust-toolchain tags are Rust toolchain versions, not action
+      # releases: "bumping" them silently changes the toolchain under test
+      # (e.g. the MSRV job). Update manually together with rust-version.
+      - dependency-name: "dtolnay/rust-toolchain"

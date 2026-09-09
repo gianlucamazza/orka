@@ -71,8 +71,7 @@ impl EventSink for AuditSink {
     async fn emit(&self, event: DomainEvent) {
         let now_ms = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_millis());
 
         // Serialize the record on the async task (CPU, no I/O).
         let line = match &event.kind {

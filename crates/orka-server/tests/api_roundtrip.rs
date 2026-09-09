@@ -172,7 +172,8 @@ async fn next_ws_text(
 async fn message_roundtrip_via_ws() -> common::TestResult {
     let (_, _, addr, _, shutdown) = start_pipeline().await?;
 
-    // Generate a session_id so we can connect WebSocket BEFORE sending the message
+    // Generate a session_id so we can connect WebSocket BEFORE sending the
+    // message
     let session_id = SessionId::new();
 
     // 1. Connect WebSocket with the pre-generated session_id

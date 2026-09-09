@@ -143,8 +143,8 @@ fn print_welcome(
     // Box header (always shown, uses CLI version)
     let version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ORKA_GIT_SHA"), ")");
     let inner = format!("  \u{25c8}  Orka Shell  v{version}  ");
-    // UI-11: use display width (handles wide/ambiguous Unicode) rather than char
-    // count
+    // UI-11: use display width (handles wide/ambiguous Unicode) rather than
+    // char count
     let width = inner.as_str().width();
     let bar = "\u{2500}".repeat(width);
     println!("{}", format!("\u{250c}{bar}\u{2510}").cyan().bold());
@@ -381,8 +381,9 @@ fn expand_file_attachments(text: &str) -> String {
             continue;
         }
 
-        // Only trigger @-expansion when `@` is at position 0 or preceded by whitespace
-        // This avoids matching email addresses like user@example.com
+        // Only trigger @-expansion when `@` is at position 0 or preceded by
+        // whitespace This avoids matching email addresses like
+        // user@example.com
         if !prev_was_whitespace_or_start {
             result.push('@');
             prev_was_whitespace_or_start = false;
@@ -390,8 +391,9 @@ fn expand_file_attachments(text: &str) -> String {
         }
 
         // Collect the path token (non-whitespace characters after `@`).
-        // Manually peek so we can capture and restore the exact delimiter character
-        // (space, newline, tab, …) instead of always substituting a space.
+        // Manually peek so we can capture and restore the exact delimiter
+        // character (space, newline, tab, …) instead of always
+        // substituting a space.
         let mut path_str = String::new();
         let mut delimiter: Option<char> = None;
         while let Some(&c) = chars.peek() {
@@ -417,7 +419,8 @@ fn expand_file_attachments(text: &str) -> String {
         if let Ok(content) = std::fs::read_to_string(path) {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             let _ = write!(result, "\n```{ext}\n{content}\n```\n");
-            // Restore the original delimiter character (preserves newlines, tabs, etc.)
+            // Restore the original delimiter character (preserves newlines,
+            // tabs, etc.)
             if let Some(d) = delimiter {
                 result.push(d);
             }
@@ -509,8 +512,8 @@ pub async fn run(
     ));
     let term_width_ws = term_width.clone();
 
-    // Detect terminal capabilities once at startup. Sets colored::control override
-    // and is threaded into the renderer.
+    // Detect terminal capabilities once at startup. Sets colored::control
+    // override and is threaded into the renderer.
     let term_caps = crate::term_caps::TermCaps::detect();
     let color_ws = term_caps.color;
 
@@ -584,10 +587,12 @@ pub async fn run(
 
             loop {
                 // Check for timeout flag before each message.
-                // Use Acquire ordering to ensure visibility of the store in the main task.
+                // Use Acquire ordering to ensure visibility of the store in the
+                // main task.
                 if ws_timeout_task.load(Ordering::Acquire) {
                     // Timeout occurred: clear spinners and exit inner loop.
-                    // The task will wait on reconnect_ws_rx for a new connection.
+                    // The task will wait on reconnect_ws_rx for a new
+                    // connection.
                     renderer.drain_tools_on_timeout();
                     break;
                 }
@@ -678,21 +683,28 @@ pub async fn run(
                             }
                             WsMessage::Stream(RealtimeEvent::StreamDone) => {
                                 let response = renderer.on_done();
-                                // CRITICAL: Check timeout flag before sending signals.
-                                // The main task may have already drained the channels during
-                                // timeout handling; sending now would create spurious signals
+                                // CRITICAL: Check timeout flag before sending
+                                // signals.
+                                // The main task may have already drained the
+                                // channels during
+                                // timeout handling; sending now would create
+                                // spurious signals
                                 // that corrupt the next user interaction.
                                 if !turn_done_sent && !ws_timeout_task.load(Ordering::Acquire) {
-                                    // Send response before done so try_recv() in the REPL
-                                    // always finds the response after receiving the done signal.
+                                    // Send response before done so try_recv()
+                                    // in the REPL
+                                    // always finds the response after receiving
+                                    // the done signal.
                                     let _ = response_tx.send(response);
                                     let _ = done_tx.send(());
                                     turn_done_sent = true;
                                 }
                             }
                             WsMessage::Final(content, stop_reason) => {
-                                // Show stop-reason warning before rendering content.
-                                // Emitted even when content was already streamed via deltas.
+                                // Show stop-reason warning before rendering
+                                // content.
+                                // Emitted even when content was already
+                                // streamed via deltas.
                                 if let Some(reason) = stop_reason {
                                     use orka_core::stream::AgentStopReason;
                                     let warning = match reason {
@@ -715,10 +727,13 @@ pub async fn run(
                                 } else {
                                     renderer.on_final(&content);
                                 }
-                                // CRITICAL: Check timeout flag before sending signals.
-                                // Prevents race condition with main task's channel drain.
+                                // CRITICAL: Check timeout flag before sending
+                                // signals.
+                                // Prevents race condition with main task's
+                                // channel drain.
                                 if !turn_done_sent && !ws_timeout_task.load(Ordering::Acquire) {
-                                    // Send response before done (same ordering guarantee as Done
+                                    // Send response before done (same ordering
+                                    // guarantee as Done
                                     // branch).
                                     let _ = response_tx.send(content.clone());
                                     let _ = done_tx.send(());
@@ -749,8 +764,9 @@ pub async fn run(
                     }
                     Ok(msg) if msg.is_close() => break,
                     Err(e) => {
-                        // Suppress error message during graceful shutdown - the server
-                        // may close the connection before we complete the close handshake
+                        // Suppress error message during graceful shutdown - the
+                        // server may close the
+                        // connection before we complete the close handshake
                         if !graceful_shutdown_task.load(Ordering::SeqCst) {
                             eprintln!("{} {e}", "Connection error:".red());
                         }
@@ -800,15 +816,16 @@ pub async fn run(
         }
     });
 
-    // Migrate history format from rustyline (#V2 header) to reedline (plain lines).
+    // Migrate history format from rustyline (#V2 header) to reedline (plain
+    // lines).
     let hist_path = history_path();
     migrate_history_if_needed(&hist_path);
 
-    // Set up reedline in a dedicated blocking thread, communicating via channels.
-    // reedline::read_line() is blocking — same pattern as the old rustyline thread.
-    // Channel sends (plain_prompt, colored_prompt) tuples; reedline uses the
-    // colored version directly since it handles ANSI width measurement
-    // internally.
+    // Set up reedline in a dedicated blocking thread, communicating via
+    // channels. reedline::read_line() is blocking — same pattern as the old
+    // rustyline thread. Channel sends (plain_prompt, colored_prompt)
+    // tuples; reedline uses the colored version directly since it handles
+    // ANSI width measurement internally.
     let (prompt_tx, prompt_rx) = std::sync::mpsc::channel::<(String, String)>();
     let (line_tx, mut line_rx) =
         tokio::sync::mpsc::unbounded_channel::<std::result::Result<String, Signal>>();
@@ -887,8 +904,9 @@ pub async fn run(
     loop {
         let (plain_prompt, colored_prompt) = build_prompt(&cwd, last_exit);
 
-        // Send both plain and colored prompt to the editor thread. Reedline uses
-        // the colored prompt directly (it handles ANSI width internally).
+        // Send both plain and colored prompt to the editor thread. Reedline
+        // uses the colored prompt directly (it handles ANSI width
+        // internally).
         if prompt_tx.send((plain_prompt, colored_prompt)).is_err() {
             break;
         }
@@ -967,7 +985,8 @@ pub async fn run(
                 let msg = shell::handle_builtin(b, &mut cwd, &mut env_overrides, &mut env_removes);
                 if msg.is_empty() {
                     last_exit = Some(0);
-                    // Keep the tab-completion helper in sync when the directory changes
+                    // Keep the tab-completion helper in sync when the directory
+                    // changes
                     if matches!(b, Builtin::Cd(_)) {
                         (*shell_cwd_shared
                             .lock()
@@ -990,8 +1009,10 @@ pub async fn run(
                         "clear" => {
                             print!("\x1B[2J\x1B[1;1H");
                             std::io::stdout().flush().ok();
-                            // UI-6: reset indicatif's cursor tracking — without this it
-                            // thinks spinners are still at their old screen positions.
+                            // UI-6: reset indicatif's cursor tracking — without
+                            // this it
+                            // thinks spinners are still at their old screen
+                            // positions.
                             multi.clear().ok();
                         }
                         "think" => {
@@ -1080,7 +1101,8 @@ pub async fn run(
                             } else if last_response.is_empty() {
                                 println!("{}", "  No response to save yet.".dimmed());
                             } else {
-                                // Resolve relative to the shell's tracked CWD (not the process CWD)
+                                // Resolve relative to the shell's tracked CWD
+                                // (not the process CWD)
                                 let target = if std::path::Path::new(path).is_absolute() {
                                     PathBuf::from(path)
                                 } else {
@@ -1160,7 +1182,8 @@ pub async fn run(
                                 }
                                 let _ = reconnect_ws_tx.send(new_read);
                                 workspace_sent = false;
-                                // Drain stale signals from previous connection to prevent
+                                // Drain stale signals from previous connection
+                                // to prevent
                                 // spurious completions in this new session
                                 while done_rx.try_recv().is_ok() {}
                                 while response_rx.try_recv().is_ok() {}
@@ -1179,12 +1202,14 @@ pub async fn run(
                     }
                 }
 
-                // Strip backslash continuations, then expand @file attachments before sending
+                // Strip backslash continuations, then expand @file attachments
+                // before sending
                 let stripped = strip_line_continuations(text);
                 let expanded = expand_file_attachments(&stripped);
                 let user_input = expanded.clone();
 
-                // Re-send workspace metadata after /memory clear (server clears its context).
+                // Re-send workspace metadata after /memory clear (server clears
+                // its context).
                 if expanded == "/memory clear" || expanded.starts_with("/memory clear ") {
                     workspace_sent = false;
                 }
@@ -1203,7 +1228,8 @@ pub async fn run(
                             meta.extend(ws.to_metadata());
                         }
                     }
-                    // Attach buffered shell command outputs so the AI has context.
+                    // Attach buffered shell command outputs so the AI has
+                    // context.
                     if !recent_shell_runs.is_empty() {
                         let mut ctx = String::new();
                         for (cmd, output, code) in &recent_shell_runs {
@@ -1231,13 +1257,16 @@ pub async fn run(
                 let start = Instant::now();
                 match client.send_message(&expanded, &sid, metadata).await {
                     Ok(_) => {
-                        // Drain stale signals from both channels before waiting.
+                        // Drain stale signals from both channels before
+                        // waiting.
                         while done_rx.try_recv().is_ok() {}
                         while activity_rx.try_recv().is_ok() {}
 
-                        // Idle-timeout loop: the deadline resets on every received chunk
-                        // so long multi-iteration tasks never hit it as long as the server
-                        // keeps streaming. It only fires when the connection goes silent.
+                        // Idle-timeout loop: the deadline resets on every
+                        // received chunk
+                        // so long multi-iteration tasks never hit it as long as
+                        // the server keeps streaming.
+                        // It only fires when the connection goes silent.
                         let idle_dur = Duration::from_secs(ws_idle_timeout_secs);
                         let idle = tokio::time::sleep(idle_dur);
                         tokio::pin!(idle);

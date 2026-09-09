@@ -875,7 +875,7 @@ async fn handle_get_conversation(
 
     match load_owned_conversation(&state, &identity, conversation_id).await {
         Ok(conversation) => Json(conversation).into_response(),
-        Err(response) => response,
+        Err(response) => *response,
     }
 }
 
@@ -993,7 +993,7 @@ async fn handle_delete_conversation(
     };
 
     if let Err(response) = load_owned_conversation(&state, &identity, conversation_id).await {
-        return response;
+        return *response;
     }
 
     match state
@@ -1037,7 +1037,7 @@ async fn handle_list_messages(
         Err(response) => return response,
     };
     if let Err(response) = load_owned_conversation(&state, &identity, conversation_id).await {
-        return response;
+        return *response;
     }
 
     if params.after.is_some() && params.before.is_some() {
@@ -1419,7 +1419,7 @@ async fn handle_get_artifact(
 
     match load_owned_artifact(&state, &identity, artifact_id).await {
         Ok(artifact) => Json(artifact).into_response(),
-        Err(response) => response,
+        Err(response) => *response,
     }
 }
 
@@ -1445,7 +1445,7 @@ async fn handle_delete_artifact(
     };
     let artifact = match load_owned_artifact(&state, &identity, artifact_id).await {
         Ok(artifact) => artifact,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if artifact.message_id.is_some() {
         return error_response(
@@ -1483,7 +1483,7 @@ async fn handle_get_artifact_content(
     };
     let artifact = match load_owned_artifact(&state, &identity, artifact_id).await {
         Ok(artifact) => artifact,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let Some(bytes) = (match state.artifacts.get_artifact_bytes(&artifact.id).await {
         Ok(value) => value,
@@ -1592,7 +1592,7 @@ async fn handle_send_message(
     };
     let mut conversation = match load_owned_conversation(&state, &identity, conversation_id).await {
         Ok(conversation) => conversation,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let text = body.text.trim();
@@ -1716,7 +1716,7 @@ async fn handle_stream(
     };
     let conversation = match load_owned_conversation(&state, &identity, conversation_id).await {
         Ok(conversation) => conversation,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     // Channel carries (sse_event_name, data_json) pairs.
@@ -1767,23 +1767,23 @@ async fn load_owned_conversation(
     state: &ProtectedMobileState,
     identity: &AuthIdentity,
     conversation_id: ConversationId,
-) -> Result<Conversation, axum::response::Response> {
+) -> Result<Conversation, Box<axum::response::Response>> {
     let conversation = match state.conversations.get_conversation(&conversation_id).await {
         Ok(Some(conversation)) => conversation,
         Ok(None) => {
-            return Err(error_response(
+            return Err(Box::new(error_response(
                 StatusCode::NOT_FOUND,
                 "conversation not found",
-            ));
+            )));
         }
-        Err(error) => return Err(internal_error(error)),
+        Err(error) => return Err(Box::new(internal_error(error))),
     };
 
     if conversation.user_id != identity.principal {
-        return Err(error_response(
+        return Err(Box::new(error_response(
             StatusCode::NOT_FOUND,
             "conversation not found",
-        ));
+        )));
     }
 
     Ok(conversation)
@@ -1793,15 +1793,23 @@ async fn load_owned_artifact(
     state: &ProtectedMobileState,
     identity: &AuthIdentity,
     artifact_id: ArtifactId,
-) -> Result<ConversationArtifact, axum::response::Response> {
+) -> Result<ConversationArtifact, Box<axum::response::Response>> {
     let artifact = match state.artifacts.get_artifact(&artifact_id).await {
         Ok(Some(artifact)) => artifact,
-        Ok(None) => return Err(error_response(StatusCode::NOT_FOUND, "artifact not found")),
-        Err(error) => return Err(internal_error(error)),
+        Ok(None) => {
+            return Err(Box::new(error_response(
+                StatusCode::NOT_FOUND,
+                "artifact not found",
+            )));
+        }
+        Err(error) => return Err(Box::new(internal_error(error))),
     };
 
     if artifact.owner_user_id != identity.principal {
-        return Err(error_response(StatusCode::NOT_FOUND, "artifact not found"));
+        return Err(Box::new(error_response(
+            StatusCode::NOT_FOUND,
+            "artifact not found",
+        )));
     }
 
     Ok(artifact)

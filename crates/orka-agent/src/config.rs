@@ -102,7 +102,8 @@ pub async fn build_graph_from_config(
     if graph_def.edges.is_empty() && agents.len() > 1 {
         match graph_def.execution_mode {
             GraphExecutionMode::Sequential => {
-                // Auto-generate a linear chain: A → B → C → ... in agent definition order.
+                // Auto-generate a linear chain: A → B → C → ... in agent
+                // definition order.
                 let ids: Vec<AgentId> = agents
                     .iter()
                     .map(|a| AgentId::from(a.id.as_str()))
@@ -119,8 +120,8 @@ pub async fn build_graph_from_config(
                 }
             }
             GraphExecutionMode::Parallel => {
-                // Auto-generate FanOut: entry dispatches all other agents in parallel.
-                // Mark the entry node as FanOut kind.
+                // Auto-generate FanOut: entry dispatches all other agents in
+                // parallel. Mark the entry node as FanOut kind.
                 if let Some(node) = graph.get_node_mut(&entry_id) {
                     node.kind = NodeKind::FanOut {
                         max_concurrency: None,
@@ -223,8 +224,8 @@ async fn build_agent_from_def(
         if let Some(soul) = &state.soul {
             system_prompt.persona = soul.body.clone();
         } else if !cfg.system_prompt.is_empty() {
-            // Fallback: use the inline system_prompt from config when no workspace file
-            // exists.
+            // Fallback: use the inline system_prompt from config when no
+            // workspace file exists.
             system_prompt.persona = cfg.system_prompt.clone();
         }
         if let Some(tools_body) = &state.tools_body {

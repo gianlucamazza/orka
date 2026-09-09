@@ -947,8 +947,9 @@ async fn hitl_interrupt_pauses_execution_and_saves_checkpoint() {
 
     let checkpoint_store = Arc::new(TestCheckpointStore::new());
 
-    // LLM emits a tool call for "dangerous_tool", then would emit a text response
-    // on the next turn — but execution should stop before the second call.
+    // LLM emits a tool call for "dangerous_tool", then would emit a text
+    // response on the next turn — but execution should stop before the
+    // second call.
     let llm = Arc::new(MockLlm::new(vec![MockResp::ToolCallResp {
         name: "dangerous_tool".into(),
         input: serde_json::json!({"param": "value"}),
@@ -1022,7 +1023,8 @@ async fn executor_resume_continues_from_checkpoint_node() {
     );
     graph = graph.with_termination(TerminationPolicy::default());
 
-    // Pre-seed a checkpoint that marks node "a" as completed and resumes from "b"
+    // Pre-seed a checkpoint that marks node "a" as completed and resumes from
+    // "b"
     let envelope = Envelope::text("chan", SessionId::new(), "hello");
     let run_id = RunId::new().to_string();
     let ckpt = Checkpoint {
@@ -1350,7 +1352,8 @@ async fn guardrail_block_prevents_skill_execution() {
     let ctx = make_ctx();
     let result = executor.execute(&graph, &ctx).await.unwrap();
     // The block message becomes the tool result; the executor surfaces either
-    // the LLM's next-turn response or the block message itself as the final output.
+    // the LLM's next-turn response or the block message itself as the final
+    // output.
     assert!(
         result.response.contains("blocked") || result.response.contains("Understood"),
         "expected block-related response, got: {}",
@@ -1428,7 +1431,8 @@ async fn delegate_handoff_returns_to_parent() {
     let a = AgentId::new("a");
     let b = AgentId::new("b");
 
-    // A has B as a handoff target so both transfer and delegate tools are injected
+    // A has B as a handoff target so both transfer and delegate tools are
+    // injected
     let mut agent_a = agent("a");
     agent_a.handoff_targets = vec![b.clone()];
 

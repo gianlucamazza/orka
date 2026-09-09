@@ -285,9 +285,10 @@ impl OpenAiClient {
 
     fn build_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
         let mut out = Vec::new();
-        // Track tool call IDs emitted in the last assistant message so that orphaned
-        // ToolResult blocks (whose corresponding ToolUse was dropped, e.g. empty name)
-        // can be filtered out before they trigger an OpenAI 400 error.
+        // Track tool call IDs emitted in the last assistant message so that
+        // orphaned ToolResult blocks (whose corresponding ToolUse was
+        // dropped, e.g. empty name) can be filtered out before they
+        // trigger an OpenAI 400 error.
         let mut last_emitted_tool_ids: std::collections::HashSet<String> =
             std::collections::HashSet::new();
         for m in messages {
@@ -370,8 +371,9 @@ impl OpenAiClient {
                     ..
                 } => {
                     has_tool_results = true;
-                    // Drop orphaned results: if the previous assistant message had tool calls
-                    // but this result's ID is not among them, OpenAI would return 400.
+                    // Drop orphaned results: if the previous assistant message
+                    // had tool calls but this result's ID
+                    // is not among them, OpenAI would return 400.
                     if !last_emitted_tool_ids.is_empty()
                         && !last_emitted_tool_ids.contains(tool_use_id)
                     {
@@ -393,8 +395,8 @@ impl OpenAiClient {
                 | crate::client::ContentBlockInput::Unknown => {}
             }
         }
-        // After consuming tool results, reset the tracked IDs so they don't bleed into
-        // subsequent turns.
+        // After consuming tool results, reset the tracked IDs so they don't
+        // bleed into subsequent turns.
         if has_tool_results {
             last_emitted_tool_ids.clear();
         }
@@ -670,8 +672,9 @@ impl LlmClient for OpenAiClient {
                                 Err(_) => continue,
                             };
 
-                            // Usage — must be checked before the choices guard because
-                            // OpenAI sends a final dedicated chunk with `choices: []`
+                            // Usage — must be checked before the choices guard
+                            // because OpenAI sends
+                            // a final dedicated chunk with `choices: []`
                             // and a populated `usage` object when
                             // `stream_options.include_usage` is set.
                             if let Some(usage) = event["usage"].as_object() {
@@ -754,7 +757,8 @@ impl LlmClient for OpenAiClient {
                             // Finish reason
                             if let Some(reason) = choice["finish_reason"].as_str() {
                                 if reason == "tool_calls" || reason == "stop" {
-                                    // Emit ToolUseEnd for all accumulated tool calls
+                                    // Emit ToolUseEnd for all accumulated tool
+                                    // calls
                                     let mut indices: Vec<u64> =
                                         state.tool_calls.keys().copied().collect();
                                     indices.sort_unstable();
@@ -1063,8 +1067,8 @@ mod tests {
     fn build_messages_drops_empty_name_tool_use_and_orphaned_result() {
         use crate::client::{ChatContent, ChatMessage, ContentBlockInput, Role};
 
-        // Simulate an assistant message that has a valid tool call and an empty-name
-        // one
+        // Simulate an assistant message that has a valid tool call and an
+        // empty-name one
         let messages = vec![
             ChatMessage {
                 role: Role::Assistant,
@@ -1121,10 +1125,10 @@ mod tests {
     fn build_messages_keeps_results_when_no_tool_use_in_message() {
         use crate::client::{ChatContent, ChatMessage, ContentBlockInput, Role};
 
-        // A message containing only ToolResult blocks (no ToolUse to filter against).
-        // All results should be kept — the safety net only activates when there are
-        // ToolUse blocks in the same message (i.e., emitted_tool_ids is
-        // non-empty).
+        // A message containing only ToolResult blocks (no ToolUse to filter
+        // against). All results should be kept — the safety net only
+        // activates when there are ToolUse blocks in the same message
+        // (i.e., emitted_tool_ids is non-empty).
         let messages = vec![ChatMessage {
             role: Role::User,
             content: ChatContent::Blocks(vec![ContentBlockInput::ToolResult {

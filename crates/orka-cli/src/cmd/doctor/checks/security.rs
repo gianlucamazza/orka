@@ -26,16 +26,16 @@ impl DoctorCheck for SecNoInlineKeys {
     }
 
     async fn run(&self, ctx: &CheckContext) -> CheckOutcome {
-        // This duplicates CFG-005 logic intentionally: SEC checks are about security
-        // posture, CFG checks are about config validity. Having both makes
-        // filtering by category useful.
+        // This duplicates CFG-005 logic intentionally: SEC checks are about
+        // security posture, CFG checks are about config validity.
+        // Having both makes filtering by category useful.
         let Some(raw) = &ctx.config_raw else {
             return CheckOutcome::skip("config file not readable");
         };
 
-        // Scan for lines with api_key = "..." that contain long strings (likely real
-        // keys). Match only the exact key name "api_key", not api_key_env or
-        // api_key_secret.
+        // Scan for lines with api_key = "..." that contain long strings (likely
+        // real keys). Match only the exact key name "api_key", not
+        // api_key_env or api_key_secret.
         let mut suspicious = Vec::new();
         for (i, line) in raw.lines().enumerate() {
             let trimmed = line.trim();
@@ -356,7 +356,8 @@ mod tests {
 
     #[tokio::test]
     async fn sec001_no_false_positive_on_api_key_secret_no_slash() {
-        // api_key_secret without slash should also not be flagged (different key name)
+        // api_key_secret without slash should also not be flagged (different
+        // key name)
         let raw = "api_key_secret = \"anthropic_key\"\n";
         let outcome = SecNoInlineKeys.run(&ctx_with_raw(raw)).await;
         assert_eq!(

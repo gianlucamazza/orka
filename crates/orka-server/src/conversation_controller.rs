@@ -117,18 +117,14 @@ impl ConversationController {
         &self,
         conversation: &mut Conversation,
     ) -> std::result::Result<(), ControlError> {
-        let cancelled = self
-            .cancel_tokens
-            .lock()
-            .map(|tokens| {
-                if let Some(token) = tokens.get(&conversation.session_id) {
-                    token.cancel();
-                    true
-                } else {
-                    false
-                }
-            })
-            .unwrap_or(false);
+        let cancelled = self.cancel_tokens.lock().is_ok_and(|tokens| {
+            if let Some(token) = tokens.get(&conversation.session_id) {
+                token.cancel();
+                true
+            } else {
+                false
+            }
+        });
 
         if !cancelled {
             return Err(ControlError::NoActiveGeneration);

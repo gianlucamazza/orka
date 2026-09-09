@@ -38,7 +38,8 @@ impl SandboxExecutor for ProcessSandbox {
             SandboxLang::Python => ("python3", ".py", vec![]),
             SandboxLang::Bash => ("bash", ".sh", vec![]),
             SandboxLang::JavaScript => {
-                // Prefer Deno for built-in permission sandboxing; fall back to Node.
+                // Prefer Deno for built-in permission sandboxing; fall back to
+                // Node.
                 if which_js_runtime() == JsRuntime::Deno {
                     (
                         "deno",
@@ -75,10 +76,12 @@ impl SandboxExecutor for ProcessSandbox {
 
         // Apply resource limits in the child process via pre_exec (Linux only).
         // pre_exec runs after fork() and before exec(), so limits apply only to
-        // the child. RLIMIT_AS caps virtual address space (closest to RSS memory).
+        // the child. RLIMIT_AS caps virtual address space (closest to RSS
+        // memory).
         let mem_limit = req.limits.max_memory_bytes as u64;
-        // SAFETY: pre_exec closure runs in the forked child between fork and exec.
-        // Only async-signal-safe operations should be used; setrlimit is safe here.
+        // SAFETY: pre_exec closure runs in the forked child between fork and
+        // exec. Only async-signal-safe operations should be used;
+        // setrlimit is safe here.
         unsafe {
             command.pre_exec(move || {
                 setrlimit(Resource::RLIMIT_AS, mem_limit, mem_limit)
@@ -156,8 +159,7 @@ fn which_js_runtime() -> JsRuntime {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .is_ok_and(|s| s.success())
     {
         JsRuntime::Deno
     } else {

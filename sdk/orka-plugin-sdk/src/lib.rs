@@ -200,8 +200,9 @@ macro_rules! export_plugin {
         /// error.
         #[no_mangle]
         pub extern "C" fn orka_plugin_execute(ptr: u32, len: u32) -> i64 {
-            // SAFETY: The host allocated this memory via `orka_alloc` and wrote `len` bytes
-            // starting at `ptr`. The memory is valid for the duration of this call.
+            // SAFETY: The host allocated this memory via `orka_alloc` and wrote `len`
+            // bytes starting at `ptr`. The memory is valid for the duration of this
+            // call.
             let input_bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
             let input: $crate::PluginInput = match serde_json::from_slice(input_bytes) {
                 Ok(v) => v,

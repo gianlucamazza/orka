@@ -130,7 +130,8 @@ impl ResearchService {
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
             ctx = ctx.with_progress(tx);
             // Use the service's event_sink if available, otherwise fall back to
-            // a no-op sink so forward_delegate_progress can still emit domain events.
+            // a no-op sink so forward_delegate_progress can still emit domain
+            // events.
             let event_sink: std::sync::Arc<dyn orka_core::traits::EventSink> =
                 self.event_sink.clone().map_or_else(
                     || std::sync::Arc::new(NoopEventSink) as std::sync::Arc<_>,
@@ -982,11 +983,9 @@ fn build_coding_context(campaign: &ResearchCampaign) -> String {
 }
 
 fn branch_matches_any(branch: &str, patterns: &[String]) -> bool {
-    patterns.iter().any(|pattern| {
-        glob::Pattern::new(pattern)
-            .map(|compiled| compiled.matches(branch))
-            .unwrap_or(false)
-    })
+    patterns
+        .iter()
+        .any(|pattern| glob::Pattern::new(pattern).is_ok_and(|compiled| compiled.matches(branch)))
 }
 
 fn is_candidate_better(current: Option<f64>, candidate: Option<f64>) -> bool {

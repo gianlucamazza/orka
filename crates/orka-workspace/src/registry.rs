@@ -245,8 +245,7 @@ impl WorkspaceRegistry {
         let dir = loader.root().to_path_buf();
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs());
         let archive = dir.with_file_name(format!(
             "{}.archived-{ts}",
             dir.file_name().and_then(|n| n.to_str()).unwrap_or(name)
