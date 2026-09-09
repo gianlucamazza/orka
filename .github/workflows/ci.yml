@@ -69,7 +69,7 @@ jobs:
       - name: Check formatting
         run: cargo +nightly fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets
+        run: cargo +stable clippy --workspace --all-targets
       - name: Security audit
         run: cargo audit
       - name: Dependency checks (licenses, advisories, bans)
