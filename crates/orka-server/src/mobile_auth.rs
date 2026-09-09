@@ -488,7 +488,7 @@ impl MobileAuthService for InMemoryMobileAuthService {
                 is_current: r.device_id == current_device_id,
             })
             .collect();
-        devices.sort_by(|a, b| b.last_seen_at.cmp(&a.last_seen_at));
+        devices.sort_by_key(|a| std::cmp::Reverse(a.last_seen_at));
         Ok(devices)
     }
 
@@ -917,7 +917,7 @@ return {'ok', user_id, session_id, device_name, platform, created_at}
                 id: device_id_val,
             });
         }
-        devices.sort_by(|a, b| b.last_seen_at.cmp(&a.last_seen_at));
+        devices.sort_by_key(|a| std::cmp::Reverse(a.last_seen_at));
         Ok(devices)
     }
 

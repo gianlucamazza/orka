@@ -1767,7 +1767,7 @@ async fn load_owned_conversation(
     state: &ProtectedMobileState,
     identity: &AuthIdentity,
     conversation_id: ConversationId,
-) -> Result<Conversation, axum::response::Response> {
+) -> Result<Conversation, Box<axum::response::Response>> {
     let conversation = match state.conversations.get_conversation(&conversation_id).await {
         Ok(Some(conversation)) => conversation,
         Ok(None) => {
@@ -1793,7 +1793,7 @@ async fn load_owned_artifact(
     state: &ProtectedMobileState,
     identity: &AuthIdentity,
     artifact_id: ArtifactId,
-) -> Result<ConversationArtifact, axum::response::Response> {
+) -> Result<ConversationArtifact, Box<axum::response::Response>> {
     let artifact = match state.artifacts.get_artifact(&artifact_id).await {
         Ok(Some(artifact)) => artifact,
         Ok(None) => return Err(error_response(StatusCode::NOT_FOUND, "artifact not found")),
