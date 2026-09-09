@@ -218,7 +218,7 @@ impl MemoryStore for RedisMemoryStore {
             cursor = next_cursor;
         }
 
-        entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        entries.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
         entries.truncate(limit);
         Ok(entries)
     }

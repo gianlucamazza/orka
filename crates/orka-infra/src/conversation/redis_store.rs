@@ -217,9 +217,7 @@ impl ConversationStore for RedisConversationStore {
             .map_err(|e| Error::conversation(format!("redis LRANGE error: {e}")))?;
         let replacement = serde_json::to_string(message)?;
         if let Some((index, _)) = values.iter().enumerate().find(|(_, json)| {
-            serde_json::from_str::<ConversationMessage>(json)
-                .ok()
-                .is_some_and(|item| item.id == message.id)
+            serde_json::from_str::<ConversationMessage>(json).is_ok_and(|item| item.id == message.id)
         }) {
             let _: () = conn
                 .lset(&key, index as isize, replacement)
