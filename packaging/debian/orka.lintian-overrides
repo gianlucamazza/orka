@@ -1,0 +1,4 @@
+# Rust statically links unsafe-libyaml-norway (serde_norway). This is not
+# a vendored copy of the system libyaml shared library.
+orka: embedded-library libyaml [usr/bin/orka-server]
+orka: embedded-library libyaml [usr/bin/orka]

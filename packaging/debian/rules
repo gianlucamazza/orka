@@ -19,8 +19,8 @@ override_dh_auto_test:
 override_dh_auto_install:
 	install -Dm755 target/release/orka-server debian/orka/usr/bin/orka-server
 	install -Dm755 target/release/orka debian/orka/usr/bin/orka
-	install -Dm644 deploy/orka-server.service debian/orka/lib/systemd/system/orka-server.service
-	sed -i 's|@BINDIR@|/usr/bin|' debian/orka/lib/systemd/system/orka-server.service
+	install -Dm644 deploy/orka-server.service debian/orka/usr/lib/systemd/system/orka-server.service
+	sed -i 's|@BINDIR@|/usr/bin|' debian/orka/usr/lib/systemd/system/orka-server.service
 	install -Dm644 deploy/orka-server.sysusers debian/orka/usr/lib/sysusers.d/orka-server.conf
 	install -Dm644 deploy/orka-server.tmpfiles debian/orka/usr/lib/tmpfiles.d/orka-server.conf
 	install -Dm644 orka.toml debian/orka/etc/orka/orka.toml
