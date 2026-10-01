@@ -46,8 +46,7 @@ pub(crate) fn spawn_update_check() {
 fn upgrade_hint_for_server() -> &'static str {
     let is_docker = std::path::Path::new("/.dockerenv").exists()
         || std::fs::read_to_string("/proc/1/cgroup")
-            .map(|c| c.contains("docker") || c.contains("containerd"))
-            .unwrap_or(false);
+            .is_ok_and(|c| c.contains("docker") || c.contains("containerd"));
     if is_docker {
         return "Pull the latest image and recreate the container.";
     }

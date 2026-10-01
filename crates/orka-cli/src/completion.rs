@@ -463,7 +463,7 @@ fn complete_path(
             if let Some(name) = entry.file_name().to_str()
                 && name.starts_with(&prefix)
             {
-                let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+                let is_dir = entry.file_type().is_ok_and(|ft| ft.is_dir());
                 if dirs_only && !is_dir {
                     continue;
                 }
