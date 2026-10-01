@@ -54,8 +54,8 @@ impl WorkspaceLoader {
     pub async fn load_all(&self) -> orka_core::Result<()> {
         self.load_file("SOUL.md").await;
         self.load_file("TOOLS.md").await;
-        // broadcast::send fails only when there are no active subscribers — safe to
-        // ignore.
+        // broadcast::send fails only when there are no active subscribers —
+        // safe to ignore.
         let _ = self.tx.send(WorkspaceEvent::Reloaded);
         Ok(())
     }
@@ -115,8 +115,8 @@ impl WorkspaceLoader {
             }
             other => warn!(file = %other, "unknown workspace file"),
         }
-        // broadcast::send fails only when there are no active subscribers — safe to
-        // ignore.
+        // broadcast::send fails only when there are no active subscribers —
+        // safe to ignore.
         let _ = self
             .tx
             .send(WorkspaceEvent::FileChanged(filename.to_string()));

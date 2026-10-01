@@ -434,7 +434,8 @@ mod tests {
         }
 
         // Primary CB is open; fallback should be used.
-        // `complete_with_options` with no model → uses primary + fallback chain.
+        // `complete_with_options` with no model → uses primary + fallback
+        // chain.
         let opts = CompletionOptions::default();
         let result = router.complete_with_options(vec![], "", &opts).await;
         assert!(

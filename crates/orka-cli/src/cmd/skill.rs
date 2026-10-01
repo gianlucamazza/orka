@@ -100,7 +100,7 @@ pub async fn eval(
         }
     }
 
-    println!("\n{passed}/{total} passed",);
+    println!("\n{passed}/{total} passed");
     if failed > 0 {
         std::process::exit(1);
     }

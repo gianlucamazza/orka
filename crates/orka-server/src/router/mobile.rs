@@ -1763,6 +1763,7 @@ async fn handle_stream(
     Sse::new(stream).into_response()
 }
 
+#[allow(clippy::result_large_err)]
 async fn load_owned_conversation(
     state: &ProtectedMobileState,
     identity: &AuthIdentity,
@@ -1789,6 +1790,7 @@ async fn load_owned_conversation(
     Ok(conversation)
 }
 
+#[allow(clippy::result_large_err)]
 async fn load_owned_artifact(
     state: &ProtectedMobileState,
     identity: &AuthIdentity,
@@ -1796,7 +1798,9 @@ async fn load_owned_artifact(
 ) -> Result<ConversationArtifact, axum::response::Response> {
     let artifact = match state.artifacts.get_artifact(&artifact_id).await {
         Ok(Some(artifact)) => artifact,
-        Ok(None) => return Err(error_response(StatusCode::NOT_FOUND, "artifact not found")),
+        Ok(None) => {
+            return Err(error_response(StatusCode::NOT_FOUND, "artifact not found"));
+        }
         Err(error) => return Err(internal_error(error)),
     };
 

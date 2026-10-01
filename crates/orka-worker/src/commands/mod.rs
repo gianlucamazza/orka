@@ -160,7 +160,8 @@ pub fn register_all(registry: &mut CommandRegistry, deps: CommandRegistryDeps) {
         registry.register(Arc::new(cmd));
     }
 
-    // `/help` must be registered last so its snapshot includes all other commands.
+    // `/help` must be registered last so its snapshot includes all other
+    // commands.
     let entries: Vec<(String, String, String)> = registry
         .list()
         .into_iter()

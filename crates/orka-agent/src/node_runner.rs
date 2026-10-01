@@ -1829,8 +1829,9 @@ fn handle_progressive_tool(
     // These are handled inline — no deps needed
     // Note: list_tool_categories needs deps.skills but we handle it via a
     // placeholder and let dispatch_tool_calls call it with deps available.
-    // Actually we return None for list_tool_categories to let the caller handle it.
-    // We only handle enable_tools here since it only mutates enabled_categories.
+    // Actually we return None for list_tool_categories to let the caller handle
+    // it. We only handle enable_tools here since it only mutates
+    // enabled_categories.
     if call.name == "enable_tools" {
         let cat = call
             .input
@@ -2167,7 +2168,8 @@ mod tests {
         AgentGraph::new("test-graph", agent_id.clone())
     }
 
-    // ── Unit tests: pure helpers ──────────────────────────────────────────────
+    // ── Unit tests: pure helpers
+    // ──────────────────────────────────────────────
 
     #[test]
     fn parse_handoff_sets_transfer_mode() {

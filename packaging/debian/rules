@@ -7,16 +7,20 @@ export DEB_CARGO_CRATE_INCLUDES = crates/* sdk/*
 	dh $@
 
 override_dh_auto_build:
-	cargo build --release --locked --bin orka-server --bin orka
+	# Match Fedora: skip fat LTO so the wasmtime-heavy link stays in CI RAM.
+	CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+		cargo build --release --locked --bin orka-server --bin orka
 
 override_dh_auto_test:
-	cargo test --release --locked
+	# Package builds verify the release binaries; the full workspace test
+	# suite lives in CI Check & Test (and needs git/redis/qdrant).
+	@echo "Skipping cargo test in Debian package build"
 
 override_dh_auto_install:
 	install -Dm755 target/release/orka-server debian/orka/usr/bin/orka-server
 	install -Dm755 target/release/orka debian/orka/usr/bin/orka
-	install -Dm644 deploy/orka-server.service debian/orka/lib/systemd/system/orka-server.service
-	sed -i 's|@BINDIR@|/usr/bin|' debian/orka/lib/systemd/system/orka-server.service
+	install -Dm644 deploy/orka-server.service debian/orka/usr/lib/systemd/system/orka-server.service
+	sed -i 's|@BINDIR@|/usr/bin|' debian/orka/usr/lib/systemd/system/orka-server.service
 	install -Dm644 deploy/orka-server.sysusers debian/orka/usr/lib/sysusers.d/orka-server.conf
 	install -Dm644 deploy/orka-server.tmpfiles debian/orka/usr/lib/tmpfiles.d/orka-server.conf
 	install -Dm644 orka.toml debian/orka/etc/orka/orka.toml

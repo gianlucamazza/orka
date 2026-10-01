@@ -68,7 +68,8 @@ impl ConversationStore for RedisConversationStore {
             .await
             .map_err(|e| Error::conversation(format!("redis ZADD error: {e}")))?;
 
-        // Maintain a per-workspace sorted set for efficient workspace filtering.
+        // Maintain a per-workspace sorted set for efficient workspace
+        // filtering.
         if let Some(ws) = &conversation.workspace {
             let ws_index_key = Self::user_workspace_index_key(&conversation.user_id, ws);
             let _: () = conn
@@ -217,8 +218,7 @@ impl ConversationStore for RedisConversationStore {
         let replacement = serde_json::to_string(message)?;
         if let Some((index, _)) = values.iter().enumerate().find(|(_, json)| {
             serde_json::from_str::<ConversationMessage>(json)
-                .ok()
-                .is_some_and(|item| item.id == message.id)
+                .is_ok_and(|item| item.id == message.id)
         }) {
             let _: () = conn
                 .lset(&key, index as isize, replacement)

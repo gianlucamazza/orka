@@ -368,8 +368,8 @@ pub async fn run_update() -> Result<()> {
     let current_exe = std::env::current_exe()?;
     std::fs::rename(&new_binary, &current_exe).or_else(|_| -> std::io::Result<()> {
         // Cross-filesystem fallback: copy to a sibling temp file, then rename.
-        // This avoids leaving a partially-written binary if the process is killed
-        // mid-copy (a plain fs::copy + overwrite is not atomic).
+        // This avoids leaving a partially-written binary if the process is
+        // killed mid-copy (a plain fs::copy + overwrite is not atomic).
         let tmp_exe = current_exe.with_extension("update_tmp");
         std::fs::copy(&new_binary, &tmp_exe)?;
         std::fs::rename(&tmp_exe, &current_exe).inspect_err(|_| {
@@ -405,8 +405,8 @@ mod tests {
 
     #[test]
     fn detect_docker_via_dockerenv() {
-        // Can't create /.dockerenv in tests, but we can verify the function runs
-        // without panic and returns a valid variant.
+        // Can't create /.dockerenv in tests, but we can verify the function
+        // runs without panic and returns a valid variant.
         let method = detect_install_method();
         assert!(matches!(
             method,

@@ -388,7 +388,8 @@ mod tests {
     #[test]
     fn estimate_tokens_openai_uses_tokenizer() {
         let tokens = estimate_tokens_with_hint("Hello, world!", TokenizerHint::OpenAi);
-        // cl100k_base should give a precise count (4 tokens for "Hello, world!")
+        // cl100k_base should give a precise count (4 tokens for "Hello,
+        // world!")
         assert!(tokens > 0);
         assert!(tokens < 10);
     }
@@ -511,8 +512,9 @@ mod tests {
 
     #[test]
     fn thinking_blocks_not_counted_in_token_estimate() {
-        // Thinking blocks are stripped before sending to the API, so they must not
-        // inflate the token count and cause unnecessary history truncation.
+        // Thinking blocks are stripped before sending to the API, so they must
+        // not inflate the token count and cause unnecessary history
+        // truncation.
         let msg_with_thinking = ChatMessage {
             role: Role::Assistant,
             content: ChatContent::Blocks(vec![
@@ -530,8 +532,8 @@ mod tests {
                 text: "hello".into(),
             }]),
         };
-        // Both messages should have the same token estimate: only the text block
-        // counts.
+        // Both messages should have the same token estimate: only the text
+        // block counts.
         assert_eq!(
             estimate_message_tokens(&msg_with_thinking),
             estimate_message_tokens(&msg_text_only),
@@ -553,8 +555,8 @@ mod tests {
 
     #[test]
     fn truncate_history_first_turn_protected() {
-        // When protect_first_turn is true, the first turn survives even under extreme
-        // budget pressure.
+        // When protect_first_turn is true, the first turn survives even under
+        // extreme budget pressure.
         let mut messages: Vec<ChatMessage> = (0..6)
             .map(|_| ChatMessage {
                 role: Role::User,

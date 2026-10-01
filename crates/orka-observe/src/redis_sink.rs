@@ -163,11 +163,12 @@ mod tests {
     async fn sink_flushes_on_interval_when_below_batch_size() {
         let redis = RedisService::discover().await.unwrap();
 
-        // Large batch (100), short flush interval (100ms) — interval fires before batch
-        // is full
+        // Large batch (100), short flush interval (100ms) — interval fires
+        // before batch is full
         let sink = RedisEventSink::new(redis.url(), 100, 100).unwrap();
 
-        // Emit 2 events — well below batch_size, so only the interval can flush them
+        // Emit 2 events — well below batch_size, so only the interval can flush
+        // them
         for _ in 0..2u32 {
             sink.emit(DomainEvent::new(DomainEventKind::MessageReceived {
                 message_id: MessageId::new(),

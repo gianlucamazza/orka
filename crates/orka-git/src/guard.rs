@@ -107,7 +107,8 @@ impl GitGuard {
             )));
         }
 
-        // Protected-branch check: always blocks force-push, blocks direct push too
+        // Protected-branch check: always blocks force-push, blocks direct push
+        // too
         for pattern in &self.protected_branches {
             let pat = glob::Pattern::new(pattern).map_err(|_| {
                 GitError::Policy(format!("invalid protected_branch pattern '{pattern}'"))

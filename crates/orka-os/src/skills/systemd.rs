@@ -434,7 +434,8 @@ mod tests {
         let skill = ServiceStatusSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("unit".into(), serde_json::json!("sshd.service"));
-        // Permission check passes; any failure is from the missing systemctl binary.
+        // Permission check passes; any failure is from the missing systemctl
+        // binary.
         let result = skill.execute(SkillInput::new(args)).await;
         assert!(
             result.is_ok()

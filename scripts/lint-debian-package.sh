@@ -12,7 +12,8 @@ SOURCE_DIR="${WORKDIR}/src"
 
 cleanup() {
 	if [[ "${KEEP_PACKAGING_WORKDIR:-0}" != "1" ]]; then
-		rm -rf "$WORKDIR"
+		chmod -R u+rwX "$WORKDIR" 2>/dev/null || true
+		rm -rf "$WORKDIR" 2>/dev/null || true
 	else
 		info "Preserved workdir: $WORKDIR"
 	fi
@@ -44,12 +45,18 @@ docker run --rm \
 	"$IMAGE" \
 	bash -lc '
 set -euo pipefail
+# Hand files created as root inside the container back to the host user so
+# the cleanup trap on the host can remove the workdir.
+trap "chown -R \"\$(stat -c %u:%g /work)\" /work" EXIT
 apt-get update
-apt-get install -y ca-certificates curl build-essential pkg-config libssl-dev debhelper fakeroot dh-make lintian
+apt-get install -y ca-certificates curl build-essential clang mold pkg-config libssl-dev libfontconfig1-dev debhelper fakeroot dh-make lintian
 curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain "$REQUIRED_RUST"
 . "$HOME/.cargo/env"
 cp -r packaging/debian debian
-RUSTC_WRAPPER= dpkg-buildpackage -us -uc -b
+# -d: the Rust toolchain comes from rustup, not apt, so the cargo/rustc
+# build dependencies in debian/control cannot be satisfied by dpkg.
+# Unset RUSTFLAGS to avoid mold linker requirement from .cargo/config.toml
+RUSTC_WRAPPER= RUSTFLAGS= dpkg-buildpackage -us -uc -b -d
 lintian --fail-on error --display-info /work/*.changes
 '
 

@@ -248,8 +248,8 @@ async fn handle_ws_connection(
     let (mut ws_sink, mut ws_stream) = socket.split();
 
     // Forward stream chunks, final outbound messages, and periodic pings to the
-    // WebSocket. The ping keeps the connection alive through proxies/NAT gateways
-    // that close idle connections (most default to 30–60 s).
+    // WebSocket. The ping keeps the connection alive through proxies/NAT
+    // gateways that close idle connections (most default to 30–60 s).
     let send_task = tokio::spawn(async move {
         let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(25));
         ping_interval.tick().await; // skip immediate tick

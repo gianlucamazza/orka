@@ -16,14 +16,21 @@ Requires:       redis
 Recommends:     qdrant
 
 %description
-Orka is a Rust-based AI agent orchestration platform with queueing,
-multi-channel adapters, workspace prompts, skills, and observability.
+Orka is a Rust-based AI agent orchestration platform with queuing,
+multi-channel adapters, workspace prompts, skills, and telemetry.
 
 %prep
 %autosetup -n %{name}-%{version}
 
 %build
-cargo build --release --locked --bin orka-server --bin orka
+# Fat LTO + codegen-units=1 OOMs GitHub Actions Fedora containers
+# (SIGKILL / exit 143). Packaging lint does not need production LTO.
+export CARGO_PROFILE_RELEASE_LTO=false
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+export CARGO_BUILD_JOBS=2
+export CARGO_INCREMENTAL=0
+cargo build --release --locked --bin orka-server
+cargo build --release --locked --bin orka
 
 %install
 install -Dm755 target/release/orka-server %{buildroot}%{_bindir}/orka-server

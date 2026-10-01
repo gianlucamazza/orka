@@ -84,7 +84,8 @@ fn deserialize_telegram_response() {
         ]
     }"#;
 
-    // We can at least validate that the JSON shape is correct by parsing as Value
+    // We can at least validate that the JSON shape is correct by parsing as
+    // Value
     let v: serde_json::Value = serde_json::from_str(json).unwrap();
     assert!(v["ok"].as_bool().unwrap());
     let updates = v["result"].as_array().unwrap();

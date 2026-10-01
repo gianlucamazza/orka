@@ -386,8 +386,8 @@ impl Skill for PackageUpdatesSkill {
 
         let filter = input.args.get("filter").and_then(|v| v.as_str());
 
-        // Use the pre-probed method if available, otherwise fall back to runtime
-        // detection
+        // Use the pre-probed method if available, otherwise fall back to
+        // runtime detection
         let effective_method = self.method.or_else(|| {
             let pm = detect_package_manager()?;
             Some(match pm {
@@ -441,7 +441,8 @@ impl Skill for PackageUpdatesSkill {
             }
         };
 
-        // Map method_str back to the PackageManager for exit code interpretation
+        // Map method_str back to the PackageManager for exit code
+        // interpretation
         let pm = match effective_method {
             crate::probe::PackageUpdateMethod::CheckUpdates
             | crate::probe::PackageUpdateMethod::PacmanQu => PackageManager::Pacman,
@@ -650,8 +651,8 @@ mod tests {
         let skill = PackageSearchSkill::new(guard);
         let mut args = std::collections::HashMap::new();
         args.insert("query".into(), serde_json::json!("test"));
-        // Permission check passes; any error here is from the missing package manager
-        // binary.
+        // Permission check passes; any error here is from the missing package
+        // manager binary.
         let result = skill.execute(SkillInput::new(args)).await;
         assert!(
             result.is_ok()

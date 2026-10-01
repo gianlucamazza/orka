@@ -308,8 +308,8 @@ mod tests {
         args2.insert("query".into(), serde_json::json!("test"));
         args2.insert("include_content".into(), serde_json::json!(false));
         let input2 = SkillInput::new(args2);
-        // This should succeed (hits provider, not cache) — verifies different cache
-        // keys
+        // This should succeed (hits provider, not cache) — verifies different
+        // cache keys
         let output = skill.execute(input2).await.unwrap();
         assert_eq!(output.data.as_array().unwrap().len(), 1);
     }

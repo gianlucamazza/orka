@@ -39,9 +39,10 @@ impl WorkspaceHandler {
                 continue;
             }
 
-            // Tool input guardrail: check serialized args before executing the skill.
-            // Blocked calls are returned to the LLM as an error result (no execution).
-            // Modified args replace the original input for the spawned task.
+            // Tool input guardrail: check serialized args before executing the
+            // skill. Blocked calls are returned to the LLM as an
+            // error result (no execution). Modified args replace
+            // the original input for the spawned task.
             let mut call_input_override: Option<serde_json::Value> = None;
             if let Some(ref guardrail) = self.guardrail {
                 let input_json = call.input.to_string();
@@ -218,7 +219,8 @@ impl WorkspaceHandler {
             }
         }
 
-        // Build result blocks in original order, merging built-in and skill results
+        // Build result blocks in original order, merging built-in and skill
+        // results
         let mut blocks = Vec::with_capacity(tool_calls.len());
         let mut categories = Vec::with_capacity(tool_calls.len());
         for (idx, call) in tool_calls.iter().enumerate() {

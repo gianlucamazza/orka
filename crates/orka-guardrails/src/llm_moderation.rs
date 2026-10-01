@@ -295,8 +295,8 @@ mod tests {
 
     #[async_trait::async_trait]
     impl LlmClient for MockLlm {
-        // complete() is the only required method; all others have default impls in the
-        // trait.
+        // complete() is the only required method; all others have default impls
+        // in the trait.
         async fn complete(&self, _messages: Vec<ChatMessage>, _system: &str) -> Result<String> {
             Ok(self.response.clone())
         }

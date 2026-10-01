@@ -482,8 +482,8 @@ impl LlmClient for AnthropicClient {
         Self::apply_thinking_to_body(&mut body, thinking.as_ref(), options.temperature);
 
         // Structured output support (not all providers support this)
-        // Anthropic doesn't have native response_format, but we can add it to system
-        // prompt
+        // Anthropic doesn't have native response_format, but we can add it to
+        // system prompt
         if let Some(ref format) = options.response_format {
             match format {
                 crate::client::ResponseFormat::Json => {
@@ -733,7 +733,8 @@ impl LlmClient for AnthropicClient {
                                     }
                                 }
                                 "content_block_stop" => {
-                                    // If we were accumulating tool input, emit ToolUseEnd
+                                    // If we were accumulating tool input, emit
+                                    // ToolUseEnd
                                     if let Some(id) = state.active_tool_id.take() {
                                         let input: serde_json::Value =
                                             serde_json::from_str(&state.tool_input_buffer)

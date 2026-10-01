@@ -186,8 +186,8 @@ impl DoctorCheck for CfgNoDeprecated {
             return CheckOutcome::skip("config file not readable");
         };
 
-        // Look for inline api_key values that look like actual keys (not empty, not a
-        // path)
+        // Look for inline api_key values that look like actual keys (not empty,
+        // not a path)
         let mut issues = Vec::new();
         if let Ok(doc) = raw.parse::<toml_edit::DocumentMut>() {
             scan_inline_keys(&doc, &mut issues);

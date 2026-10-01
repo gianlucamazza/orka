@@ -19,5 +19,5 @@ Depends:
 Recommends:
  redis-server
 Description: AI agent orchestration server and CLI
- Orka is a Rust-based AI agent orchestration platform with queueing,
- multi-channel adapters, workspace prompts, skills, and observability.
+ Orka is a Rust-based AI agent orchestration platform with queuing,
+ multi-channel adapters, workspace prompts, skills, and telemetry.

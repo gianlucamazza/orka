@@ -715,7 +715,8 @@ mod tests {
     #[test]
     fn tool_result_serde_round_trip_success() {
         // is_error=false is skip_serializing, so the field is absent in JSON.
-        // Without #[serde(default)] this would fail to deserialize — regression guard.
+        // Without #[serde(default)] this would fail to deserialize — regression
+        // guard.
         let msg = ChatMessage::new(
             Role::User,
             ChatContent::Blocks(vec![ContentBlockInput::ToolResult {

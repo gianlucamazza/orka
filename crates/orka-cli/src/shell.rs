@@ -252,7 +252,8 @@ pub fn handle_builtin(
             };
             match target.canonicalize() {
                 Ok(real) if real.is_dir() => {
-                    // Set PWD explicitly so child processes inherit the correct value
+                    // Set PWD explicitly so child processes inherit the correct
+                    // value
                     env_overrides.insert("PWD".to_string(), real.to_string_lossy().into_owned());
                     *cwd = real;
                     String::new()
@@ -267,7 +268,8 @@ pub fn handle_builtin(
         }
         Builtin::Unset(k) => {
             env_overrides.remove(k);
-            // Track the unset so execute_shell can pass env_remove to child processes
+            // Track the unset so execute_shell can pass env_remove to child
+            // processes
             env_removes.insert(k.clone());
             String::new()
         }

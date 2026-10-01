@@ -211,7 +211,8 @@ pub(crate) async fn start_all_adapters(
                         warn!("slack bot token is empty, adapter disabled");
                         return None;
                     }
-                    // Optionally load the signing secret for webhook authentication.
+                    // Optionally load the signing secret for webhook
+                    // authentication.
                     let signing_secret = if let Some(ref path) = slack_config.signing_secret_path {
                         match secrets.get_secret(path).await {
                             Ok(s) => {
@@ -276,7 +277,8 @@ pub(crate) async fn start_all_adapters(
                         );
                         return None;
                     }
-                    // Optionally load the app secret for webhook HMAC verification.
+                    // Optionally load the app secret for webhook HMAC
+                    // verification.
                     let app_secret = if let Some(ref path) = wa_config.app_secret_path {
                         match secrets.get_secret(path).await {
                             Ok(s) => {

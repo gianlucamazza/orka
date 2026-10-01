@@ -103,7 +103,8 @@ mod tests {
 
     #[tokio::test]
     async fn composite_returns_last_error_not_first() {
-        // Both fail, but with different errors. Composite should return the last one.
+        // Both fail, but with different errors. Composite should return the
+        // last one.
         let a1 = InMemoryAuthenticator::new(); // returns "invalid API key"
         let a2 = InMemoryAuthenticator::new(); // also returns "invalid API key"
         let composite = CompositeAuthenticator::new(vec![Arc::new(a1), Arc::new(a2)]);

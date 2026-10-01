@@ -4,7 +4,8 @@ use crate::client::{OrkaClient, Result};
 
 pub async fn run(client: &OrkaClient, short: bool) -> Result<()> {
     if short {
-        // Minimal output + exit code 1 if not healthy/ready (for scripting/probes)
+        // Minimal output + exit code 1 if not healthy/ready (for
+        // scripting/probes)
         match client.get_json("/health").await {
             Ok(body) => {
                 let status = body
@@ -80,7 +81,8 @@ pub async fn run(client: &OrkaClient, short: bool) -> Result<()> {
         if let Some(checks) = body.get("checks").and_then(|v| v.as_object()) {
             println!("{}:", "Checks".bold());
             for (name, value) in checks {
-                // Values can be a plain string ("ok") or an object {"status":"ok","depth":0}
+                // Values can be a plain string ("ok") or an object
+                // {"status":"ok","depth":0}
                 let status = value
                     .as_str()
                     .or_else(|| value.get("status").and_then(serde_json::Value::as_str))

@@ -240,9 +240,7 @@ fn find_workspace_root() -> Option<PathBuf> {
     loop {
         let manifest = dir.join("Cargo.toml");
         if manifest.exists()
-            && fs::read_to_string(&manifest)
-                .ok()
-                .is_some_and(|raw| raw.contains("[workspace]"))
+            && fs::read_to_string(&manifest).is_ok_and(|raw| raw.contains("[workspace]"))
         {
             return Some(dir);
         }

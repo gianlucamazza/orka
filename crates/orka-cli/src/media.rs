@@ -67,7 +67,8 @@ pub fn render_media(
             None // rendered inline — no fallback file needed
         }
         Err(_) => {
-            // viuer failed (e.g. piped stdout, dumb terminal) — save file instead.
+            // viuer failed (e.g. piped stdout, dumb terminal) — save file
+            // instead.
             save_fallback(&bytes, mime_type, label)
         }
     }

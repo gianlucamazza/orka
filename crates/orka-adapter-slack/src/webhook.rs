@@ -36,8 +36,7 @@ pub(crate) fn verify_slack_signature(
     if let Ok(ts_secs) = timestamp.parse::<i64>() {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs() as i64);
         if (now - ts_secs).abs() > 300 {
             warn!("Slack webhook: request timestamp too old (possible replay attack)");
             return false;

@@ -50,8 +50,9 @@ impl ArtifactStore for RedisArtifactStore {
         let id_str = artifact.id.to_string();
 
         if let Some(conv_id) = artifact.conversation_id {
-            // Already attached to a conversation (e.g. AssistantOutput) — persist forever
-            // and register in the per-conversation index.
+            // Already attached to a conversation (e.g. AssistantOutput) —
+            // persist forever and register in the per-conversation
+            // index.
             let conv_key = Self::conv_index_key(&conv_id);
             redis::pipe()
                 .atomic()
@@ -65,7 +66,8 @@ impl ArtifactStore for RedisArtifactStore {
                 .await
                 .map_err(|e| Error::artifact(format!("redis pipeline error: {e}")))?;
         } else {
-            // Orphan upload — set TTL so unclaimed uploads do not accumulate forever.
+            // Orphan upload — set TTL so unclaimed uploads do not accumulate
+            // forever.
             redis::pipe()
                 .atomic()
                 .set_ex(&meta_key, &metadata, ORPHAN_ARTIFACT_TTL_SECS)
@@ -89,8 +91,9 @@ impl ArtifactStore for RedisArtifactStore {
         let metadata = serde_json::to_string(artifact)?;
 
         if let Some(conv_id) = artifact.conversation_id {
-            // Artifact is being attached to (or already lives in) a conversation:
-            // persist both keys forever and register in the conversation index.
+            // Artifact is being attached to (or already lives in) a
+            // conversation: persist both keys forever and register
+            // in the conversation index.
             let conv_key = Self::conv_index_key(&conv_id);
             let id_str = artifact.id.to_string();
             redis::pipe()
@@ -105,8 +108,9 @@ impl ArtifactStore for RedisArtifactStore {
                 .await
                 .map_err(|e| Error::artifact(format!("redis pipeline error: {e}")))?;
         } else {
-            // Still orphaned: overwrite metadata and refresh the TTL on both keys
-            // so the expiry window resets from the time of the last update.
+            // Still orphaned: overwrite metadata and refresh the TTL on both
+            // keys so the expiry window resets from the time of the
+            // last update.
             redis::pipe()
                 .atomic()
                 .set_ex(&meta_key, &metadata, ORPHAN_ARTIFACT_TTL_SECS)

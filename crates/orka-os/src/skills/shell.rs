@@ -96,9 +96,9 @@ impl Skill for ShellExecSkill {
             .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
 
-        // When the LLM packs command+args into a single string (e.g. "df -h /"),
-        // split it with POSIX shell quoting rules so Command::new gets the right
-        // binary.
+        // When the LLM packs command+args into a single string (e.g. "df -h
+        // /"), split it with POSIX shell quoting rules so Command::new
+        // gets the right binary.
         let (command_owned, args_owned) = if explicit_args.is_empty() && raw_command.contains(' ') {
             let mut parts =
                 shell_words::split(raw_command).map_err(|e| Error::SkillCategorized {

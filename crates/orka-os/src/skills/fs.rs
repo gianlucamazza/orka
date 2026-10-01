@@ -284,9 +284,7 @@ async fn list_dir(
         }
 
         if let Some(pat) = pattern
-            && !glob::Pattern::new(pat)
-                .map(|p| p.matches(&name))
-                .unwrap_or(true)
+            && !glob::Pattern::new(pat).map_or(true, |p| p.matches(&name))
         {
             continue;
         }
@@ -933,7 +931,8 @@ impl Skill for FsWatchSkill {
         let mut watcher = notify::recommended_watcher(
             move |res: std::result::Result<notify::Event, notify::Error>| {
                 if let Ok(event) = res {
-                    // Receiver dropped means the watcher is shutting down — safe to ignore.
+                    // Receiver dropped means the watcher is shutting down —
+                    // safe to ignore.
                     let _ = tx.blocking_send(event);
                 }
             },

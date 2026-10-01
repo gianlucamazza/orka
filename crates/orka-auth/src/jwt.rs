@@ -86,8 +86,8 @@ impl Authenticator for JwtAuthenticator {
 
         let principal = claims.sub.unwrap_or_else(|| "anonymous".into());
 
-        // Extract scopes from either `scope` (space-separated string) or `scopes`
-        // (array)
+        // Extract scopes from either `scope` (space-separated string) or
+        // `scopes` (array)
         let scopes = if let Some(scope_str) = claims.scope {
             scope_str
                 .split_whitespace()

@@ -59,7 +59,8 @@ impl ServerCommand for SkillsCommand {
             if infos.is_empty() {
                 "No skills registered.".to_string()
             } else {
-                // Skills with open circuit breakers are excluded from list_available().
+                // Skills with open circuit breakers are excluded from
+                // list_available().
                 let available_set: HashSet<&str> =
                     self.skills.list_available().into_iter().collect();
 

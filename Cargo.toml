@@ -143,7 +143,7 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 # Config
 config = "0.14"
-serde_yml = "0.0.12"
+serde_norway = "0.9"
 dotenvy = "0.15"
 
 # Concurrency

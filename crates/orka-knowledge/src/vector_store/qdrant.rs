@@ -83,8 +83,9 @@ impl VectorStore for QdrantStore {
         })?;
 
         if exists {
-            // Validate that the existing collection dimensions match the requested ones.
-            // A mismatch occurs when the embedding provider or dimension config changes
+            // Validate that the existing collection dimensions match the
+            // requested ones. A mismatch occurs when the embedding
+            // provider or dimension config changes
             // after a collection has already been created.
             let info = client.collection_info(name).await.map_err(|e| {
                 orka_core::Error::Knowledge(format!(
@@ -112,7 +113,8 @@ impl VectorStore for QdrantStore {
                 if existing == dimensions {
                     return Ok(());
                 }
-                // Dimension mismatch — check point count to decide if we can safely recreate.
+                // Dimension mismatch — check point count to decide if we can
+                // safely recreate.
                 if point_count == 0 {
                     tracing::warn!(
                         collection = name,

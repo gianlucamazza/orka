@@ -300,7 +300,7 @@ pub trait ConversationStore: Send + Sync + 'static {
             }
         }
 
-        hits.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        hits.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         let total = hits.len();
         let page = hits.into_iter().skip(offset).take(limit).collect();
         Ok((page, total))

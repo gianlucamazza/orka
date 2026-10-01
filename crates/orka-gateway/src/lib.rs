@@ -117,8 +117,8 @@ impl Gateway {
             }
         };
         let key = format!("{DEDUP_KEY_PREFIX}{message_id}");
-        // SET NX EX - returns true if key was set (not duplicate), false if already
-        // exists
+        // SET NX EX - returns true if key was set (not duplicate), false if
+        // already exists
         let result: redis::RedisResult<bool> = redis::cmd("SET")
             .arg(&key)
             .arg("1")
@@ -239,8 +239,9 @@ impl Gateway {
             return Ok(());
         }
 
-        // Trust validation: messaging adapters must not claim UserAuthenticated.
-        // Only the mobile product surface authenticates users via JWT.
+        // Trust validation: messaging adapters must not claim
+        // UserAuthenticated. Only the mobile product surface
+        // authenticates users via JWT.
         if envelope
             .platform_context
             .as_ref()
@@ -589,7 +590,8 @@ mod tests {
         // rate_limit=100 so process() doesn't drop the trigger message
         let (gw, _, _, _) = test_gateway(100);
 
-        // Pre-populate rate_counters with 10_001 stale entries (window_start 300s ago)
+        // Pre-populate rate_counters with 10_001 stale entries (window_start
+        // 300s ago)
         let stale_time = Utc::now() - chrono::Duration::seconds(300);
         {
             let mut counters = gw.rate_counters.lock().await;
@@ -600,13 +602,14 @@ mod tests {
             counters.insert("fresh-session".to_string(), (1, Utc::now()));
         }
 
-        // process() calls check_rate_limit() which triggers cleanup when len > 10_000
+        // process() calls check_rate_limit() which triggers cleanup when len >
+        // 10_000
         let trigger_env = Envelope::text("ch", SessionId::new(), "trigger");
         gw.process(trigger_env).await.unwrap();
 
         let counters = gw.rate_counters.lock().await;
-        // All 10_001 stale entries should be pruned; fresh-session + the trigger
-        // session remain
+        // All 10_001 stale entries should be pruned; fresh-session + the
+        // trigger session remain
         assert!(
             counters.len() <= 5,
             "expected stale entries pruned, got {} entries",

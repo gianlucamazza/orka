@@ -198,7 +198,8 @@ mod tests {
     fn read_only_skill_count() {
         let config = config_with_level(PermissionLevel::ReadOnly);
         let skills = create_os_skills(&config, None).unwrap();
-        // 11 base + 4 package read skills + 0–3 systemd read skills (feature-gated)
+        // 11 base + 4 package read skills + 0–3 systemd read skills
+        // (feature-gated)
         let count = skills.len();
         assert!(
             count >= 15,

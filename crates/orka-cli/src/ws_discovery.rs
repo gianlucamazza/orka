@@ -101,9 +101,10 @@ mod tests {
 
     #[test]
     fn home_boundary_uses_starts_with_not_lexicographic() {
-        // A sibling dir like /home/user2 must NOT stop the walk when home is /home/user
-        // Under the old `d < h` comparison, `/home/user2` < `/home/user`
-        // (lexicographic) was wrong — starts_with gives the correct answer.
+        // A sibling dir like /home/user2 must NOT stop the walk when home is
+        // /home/user Under the old `d < h` comparison, `/home/user2` <
+        // `/home/user` (lexicographic) was wrong — starts_with gives
+        // the correct answer.
         let home = std::path::PathBuf::from("/home/user");
         let sibling = std::path::PathBuf::from("/home/user2/project");
         // sibling does NOT start with home → the walker should NOT break

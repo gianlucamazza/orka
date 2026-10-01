@@ -110,23 +110,13 @@ pub(crate) fn md_to_telegram_html(input: &str) -> String {
                 out.push_str("</s>");
             }
 
-            Event::Start(Tag::Link {
-                dest_url,
-                title: _,
-                id: _,
-                ..
-            }) => {
+            Event::Start(Tag::Link { dest_url, .. }) => {
                 out.push_str("<a href=\"");
                 out.push_str(&escape_html(&dest_url));
                 out.push_str("\">");
                 tag_stack.push("a");
             }
-            Event::Start(Tag::Image {
-                dest_url,
-                title: _,
-                id: _,
-                ..
-            }) => {
+            Event::Start(Tag::Image { dest_url, .. }) => {
                 // Render images as links with alt text
                 out.push_str("<a href=\"");
                 out.push_str(&escape_html(&dest_url));
@@ -235,7 +225,8 @@ pub(crate) fn split_html(html: &str, max_len: usize) -> Vec<String> {
             .rev()
             .map(|t| close_tag(t))
             .collect::<String>();
-        // Only append closing if there are actually open tags (avoids trailing noise)
+        // Only append closing if there are actually open tags (avoids trailing
+        // noise)
         if closing.is_empty() {
             chunks.push(current);
         } else {

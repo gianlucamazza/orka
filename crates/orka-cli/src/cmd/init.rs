@@ -69,7 +69,8 @@ pub async fn run(args: InitArgs) -> Result<()> {
         }
     }
 
-    // ── Phase 1: Bootstrap ────────────────────────────────────────────────────
+    // ── Phase 1: Bootstrap
+    // ────────────────────────────────────────────────────
 
     let (client, provider_info) = phase1_bootstrap(&args)?;
 
@@ -77,7 +78,8 @@ pub async fn run(args: InitArgs) -> Result<()> {
         return write_minimal_config(&output_path, &provider_info);
     }
 
-    // ── Phase 2: LLM-driven wizard ────────────────────────────────────────────
+    // ── Phase 2: LLM-driven wizard
+    // ────────────────────────────────────────────
 
     let secrets_path = orka_infra::default_secrets_file_path();
     let secrets = create_file_secret_manager(&secrets_path)?;

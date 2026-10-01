@@ -82,10 +82,10 @@ impl CheckpointStore for RedisCheckpointStore {
         let ckpt_k = ckpt_key(&checkpoint.run_id, &checkpoint.id);
         let id_str = checkpoint.id.to_string();
 
-        // Atomic pipeline: write checkpoint data + idempotent list append + set TTLs.
-        // LREM removes any previous occurrence of this ID before re-appending so
-        // that re-saving the same checkpoint (e.g. on retry) does not create
-        // duplicates in the list.
+        // Atomic pipeline: write checkpoint data + idempotent list append + set
+        // TTLs. LREM removes any previous occurrence of this ID before
+        // re-appending so that re-saving the same checkpoint (e.g. on
+        // retry) does not create duplicates in the list.
         let mut pipe = redis::pipe();
         let pipe = pipe
             .atomic()
