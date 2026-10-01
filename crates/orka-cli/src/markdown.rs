@@ -484,12 +484,10 @@ impl MarkdownRenderer {
                         buf.push(' ');
                     }
                 }
-                Event::HardBreak => {
-                    if !buf.trim().is_empty() {
-                        let prefix = bq_prefix(blockquote_depth, no_color);
-                        let _ = writeln!(out, "{prefix}{buf}");
-                        buf.clear();
-                    }
+                Event::HardBreak if !buf.trim().is_empty() => {
+                    let prefix = bq_prefix(blockquote_depth, no_color);
+                    let _ = writeln!(out, "{prefix}{buf}");
+                    buf.clear();
                 }
 
                 // Code blocks within prose are handled by split_blocks /

@@ -309,8 +309,7 @@ async fn path_exists_elevated(path: &str) -> bool {
         .stderr(Stdio::null())
         .status()
         .await
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .is_ok_and(|s| s.success())
 }
 
 #[cfg(test)]

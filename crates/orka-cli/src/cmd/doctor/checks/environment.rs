@@ -134,8 +134,7 @@ impl DoctorCheck for EnvOsCapabilities {
                     .stderr(Stdio::null())
                     .status()
                     .await
-                    .map(|s| s.success())
-                    .unwrap_or(false);
+                    .is_ok_and(|s| s.success());
                 (cmd, available)
             });
         }
