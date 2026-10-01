@@ -15,7 +15,7 @@ async-trait.workspace = true
 tracing.workspace = true
 serde_json.workspace = true
 serde = { workspace = true }
-serde_yml.workspace = true
+serde_norway.workspace = true
 orka-wasm = { workspace = true, optional = true }
 tokio.workspace = true
 jsonschema.workspace = true

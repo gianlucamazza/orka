@@ -79,7 +79,7 @@ fn parse_frontmatter(content: &str) -> Result<(SoftSkillMeta, String)> {
     let yaml = &rest[..end];
     let body = &rest[end + 4..]; // skip \n---
 
-    let meta: SoftSkillMeta = serde_yml::from_str(yaml)
+    let meta: SoftSkillMeta = serde_norway::from_str(yaml)
         .map_err(|e| Error::Config(format!("invalid SKILL.md frontmatter: {e}")))?;
 
     Ok((meta, body.to_string()))

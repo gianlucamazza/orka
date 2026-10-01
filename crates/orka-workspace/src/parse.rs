@@ -33,7 +33,7 @@ pub fn parse_document<T: DeserializeOwned>(raw: &str) -> Result<Document<T>, ork
     let rest = &after_open[closing_pos + 4..]; // skip "\n---"
     let body = rest.strip_prefix('\n').unwrap_or(rest).to_string();
 
-    let frontmatter: T = serde_yml::from_str(yaml_str)
+    let frontmatter: T = serde_norway::from_str(yaml_str)
         .map_err(|e| orka_core::Error::Workspace(format!("failed to parse frontmatter: {e}")))?;
 
     Ok(Document { frontmatter, body })
@@ -41,7 +41,7 @@ pub fn parse_document<T: DeserializeOwned>(raw: &str) -> Result<Document<T>, ork
 
 /// Serialize a [`Document`] back into the `---` frontmatter + body format.
 pub fn serialize_document<T: Serialize>(doc: &Document<T>) -> Result<String, orka_core::Error> {
-    let yaml = serde_yml::to_string(&doc.frontmatter).map_err(|e| {
+    let yaml = serde_norway::to_string(&doc.frontmatter).map_err(|e| {
         orka_core::Error::Workspace(format!("failed to serialize frontmatter: {e}"))
     })?;
     Ok(format!("---\n{yaml}---\n{}", doc.body))
