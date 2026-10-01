@@ -159,8 +159,12 @@ jobs:
         env:
           REDIS_URL: redis://127.0.0.1:6379
           QDRANT_URL: http://localhost:6334
+      # llvm-cov above is the required coverage step. Tokenless Codecov
+      # uploads are rejected; CODECOV_TOKEN is not set on this repo.
       - name: Upload to Codecov
+        if: ${{ secrets.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v5
         with:
           files: codecov.json
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true

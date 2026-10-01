@@ -68,6 +68,10 @@ cp /work/orka-${VERSION}.tar.gz /work/rpmbuild/SOURCES/
 cp /work/src/packaging/fedora/orka.spec /work/rpmbuild/SPECS/orka.spec
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=gcc \
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS= \
+CARGO_PROFILE_RELEASE_LTO=false \
+CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+CARGO_BUILD_JOBS=2 \
+CARGO_INCREMENTAL=0 \
 RUSTFLAGS= \
 RUSTC_WRAPPER= \
 rpmbuild -ba --define '_topdir /work/rpmbuild' --define \"pkg_version ${VERSION}\" /work/rpmbuild/SPECS/orka.spec
