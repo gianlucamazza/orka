@@ -1799,19 +1799,13 @@ async fn load_owned_artifact(
     let artifact = match state.artifacts.get_artifact(&artifact_id).await {
         Ok(Some(artifact)) => artifact,
         Ok(None) => {
-            return Err(error_response(
-                StatusCode::NOT_FOUND,
-                "artifact not found",
-            ));
+            return Err(error_response(StatusCode::NOT_FOUND, "artifact not found"));
         }
         Err(error) => return Err(internal_error(error)),
     };
 
     if artifact.owner_user_id != identity.principal {
-        return Err(error_response(
-            StatusCode::NOT_FOUND,
-            "artifact not found",
-        ));
+        return Err(error_response(StatusCode::NOT_FOUND, "artifact not found"));
     }
 
     Ok(artifact)
