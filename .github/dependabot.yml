@@ -7,6 +7,19 @@ updates:
       interval: weekly
       day: monday
     groups:
+      # Security updates are not grouped by default, so a single crate from a
+      # tightly coupled stack can be bumped alone and break the build
+      # (e.g. opentelemetry_sdk without opentelemetry/opentelemetry-otlp).
+      opentelemetry-security:
+        applies-to: security-updates
+        patterns:
+          - "opentelemetry*"
+          - "tracing-opentelemetry"
+      wasmtime-security:
+        applies-to: security-updates
+        patterns:
+          - "wasmtime*"
+          - "wasi-common"
       rust-dependencies:
         patterns:
           - "*"
