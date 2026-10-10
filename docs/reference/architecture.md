@@ -67,17 +67,18 @@ directly via the API.
 
 ### Experience System (orka-experience)
 
-Three-phase self-learning loop:
+Optional three-phase loop (`experience.enabled` defaults to `false`):
 
-1. **Trajectory recording** — after each task, the full interaction (messages,
-   tool calls, outcomes) is serialized and stored.
-2. **Online reflection** — immediately after task completion, an LLM call
-   analyzes the trajectory and produces or updates _principles_ (heuristics
+1. **Trajectory recording** — when enabled, after each task a trajectory
+   (messages, tool calls, outcomes) is stored in a Qdrant collection.
+2. **Online reflection** — immediately after selected tasks, an LLM call
+   analyzes the trajectory and may persist _principles_ (heuristics
    about what worked and what didn't).
-3. **Offline distillation** — a background job synthesizes patterns across
-   many trajectories to produce higher-quality, cross-task principles.
+3. **Offline distillation** — a background job (or a manual CLI/API trigger)
+   synthesizes patterns across a batch of trajectories into additional
+   principles.
 
-Principles are injected into the system prompt alongside memory.
+Relevant principles can be retrieved into the system prompt alongside memory.
 
 ### Scheduler (orka-scheduler)
 

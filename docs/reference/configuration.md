@@ -555,7 +555,7 @@ Each job supports `name`, `schedule`, `command`, `workspace`, and `enabled`.
 
 | Key | Type | Notes |
 | --- | --- | --- |
-| `enabled` | `bool` | Enable self-learning |
+| `enabled` | `bool` | Enable the experience loop (default `false`) |
 | `max_principles` | `usize` | Max injected learned principles |
 | `min_relevance_score` | `f32` | Principle relevance cutoff |
 | `reflect_on` | `string` | `failures`, `all`, or `sampled` |

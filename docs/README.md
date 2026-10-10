@@ -29,7 +29,7 @@ internal snapshots, and repo companion docs are listed separately on purpose.
 ### Guides
 *   **[Prompt Architecture (Agents)](guides/agents.md)**: Guide to the template-based prompt pipeline, overriding built-ins, and `SOUL.md`.
 *   **[Mobile Client Guide](guides/mobile-client.md)**: Product-facing mobile API, auth model, and streaming contract.
-*   **[Experience System](guides/experience-system.md)**: The continuous self-learning loop (reflection and distillation pipelines).
+*   **[Experience System](guides/experience-system.md)**: Optional trajectory recording, reflection, and distillation (off by default).
 *   **[Skill Development Guide](guides/skill-development.md)**: Writing built-in Rust skills, WASM plugins, and markdown-based Soft skills (`SKILL.md`).
 *   **[WASM Plugin Tutorial](guides/tutorials/build-a-wasm-plugin.md)**: Step-by-step guide to writing WebAssembly modules for Orka.
 *   **[Evaluation Framework](guides/eval-guide.md)**: How to write and run `.eval.toml` integration tests for skills using `orka-eval`.

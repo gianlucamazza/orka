@@ -30,8 +30,8 @@ Services started:
 | qdrant      | 6334         | Internal only (gRPC)    |
 | orka-server | 8080, 8081   | Health + custom adapter |
 
-The Compose file uses `cargo-chef` for layer caching; rebuild time after code
-changes is typically < 30 s.
+The Compose file uses `cargo-chef` for layer caching. Rebuild time depends on
+cache, hardware, and which crates changed.
 
 ---
 
@@ -176,7 +176,7 @@ Best practice for distro-native packages:
 | `ANTHROPIC_API_KEY`          | if using Claude  | Anthropic provider fallback                       |
 | `MOONSHOT_API_KEY`           | if using Moonshot | Moonshot provider fallback                       |
 | `OPENAI_API_KEY`             | if using OpenAI  | OpenAI provider fallback                          |
-| `ORKA_API_KEY`               | recommended      | API key for authenticated requests                |
+| `ORKA_API_KEY`               | CLI only         | CLI client key for the management API             |
 
 Generate a secure encryption key:
 
@@ -311,10 +311,11 @@ Prometheus metrics, active sessions, and DLQ depth. Press `r` to force-refresh,
 | ------------ | --------- | ------- | ---------------------------- |
 | Dev / hobby  | 256 MB    | 2       | In-memory fallback works too |
 | Small team   | 512 MB    | 4       | Default config               |
-| Production   | 2 GB+     | 8–16    | Tune `worker.concurrency`    |
+| Heavier load | 2 GB+     | 8–16    | Tune `worker.concurrency`    |
 
 LLM latency dominates: workers spend most of their time waiting on the LLM API.
-Increase `worker.concurrency` freely — each worker consumes < 10 MB of RAM.
+Increase `worker.concurrency` based on measured RSS under your skills and
+provider latency; do not treat worker count as free.
 
 ---
 

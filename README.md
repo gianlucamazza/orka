@@ -5,9 +5,13 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE-APACHE)
 [![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
 
-A self-learning AI agent orchestration platform built in Rust.
+**What it is.** A self-hosted Rust runtime that accepts chat and HTTP messages, assigns them a queue priority, and runs them through bounded LLM agent workflows.
 
-Orka routes messages from Telegram, Discord, Slack, WhatsApp, and HTTP through a priority queue to LLM-powered agents. Agents execute tools, build knowledge via RAG, learn from experience, and coordinate through multi-agent graphs — extensible with WASM plugins and MCP/A2A protocols.
+**Who it's for.** Teams routing Telegram, Discord, Slack, WhatsApp, or HTTP/WebSocket requests into those workflows — the same adapters and custom HTTP entry point `orka-server` starts.
+
+**Status.** Pre-release, self-hosted, no SLA. Workspace crates set `publish = false` and are not on crates.io. Git tags exist through v1.11.0; there are no GitHub Releases yet.
+
+Orka routes inbound messages from channel adapters and a custom HTTP/WebSocket endpoint through a Redis priority queue to LLM-powered agents. Agents can execute tools, optionally retrieve RAG context, and coordinate through multi-agent graphs. Extensibility includes WASM plugins and MCP/A2A clients. When `[experience].enabled` is set, the runtime can record run trajectories and distill them into prompt-injected principles.
 
 <p align="center">
   <img src="demo/orka-chat.gif" alt="Orka CLI — interactive chat" width="720">
@@ -94,30 +98,30 @@ For a detailed description of each subsystem and their interactions, see [docs/r
 
 ## Features
 
-- **Multi-channel messaging** — Telegram, Discord, Slack, WhatsApp, custom HTTP/WebSocket
+- **Multi-channel messaging** — Telegram, Discord, Slack, WhatsApp, and a custom HTTP/WebSocket adapter. Platform adapters start only when their Cargo feature, config section, and secrets are present; Slack is Events API (webhook), not Socket Mode.
 - **Priority queue** — Redis Sorted Sets with Urgent / Normal / Background lanes
-- **LLM integration** — Anthropic Claude, OpenAI, Ollama, and Ollama Cloud (OpenAI-compatible) with streaming support
-- **Skill system** — Pluggable skills with schema validation and WASM plugin support
-- **MCP server** — Model Context Protocol over JSON-RPC 2.0
-- **A2A protocol** — Agent-to-Agent communication
-- **Agent router** — Prefix-based routing with delegation
-- **Workspace config** — Hot-reloadable agent configuration (SOUL.md, TOOLS.md)
-- **Knowledge base** — RAG with Qdrant vector store and document ingestion
-- **Sandboxed execution** — Process isolation and WASM sandboxing
-- **Guardrails** — Input/output validation and content filtering
-- **Checkpointing** — Per-node execution checkpoints with crash recovery and human-in-the-loop approval
+- **LLM integration** — Anthropic Claude, OpenAI, Ollama, Ollama Cloud, and Moonshot (OpenAI-compatible) with streaming support
+- **Skill system** — Pluggable skills with JSON Schema validation and optional WASM plugins
+- **MCP client and stdio server** — Outbound MCP tool bridges on `orka-server`; `orka mcp serve` exposes Orka over JSON-RPC 2.0 on stdio. The Streamable HTTP handler is not mounted on the main server.
+- **A2A protocol** — Agent-to-Agent JSON-RPC routes mounted on `orka-server`
+- **LLM model router** — Prefix-based model→provider routing with circuit-breaker fallback; graph nodes can also delegate between agents
+- **Workspace config** — Hot-reloadable agent configuration (`SOUL.md`, `TOOLS.md`)
+- **Knowledge base** — RAG with Qdrant vector store and document ingestion (requires Qdrant)
+- **Constrained execution** — Subprocess resource limits and WASM capability sandboxing (not a full VM)
+- **Guardrails** — Optional input/output validation and content filtering (`guardrails.enabled` defaults to off in code)
+- **Checkpointing** — Per-node execution checkpoints with resume and human-in-the-loop approval
 - **Multi-agent graphs** — Fan-out/fan-in, state reducers, planning mode, rolling-window history
-- **Multi-modal** — Vision support for image messages across LLM providers
-- **Circuit breaker** — Resilience pattern for external services
-- **Observability** — OpenTelemetry tracing, Prometheus metrics, Swagger UI, append-only JSONL audit log
-- **Security** — JWT/API key auth, AES-256-GCM secret encryption, SSRF protection
+- **Multi-modal** — Image attachments are forwarded to configured LLM providers that accept vision content
+- **Circuit breaker** — Per-provider and per-skill breakers for external calls
+- **Observability** — Prometheus `/metrics`, Swagger UI, optional OpenTelemetry export, optional append-only JSONL audit log
+- **Auth and secrets** — Optional JWT/API key auth (off unless configured), AES-256-GCM secret encryption, SSRF checks on the HTTP skill
 - **Scheduler** — Cron-based recurring tasks
-- **Self-learning** — Trajectory recording, principle reflection, and offline distillation
-- **Soft skills** — Instruction-based SKILL.md skills injected into the agent system prompt
-- **MCP HTTP transport** — Streamable HTTP (MCP spec 2025-03-26) with OAuth 2.1 Client Credentials
+- **Experience loop (opt-in)** — When `[experience].enabled` is true (default off), records run trajectories, can reflect them into principles, and can distill those principles offline into a Qdrant collection for later prompt injection
+- **Soft skills** — Instruction-based `SKILL.md` files injected into the agent system prompt
+- **MCP HTTP transport (client)** — Streamable HTTP (MCP spec 2025-03-26) with OAuth 2.1 Client Credentials when connecting to remote MCP servers
 - **Skill evaluation** — TOML-based scenario runner for offline skill testing (`orka-eval`)
 - **WASM Component Model** — Plugin SDK based on the WIT interface definition language
-- **CLI** — Full-featured management tool with real-time TUI dashboard
+- **CLI** — Management CLI with a real-time TUI dashboard
 
 ## Quick Start
 
@@ -152,7 +156,7 @@ cargo build --release
 # Dev setup — installs common deps, starts Redis/Valkey, runs cargo check
 just setup
 
-# Production install — builds release binary, installs systemd service
+# systemd install — builds a release binary and installs a unit file
 just install
 systemctl enable --now orka-server
 
@@ -288,7 +292,7 @@ The table below is a curated subset of the most common entrypoints.
 | [Skill Development](docs/guides/skill-development.md) | Built-in, WASM, and soft skills; eval framework     |
 | [WASM Tutorial](docs/guides/tutorials/build-a-wasm-plugin.md) | Step-by-step guide to writing WebAssembly plugins |
 | [MCP Guide](docs/reference/mcp-guide.md)       | MCP client/server, HTTP transport, OAuth                  |
-| [Experience System](docs/guides/experience-system.md) | Self-learning loop, reflection, distillation        |
+| [Experience System](docs/guides/experience-system.md) | Opt-in trajectory recording, reflection, distillation |
 | [Eval Framework](docs/guides/eval-guide.md)    | TOML scenario runner for offline skill testing            |
 | [Security](SECURITY.md)                        | Vulnerability reporting, hardening checklist              |
 
@@ -316,7 +320,7 @@ cargo clippy --workspace --all-targets
 
 ## CLI
 
-The `orka` command-line tool provides a full suite of management commands for server administration, agent operations, and observability.
+The `orka` command-line tool provides management commands for server administration, agent operations, and observability.
 
 For a complete list of commands and global options, see the [CLI Reference](docs/reference/cli-reference.md).
 
@@ -346,7 +350,7 @@ orka/
 │   ├── orka-os/              # OS integration skills
 │   ├── orka-knowledge/       # RAG & vector knowledge base
 │   ├── orka-scheduler/       # Cron-based task scheduler
-│   ├── orka-experience/      # Self-learning experience system
+│   ├── orka-experience/      # Optional trajectory / principle loop
 │   ├── orka-agent/           # Agent orchestration and routing
 │   ├── orka-wasm/            # WASM runtime utilities, Component Model, and code sandbox
 │   ├── orka-checkpoint/      # Execution checkpointing and crash recovery
@@ -388,14 +392,14 @@ Some root files exist for local tool integration rather than core runtime archit
 
 ## Privacy
 
-Orka does not collect telemetry, usage data, or analytics of any kind. No data leaves your infrastructure unless you explicitly configure it to do so.
+Orka does not ship a vendor telemetry or analytics pipeline. Traffic still leaves your host when you configure LLM providers, channel adapters, MCP servers, web tools, or observability exporters. The CLI may query GitHub for release tags unless `ORKA_NO_UPDATE_CHECK` is set.
 
-- **LLM API calls** are made directly from your deployment to the provider you configure (Anthropic, Moonshot, OpenAI, Ollama, Ollama Cloud, etc.). Orka does not proxy or inspect these requests.
-- **Messages and sessions** are stored in your own Redis instance. Nothing is sent to third-party services without your configuration.
-- **WASM plugins** run in a sandboxed environment with explicit memory and CPU limits. They cannot make outbound network calls unless the host grants access.
-- **Knowledge base** (RAG) data is stored in your own Qdrant instance.
+- **LLM API calls** go from your process to the provider you configure (Anthropic, Moonshot, OpenAI, Ollama, Ollama Cloud, etc.). Orka is not an LLM proxy. Prompt and response text can still appear in local logs, traces, or audit records depending on settings. Optional guardrails and the experience loop can send additional content to an LLM you configure.
+- **Messages and sessions** are stored in the Redis instance you run.
+- **WASM plugins** run with host-enforced memory and CPU limits. Network is disabled by default and must be granted in plugin capabilities.
+- **Knowledge and experience vectors** are stored in the Qdrant instance you configure.
 
-You are in full control of what enters and exits the system.
+You choose which channels, providers, and exporters are configured. Untrusted input still needs auth and guardrails.
 
 ## License
 

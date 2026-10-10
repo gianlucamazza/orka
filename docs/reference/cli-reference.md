@@ -78,7 +78,7 @@ environment.
 
 ```bash
 orka schedule list|create|delete # Manage cron-based scheduled tasks
-orka experience status|principles|distill # Monitor the self-learning system and manage principles
+orka experience status|principles|distill # Monitor the experience subsystem and manage principles
 ```
 
 ### System

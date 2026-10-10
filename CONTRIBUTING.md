@@ -168,7 +168,7 @@ and `sdk/`. Each crate has a single responsibility:
 - **orka-web** (http submodule): HTTP request skill with SSRF protection
 - **orka-workspace**: Workspace loader and hot-reload watcher
 - **orka-scheduler**: Cron-based task scheduler
-- **orka-experience**: Self-learning loop (trajectory recording, reflection, distillation)
+- **orka-experience**: Optional experience loop (trajectory recording, reflection, distillation; disabled by default)
 - **orka-agent**: Agent orchestration and routing
 - **orka-wasm**: WASM runtime utilities
 

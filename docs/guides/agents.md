@@ -4,12 +4,12 @@ This document describes the template-based prompt architecture introduced in Ork
 
 ## Overview
 
-The prompt system follows modern architectural patterns:
+The prompt system is a Handlebars pipeline with context providers:
 
 - **Template Engine**: Handlebars-based rendering with hot-reload
-- **Pipeline Pattern**: Composable sections for prompt construction
-- **Context Providers**: Dependency injection for dynamic data
-- **Configuration over Code**: TOML-based configuration
+- **Pipeline**: Composable sections for prompt construction
+- **Context Providers**: Data fetching for dynamic prompt sections
+- **Configuration**: TOML-based section order and limits
 
 ## Architectural Principles
 
