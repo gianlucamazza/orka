@@ -120,6 +120,32 @@ The remote script upload extracts the bundle under `~/orka-deploy/releases/`
 and runs `sudo ./scripts/install.sh --force --yes` from there. The target host
 does not need Rust or Cargo installed.
 
+### Publishing an OCI image
+
+`scripts/publish-oci.sh` builds a multi-arch image from the repository
+`Dockerfile` and pushes it. There is no baked-in registry: set `OCI_IMAGE_REPO`
+to the full image name before running the script. `OCI_REGISTRY_HOST` defaults
+to the host component of that repo (for example `ghcr.io` when
+`OCI_IMAGE_REPO=ghcr.io/<owner>/orka`).
+
+`Dockerfile.release` is the slimmer runtime image used when binaries are already
+built (for example `just push-homelab`). Tag it as `${OCI_IMAGE_REPO}:<tag>` —
+the file itself does not supply a registry default.
+
+| Variable | Required | Default | Description |
+| -------- | -------- | ------- | ----------- |
+| `OCI_IMAGE_REPO` | yes | none | Full image repository, e.g. `ghcr.io/<owner>/orka` or `registry.example.com/orka` |
+| `OCI_REGISTRY_HOST` | no | host part of `OCI_IMAGE_REPO` | Registry host used for `docker login` |
+| `REGISTRY_USERNAME` | yes | none | Registry login user |
+| `REGISTRY_PASSWORD` | yes | none | Registry login password |
+| `DRONE_COMMIT_SHA` | yes | none | Commit SHA used as the default image tag |
+
+```bash
+export OCI_IMAGE_REPO=ghcr.io/<owner>/orka
+# OCI_REGISTRY_HOST defaults to ghcr.io
+./scripts/publish-oci.sh
+```
+
 ### Drone Homelab Flow
 
 The homelab Drone flow is designed to complement, not replace, GitHub Actions:
