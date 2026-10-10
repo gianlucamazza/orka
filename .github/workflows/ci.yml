@@ -76,6 +76,7 @@ jobs:
         # .cargo/audit.toml is the cargo-audit config path. Also pass
         # wasmtime 42.x IDs on the CLI so they cannot be missed if the
         # config file is not loaded (no 42.x patch below MSRV 1.91).
+        # 0321/0322/0323/0327: https://github.com/gianlucamazza/orka/issues/47
         run: >
           cargo audit
           --ignore RUSTSEC-2026-0114
@@ -86,6 +87,10 @@ jobs:
           --ignore RUSTSEC-2026-0269
           --ignore RUSTSEC-2026-0314
           --ignore RUSTSEC-2026-0316
+          --ignore RUSTSEC-2026-0321
+          --ignore RUSTSEC-2026-0322
+          --ignore RUSTSEC-2026-0323
+          --ignore RUSTSEC-2026-0327
       - name: Dependency checks (licenses, advisories, bans)
         run: cargo deny check
       - name: Build
