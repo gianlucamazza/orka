@@ -185,12 +185,15 @@ Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 The repository root `orka.toml` is the canonical sample config kept in sync with
 the current parser.
 
-Until the wasmtime upgrade in [#47](https://github.com/gianlucamazza/orka/issues/47)
-lands, do not set `sandbox.backend = "wasm"` (that path accepts caller-supplied
-base64 modules) or point `plugins.dir` at modules you do not fully trust.
-wasmtime 42.0.2 is affected by RUSTSEC-2026-0321/0322/0323/0327. The stock
-config (`sandbox.backend = "process"`, `plugins.dir` unset) is not exposed.
-See [SECURITY.md](SECURITY.md#known-issues).
+[#49](https://github.com/gianlucamazza/orka/pull/49) pinned wasmtime / wasmtime-wasi
+to **49.0.2**. The twelve RustSec advisories that affected **42.0.2** (and
+earlier Orka checkouts) are **fixed** in that release; `cargo audit` on this
+tree reports no wasmtime vulnerabilities. `sandbox.backend = "wasm"` still
+accepts caller-supplied base64 modules, and `plugins.dir` still loads local
+`*.wasm` files with no signature check — only enable those paths for modules
+you trust. The stock config (`sandbox.backend = "process"`, `plugins.dir`
+unset) does not load them. The fixed-advisory list is in
+[SECURITY.md](SECURITY.md#known-issues).
 
 For a complete reference of all configuration options, see the [Configuration Guide](docs/reference/configuration.md).
 
@@ -403,7 +406,7 @@ Orka does not ship a vendor telemetry or analytics pipeline. Traffic still leave
 
 - **LLM API calls** go from your process to the provider you configure (Anthropic, Moonshot, OpenAI, Ollama, Ollama Cloud, etc.). Orka is not an LLM proxy. Prompt and response text can still appear in local logs, traces, or audit records depending on settings. Optional guardrails and the experience loop can send additional content to an LLM you configure.
 - **Messages and sessions** are stored in the Redis instance you run.
-- **WASM plugins** run with host-enforced memory and CPU limits. Network is disabled by default and must be granted in plugin capabilities.
+- **WASM plugins** (`plugins.dir`) get wasmtime fuel (`consume_fuel` + `set_fuel`) and a linear-memory cap. There is no epoch interruption and no POSIX rlimit on that path; the plugin execute path also does not apply a wall-clock timeout. The optional `sandbox.backend = "wasm"` path uses the same fuel and memory limits plus a `tokio::time::timeout`. Stock `sandbox.backend = "process"` applies `RLIMIT_AS` and a wall-clock timeout to subprocesses only and does not run WASM. Plugin network is deny-by-default and must be granted in capabilities.
 - **Knowledge and experience vectors** are stored in the Qdrant instance you configure.
 
 You choose which channels, providers, and exporters are configured. Untrusted input still needs auth and guardrails.

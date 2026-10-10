@@ -54,16 +54,29 @@ Please include:
 
 ## Known issues
 
-Until the wasmtime upgrade in [#47](https://github.com/gianlucamazza/orka/issues/47)
-lands, enabling `sandbox.backend = "wasm"` (which accepts caller-supplied
-base64 modules) or setting `plugins.dir` to a folder of modules you do not
-fully trust is unsafe. wasmtime 42.0.2 is affected by
-[RUSTSEC-2026-0321](https://rustsec.org/advisories/RUSTSEC-2026-0321),
-[0322](https://rustsec.org/advisories/RUSTSEC-2026-0322),
-[0323](https://rustsec.org/advisories/RUSTSEC-2026-0323), and
-[0327](https://rustsec.org/advisories/RUSTSEC-2026-0327). The stock config
-(`sandbox.backend = "process"`, `plugins.dir` unset) does not load those
-paths.
+[#49](https://github.com/gianlucamazza/orka/pull/49) upgraded wasmtime /
+wasmtime-wasi from **42.0.2** to **49.0.2**. The twelve advisories below
+applied to 42.x (and earlier Orka versions) and are **fixed** in 49.0.2.
+They are not open on current `main` (`cargo audit` reports no wasmtime
+vulnerabilities).
+
+- [RUSTSEC-2026-0114](https://rustsec.org/advisories/RUSTSEC-2026-0114) — Panic when allocating a table exceeding the size of the host's address space
+- [RUSTSEC-2026-0149](https://rustsec.org/advisories/RUSTSEC-2026-0149) — WASI path_open(TRUNCATE) bypasses `FilePerms::WRITE` host restriction
+- [RUSTSEC-2026-0182](https://rustsec.org/advisories/RUSTSEC-2026-0182) — Leak in WASIp1 `fd_renumber` implementation
+- [RUSTSEC-2026-0188](https://rustsec.org/advisories/RUSTSEC-2026-0188) — WASI hard links and renames bypass wasmtime-wasi's FilePerms for destination
+- [RUSTSEC-2026-0222](https://rustsec.org/advisories/RUSTSEC-2026-0222) — Stores can mix up type indices between engines
+- [RUSTSEC-2026-0269](https://rustsec.org/advisories/RUSTSEC-2026-0269) — Filesystem sandbox escape when paths or symlinks contain trailing slashes
+- [RUSTSEC-2026-0314](https://rustsec.org/advisories/RUSTSEC-2026-0314) — Guest can panic host through filesystem datetime overflow
+- [RUSTSEC-2026-0316](https://rustsec.org/advisories/RUSTSEC-2026-0316) — Dynamic record lifting can allocate beyond the hostcall fuel limit
+- [RUSTSEC-2026-0321](https://rustsec.org/advisories/RUSTSEC-2026-0321) — WASI preview 0 implementation of `poll_oneoff` circumvents fuel consumption
+- [RUSTSEC-2026-0322](https://rustsec.org/advisories/RUSTSEC-2026-0322) — Excessive allocated memory on the host when guests don't have stdio
+- [RUSTSEC-2026-0323](https://rustsec.org/advisories/RUSTSEC-2026-0323) — fd_readdir copies uninitialized struct padding into guest memory
+- [RUSTSEC-2026-0327](https://rustsec.org/advisories/RUSTSEC-2026-0327) — Wasmtime component async-lifted callback result count is unvalidated, causing a native stack buffer overflow
+
+`sandbox.backend = "wasm"` still accepts caller-supplied base64 modules, and
+`plugins.dir` still loads any local `*.wasm` with no signature check. Only
+enable those paths for modules you trust. The stock config
+(`sandbox.backend = "process"`, `plugins.dir` unset) does not load them.
 
 ## Security Architecture
 
