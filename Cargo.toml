@@ -105,6 +105,12 @@ module_name_repetitions = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 must_use_candidate = "allow"
+# Clippy 1.99 treats async_trait's generated #[must_use] on Pin<Box<dyn Future + ...>>
+# as double_must_use. The attribute is emitted by the macro, not by this repo.
+double_must_use = "allow"
+# New in 1.99; existing tests use assert!(x.is_empty()). Do not rewrite the
+# suite in this CI-repair change.
+assert_is_empty = "allow"
 cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
 cast_precision_loss = "allow"
