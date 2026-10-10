@@ -616,9 +616,7 @@ pub(super) fn routes(
                         return (StatusCode::SERVICE_UNAVAILABLE, "experience not enabled")
                             .into_response();
                     };
-                    let workspace = params
-                        .get("workspace")
-                        .map_or("default", String::as_str);
+                    let workspace = params.get("workspace").map_or("default", String::as_str);
                     let query = params.get("query").map_or("", String::as_str);
                     let limit: usize = params
                         .get("limit")
@@ -714,10 +712,8 @@ pub(super) fn routes(
                         Ok(uuid) => {
                             let sid = orka_core::SessionId::from(uuid);
                             match sessions.delete(&sid).await {
-                                Ok(()) => {
-                                    axum::Json(serde_json::json!({ "deleted": true }))
-                                        .into_response()
-                                }
+                                Ok(()) => axum::Json(serde_json::json!({ "deleted": true }))
+                                    .into_response(),
                                 Err(e) => (
                                     StatusCode::INTERNAL_SERVER_ERROR,
                                     format!("delete failed: {e}"),
