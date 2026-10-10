@@ -221,7 +221,7 @@ open = "5"
 
 # WASM
 cap-std = "3"
-wasmtime = { version = "42", features = ["component-model"] }
+wasmtime = { version = "43", features = ["component-model"] }
 wasmtime-wasi = "42"
 wit-bindgen = "0.51"
 
