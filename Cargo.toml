@@ -226,7 +226,7 @@ wasmtime-wasi = { version = "49.0.2", default-features = false, features = ["p1"
 wit-bindgen = "0.51"
 
 # JWT
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 
 # Regex
 regex = "1"
