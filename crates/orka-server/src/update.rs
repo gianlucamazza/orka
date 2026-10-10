@@ -8,7 +8,9 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Source-install command for the `orka-server` binary (`orka-server` package).
 ///
 /// The crates.io name `orka` belongs to an unrelated project; never suggest
-/// `cargo install orka`.
+/// `cargo install orka`. Kept under `cfg(test)` so MSRV `cargo check`
+/// (`-Dwarnings`) does not flag it as unused in the bin.
+#[cfg(test)]
 const CARGO_INSTALL_CMD: &str =
     "cargo install --locked --git https://github.com/gianlucamazza/orka orka-server";
 
