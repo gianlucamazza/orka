@@ -9,7 +9,7 @@ them to agent handlers.
 | ------------------ | ------------------------------------------------------------------------------------------------------------ |
 | `WorkerPool`       | Spawns N concurrent workers; each pops from the queue, invokes the handler, and publishes replies to the bus |
 | `AgentHandler`     | Trait implemented by message handlers (`handle(&Envelope, &Session) -> Vec<OutboundMessage>`)                |
-| `WorkspaceHandler` | Production handler — runs an LLM agentic loop with skill execution, tool calls, and streaming                |
+| `WorkspaceHandler` | Default handler — runs an LLM agentic loop with skill execution, tool calls, and streaming                   |
 | `EchoHandler`      | Trivial handler that echoes the message back (useful for testing)                                            |
 | `CommandRegistry`  | Maps slash-command names to handler functions                                                                |
 

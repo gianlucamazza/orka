@@ -1,7 +1,10 @@
-# Experience System (Self-Learning)
+# Experience System
 
-The experience system enables Orka agents to learn from their interactions over
-time. It has three phases:
+The experience subsystem is **opt-in**. `ExperienceConfig.enabled` defaults to
+`false`; the server only builds the service when `[experience].enabled = true`
+(the sample `orka.toml` turns it on). When enabled, it records run trajectories
+and can distill them into reusable principles that are later retrieved into the
+system prompt. It has three phases:
 
 ```mermaid
 flowchart LR
@@ -9,12 +12,12 @@ flowchart LR
     T["1. Trajectory recording"]
     R["2. Post-task reflection"]
     D["3. Offline distillation"]
-    Inject["Principles injected into<br/>system prompt on next turn"]
+    Inject["Relevant principles injected<br/>into the system prompt"]
 
     Msg --> T
-    T -->|"stored in Redis (raw trajectories)"| R
-    R -->|"new principle candidates"| D
-    D -->|"curated principles (Redis)"| Inject
+    T -->|"Qdrant collection (raw trajectories)"| R
+    R -->|"principles persisted immediately"| D
+    D -->|"cross-trajectory principles (Qdrant)"| Inject
 ```
 
 ---
@@ -23,10 +26,10 @@ flowchart LR
 
 ```toml
 [experience]
-enabled         = true       # off by default
+enabled         = false      # default in code; sample orka.toml sets true
 reflect_on      = "failures" # "failures", "all", or "sampled"
 max_principles  = 5          # max principles injected per turn
-sample_rate     = 0.2        # fraction of tasks to reflect on (when reflect_on = "sampled")
+sample_rate     = 0.1        # fraction of tasks to reflect on (when reflect_on = "sampled")
 ```
 
 | Key              | Default      | Description                                        |
@@ -40,13 +43,16 @@ sample_rate     = 0.2        # fraction of tasks to reflect on (when reflect_on 
 
 ## Phase 1: Trajectory Recording
 
-After every handled message, the agent records a trajectory:
+When `[experience].enabled = true`, after a handled message the agent can
+record a trajectory:
 
-- The full conversation turn (user message + tool calls + responses + final reply)
-- Whether the turn succeeded or failed (based on error rate and LLM self-assessment)
+- User message, skill traces, iteration/token counts, errors, and the final
+  reply (text fields are truncated for vector-store metadata)
+- An outcome signal derived from skill failures and recorded errors
 - Metadata: session ID, workspace name, timestamp, skill names used
 
-Trajectories are stored in Redis under the `orka:experience:trajectories` key.
+Trajectories are stored in the Qdrant collection named by
+`experience.trajectories_collection` (default `orka_trajectories`).
 
 ---
 
@@ -56,17 +62,17 @@ Depending on `reflect_on`:
 
 | Value        | Reflection triggered when…                               |
 | ------------ | -------------------------------------------------------- |
-| `"failures"` | The turn ended with an error or the LLM reported failure |
+| `"failures"` | The trajectory was marked unsuccessful (skill failure or recorded error) |
 | `"all"`      | Every turn                                               |
 | `"sampled"`  | Randomly, at `sample_rate` probability                   |
 
-During reflection, a second LLM call analyses the trajectory and proposes
-one or more **principle candidates** — short, actionable instructions in the
-style of "When X, always Y".
+During reflection, a second LLM call analyses the trajectory and may persist
+one or more **principles** immediately (deduplicated against the store) —
+short, actionable instructions in the style of "When X, always Y".
 
-Example principle candidates:
+Example principles:
 
-```
+```text
 When using shell_exec, always check the exit code before proceeding.
 Prefer read-only filesystem operations unless write access is explicitly requested.
 ```
@@ -75,31 +81,34 @@ Prefer read-only filesystem operations unless write access is explicitly request
 
 ## Phase 3: Offline Distillation
 
-Distillation consolidates trajectory-derived candidates into a curated set of
-principles. It can be triggered:
+Distillation loads a batch of recent trajectories and asks the LLM to
+synthesize cross-trajectory principles. It can be triggered:
 
 - **Manually** via the API or CLI:
+
   ```bash
   orka experience distill
   ```
-- **Automatically** by the scheduler (configure a cron schedule for the
-  `experience_distill` skill).
+
+- **Automatically** by the server background loop when
+  `experience.distillation_interval_secs` is greater than 0 (default 3600).
+  Set the interval to `0` to disable the loop.
 
 During distillation:
 
-1. All accumulated candidates are loaded.
-2. The LLM deduplicates and ranks them by utility.
-3. The top-N principles (configurable) are persisted to Redis.
-4. Old candidates are pruned.
+1. Up to `distillation_batch_size` recent trajectories are loaded from Qdrant.
+2. The LLM synthesizes cross-trajectory patterns.
+3. New principles are written to the principles collection (with dedup).
 
 ---
 
 ## Prompt Injection
 
-Before each LLM call, the `WorkspaceHandler` loads the current principles and
-appends them to the system prompt under a `## Learned Principles` section:
+Before each LLM call, the handler retrieves up to `max_principles` principles
+that match the user message (vector search, `min_relevance_score`) and can
+append them to the system prompt under a `## Learned Principles` section:
 
-```
+```text
 ## Learned Principles
 
 1. When using shell_exec, always check the exit code before proceeding.
@@ -151,9 +160,7 @@ curl -X POST http://localhost:8080/api/v1/experience/distill
   incurring extra LLM calls on every turn.
 - Use `reflect_on = "sampled"` with `sample_rate = 0.1` for high-traffic agents
   to control reflection costs.
-- Schedule nightly distillation for long-running agents:
-  ```bash
-  orka schedule create --cron "0 2 * * *" --skill experience_distill
-  ```
+- Use `experience.distillation_interval_secs` (or `orka experience distill`)
+  for periodic distillation. There is no built-in `experience_distill` skill.
 - Inspect principles regularly with `orka experience principles` and trigger a
   new distillation if the quality degrades.

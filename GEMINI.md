@@ -1,13 +1,13 @@
 # Orka - Gemini Context
 
-This document provides essential context, workflows, and conventions for working on the **Orka** project. Orka is a self-learning AI agent orchestration platform built in Rust.
+This document provides essential context, workflows, and conventions for working on the **Orka** project. Orka is a self-hosted Rust runtime that routes chat and HTTP messages through bounded LLM agent workflows.
 
 ## Project Overview
 
-Orka is a modular, event-driven system designed to orchestrate AI agents. It routes messages from various platforms (Telegram, Discord, Slack, etc.) through a priority queue to LLM-powered agents. These agents can execute tools, build knowledge via RAG, and learn from experience.
+Orka is a modular, event-driven system designed to orchestrate AI agents. It routes messages from various platforms (Telegram, Discord, Slack, etc.) through a priority queue to LLM-powered agents. These agents can execute tools, optionally retrieve RAG context, and record experience when `[experience].enabled` is true.
 
 ### Architecture
-The system follows a **Modular Monolith** architecture that is **Distributed-Ready**.
+The system is a modular monolith with Redis-backed messaging; running more than one worker or host is an operator concern, not a built-in cluster.
 - **Event-Driven Core:** All communication occurs via a message bus backed by **Redis Streams**.
 - **Agentic Loop:** Agents operate in a loop: Observation -> Thought -> Action (Tool Use) -> Observation.
 - **Extensibility:** Supports **WASM** plugins (via Wasmtime), **MCP** (Model Context Protocol), and **Agent-to-Agent** (A2A) communication.
@@ -111,7 +111,7 @@ The workspace is organized into specialized crates in the `crates/` directory:
 | **`orka-worker`** | Worker pool implementation and agent supervisor. |
 | **`orka-llm`** | LLM provider abstractions (Anthropic, OpenAI, Ollama, Ollama Cloud). |
 | **`orka-knowledge`** | RAG pipeline — document ingestion, embeddings, semantic search via Qdrant. |
-| **`orka-experience`** | Self-learning loop — trajectory recording, LLM reflection, offline distillation. |
+| **`orka-experience`** | Optional experience loop — trajectory recording, LLM reflection, offline distillation. |
 | **`orka-prompts`** | Handlebars-based prompt template engine. |
 | **`orka-scheduler`** | Cron-based task scheduler backed by Redis Sorted Sets. |
 | **`orka-workspace`** | Workspace file loader and hot-reload watcher (SOUL.md / TOOLS.md). |

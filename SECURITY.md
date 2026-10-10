@@ -7,7 +7,8 @@
 | latest  | ✅        |
 
 Orka follows a rolling-release model. Only the latest commit on `main` receives
-security fixes. Always run the latest release.
+security fixes. Run a current `main` checkout or a tagged commit you have
+built yourself (there are no GitHub Releases yet).
 
 ## Reporting a Vulnerability
 
@@ -55,11 +56,15 @@ Please include:
 
 ### Authentication
 
-Orka supports two auth modes, configured under `[auth]`:
+Orka supports two auth modes, configured under `[auth]`. There is no
+`auth.enabled` field; auth is off unless one of the following is set:
 
-- **API key** — compared on every request; enable with `auth.enabled = true`
-  and set `ORKA_API_KEY`.
-- **JWT** — standard Bearer token verification (RS256 / HS256).
+- **API key** — when `auth.api_keys` is non-empty, protected HTTP routes
+  accept those keys (store SHA-256 hashes in config). `ORKA_API_KEY` is the
+  CLI client environment variable, not a server toggle.
+- **JWT** — when `auth.jwt` is set, Bearer tokens are verified (RS256 / HS256).
+
+Unauthenticated defaults are unsafe on an exposed network.
 
 ### Secret Encryption
 
@@ -107,7 +112,8 @@ hashed before logging to avoid leaking sensitive content.
 
 - [ ] Set `ORKA_ENV=production` — enforces encryption key presence at startup.
 - [ ] Generate and set a strong `ORKA_SECRET_ENCRYPTION_KEY` (32 bytes, hex).
-- [ ] Enable `auth.enabled = true` and configure `ORKA_API_KEY`.
+- [ ] Configure `auth.jwt` and/or non-empty `auth.api_keys` (SHA-256 hashes).
+      Use `ORKA_API_KEY` on CLI clients.
 - [ ] Set `os.permission_level = "none"` unless OS skills are required.
 - [ ] Keep `os.sudo.enabled = false` (default) in production.
 - [ ] Review `http.blocked_domains` for your network topology.

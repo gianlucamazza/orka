@@ -1,6 +1,9 @@
 # Tutorial: Building a WASM Plugin
 
-Orka supports deep extensibility through WebAssembly (WASM). While built-in Rust skills provide maximum performance and access to the system, WASM plugins allow you to write skills in any language that compiles to WASM components, distribute them securely, and run them inside Orka's isolated WASM sandbox.
+Orka supports extensibility through WebAssembly (WASM). Built-in Rust skills
+have the most host integration. WASM plugins can be written in languages that
+compile to the WASI component targets Orka's runtime loads, and they run under
+host-enforced capability grants (network is off unless you enable it).
 
 This tutorial covers the creation of a simple WASM plugin using the WebAssembly Component Model and Orka's plugin SDK.
 
