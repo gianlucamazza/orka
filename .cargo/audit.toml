@@ -17,6 +17,17 @@ ignore = [
   "RUSTSEC-2026-0269",
   "RUSTSEC-2026-0314",
   "RUSTSEC-2026-0316",
+  # New Oct 2026 wasmtime/wasmtime-wasi 42.0.2 vulns. No 42.x patch exists.
+  # Patched lines are >=48.0.4 / >=49.0.2 — a breaking wasmtime major above
+  # MSRV 1.91. Tracking: https://github.com/gianlucamazza/orka/issues/47
+  # 0321: WASI preview0 poll_oneoff circumvents fuel consumption
+  # 0322: excessive host allocation when guests have no stdio
+  # 0323: fd_readdir copies uninitialized struct padding into guest memory
+  # 0327: component async-lifted callback result count (native stack overflow)
+  "RUSTSEC-2026-0321",
+  "RUSTSEC-2026-0322",
+  "RUSTSEC-2026-0323",
+  "RUSTSEC-2026-0327",
   # lopdf < 0.42 via printpdf 0.7 and pdf-extract 0.7; fixed only in
   # lopdf 0.42, which needs major bumps of both upstream crates.
   "RUSTSEC-2026-0187",
