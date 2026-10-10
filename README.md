@@ -185,6 +185,13 @@ Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 The repository root `orka.toml` is the canonical sample config kept in sync with
 the current parser.
 
+Until the wasmtime upgrade in [#47](https://github.com/gianlucamazza/orka/issues/47)
+lands, do not set `sandbox.backend = "wasm"` (that path accepts caller-supplied
+base64 modules) or point `plugins.dir` at modules you do not fully trust.
+wasmtime 42.0.2 is affected by RUSTSEC-2026-0321/0322/0323/0327. The stock
+config (`sandbox.backend = "process"`, `plugins.dir` unset) is not exposed.
+See [SECURITY.md](SECURITY.md#known-issues).
+
 For a complete reference of all configuration options, see the [Configuration Guide](docs/reference/configuration.md).
 
 ### Environment Variables
