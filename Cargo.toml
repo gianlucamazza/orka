@@ -222,7 +222,7 @@ open = "5"
 # WASM
 cap-std = "3"
 wasmtime = { version = "42", features = ["component-model"] }
-wasmtime-wasi = "42"
+wasmtime-wasi = "44"
 wit-bindgen = "0.51"
 
 # JWT
