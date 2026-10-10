@@ -3,7 +3,7 @@
 [![CI](https://github.com/gianlucamazza/orka/actions/workflows/ci.yml/badge.svg)](https://github.com/gianlucamazza/orka/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE-APACHE)
-[![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.96%2B-orange.svg)](https://www.rust-lang.org)
 
 **What it is.** A self-hosted Rust runtime that accepts chat and HTTP messages, assigns them a queue priority, and runs them through bounded LLM agent workflows.
 
@@ -127,7 +127,7 @@ For a detailed description of each subsystem and their interactions, see [docs/r
 
 ### Prerequisites
 
-- Rust 1.91+
+- Rust 1.96+
 - Redis 7+
 - Docker (optional)
 

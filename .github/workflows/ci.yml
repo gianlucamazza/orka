@@ -73,24 +73,10 @@ jobs:
       - name: Clippy
         run: cargo +stable clippy --workspace --all-targets
       - name: Security audit
-        # .cargo/audit.toml is the cargo-audit config path. Also pass
-        # wasmtime 42.x IDs on the CLI so they cannot be missed if the
-        # config file is not loaded (no 42.x patch below MSRV 1.91).
-        # 0321/0322/0323/0327: https://github.com/gianlucamazza/orka/issues/47
-        run: >
-          cargo audit
-          --ignore RUSTSEC-2026-0114
-          --ignore RUSTSEC-2026-0149
-          --ignore RUSTSEC-2026-0182
-          --ignore RUSTSEC-2026-0188
-          --ignore RUSTSEC-2026-0222
-          --ignore RUSTSEC-2026-0269
-          --ignore RUSTSEC-2026-0314
-          --ignore RUSTSEC-2026-0316
-          --ignore RUSTSEC-2026-0321
-          --ignore RUSTSEC-2026-0322
-          --ignore RUSTSEC-2026-0323
-          --ignore RUSTSEC-2026-0327
+        # .cargo/audit.toml is the cargo-audit config path (tokio-tar and
+        # unrelated crate ignores). wasmtime 42.x IDs were dropped with the
+        # 49.0.2 bump; do not re-add CLI --ignore flags for patched crates.
+        run: cargo audit
       - name: Dependency checks (licenses, advisories, bans)
         run: cargo deny check
       - name: Build
@@ -120,7 +106,7 @@ jobs:
         run: cargo build -p hello-plugin --target wasm32-wasip1
 
   msrv:
-    name: MSRV (1.91)
+    name: MSRV (1.96)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -128,10 +114,17 @@ jobs:
         run: |
           sudo apt-get update || echo "apt-get update had failures, continuing anyway"
           sudo apt-get install -y --no-install-recommends libfontconfig1-dev
-      - uses: dtolnay/rust-toolchain@1.91.0
+      # Pin 1.96.0 explicitly (do not use the repo default/stable toolchain).
+      # dtolnay/rust-toolchain@1.96.0 installs that version as the directory
+      # override; `cargo +1.96.0` then cannot pick nightly/stable by accident.
+      - uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          toolchain: 1.96.0
       - uses: Swatinem/rust-cache@v2
       - name: cargo check on MSRV
-        run: RUSTC_WRAPPER= cargo +1.91.0 check --workspace
+        run: |
+          rustc +1.96.0 --version
+          RUSTC_WRAPPER= cargo +1.96.0 check --workspace
 
   coverage:
     name: Code coverage

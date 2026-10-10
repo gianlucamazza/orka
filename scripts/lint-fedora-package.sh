@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${FEDORA_LINT_IMAGE:-fedora:42}"
+# Fedora 42 distro rust is < MSRV 1.96. 43+ ships rustc >= 1.96.
+IMAGE="${FEDORA_LINT_IMAGE:-fedora:43}"
 PREFIX="\033[1;36m[orka-rpm]\033[0m"
 info() { echo -e "${PREFIX} $*"; }
 error() { echo -e "${PREFIX} \033[1;31m$*\033[0m"; }
@@ -62,7 +63,7 @@ docker run --rm \
 	"$IMAGE" \
 	bash -lc "
 set -euo pipefail
-dnf -y install cargo gcc openssl-devel fontconfig-devel pkgconf-pkg-config rpm-build rpmlint systemd-devel systemd-rpm-macros tar gzip
+dnf -y install rust cargo gcc openssl-devel fontconfig-devel pkgconf-pkg-config rpm-build rpmlint systemd systemd-devel 'pkgconfig(systemd)' systemd-rpm-macros tar gzip
 mkdir -p /work/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
 cp /work/orka-${VERSION}.tar.gz /work/rpmbuild/SOURCES/
 cp /work/src/packaging/fedora/orka.spec /work/rpmbuild/SPECS/orka.spec

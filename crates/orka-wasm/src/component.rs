@@ -4,7 +4,7 @@ use wasmtime::{
     Store, StoreLimits, StoreLimitsBuilder,
     component::{Component, Linker, ResourceTable},
 };
-use wasmtime_wasi::{DirPerms, FilePerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
+use wasmtime_wasi::{FsPerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::{config::WasmLimits, engine::WasmEngine};
 
@@ -22,6 +22,7 @@ pub struct PluginCapabilities {
 // Isolated submodule so that `bindgen!`'s generated `Result<T, E>` usage
 // doesn't conflict with our single-param `orka_core::Result<T>` alias.
 mod bindings {
+    #![allow(missing_docs)]
     wasmtime::component::bindgen!({
         path: "wit/orka-plugin.wit",
         world: "plugin",
@@ -145,17 +146,21 @@ impl WasmComponent {
         }
 
         // FS: pre-open the listed host directories under the same guest path.
+        // wasmtime-wasi 49 collapsed DirPerms/FilePerms into FsPerms.
         for path in &caps.fs {
             builder
-                .preopened_dir(path, path, DirPerms::all(), FilePerms::all())
+                .preopened_dir(path, path, FsPerms::ReadWrite)
                 .map_err(|e| {
                     Error::sandbox_msg(format!("failed to pre-open plugin fs path '{path}': {e}"))
                 })?;
         }
 
-        // Network: opt-in (deny by default).
+        // Network: opt-in (deny by default). Explicitly disable when unset so
+        // a future WasiCtxBuilder default change cannot inherit host sockets.
         if caps.network {
             builder.allow_tcp(true).allow_udp(true);
+        } else {
+            builder.allow_tcp(false).allow_udp(false);
         }
 
         let ctx = builder.build();

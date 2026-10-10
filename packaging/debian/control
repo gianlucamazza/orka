@@ -5,8 +5,8 @@ Maintainer: Orka Maintainers <maintainers@example.invalid>
 Rules-Requires-Root: no
 Build-Depends:
  debhelper-compat (= 13),
- cargo,
- rustc,
+ cargo (>= 1.96),
+ rustc (>= 1.96),
  pkg-config
 Standards-Version: 4.7.0
 Homepage: https://github.com/gianlucamazza/orka

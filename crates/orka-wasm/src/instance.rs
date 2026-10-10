@@ -112,9 +112,9 @@ impl WasmInstance {
                 Ok(0)
             }
             Err(e) => {
-                if let Some(exit) = e.downcast_ref::<wasmtime_wasi::I32Exit>() {
-                    tracing::debug!(exit_code = exit.0, "WASM _start exited");
-                    Ok(exit.0)
+                if let Some(code) = i32_exit_code(&e) {
+                    tracing::debug!(exit_code = code, "WASM _start exited");
+                    Ok(code)
                 } else {
                     tracing::warn!(%e, "WASM execution error");
                     Ok(1)
@@ -157,6 +157,16 @@ impl WasmInstance {
             self.stderr.contents().to_vec(),
         )
     }
+}
+
+fn i32_exit_code(err: &wasmtime::Error) -> Option<i32> {
+    // wasmtime-wasi 49 may wrap `I32Exit` in anyhow; walk the chain.
+    for cause in err.chain() {
+        if let Some(exit) = cause.downcast_ref::<wasmtime_wasi::I32Exit>() {
+            return Some(exit.0);
+        }
+    }
+    None
 }
 
 #[cfg(test)]

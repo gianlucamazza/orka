@@ -7,7 +7,7 @@
 | Redis      | 7+      | Bus, queue, session, memory  |
 | Qdrant     | 1.14+   | RAG vector store (optional)  |
 | Docker     | 24+     | Container runtime (optional) |
-| Rust       | 1.91+   | Build from source            |
+| Rust       | 1.96+   | Build from source            |
 
 Valkey (Redis-compatible) is also supported as a drop-in Redis replacement.
 
@@ -132,7 +132,7 @@ The homelab Drone flow is designed to complement, not replace, GitHub Actions:
 
 `just setup` currently supports common `pacman`, `apt`, and `dnf` based development environments.
 It expects a `rustup`-managed Rust toolchain that satisfies the workspace
-minimum (`rust-version = 1.91`). On distributions with older distro-provided
+minimum (`rust-version = 1.96`). On distributions with older distro-provided
 `rustc`/`cargo`, install or update Rust via `rustup` before running `just setup`.
 
 ### Distribution Support Matrix
@@ -140,8 +140,8 @@ minimum (`rust-version = 1.91`). On distributions with older distro-provided
 | Distribution family | Portable install | Native package status | Source |
 | ------------------- | ---------------- | --------------------- | ------ |
 | Arch Linux          | Yes              | Implemented           | `PKGBUILD` |
-| Debian / Ubuntu     | Yes              | Scaffolded            | `packaging/debian/` with Rust >= 1.91 |
-| Fedora / RHEL       | Yes              | Scaffolded            | `packaging/fedora/` with Rust >= 1.91 |
+| Debian / Ubuntu     | Yes              | Scaffolded            | `packaging/debian/` with Rust >= 1.96 |
+| Fedora / RHEL       | Yes              | Scaffolded            | `packaging/fedora/` with Rust >= 1.96 |
 
 The native package scaffolds are intentionally thin and reuse the shared assets in `deploy/`. This keeps service hardening, filesystem layout, and runtime identity consistent across distributions.
 

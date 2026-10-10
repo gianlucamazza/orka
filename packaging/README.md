@@ -18,7 +18,7 @@ Orka follows a portable-first distribution strategy:
 Native packaging must respect the repository's Rust toolchain floor:
 
 - `edition = 2024`
-- `rust-version = 1.91`
+- `rust-version = 1.96`
 
 Distributions that ship an older Rust toolchain need a newer backport, side tag,
 or alternative toolchain source before native packaging is considered supported.
@@ -28,8 +28,8 @@ or alternative toolchain source before native packaging is considered supported.
 | Distribution family | Portable install | Native package status | Notes |
 | ------------------- | ---------------- | --------------------- | ----- |
 | Arch Linux          | Yes              | Implemented           | `PKGBUILD` in repository root; host toolchain already satisfies the Rust floor |
-| Debian / Ubuntu     | Yes              | Scaffolded            | Debhelper layout under `packaging/debian/`; requires distro Rust >= 1.91 or a maintained newer toolchain |
-| Fedora / RHEL       | Yes              | Scaffolded            | RPM spec under `packaging/fedora/`; requires distro Rust >= 1.91 or distro-approved newer toolchain |
+| Debian / Ubuntu     | Yes              | Scaffolded            | Debhelper layout under `packaging/debian/`; requires distro Rust >= 1.96 or a maintained newer toolchain |
+| Fedora / RHEL       | Yes              | Scaffolded            | RPM spec under `packaging/fedora/`; requires distro Rust >= 1.96 or distro-approved newer toolchain |
 
 ## Validation Workflow
 
@@ -39,8 +39,8 @@ or alternative toolchain source before native packaging is considered supported.
 - Run `just package-lint` to execute both packaging validations.
 
 The Debian container uses `rustup` internally because current Debian distro
-toolchains lag behind Orka's upstream Rust floor. Fedora 42 already ships a new
-enough Rust and `rpmlint`, so the RPM validation uses distro packages directly.
+toolchains lag behind Orka's upstream Rust floor. Fedora 43+ ships Rust >= 1.96
+and `rpmlint`, so the RPM validation uses distro packages directly.
 
 ## Shared Packaging Rules
 

@@ -506,20 +506,11 @@ mod tests {
 
     impl SpanExporter for CollectingExporter {
         fn export(
-            &mut self,
+            &self,
             batch: Vec<SpanData>,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = OTelSdkResult> + Send + 'static>>
-        {
+        ) -> impl std::future::Future<Output = OTelSdkResult> + Send {
             self.0.lock().unwrap().extend(batch);
-            Box::pin(std::future::ready(Ok(())))
-        }
-
-        fn shutdown(&mut self) -> OTelSdkResult {
-            Ok(())
-        }
-
-        fn force_flush(&mut self) -> OTelSdkResult {
-            Ok(())
+            std::future::ready(Ok(()))
         }
     }
 

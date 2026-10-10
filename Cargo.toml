@@ -78,7 +78,7 @@ version = "1.11.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-rust-version = "1.91"
+rust-version = "1.96"
 repository = "https://github.com/gianlucamazza/orka"
 homepage = "https://github.com/gianlucamazza/orka"
 keywords = ["ai", "agent", "orchestration", "llm", "rust"]
@@ -221,8 +221,8 @@ open = "5"
 
 # WASM
 cap-std = "3"
-wasmtime = { version = "42", features = ["component-model"] }
-wasmtime-wasi = "42"
+wasmtime = { version = "49.0.2", features = ["component-model"] }
+wasmtime-wasi = { version = "49.0.2", default-features = false, features = ["p1", "p2"] }
 wit-bindgen = "0.51"
 
 # JWT
@@ -254,11 +254,13 @@ metrics-exporter-prometheus = { version = "0.16", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# OpenTelemetry
-opentelemetry = "0.28"
+# OpenTelemetry — keep the API/SDK/OTLP/tracing crates on one major line.
+# #51 bumped only opentelemetry_sdk to 0.32, which split Tracer traits
+# (0.28 vs 0.32) and broke orka-observe.
+opentelemetry = "0.32"
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.28", features = ["grpc-tonic"] }
-tracing-opentelemetry = "0.29"
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.33"
 
 # Internal crates
 orka-core = { path = "crates/orka-core" }
