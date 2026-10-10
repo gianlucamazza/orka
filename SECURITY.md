@@ -52,6 +52,19 @@ Please include:
 - Security of third-party LLM providers (Anthropic, OpenAI, Ollama, Ollama Cloud)
 - Issues requiring physical access to the host machine
 
+## Known issues
+
+Until the wasmtime upgrade in [#47](https://github.com/gianlucamazza/orka/issues/47)
+lands, enabling `sandbox.backend = "wasm"` (which accepts caller-supplied
+base64 modules) or setting `plugins.dir` to a folder of modules you do not
+fully trust is unsafe. wasmtime 42.0.2 is affected by
+[RUSTSEC-2026-0321](https://rustsec.org/advisories/RUSTSEC-2026-0321),
+[0322](https://rustsec.org/advisories/RUSTSEC-2026-0322),
+[0323](https://rustsec.org/advisories/RUSTSEC-2026-0323), and
+[0327](https://rustsec.org/advisories/RUSTSEC-2026-0327). The stock config
+(`sandbox.backend = "process"`, `plugins.dir` unset) does not load those
+paths.
+
 ## Security Architecture
 
 ### Authentication
