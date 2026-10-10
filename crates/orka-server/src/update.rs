@@ -5,6 +5,15 @@ use tracing::warn;
 const GITHUB_LATEST_URL: &str = "https://api.github.com/repos/gianlucamazza/orka/releases/latest";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Source-install command for the `orka-server` binary (`orka-server` package).
+///
+/// The crates.io name `orka` belongs to an unrelated project; never suggest
+/// `cargo install orka`. Kept under `cfg(test)` so MSRV `cargo check`
+/// (`-Dwarnings`) does not flag it as unused in the bin.
+#[cfg(test)]
+const CARGO_INSTALL_CMD: &str =
+    "cargo install --locked --git https://github.com/gianlucamazza/orka orka-server";
+
 /// Spawn a fire-and-forget task that checks for a newer release on GitHub
 /// and logs a warning if one exists. Never blocks startup.
 pub(crate) fn spawn_update_check() {
@@ -59,7 +68,7 @@ fn upgrade_hint_for_server() -> &'static str {
     } else if s.starts_with("/usr/local/bin/") {
         "Run: orka update  (or re-run install.sh)"
     } else if s.contains("/.cargo/bin/") {
-        "Run: cargo install orka"
+        "Run: cargo install --locked --git https://github.com/gianlucamazza/orka orka-server"
     } else {
         "See https://github.com/gianlucamazza/orka/releases"
     }
@@ -95,5 +104,22 @@ mod tests {
     #[test]
     fn semver_gt_equal_returns_false() {
         assert!(!semver_gt("1.2.3", "1.2.3"));
+    }
+
+    #[test]
+    fn cargo_install_hint_uses_git_source_not_crates_io() {
+        assert!(
+            CARGO_INSTALL_CMD.contains("--git https://github.com/gianlucamazza/orka"),
+            "server cargo upgrade must use this repo's git source: {CARGO_INSTALL_CMD}"
+        );
+        assert!(
+            CARGO_INSTALL_CMD.ends_with(" orka-server"),
+            "server cargo upgrade must install the orka-server package: {CARGO_INSTALL_CMD}"
+        );
+        assert!(
+            !CARGO_INSTALL_CMD.contains("cargo install orka ")
+                && !CARGO_INSTALL_CMD.ends_with("cargo install orka"),
+            "must not suggest the unrelated crates.io crate `orka`: {CARGO_INSTALL_CMD}"
+        );
     }
 }
