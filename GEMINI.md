@@ -18,7 +18,7 @@ The system is a modular monolith with Redis-backed messaging; running more than 
     - **Knowledge:** RAG system using **Qdrant**.
 
 ### Key Technologies
-- **Language:** Rust (MSRV 1.91+)
+- **Language:** Rust (MSRV 1.96+)
 - **Async Runtime:** `tokio`
 - **Web Framework:** `axum`
 - **Messaging & State:** `redis` (Streams, Sorted Sets, KV)
@@ -31,7 +31,7 @@ The system is a modular monolith with Redis-backed messaging; running more than 
 ## Environment Setup
 
 ### Prerequisites
-- **Rust:** 1.91+
+- **Rust:** 1.96+
 - **Redis:** 7+ (Required for messaging and state)
 - **Docker:** Optional, useful for running infrastructure (`docker compose`).
 - **Tools:** `just` (Command runner - **Highly Recommended**), `bacon` (Background checks).

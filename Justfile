@@ -140,7 +140,7 @@ setup:
 
 # Validate MSRV policy using the official minimum toolchain
 msrv:
-    RUSTC_WRAPPER= cargo +1.91.0 check --workspace
+    RUSTC_WRAPPER= cargo +1.96.0 check --workspace
 
 # Build and lint Debian packaging in a dedicated container
 package-lint-debian:

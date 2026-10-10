@@ -3,7 +3,7 @@
 This directory contains a debhelper-based packaging scaffold for Debian and Ubuntu derivatives.
 
 The scaffold assumes a build environment that already satisfies Orka's minimum
-Rust toolchain (`rust-version = 1.91`, `edition = 2024`). Debian 12
+Rust toolchain (`rust-version = 1.96`, `edition = 2024`). Debian 12
 (`bookworm`) and older Ubuntu releases do not meet that requirement with their
 default distro `rustc`/`cargo` packages.
 

@@ -14,6 +14,9 @@ impl WasmEngine {
         let mut cfg = wasmtime::Config::new();
         cfg.consume_fuel(true);
         cfg.wasm_component_model(true);
+        // Keep async lifting off: RUSTSEC-2026-0327 is patched in 49.0.2,
+        // but the host only uses sync bindgen / add_to_linker_sync.
+        cfg.wasm_component_model_async(false);
         let engine = Engine::new(&cfg)
             .map_err(|e| Error::sandbox_msg(format!("failed to create wasmtime engine: {e}")))?;
         Ok(Self(engine))

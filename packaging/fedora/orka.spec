@@ -6,9 +6,12 @@ License:        MIT AND Apache-2.0
 URL:            https://github.com/gianlucamazza/orka
 Source0:        %{name}-%{version}.tar.gz
 
+BuildRequires:  rust >= 1.96
 BuildRequires:  cargo
 BuildRequires:  gcc
 BuildRequires:  openssl-devel
+BuildRequires:  systemd
+BuildRequires:  systemd-devel
 BuildRequires:  pkgconfig(systemd)
 BuildRequires:  systemd-rpm-macros
 
