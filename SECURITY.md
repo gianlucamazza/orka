@@ -54,10 +54,11 @@ Please include:
 
 ## Known issues
 
-Until the wasmtime upgrade in [#49](https://github.com/gianlucamazza/orka/pull/49)
-lands, enabling `sandbox.backend = "wasm"` (caller-supplied base64 modules) or
-setting `plugins.dir` to modules you do not fully trust is unsafe. The pinned
-wasmtime / wasmtime-wasi 42.0.2 has 12 open advisories (`cargo audit` on main):
+[#49](https://github.com/gianlucamazza/orka/pull/49) upgraded wasmtime /
+wasmtime-wasi from **42.0.2** to **49.0.2**. The twelve advisories below
+applied to 42.x (and earlier Orka versions) and are **fixed** in 49.0.2.
+They are not open on current `main` (`cargo audit` reports no wasmtime
+vulnerabilities).
 
 - [RUSTSEC-2026-0114](https://rustsec.org/advisories/RUSTSEC-2026-0114) — Panic when allocating a table exceeding the size of the host's address space
 - [RUSTSEC-2026-0149](https://rustsec.org/advisories/RUSTSEC-2026-0149) — WASI path_open(TRUNCATE) bypasses `FilePerms::WRITE` host restriction
@@ -72,8 +73,10 @@ wasmtime / wasmtime-wasi 42.0.2 has 12 open advisories (`cargo audit` on main):
 - [RUSTSEC-2026-0323](https://rustsec.org/advisories/RUSTSEC-2026-0323) — fd_readdir copies uninitialized struct padding into guest memory
 - [RUSTSEC-2026-0327](https://rustsec.org/advisories/RUSTSEC-2026-0327) — Wasmtime component async-lifted callback result count is unvalidated, causing a native stack buffer overflow
 
-The stock config (`sandbox.backend = "process"`, `plugins.dir` unset) does not
-load those paths.
+`sandbox.backend = "wasm"` still accepts caller-supplied base64 modules, and
+`plugins.dir` still loads any local `*.wasm` with no signature check. Only
+enable those paths for modules you trust. The stock config
+(`sandbox.backend = "process"`, `plugins.dir` unset) does not load them.
 
 ## Security Architecture
 
