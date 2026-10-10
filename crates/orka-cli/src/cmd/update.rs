@@ -87,7 +87,7 @@ fn upgrade_hint(method: &InstallMethod) -> &'static str {
         InstallMethod::Pacman => "Run 'yay -Syu orka-git' to upgrade.",
         InstallMethod::Docker => "Pull the latest image to upgrade.",
         InstallMethod::CargoInstall => {
-            concat!("Run '", CARGO_INSTALL_CMD, "' to upgrade.")
+            "Run 'cargo install --locked --git https://github.com/gianlucamazza/orka orka-cli' to upgrade."
         }
         InstallMethod::DevBuild | InstallMethod::Unknown => {
             "See https://github.com/gianlucamazza/orka/releases"

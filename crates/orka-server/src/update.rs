@@ -66,7 +66,7 @@ fn upgrade_hint_for_server() -> &'static str {
     } else if s.starts_with("/usr/local/bin/") {
         "Run: orka update  (or re-run install.sh)"
     } else if s.contains("/.cargo/bin/") {
-        concat!("Run: ", CARGO_INSTALL_CMD)
+        "Run: cargo install --locked --git https://github.com/gianlucamazza/orka orka-server"
     } else {
         "See https://github.com/gianlucamazza/orka/releases"
     }
