@@ -1554,7 +1554,7 @@ mod tests {
     #[test]
     fn should_attach_workspace_cwd_only_for_local_targets() {
         let local = OrkaClient::new("http://127.0.0.1:8081", None);
-        let remote = OrkaClient::new("http://192.168.1.103:18081", None);
+        let remote = OrkaClient::new("http://192.0.2.10:18081", None);
         assert!(should_attach_workspace_cwd(&local, true));
         assert!(!should_attach_workspace_cwd(&local, false));
         assert!(!should_attach_workspace_cwd(&remote, true));

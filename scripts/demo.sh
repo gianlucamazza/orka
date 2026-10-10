@@ -7,13 +7,13 @@ build_dir="$demo_dir/.build"
 readme_file="$repo_root/README.md"
 tunnel_log="$build_dir/demo-tunnel.log"
 
-direct_server_url_default="${ORKA_SERVER_URL:-http://orka-odroid:18080}"
-direct_adapter_url_default="${ORKA_ADAPTER_URL:-http://orka-odroid:18081}"
+direct_server_url_default="${ORKA_SERVER_URL:-http://localhost:18080}"
+direct_adapter_url_default="${ORKA_ADAPTER_URL:-http://localhost:18081}"
 
 demo_server_url="${ORKA_DEMO_SERVER_URL:-$direct_server_url_default}"
 demo_adapter_url="${ORKA_DEMO_ADAPTER_URL:-$direct_adapter_url_default}"
 demo_use_ssh_tunnel="${ORKA_DEMO_USE_SSH_TUNNEL:-1}"
-demo_ssh_host="${ORKA_DEMO_SSH_HOST:-odroid}"
+demo_ssh_host="${ORKA_DEMO_SSH_HOST:-}"
 demo_remote_server_port="${ORKA_DEMO_REMOTE_SERVER_PORT:-18080}"
 demo_remote_adapter_port="${ORKA_DEMO_REMOTE_ADAPTER_PORT:-18081}"
 gif_fps="${ORKA_DEMO_GIF_FPS:-12}"
@@ -62,7 +62,7 @@ Scenario:
 
 Environment:
   ORKA_DEMO_USE_SSH_TUNNEL  Open a dedicated SSH tunnel first (default: ${demo_use_ssh_tunnel})
-  ORKA_DEMO_SSH_HOST        SSH host used for the tunnel (default: ${demo_ssh_host})
+  ORKA_DEMO_SSH_HOST        SSH host used for the tunnel (required when tunnel mode is enabled)
   ORKA_DEMO_REMOTE_SERVER_PORT   Remote Orka API port (default: ${demo_remote_server_port})
   ORKA_DEMO_REMOTE_ADAPTER_PORT  Remote adapter port (default: ${demo_remote_adapter_port})
   ORKA_DEMO_SERVER_URL      Direct demo server URL when tunnel is disabled
@@ -125,6 +125,8 @@ setup_tunnel_if_needed() {
         tunnel_ready=1
         return
     fi
+
+    [[ -n "$demo_ssh_host" ]] || die "ORKA_DEMO_SSH_HOST is required when ORKA_DEMO_USE_SSH_TUNNEL=1"
 
     require_command ssh
     require_command python

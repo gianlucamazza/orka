@@ -12,10 +12,10 @@ Required environment:
   REGISTRY_USERNAME
   REGISTRY_PASSWORD
   DRONE_COMMIT_SHA
+  OCI_IMAGE_REPO      Full image repo (no default; e.g. ghcr.io/owner/orka)
 
 Optional environment:
-  OCI_REGISTRY_HOST   Registry host (default: registry.home.gianlucamazza.it)
-  OCI_IMAGE_REPO      Full image repo (default: registry.home.gianlucamazza.it/gmazza/orka)
+  OCI_REGISTRY_HOST   Registry host (default: host component of OCI_IMAGE_REPO)
   OCI_IMAGE_TAG       Commit/image version tag (default: DRONE_COMMIT_SHA)
   OCI_IMAGE_LATEST    Latest tag alias (default: latest)
   OCI_BUILDER         Runtime buildx builder name (default: orka-ci-${DRONE_BUILD_NUMBER})
@@ -32,9 +32,9 @@ esac
 : "${REGISTRY_USERNAME:?REGISTRY_USERNAME is required}"
 : "${REGISTRY_PASSWORD:?REGISTRY_PASSWORD is required}"
 : "${DRONE_COMMIT_SHA:?DRONE_COMMIT_SHA is required}"
+: "${OCI_IMAGE_REPO:?OCI_IMAGE_REPO is required (full image repo; no default)}"
 
-OCI_REGISTRY_HOST="${OCI_REGISTRY_HOST:-registry.home.gianlucamazza.it}"
-OCI_IMAGE_REPO="${OCI_IMAGE_REPO:-registry.home.gianlucamazza.it/gmazza/orka}"
+OCI_REGISTRY_HOST="${OCI_REGISTRY_HOST:-${OCI_IMAGE_REPO%%/*}}"
 OCI_IMAGE_TAG="${OCI_IMAGE_TAG:-${DRONE_COMMIT_SHA}}"
 OCI_IMAGE_LATEST="${OCI_IMAGE_LATEST:-latest}"
 OCI_BUILDER="${OCI_BUILDER:-orka-ci-${DRONE_BUILD_NUMBER:-$$}}"

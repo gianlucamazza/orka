@@ -2,7 +2,7 @@
 # Minimal runtime image built from pre-compiled binaries.
 # Usage: docker buildx build --platform linux/arm64 -f Dockerfile.release \
 #          --build-context binaries=target/aarch64-unknown-linux-gnu/release \
-#          -t registry.home.gianlucamazza.it/gmazza/orka:<tag> --push .
+#          -t ${OCI_IMAGE_REPO}:<tag> --push .
 
 FROM debian:bookworm-slim
 

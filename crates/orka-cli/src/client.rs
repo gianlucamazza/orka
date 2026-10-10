@@ -312,8 +312,8 @@ mod tests {
 
     #[test]
     fn targets_localhost_rejects_non_loopback_hosts() {
-        assert!(!OrkaClient::new("http://192.168.1.103:18080", None).targets_localhost());
-        assert!(!OrkaClient::new("https://orka-odroid", None).targets_localhost());
+        assert!(!OrkaClient::new("http://192.0.2.10:18080", None).targets_localhost());
+        assert!(!OrkaClient::new("https://orka.example", None).targets_localhost());
         assert!(!OrkaClient::new("not a url", None).targets_localhost());
     }
 
