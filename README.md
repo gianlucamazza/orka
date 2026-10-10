@@ -185,12 +185,27 @@ Orka reads configuration from `orka.toml` and `ORKA_*` environment variables.
 The repository root `orka.toml` is the canonical sample config kept in sync with
 the current parser.
 
-Until the wasmtime upgrade in [#47](https://github.com/gianlucamazza/orka/issues/47)
-lands, do not set `sandbox.backend = "wasm"` (that path accepts caller-supplied
-base64 modules) or point `plugins.dir` at modules you do not fully trust.
-wasmtime 42.0.2 is affected by RUSTSEC-2026-0321/0322/0323/0327. The stock
-config (`sandbox.backend = "process"`, `plugins.dir` unset) is not exposed.
-See [SECURITY.md](SECURITY.md#known-issues).
+Until the wasmtime upgrade in [#49](https://github.com/gianlucamazza/orka/pull/49)
+lands, enabling `sandbox.backend = "wasm"` (caller-supplied base64 modules) or
+setting `plugins.dir` to modules you do not fully trust is unsafe. The pinned
+wasmtime / wasmtime-wasi 42.0.2 has these open advisories (`cargo audit` on
+main):
+
+- [RUSTSEC-2026-0114](https://rustsec.org/advisories/RUSTSEC-2026-0114) — Panic when allocating a table exceeding the size of the host's address space
+- [RUSTSEC-2026-0149](https://rustsec.org/advisories/RUSTSEC-2026-0149) — WASI path_open(TRUNCATE) bypasses `FilePerms::WRITE` host restriction
+- [RUSTSEC-2026-0182](https://rustsec.org/advisories/RUSTSEC-2026-0182) — Leak in WASIp1 `fd_renumber` implementation
+- [RUSTSEC-2026-0188](https://rustsec.org/advisories/RUSTSEC-2026-0188) — WASI hard links and renames bypass wasmtime-wasi's FilePerms for destination
+- [RUSTSEC-2026-0222](https://rustsec.org/advisories/RUSTSEC-2026-0222) — Stores can mix up type indices between engines
+- [RUSTSEC-2026-0269](https://rustsec.org/advisories/RUSTSEC-2026-0269) — Filesystem sandbox escape when paths or symlinks contain trailing slashes
+- [RUSTSEC-2026-0314](https://rustsec.org/advisories/RUSTSEC-2026-0314) — Guest can panic host through filesystem datetime overflow
+- [RUSTSEC-2026-0316](https://rustsec.org/advisories/RUSTSEC-2026-0316) — Dynamic record lifting can allocate beyond the hostcall fuel limit
+- [RUSTSEC-2026-0321](https://rustsec.org/advisories/RUSTSEC-2026-0321) — WASI preview 0 implementation of `poll_oneoff` circumvents fuel consumption
+- [RUSTSEC-2026-0322](https://rustsec.org/advisories/RUSTSEC-2026-0322) — Excessive allocated memory on the host when guests don't have stdio
+- [RUSTSEC-2026-0323](https://rustsec.org/advisories/RUSTSEC-2026-0323) — fd_readdir copies uninitialized struct padding into guest memory
+- [RUSTSEC-2026-0327](https://rustsec.org/advisories/RUSTSEC-2026-0327) — Wasmtime component async-lifted callback result count is unvalidated, causing a native stack buffer overflow
+
+The stock config (`sandbox.backend = "process"`, `plugins.dir` unset) does not
+load those paths. See [SECURITY.md](SECURITY.md#known-issues).
 
 For a complete reference of all configuration options, see the [Configuration Guide](docs/reference/configuration.md).
 
@@ -403,7 +418,7 @@ Orka does not ship a vendor telemetry or analytics pipeline. Traffic still leave
 
 - **LLM API calls** go from your process to the provider you configure (Anthropic, Moonshot, OpenAI, Ollama, Ollama Cloud, etc.). Orka is not an LLM proxy. Prompt and response text can still appear in local logs, traces, or audit records depending on settings. Optional guardrails and the experience loop can send additional content to an LLM you configure.
 - **Messages and sessions** are stored in the Redis instance you run.
-- **WASM plugins** run with host-enforced memory and CPU limits. Network is disabled by default and must be granted in plugin capabilities.
+- **WASM plugins** (`plugins.dir`) get wasmtime fuel (`consume_fuel` + `set_fuel`) and a linear-memory cap. There is no epoch interruption and no POSIX rlimit on that path; the plugin execute path also does not apply a wall-clock timeout. The optional `sandbox.backend = "wasm"` path uses the same fuel and memory limits plus a `tokio::time::timeout`. Stock `sandbox.backend = "process"` applies `RLIMIT_AS` and a wall-clock timeout to subprocesses only and does not run WASM. Plugin network is deny-by-default and must be granted in capabilities.
 - **Knowledge and experience vectors** are stored in the Qdrant instance you configure.
 
 You choose which channels, providers, and exporters are configured. Untrusted input still needs auth and guardrails.
