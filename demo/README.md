@@ -22,10 +22,10 @@ Master recordings are staged under `demo/.build/` and can be removed with `./scr
 The demo pipeline assumes a live Orka backend. By default it targets:
 
 - `ORKA_DEMO_USE_SSH_TUNNEL=1`
-- `ORKA_DEMO_SSH_HOST=odroid`
+- `ORKA_DEMO_SSH_HOST=<host>`
 - remote Orka ports `18080` and `18081`
 
-With the default tunnel mode, the recorder talks to a temporary local forward and does not rely on `orka-odroid` resolving correctly on the recorder machine.
+With the default tunnel mode, the recorder talks to a temporary local forward and does not rely on `<host>` resolving correctly on the recorder machine.
 
 Disable the tunnel only if the backend is directly reachable and then set `ORKA_DEMO_SERVER_URL` and `ORKA_DEMO_ADAPTER_URL` explicitly. Set `ORKA_DEMO_API_KEY` if the target backend is protected. The script also honors `ORKA_DEMO_ORKA_BIN` if you want to pin a specific `orka` CLI binary.
 

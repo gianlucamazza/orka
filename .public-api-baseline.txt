@@ -1,5 +1,5 @@
     Blocking waiting for file lock on artifact directory
- Documenting orka-core v1.10.1 (/home/gianluca/Workspace/orka/crates/orka-core)
+ Documenting orka-core v1.10.1 (crates/orka-core)
 warning: unresolved link to `config`
   --> crates/orka-core/src/lib.rs:13:21
    |
