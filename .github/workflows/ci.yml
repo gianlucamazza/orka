@@ -114,10 +114,17 @@ jobs:
         run: |
           sudo apt-get update || echo "apt-get update had failures, continuing anyway"
           sudo apt-get install -y --no-install-recommends libfontconfig1-dev
+      # Pin 1.96.0 explicitly (do not use the repo default/stable toolchain).
+      # dtolnay/rust-toolchain@1.96.0 installs that version as the directory
+      # override; `cargo +1.96.0` then cannot pick nightly/stable by accident.
       - uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          toolchain: 1.96.0
       - uses: Swatinem/rust-cache@v2
       - name: cargo check on MSRV
-        run: RUSTC_WRAPPER= cargo +1.96.0 check --workspace
+        run: |
+          rustc +1.96.0 --version
+          RUSTC_WRAPPER= cargo +1.96.0 check --workspace
 
   coverage:
     name: Code coverage
