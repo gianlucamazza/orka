@@ -158,7 +158,7 @@ fn default_model(provider_key: &str) -> &'static str {
     match provider_key {
         "anthropic" => "claude-sonnet-4-6",
         "moonshot" => "kimi-k2-thinking-turbo",
-        "google" => "gemini-2.0-flash",
+        "google" => "gemini-3.8-flash",
         "ollama" => "llama3",
         _ => "gpt-4o",
     }
@@ -566,4 +566,14 @@ fn print_banner() {
          At minimum, you need an LLM provider API key.\n"
             .white()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_model_google_is_gemini_3_8_flash() {
+        assert_eq!(default_model("google"), "gemini-3.8-flash");
+    }
 }
