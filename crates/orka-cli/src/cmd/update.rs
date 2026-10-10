@@ -15,6 +15,13 @@ const REPO_OWNER: &str = "gianlucamazza";
 const REPO_NAME: &str = "orka";
 const CHECK_INTERVAL_SECS: u64 = 86_400; // 24 hours
 
+/// Source-install command for the `orka` binary (`orka-cli` package).
+///
+/// The crates.io name `orka` belongs to an unrelated project; never suggest
+/// `cargo install orka`.
+const CARGO_INSTALL_CMD: &str =
+    "cargo install --locked --git https://github.com/gianlucamazza/orka orka-cli";
+
 #[derive(Deserialize)]
 struct GithubRelease {
     tag_name: String,
@@ -79,7 +86,9 @@ fn upgrade_hint(method: &InstallMethod) -> &'static str {
         InstallMethod::DirectInstall => "Run 'orka update' to upgrade.",
         InstallMethod::Pacman => "Run 'yay -Syu orka-git' to upgrade.",
         InstallMethod::Docker => "Pull the latest image to upgrade.",
-        InstallMethod::CargoInstall => "Run 'cargo install orka' to upgrade.",
+        InstallMethod::CargoInstall => {
+            concat!("Run '", CARGO_INSTALL_CMD, "' to upgrade.")
+        }
         InstallMethod::DevBuild | InstallMethod::Unknown => {
             "See https://github.com/gianlucamazza/orka/releases"
         }
@@ -248,7 +257,7 @@ pub async fn run_update() -> Result<()> {
             return Err("Running inside a container. Pull the latest image and recreate.".into());
         }
         InstallMethod::CargoInstall => {
-            return Err("Installed via cargo. Run: cargo install orka".into());
+            return Err(format!("Installed via cargo. Run: {CARGO_INSTALL_CMD}").into());
         }
         InstallMethod::DevBuild => {
             return Err("This is a dev build. Run: cargo build --release".into());
@@ -441,7 +450,15 @@ mod tests {
     }
 
     #[test]
-    fn upgrade_hint_cargo_mentions_cargo() {
-        assert!(upgrade_hint(&InstallMethod::CargoInstall).contains("cargo"));
+    fn upgrade_hint_cargo_uses_git_source_not_crates_io() {
+        let hint = upgrade_hint(&InstallMethod::CargoInstall);
+        assert!(
+            hint.contains(CARGO_INSTALL_CMD),
+            "cargo upgrade hint must use this repo's git source: {hint}"
+        );
+        assert!(
+            !hint.contains("cargo install orka'") && !hint.contains("cargo install orka\""),
+            "must not suggest the unrelated crates.io crate `orka`: {hint}"
+        );
     }
 }
