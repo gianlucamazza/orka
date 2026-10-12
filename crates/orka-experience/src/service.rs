@@ -3,7 +3,7 @@ use std::{fmt::Write as _, sync::Arc};
 use orka_core::{ErrorCategory, Result};
 use orka_llm::client::LlmClient;
 use orka_prompts::template::TemplateRegistry;
-use rand::Rng as _;
+use rand::RngExt as _;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 

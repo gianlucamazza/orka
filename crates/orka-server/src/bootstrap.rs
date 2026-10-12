@@ -1586,7 +1586,7 @@ async fn wait_for_shutdown(
     worker_handle: JoinHandle<()>,
     outbound_handle: JoinHandle<()>,
 ) -> anyhow::Result<()> {
-    let _ = sd_notify::notify(true, &[sd_notify::NotifyState::Ready]);
+    let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     info!(
         listen = %format_args!("{}:{}", config.server.host, config.server.port),
         "Orka server ready",
@@ -1598,7 +1598,7 @@ async fn wait_for_shutdown(
         _ = sigterm.recv() => info!("received SIGTERM"),
     }
 
-    let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Stopping]);
+    let _ = sd_notify::notify(&[sd_notify::NotifyState::Stopping]);
     info!("shutting down...");
     for adapter in &adapters {
         if let Err(e) = adapter.shutdown().await {

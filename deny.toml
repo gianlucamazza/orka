@@ -17,8 +17,8 @@ ignore = [
   # tokio-tar: dev-only dependency via testcontainers; not present in
   # production binaries. No fixed version available upstream.
   "RUSTSEC-2025-0111",
-  # lopdf < 0.42 via printpdf 0.7 and pdf-extract 0.7; fixed only in
-  # lopdf 0.42, which needs major bumps of both upstream crates.
+  # lopdf < 0.42 via printpdf 0.7 (held at 0.7; 0.12 rewrites the PDF API).
+  # pdf-extract is now 0.12 / lopdf 0.42.
   "RUSTSEC-2026-0187",
   # quick-xml < 0.41 via syntect -> plist; fixed only in quick-xml 0.41,
   # which needs upstream bumps.
@@ -42,6 +42,8 @@ allow = [
   "MPL-2.0",
   "CC0-1.0",
   "CDLA-Permissive-2.0",
+  # xxhash-rust via redis 1.x
+  "BSL-1.0",
   "LicenseRef-ring",
   # ansi_colours (via viuer in orka-cli) — LGPL is acceptable for a CLI tool
   "LGPL-3.0-or-later",

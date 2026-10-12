@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use deadpool_redis::{Config as DeadpoolConfig, Pool, Runtime};
+use deadpool_redis::{Pool, Runtime};
 use orka_core::{DomainEvent, traits::EventSink};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
@@ -25,9 +25,14 @@ impl RedisEventSink {
         batch_size: usize,
         flush_interval_ms: u64,
     ) -> orka_core::Result<Self> {
-        let cfg = DeadpoolConfig::from_url(redis_url);
-        let pool = cfg
-            .create_pool(Some(Runtime::Tokio1))
+        // redis 1.x defaults response_timeout to 500ms; disable it so flushes
+        // are not aborted by the client while XADD is in flight.
+        let conn_config = redis::AsyncConnectionConfig::new().set_response_timeout(None);
+        let manager = deadpool_redis::Manager::new_with_config(redis_url, conn_config)
+            .map_err(|e| orka_core::Error::observe(e, "failed to create Redis manager"))?;
+        let pool = Pool::builder(manager)
+            .runtime(Runtime::Tokio1)
+            .build()
             .map_err(|e| orka_core::Error::observe(e, "failed to create Redis pool"))?;
 
         let (tx, rx) = mpsc::channel(1024);
@@ -44,16 +49,14 @@ impl RedisEventSink {
         flush_interval_ms: u64,
     ) {
         let mut buffer: Vec<String> = Vec::with_capacity(batch_size);
-        let mut interval =
-            tokio::time::interval(std::time::Duration::from_millis(flush_interval_ms));
+        // Skip the immediate first tick so a just-started sink does not flush a
+        // partial batch when `select!` races interval against `recv`.
+        let period = std::time::Duration::from_millis(flush_interval_ms.max(1));
+        let mut interval = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
 
         loop {
             tokio::select! {
-                _ = interval.tick() => {
-                    if !buffer.is_empty() {
-                        Self::flush(&pool, &mut buffer).await;
-                    }
-                }
+                biased;
                 event = rx.recv() => {
                     if let Some(event) = event {
                         match serde_json::to_string(&event) {
@@ -72,6 +75,11 @@ impl RedisEventSink {
                         }
                         info!("event sink batch loop stopped");
                         break;
+                    }
+                }
+                _ = interval.tick() => {
+                    if !buffer.is_empty() {
+                        Self::flush(&pool, &mut buffer).await;
                     }
                 }
             }
@@ -96,9 +104,8 @@ impl RedisEventSink {
                 .arg(json);
         }
 
-        let result: redis::RedisResult<Vec<String>> = pipe.query_async(&mut *conn).await;
-        match result {
-            Ok(_) => debug!(count = buffer.len(), "events batch flushed to Redis stream"),
+        match pipe.exec_async(&mut *conn).await {
+            Ok(()) => debug!(count = buffer.len(), "events batch flushed to Redis stream"),
             Err(e) => error!(%e, count = buffer.len(), "failed to flush events batch"),
         }
 
@@ -128,11 +135,27 @@ mod tests {
 
     use super::*;
 
+    async fn clear_event_stream(redis_url: &str) {
+        let client = redis::Client::open(redis_url).unwrap();
+        let mut conn = client
+            .get_multiplexed_async_connection_with_config(
+                &redis::AsyncConnectionConfig::new().set_response_timeout(None),
+            )
+            .await
+            .unwrap();
+        let _: () = redis::cmd("DEL")
+            .arg(STREAM_KEY)
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+    }
+
     #[serial_test::serial]
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "requires Redis"]
     async fn sink_flushes_single_event_to_stream() {
         let redis = RedisService::discover().await.unwrap();
+        clear_event_stream(redis.url()).await;
 
         // batch_size=1 flushes after every event
         let sink = RedisEventSink::new(redis.url(), 1, 5_000).unwrap();
@@ -162,6 +185,7 @@ mod tests {
     #[ignore = "requires Redis"]
     async fn sink_flushes_on_interval_when_below_batch_size() {
         let redis = RedisService::discover().await.unwrap();
+        clear_event_stream(redis.url()).await;
 
         // Large batch (100), short flush interval (100ms) — interval fires
         // before batch is full
@@ -199,6 +223,7 @@ mod tests {
     #[ignore = "requires Redis"]
     async fn sink_batches_events_and_flushes_at_batch_size() {
         let redis = RedisService::discover().await.unwrap();
+        clear_event_stream(redis.url()).await;
 
         // batch_size=4, long flush interval: only flush when 4 events arrive
         let sink = RedisEventSink::new(redis.url(), 4, 60_000).unwrap();

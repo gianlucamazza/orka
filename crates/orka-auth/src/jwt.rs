@@ -60,7 +60,7 @@ impl JwtAuthenticator {
     }
 }
 
-/// jsonwebtoken 10 validation knobs matching the v9 semantics Orka shipped:
+/// jsonwebtoken 11 validation knobs matching the v9 semantics Orka shipped:
 /// one algorithm, `exp` required and checked, `nbf` optional and unchecked,
 /// audience checked only when the token carries `aud`.
 fn jwt_validation(algorithm: Algorithm, issuer: &str, audience: Option<&str>) -> Validation {

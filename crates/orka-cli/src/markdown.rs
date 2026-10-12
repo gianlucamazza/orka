@@ -412,7 +412,7 @@ impl MarkdownRenderer {
                     };
                     let mut table = Table::new();
                     table
-                        .load_preset(preset)
+                        .load_style(preset)
                         .set_content_arrangement(ContentArrangement::Dynamic)
                         .set_header(table_headers.clone());
                     for row in &table_rows {

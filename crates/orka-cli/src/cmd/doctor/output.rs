@@ -170,12 +170,11 @@ fn render_markdown(report: &DoctorReport) {
 
 /// Print the list of all available checks.
 pub fn list_checks(checks: &[(CheckMeta, &str)]) {
-    use comfy_table::{Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL};
+    use comfy_table::{Table, presets::UTF8_FULL};
 
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL)
-        .apply_modifier(UTF8_ROUND_CORNERS)
+        .load_style(UTF8_FULL.with_rounded_corners())
         .set_header(["ID", "Category", "Severity", "Name"]);
 
     for (meta, _) in checks {
