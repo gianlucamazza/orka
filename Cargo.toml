@@ -225,8 +225,8 @@ wasmtime = { version = "49.0.2", features = ["component-model"] }
 wasmtime-wasi = { version = "49.0.2", default-features = false, features = ["p1", "p2"] }
 wit-bindgen = "0.62"
 
-# JWT
-jsonwebtoken = "11"
+# JWT — 11's rust_crypto pulls rsa (RUSTSEC-2023-0071); aws_lc_rs is a native stack.
+jsonwebtoken = "9"
 
 # Regex
 regex = "1"
