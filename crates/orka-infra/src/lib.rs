@@ -25,13 +25,17 @@ pub mod session;
 
 /// Create a `deadpool-redis` connection pool for the given Redis URL.
 ///
-/// Centralises the `Config::from_url(...).create_pool(Tokio1)` idiom used by
-/// every Redis-backed store. Callers map the returned `CreatePoolError` to
-/// their own domain error variant.
+/// redis 1.x defaults `response_timeout` to 500ms, which aborts blocking
+/// commands (`BZPOPMIN`, `XREADGROUP BLOCK`) before the server wait finishes.
+/// Disable that client timeout so the command-level timeout is authoritative.
 pub(crate) fn create_redis_pool(
     redis_url: &str,
-) -> Result<deadpool_redis::Pool, deadpool_redis::CreatePoolError> {
-    deadpool_redis::Config::from_url(redis_url).create_pool(Some(deadpool_redis::Runtime::Tokio1))
+) -> Result<deadpool_redis::Pool, Box<dyn std::error::Error + Send + Sync>> {
+    let conn_config = redis::AsyncConnectionConfig::new().set_response_timeout(None);
+    let manager = deadpool_redis::Manager::new_with_config(redis_url, conn_config)?;
+    Ok(deadpool_redis::Pool::builder(manager)
+        .runtime(deadpool_redis::Runtime::Tokio1)
+        .build()?)
 }
 
 // Flat re-exports for backwards-compatible access.
