@@ -225,8 +225,10 @@ wasmtime = { version = "49.0.2", features = ["component-model"] }
 wasmtime-wasi = { version = "49.0.2", default-features = false, features = ["p1", "p2"] }
 wit-bindgen = "0.51"
 
-# JWT
-jsonwebtoken = "9"
+# JWT — v10 requires exactly one crypto backend. rust_crypto pulls the
+# unfixed `rsa` crate (RUSTSEC-2023-0071 / Marvin). aws_lc_rs uses AWS-LC
+# (ISC/Apache/MIT/BSD, MSRV 1.96) and keeps cargo-audit/deny green.
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 
 # Regex
 regex = "1"
