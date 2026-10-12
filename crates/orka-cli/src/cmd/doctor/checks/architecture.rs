@@ -292,8 +292,8 @@ fn parse_workspace_member(
 ) -> Result<WorkspaceMember, String> {
     let raw =
         fs::read_to_string(manifest_path).map_err(|err| format!("cannot read manifest: {err}"))?;
-    let value = toml::from_str::<toml::Value>(&raw)
-        .map_err(|err| format!("invalid Cargo.toml: {err}"))?;
+    let value =
+        toml::from_str::<toml::Value>(&raw).map_err(|err| format!("invalid Cargo.toml: {err}"))?;
 
     let name = value
         .get("package")
