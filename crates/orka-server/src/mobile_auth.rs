@@ -7,7 +7,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
 use deadpool_redis::{Config as RedisConfig, Pool, Runtime, redis::Script};
 use jsonwebtoken::{EncodingKey, Header, encode};
-use rand::TryRngCore as _;
+use rand::TryRng as _;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -1140,12 +1140,12 @@ fn device_label(device_name: &str, platform: &str) -> String {
 }
 
 fn hash_secret(secret: &str) -> String {
-    format!("{:x}", Sha256::digest(secret.as_bytes()))
+    hex::encode(Sha256::digest(secret.as_bytes()))
 }
 
 fn random_secret() -> Result<String, MobileAuthError> {
     let mut bytes = [0_u8; 32];
-    rand::rngs::OsRng
+    rand::rngs::SysRng
         .try_fill_bytes(&mut bytes)
         .map_err(|error| {
             MobileAuthError::Internal(format!("failed to generate secure random bytes: {error}"))

@@ -12,7 +12,7 @@ pub fn make_table(headers: &[&str]) -> Table {
     };
     let mut table = Table::new();
     table
-        .load_preset(preset)
+        .load_style(preset)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(headers.to_vec());
     table

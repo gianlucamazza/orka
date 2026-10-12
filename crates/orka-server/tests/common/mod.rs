@@ -417,7 +417,7 @@ pub(crate) async fn test_router_with_a2a(key: &str, a2a_auth_enabled: bool) -> a
         webhook_deliverer: Arc::new(WebhookDeliverer::new(push_store)),
     });
 
-    let key_hash = format!("{:x}", Sha256::digest(key.as_bytes()));
+    let key_hash = hex::encode(Sha256::digest(key.as_bytes()));
     let entries = vec![ApiKeyEntry::new("test-key", key_hash, vec![])];
     let auth_cfg = Arc::new(AuthMiddlewareConfig::default());
     let authenticator = Arc::new(ApiKeyAuthenticator::new(&entries));
@@ -493,7 +493,7 @@ pub(crate) async fn test_router_with_auth(key: &str) -> axum::Router {
     let mut skills = SkillRegistry::new();
     skills.register(Arc::new(EchoSkill));
 
-    let key_hash = format!("{:x}", Sha256::digest(key.as_bytes()));
+    let key_hash = hex::encode(Sha256::digest(key.as_bytes()));
     let entries = vec![ApiKeyEntry::new("test-key", key_hash, vec![])];
     let auth_cfg = Arc::new(AuthMiddlewareConfig::default());
     let authenticator = Arc::new(ApiKeyAuthenticator::new(&entries));
@@ -849,7 +849,7 @@ pub(crate) async fn test_router_with_composite_auth(
     let mut skills = SkillRegistry::new();
     skills.register(Arc::new(EchoSkill));
 
-    let key_hash = format!("{:x}", Sha256::digest(api_key.as_bytes()));
+    let key_hash = hex::encode(Sha256::digest(api_key.as_bytes()));
     let entries = vec![ApiKeyEntry::new("test-key", key_hash, vec![])];
     let api_key_auth = Arc::new(ApiKeyAuthenticator::new(&entries));
     let jwt_auth = Arc::new(JwtAuthenticator::with_secret(

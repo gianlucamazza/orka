@@ -15,7 +15,7 @@ use tower::ServiceExt;
 fn hash_key(raw: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(raw.as_bytes());
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finalize())
 }
 
 fn make_auth_layer(raw_key: &str, key_name: &str) -> AuthLayer {

@@ -6,7 +6,7 @@ use axum::{
     extract::{Query, State},
     http::HeaderMap,
 };
-use hmac::Mac;
+use hmac::{KeyInit, Mac};
 use orka_core::{
     InboundInteraction, InteractionContent, MediaAttachment, MessageId, PlatformContext,
     SenderInfo, TraceContext, types::SessionId,
