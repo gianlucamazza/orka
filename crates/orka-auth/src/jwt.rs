@@ -35,13 +35,7 @@ impl JwtAuthenticator {
     /// Create from a static HMAC secret (HS256).
     pub fn with_secret(issuer: String, audience: Option<String>, secret: &str) -> Self {
         let decoding_key = DecodingKey::from_secret(secret.as_bytes());
-        let mut validation = Validation::new(Algorithm::HS256);
-        validation.set_issuer(&[&issuer]);
-        if let Some(ref aud) = audience {
-            validation.set_audience(&[aud]);
-        }
-        validation.validate_exp = true;
-        validation.leeway = 10; // 10 seconds clock skew tolerance
+        let validation = jwt_validation(Algorithm::HS256, &issuer, audience.as_deref());
 
         Self {
             _issuer: issuer,
@@ -55,13 +49,7 @@ impl JwtAuthenticator {
     pub fn with_rsa_pem(issuer: String, audience: Option<String>, pem: &[u8]) -> Result<Self> {
         let decoding_key = DecodingKey::from_rsa_pem(pem)
             .map_err(|e| Error::Auth(format!("invalid RSA PEM: {e}")))?;
-        let mut validation = Validation::new(Algorithm::RS256);
-        validation.set_issuer(&[&issuer]);
-        if let Some(ref aud) = audience {
-            validation.set_audience(&[aud]);
-        }
-        validation.validate_exp = true;
-        validation.leeway = 10; // 10 seconds clock skew tolerance
+        let validation = jwt_validation(Algorithm::RS256, &issuer, audience.as_deref());
 
         Ok(Self {
             _issuer: issuer,
@@ -70,6 +58,23 @@ impl JwtAuthenticator {
             validation,
         })
     }
+}
+
+/// jsonwebtoken 11 validation knobs matching the v9 semantics Orka shipped:
+/// one algorithm, `exp` required and checked, `nbf` optional and unchecked,
+/// audience checked only when the token carries `aud`.
+fn jwt_validation(algorithm: Algorithm, issuer: &str, audience: Option<&str>) -> Validation {
+    let mut validation = Validation::new(algorithm);
+    validation.set_required_spec_claims(&["exp"]);
+    validation.set_issuer(&[issuer]);
+    if let Some(aud) = audience {
+        validation.set_audience(&[aud]);
+    }
+    validation.validate_exp = true;
+    validation.validate_nbf = false;
+    validation.validate_aud = true;
+    validation.leeway = 10; // 10 seconds clock skew tolerance
+    validation
 }
 
 #[async_trait]
@@ -153,6 +158,22 @@ mod tests {
         scope: String,
         iss: String,
         exp: u64,
+    }
+
+    #[derive(Serialize)]
+    struct NbfClaims {
+        sub: String,
+        scope: String,
+        iss: String,
+        exp: u64,
+        nbf: u64,
+    }
+
+    #[derive(Serialize)]
+    struct MissingExpClaims {
+        sub: String,
+        scope: String,
+        iss: String,
     }
 
     fn make_token(secret: &str, sub: &str, scope: &str, issuer: &str) -> String {
@@ -384,5 +405,144 @@ swIDAQAB
 
         assert_eq!(identity.principal, "user2");
         assert_eq!(identity.scopes, vec!["read", "write", "admin"]);
+    }
+
+    #[tokio::test]
+    async fn hs256_authenticator_rejects_rs256_token() {
+        let auth = JwtAuthenticator::with_secret(
+            "test-issuer".into(),
+            None,
+            "test-secret-key-at-least-32-bytes-long!",
+        );
+        let claims = Rs256Claims {
+            sub: "rsa-user",
+            scope: "admin",
+            iss: "test-issuer",
+            exp: chrono::Utc::now().timestamp() as u64 + 3600,
+        };
+        let token = encode(
+            &Header::new(Algorithm::RS256),
+            &claims,
+            &EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_KEY.as_bytes()).unwrap(),
+        )
+        .unwrap();
+
+        let result = auth.authenticate(&Credentials::Bearer(token)).await;
+        assert!(result.is_err(), "HS256 authenticator must reject RS256");
+    }
+
+    #[tokio::test]
+    async fn rs256_authenticator_rejects_hs256_token() {
+        let auth = JwtAuthenticator::with_rsa_pem(
+            "test-issuer".into(),
+            None,
+            TEST_RSA_PUBLIC_KEY.as_bytes(),
+        )
+        .unwrap();
+        let token = make_token(
+            "test-secret-key-at-least-32-bytes-long!",
+            "user123",
+            "read",
+            "test-issuer",
+        );
+
+        let result = auth.authenticate(&Credentials::Bearer(token)).await;
+        assert!(result.is_err(), "RS256 authenticator must reject HS256");
+    }
+
+    #[tokio::test]
+    async fn missing_exp_rejected() {
+        let secret = "test-secret-key-at-least-32-bytes-long!";
+        let auth = JwtAuthenticator::with_secret("test-issuer".into(), None, secret);
+        let token = encode(
+            &Header::default(),
+            &MissingExpClaims {
+                sub: "user123".into(),
+                scope: "read".into(),
+                iss: "test-issuer".into(),
+            },
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+
+        let result = auth.authenticate(&Credentials::Bearer(token)).await;
+        assert!(result.is_err(), "JWT without exp must be rejected");
+    }
+
+    #[tokio::test]
+    async fn future_nbf_accepted_when_nbf_validation_disabled() {
+        let secret = "test-secret-key-at-least-32-bytes-long!";
+        let auth = JwtAuthenticator::with_secret("test-issuer".into(), None, secret);
+        let now = chrono::Utc::now().timestamp() as u64;
+        let token = encode(
+            &Header::default(),
+            &NbfClaims {
+                sub: "user123".into(),
+                scope: "read".into(),
+                iss: "test-issuer".into(),
+                exp: now + 3600,
+                nbf: now + 600, // still in the future
+            },
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+
+        let identity = auth
+            .authenticate(&Credentials::Bearer(token))
+            .await
+            .expect("nbf is not validated; future nbf must still pass");
+        assert_eq!(identity.principal, "user123");
+    }
+
+    #[tokio::test]
+    async fn missing_nbf_accepted() {
+        let secret = "test-secret-key-at-least-32-bytes-long!";
+        let auth = JwtAuthenticator::with_secret("test-issuer".into(), None, secret);
+        let token = make_token(secret, "user123", "read", "test-issuer");
+
+        let identity = auth
+            .authenticate(&Credentials::Bearer(token))
+            .await
+            .expect("nbf is optional");
+        assert_eq!(identity.principal, "user123");
+    }
+
+    #[tokio::test]
+    async fn unexpected_audience_rejected_when_not_configured() {
+        let secret = "test-secret-key-at-least-32-bytes-long!";
+        let auth = JwtAuthenticator::with_secret("test-issuer".into(), None, secret);
+        let claims = AudClaims {
+            sub: "user1".into(),
+            scope: "read".into(),
+            iss: "test-issuer".into(),
+            aud: "someone-else".into(),
+            exp: chrono::Utc::now().timestamp() as u64 + 3600,
+        };
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+
+        let result = auth.authenticate(&Credentials::Bearer(token)).await;
+        assert!(
+            result.is_err(),
+            "aud present without a configured audience must be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_audience_accepted_when_audience_is_configured() {
+        let secret = "test-secret-key-at-least-32-bytes-long!";
+        let auth =
+            JwtAuthenticator::with_secret("test-issuer".into(), Some("my-app".into()), secret);
+        let token = make_token(secret, "user1", "read", "test-issuer");
+
+        let identity = auth
+            .authenticate(&Credentials::Bearer(token))
+            .await
+            .expect("aud is checked only when present");
+        assert_eq!(identity.principal, "user1");
     }
 }
