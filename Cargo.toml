@@ -225,8 +225,10 @@ wasmtime = { version = "49.0.2", features = ["component-model"] }
 wasmtime-wasi = { version = "49.0.2", default-features = false, features = ["p1", "p2"] }
 wit-bindgen = "0.51"
 
-# JWT
-jsonwebtoken = "10"
+# JWT — v10 requires exactly one crypto backend. rust_crypto is pure Rust
+# (MIT/Apache), matches MSRV 1.96, and avoids aws-lc-rs native builds and
+# OpenSSL-family licenses that cargo-deny rejects.
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 
 # Regex
 regex = "1"
