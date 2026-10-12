@@ -292,8 +292,7 @@ fn parse_workspace_member(
 ) -> Result<WorkspaceMember, String> {
     let raw =
         fs::read_to_string(manifest_path).map_err(|err| format!("cannot read manifest: {err}"))?;
-    let value = raw
-        .parse::<toml::Value>()
+    let value = toml::from_str::<toml::Value>(&raw)
         .map_err(|err| format!("invalid Cargo.toml: {err}"))?;
 
     let name = value
@@ -552,7 +551,8 @@ members = [
 
     #[test]
     fn collect_internal_dependencies_reads_workspace_crates() {
-        let value = r#"
+        let value = toml::from_str::<toml::Value>(
+            r#"
 [package]
 name = "orka-demo"
 
@@ -560,8 +560,8 @@ name = "orka-demo"
 orka-core.workspace = true
 serde.workspace = true
 orka-llm = { workspace = true }
-"#
-        .parse::<toml::Value>()
+"#,
+        )
         .expect("toml");
         let deps = collect_internal_dependencies(&value);
         assert_eq!(deps, vec!["orka-core".to_string(), "orka-llm".to_string()]);
