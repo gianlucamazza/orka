@@ -58,7 +58,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt,clippy
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@v0.0.11
       - name: Configure sccache
         run: |
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
