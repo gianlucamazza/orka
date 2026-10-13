@@ -99,7 +99,7 @@ mime_guess = "2"
 infer = "0.22"
 governor.workspace = true
 # 0.12 rewrites the document/page/layer API; keep the 0.7 surface used by export.rs.
-printpdf = "0.7"
+printpdf = "0.12"
 
 [dev-dependencies]
 orka-core.workspace = true
