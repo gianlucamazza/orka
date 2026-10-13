@@ -242,7 +242,7 @@ utoipa-swagger-ui = { version = "10", features = ["axum"] }
 jsonschema = "0.49"
 
 # WebSocket
-tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 
 # Web scraping
@@ -311,8 +311,8 @@ walkdir = "2"
 # Knowledge & RAG
 qdrant-client = "1"
 fastembed = "7"
-text-splitter = { version = "0.30", features = ["tiktoken-rs"] }
-tiktoken-rs = "0.11"
+text-splitter = { version = "0.32", features = ["tiktoken-rs"] }
+tiktoken-rs = "0.12"
 pdf-extract = "0.12"
 
 # Scheduler
