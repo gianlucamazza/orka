@@ -57,8 +57,9 @@ Please include:
 [#49](https://github.com/gianlucamazza/orka/pull/49) upgraded wasmtime /
 wasmtime-wasi from **42.0.2** to **49.0.2**. The twelve advisories below
 applied to 42.x (and earlier Orka versions) and are **fixed** in 49.0.2.
-They are not open on current `main` (`cargo audit` reports no wasmtime
-vulnerabilities).
+**49.0.3** patches the later wasmtime / wasmtime-wasi advisories published
+14 Oct 2026 (RUSTSEC-2026-0352 through 0364). They are not open on this
+tree (`cargo audit` reports no wasmtime vulnerabilities).
 
 - [RUSTSEC-2026-0114](https://rustsec.org/advisories/RUSTSEC-2026-0114) — Panic when allocating a table exceeding the size of the host's address space
 - [RUSTSEC-2026-0149](https://rustsec.org/advisories/RUSTSEC-2026-0149) — WASI path_open(TRUNCATE) bypasses `FilePerms::WRITE` host restriction
