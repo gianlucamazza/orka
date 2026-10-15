@@ -99,7 +99,7 @@ jobs:
           sha256sum orka-linux-x86_64.tar.gz orka-linux-aarch64.tar.gz > sha256sums.txt
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: RELEASE_NOTES.md
           files: |
