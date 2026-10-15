@@ -98,7 +98,7 @@ url.workspace = true
 mime_guess = "2"
 infer = "0.22"
 governor.workspace = true
-# 0.12 rewrites the document/page/layer API; keep the 0.7 surface used by export.rs.
+# 0.12 rewrites the document/page/layer API; export.rs uses the ops/page surface.
 printpdf = "0.12"
 
 [dev-dependencies]
