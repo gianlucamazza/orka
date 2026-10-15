@@ -3,7 +3,9 @@
 use std::fmt::Write as _;
 
 use orka_core::{Conversation, ConversationMessage, ConversationMessageRole};
-use printpdf::{BuiltinFont, Mm, PdfDocument};
+use printpdf::{
+    BuiltinFont, Mm, Op, PdfDocument, PdfFontHandle, PdfPage, PdfSaveOptions, Point, Pt, TextItem,
+};
 
 /// Supported export formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,64 +105,72 @@ pub fn export_pdf(
     messages: &[ConversationMessage],
 ) -> Result<Vec<u8>, String> {
     let title = sanitize_pdf_string(&conversation.title);
-    let (doc, page1, layer1) = PdfDocument::new(&title, Mm(PAGE_W), Mm(PAGE_H), "Layer 1");
+    let mut doc = PdfDocument::new(&title);
+    let mut pages = Vec::new();
+    let mut ops = start_page_ops();
+    let mut y = PAGE_H - MARGIN;
 
-    let font = doc
-        .add_builtin_font(BuiltinFont::Helvetica)
-        .map_err(|e| format!("font error: {e}"))?;
-    let font_bold = doc
-        .add_builtin_font(BuiltinFont::HelveticaBold)
-        .map_err(|e| format!("font error: {e}"))?;
-
-    let mut layer = doc.get_page(page1).get_layer(layer1);
-    let mut y: f32 = PAGE_H - MARGIN;
-
-    // Draw title.
-    layer.use_text(&title, 16.0, Mm(MARGIN), Mm(y), &font_bold);
+    write_line(&mut ops, &title, BuiltinFont::HelveticaBold, 16.0, y);
     y -= LINE_H * 1.8;
-    if y < MARGIN {
-        let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Layer");
-        layer = doc.get_page(p).get_layer(l);
-        y = PAGE_H - MARGIN;
-    }
+    ensure_page_space(&mut pages, &mut ops, &mut y);
 
-    // Draw messages.
     for message in messages {
         let role_label = match message.role {
             ConversationMessageRole::User => "User",
             ConversationMessageRole::Assistant => "Assistant",
             _ => "Other",
         };
-        layer.use_text(role_label, 10.0, Mm(MARGIN), Mm(y), &font_bold);
+        write_line(&mut ops, role_label, BuiltinFont::HelveticaBold, 10.0, y);
         y -= LINE_H;
-        if y < MARGIN {
-            let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Layer");
-            layer = doc.get_page(p).get_layer(l);
-            y = PAGE_H - MARGIN;
-        }
+        ensure_page_space(&mut pages, &mut ops, &mut y);
 
         for line in wrap_text(&message.text, CHARS_PER_LINE) {
             let safe_line = sanitize_pdf_string(&line);
-            layer.use_text(&safe_line, 10.0, Mm(MARGIN), Mm(y), &font);
+            write_line(&mut ops, &safe_line, BuiltinFont::Helvetica, 10.0, y);
             y -= LINE_H;
-            if y < MARGIN {
-                let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Layer");
-                layer = doc.get_page(p).get_layer(l);
-                y = PAGE_H - MARGIN;
-            }
+            ensure_page_space(&mut pages, &mut ops, &mut y);
         }
 
-        // Gap between messages.
         y -= LINE_H * 0.5;
-        if y < MARGIN {
-            let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Layer");
-            layer = doc.get_page(p).get_layer(l);
-            y = PAGE_H - MARGIN;
-        }
+        ensure_page_space(&mut pages, &mut ops, &mut y);
     }
 
-    doc.save_to_bytes()
-        .map_err(|e| format!("PDF save error: {e}"))
+    pages.push(finish_page(ops));
+    let bytes = doc
+        .with_pages(pages)
+        .save(&PdfSaveOptions::default(), &mut Vec::new());
+    Ok(bytes)
+}
+
+fn start_page_ops() -> Vec<Op> {
+    vec![Op::StartTextSection]
+}
+
+fn finish_page(mut ops: Vec<Op>) -> PdfPage {
+    ops.push(Op::EndTextSection);
+    PdfPage::new(Mm(PAGE_W), Mm(PAGE_H), ops)
+}
+
+fn ensure_page_space(pages: &mut Vec<PdfPage>, ops: &mut Vec<Op>, y: &mut f32) {
+    if *y >= MARGIN {
+        return;
+    }
+    pages.push(finish_page(std::mem::take(ops)));
+    *ops = start_page_ops();
+    *y = PAGE_H - MARGIN;
+}
+
+fn write_line(ops: &mut Vec<Op>, text: &str, font: BuiltinFont, size: f32, y: f32) {
+    ops.push(Op::SetTextCursor {
+        pos: Point::new(Mm(MARGIN), Mm(y)),
+    });
+    ops.push(Op::SetFont {
+        font: PdfFontHandle::Builtin(font),
+        size: Pt(size),
+    });
+    ops.push(Op::ShowText {
+        items: vec![TextItem::Text(text.to_string())],
+    });
 }
 
 /// Replace non-Latin-1 characters with `?` so Helvetica can render them.
@@ -195,4 +205,32 @@ fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
         }
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use orka_core::{
+        Conversation, ConversationId, ConversationMessage, ConversationMessageRole, MessageId,
+        SessionId,
+    };
+
+    use super::*;
+
+    #[test]
+    fn export_pdf_emits_pdf_header() {
+        let conversation = Conversation::new(ConversationId::new(), SessionId::new(), "user", "Hi");
+        let messages = [ConversationMessage::new(
+            MessageId::new(),
+            conversation.id,
+            conversation.session_id,
+            ConversationMessageRole::User,
+            "hello",
+        )];
+        let bytes = export_pdf(&conversation, &messages).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            bytes.starts_with(b"%PDF"),
+            "expected PDF magic, got {} bytes",
+            bytes.len()
+        );
+    }
 }

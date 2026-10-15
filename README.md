@@ -187,8 +187,9 @@ the current parser.
 
 [#49](https://github.com/gianlucamazza/orka/pull/49) pinned wasmtime / wasmtime-wasi
 to **49.0.2**. The twelve RustSec advisories that affected **42.0.2** (and
-earlier Orka checkouts) are **fixed** in that release; `cargo audit` on this
-tree reports no wasmtime vulnerabilities. `sandbox.backend = "wasm"` still
+earlier Orka checkouts) are **fixed** in that release. **49.0.3** patches the
+later wasmtime advisories from 14 Oct 2026; `cargo audit` on this tree reports
+no wasmtime vulnerabilities. `sandbox.backend = "wasm"` still
 accepts caller-supplied base64 modules, and `plugins.dir` still loads local
 `*.wasm` files with no signature check — only enable those paths for modules
 you trust. The stock config (`sandbox.backend = "process"`, `plugins.dir`
