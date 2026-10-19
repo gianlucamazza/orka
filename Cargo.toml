@@ -223,7 +223,7 @@ open = "5"
 cap-std = "4"
 wasmtime = { version = "49.0.3", features = ["component-model"] }
 wasmtime-wasi = { version = "49.0.3", default-features = false, features = ["p1", "p2"] }
-wit-bindgen = "0.62"
+wit-bindgen = "0.63"
 
 # JWT — v11 requires exactly one crypto backend. rust_crypto pulls the
 # unfixed `rsa` crate (RUSTSEC-2023-0071 / Marvin). aws_lc_rs uses AWS-LC
