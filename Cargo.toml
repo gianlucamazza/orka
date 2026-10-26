@@ -221,8 +221,8 @@ open = "5"
 
 # WASM
 cap-std = "4"
-wasmtime = { version = "49.0.3", features = ["component-model"] }
-wasmtime-wasi = { version = "49.0.3", default-features = false, features = ["p1", "p2"] }
+wasmtime = { version = "50.0.0", features = ["component-model"] }
+wasmtime-wasi = { version = "50.0.0", default-features = false, features = ["p1", "p2"] }
 wit-bindgen = "0.63"
 
 # JWT — v11 requires exactly one crypto backend. rust_crypto pulls the
@@ -246,7 +246,7 @@ tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 
 # Web scraping
-scraper = "0.27"
+scraper = "0.29"
 
 # Metrics
 metrics = "0.24"
