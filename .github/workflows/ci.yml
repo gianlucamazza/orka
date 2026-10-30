@@ -55,9 +55,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: dtolnay/rust-toolchain@nightly
+      # .rustfmt.toml uses unstable options (imports_granularity,
+      # group_imports, wrap_comments, format_code_in_doc_comments), so
+      # rustfmt must be nightly — not stable. Pin a dated nightly: floating
+      # nightly rustfmt changed wrap_comments after 2026-10-15 and started
+      # wrapping decorative section banners. Do not float this pin.
+      - uses: dtolnay/rust-toolchain@nightly-2026-10-15
         with:
-          components: rustfmt,clippy
+          components: rustfmt
       - uses: mozilla-actions/sccache-action@v0.0.11
       - name: Configure sccache
         run: |
@@ -69,7 +74,7 @@ jobs:
         with:
           tool: cargo-audit,cargo-deny
       - name: Check formatting
-        run: cargo +nightly fmt --all -- --check
+        run: cargo +nightly-2026-10-15 fmt --all -- --check
       - name: Clippy
         run: cargo +stable clippy --workspace --all-targets
       - name: Security audit

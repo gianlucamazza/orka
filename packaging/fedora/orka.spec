@@ -32,12 +32,15 @@ export CARGO_PROFILE_RELEASE_LTO=false
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 export CARGO_BUILD_JOBS=2
 export CARGO_INCREMENTAL=0
-cargo build --release --locked --bin orka-server
-cargo build --release --locked --bin orka
+# One cargo invocation shares the target dir instead of starting a second
+# rustc session for the CLI after the server.
+cargo build --release --locked --bin orka-server --bin orka
 
 %install
 install -Dm755 target/release/orka-server %{buildroot}%{_bindir}/orka-server
 install -Dm755 target/release/orka %{buildroot}%{_bindir}/orka
+# Binaries are staged; drop cargo artifacts before rpm packaging/rpmlint.
+rm -rf target
 install -Dm644 deploy/orka-server.service %{buildroot}%{_unitdir}/orka-server.service
 sed -i 's|@BINDIR@|%{_bindir}|' %{buildroot}%{_unitdir}/orka-server.service
 install -Dm644 deploy/orka-server.sysusers %{buildroot}%{_sysusersdir}/orka-server.conf

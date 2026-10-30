@@ -27,13 +27,18 @@ test-all-features:
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
 
-# Check formatting (nightly required for unstable options in .rustfmt.toml)
-fmt-check:
-    cargo +nightly fmt --all -- --check
+# rustfmt.toml unstable options need nightly. Pin dated nightly-2026-10-15
+# (floating nightly wrap_comments started wrapping decorative banners).
+# rustup toolchain install nightly-2026-10-15 --component rustfmt
+rustfmt_toolchain := "nightly-2026-10-15"
 
-# Auto-format all code (nightly required for unstable options in .rustfmt.toml)
+# Check formatting
+fmt-check:
+    cargo +{{rustfmt_toolchain}} fmt --all -- --check
+
+# Auto-format all code
 fmt:
-    cargo +nightly fmt --all
+    cargo +{{rustfmt_toolchain}} fmt --all
 
 # Start infra (Redis + Qdrant only, no server)
 infra:
