@@ -1,8 +1,9 @@
 # rustfmt configuration for the orka workspace
 #
 # Unstable options below require nightly rustfmt. CI, just fmt, and
-# pre-commit pin rustfmt to nightly-2026-10-15 (last green main before
-# floating nightly wrap_comments started wrapping decorative banners).
+# pre-commit pin rustfmt via RUSTFMT_TOOLCHAIN (default nightly-2026-10-15,
+# last green main before floating nightly wrap_comments started wrapping
+# decorative banners).
 
 # Use Field init shorthand if possible
 use_field_init_shorthand = true

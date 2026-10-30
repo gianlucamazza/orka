@@ -27,10 +27,10 @@ test-all-features:
 clippy:
     cargo clippy --workspace --all-targets -- -D warnings
 
-# rustfmt.toml unstable options need nightly. Pin dated nightly-2026-10-15
-# (floating nightly wrap_comments started wrapping decorative banners).
-# rustup toolchain install nightly-2026-10-15 --component rustfmt
-rustfmt_toolchain := "nightly-2026-10-15"
+# rustfmt.toml unstable options need nightly. Same pin as CI
+# RUSTFMT_TOOLCHAIN (floating nightly wrap_comments started wrapping
+# decorative banners). rustup toolchain install "$RUSTFMT_TOOLCHAIN" --component rustfmt
+rustfmt_toolchain := env_var_or_default("RUSTFMT_TOOLCHAIN", "nightly-2026-10-15")
 
 # Check formatting
 fmt-check:

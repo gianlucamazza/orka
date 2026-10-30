@@ -1,10 +1,10 @@
 repos:
   - repo: local
     hooks:
-      # Same pin as CI/Justfile: nightly-2026-10-15 (see .rustfmt.toml).
+      # Same pin as CI RUSTFMT_TOOLCHAIN (see .rustfmt.toml).
       - id: cargo-fmt
         name: cargo fmt
-        entry: cargo +nightly-2026-10-15 fmt --all -- --check
+        entry: bash -c 'cargo +"${RUSTFMT_TOOLCHAIN:-nightly-2026-10-15}" fmt --all -- --check'
         language: system
         types: [rust]
         pass_filenames: false
