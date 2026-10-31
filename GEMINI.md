@@ -95,7 +95,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 # Formatting
 just fmt
 # OR
-cargo +nightly fmt --all
+cargo +nightly-2026-10-15 fmt --all
 ```
 
 ## Project Structure
