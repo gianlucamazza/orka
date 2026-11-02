@@ -24,6 +24,12 @@ ignore = [
   # which needs upstream bumps.
   "RUSTSEC-2026-0194",
   "RUSTSEC-2026-0195",
+  # zstd 0.13 via wasmtime-internal-cache (49.x and 50.x both require
+  # zstd ^0.13). Fixed only in zstd 0.14 / zstd-safe 8 / zstd-sys 2.1.
+  "RUSTSEC-2026-0391",
+  "RUSTSEC-2026-0398",
+  "RUSTSEC-2026-0403",
+  "RUSTSEC-2026-0410",
 ]
 
 [licenses]

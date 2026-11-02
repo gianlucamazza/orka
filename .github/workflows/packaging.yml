@@ -18,6 +18,11 @@ jobs:
   fedora:
     name: Packaging lint (Fedora)
     runs-on: ubuntu-latest
+    env:
+      # Free unused runner toolchains/images before the Fedora container
+      # build. Override locally with FEDORA_LINT_FREE_DISK=0, or set
+      # FEDORA_LINT_PRUNE_PATHS to a space-separated path list.
+      FEDORA_LINT_FREE_DISK: "1"
     steps:
       - uses: actions/checkout@v7
       - name: Build and lint Fedora package

@@ -9,6 +9,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
+  # Dated nightly for rustfmt only. .rustfmt.toml needs nightly for unstable
+  # options; floating nightly wrap_comments started wrapping decorative
+  # banners after 2026-10-15. Override locally with RUSTFMT_TOOLCHAIN.
+  RUSTFMT_TOOLCHAIN: nightly-2026-10-15
 
 jobs:
   commits:
@@ -55,9 +59,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: dtolnay/rust-toolchain@nightly
+      # Dated nightly is not an action tag (dtolnay/rust-toolchain@nightly-YYYY-MM-DD
+      # does not resolve). Install via toolchain input on @master instead.
+      - uses: dtolnay/rust-toolchain@master
         with:
-          components: rustfmt,clippy
+          toolchain: ${{ env.RUSTFMT_TOOLCHAIN }}
+          components: rustfmt
       - uses: mozilla-actions/sccache-action@v0.0.11
       - name: Configure sccache
         run: |
@@ -69,7 +76,7 @@ jobs:
         with:
           tool: cargo-audit,cargo-deny
       - name: Check formatting
-        run: cargo +nightly fmt --all -- --check
+        run: cargo +${{ env.RUSTFMT_TOOLCHAIN }} fmt --all -- --check
       - name: Clippy
         run: cargo +stable clippy --workspace --all-targets
       - name: Security audit
