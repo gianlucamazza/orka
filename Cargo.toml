@@ -221,8 +221,8 @@ open = "5"
 
 # WASM
 cap-std = "4"
-wasmtime = { version = "50.0.1", features = ["component-model"] }
-wasmtime-wasi = { version = "50.0.1", default-features = false, features = ["p1", "p2"] }
+wasmtime = { version = "49.0.5", features = ["component-model"] }
+wasmtime-wasi = { version = "49.0.5", default-features = false, features = ["p1", "p2"] }
 wit-bindgen = "0.63"
 
 # JWT — v11 requires exactly one crypto backend. rust_crypto pulls the
@@ -329,7 +329,7 @@ pulldown-cmark = "0.13"
 url = "2"
 
 # OS integration
-sysinfo = "0.40"
+sysinfo = "0.39"
 glob = "0.3"
 nix = { version = "0.31", features = ["signal", "resource"] }
 libc = "0.2"
