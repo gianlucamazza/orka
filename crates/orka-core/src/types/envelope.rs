@@ -256,8 +256,7 @@ impl From<crate::ParsedCommand> for CommandArgs {
             .raw
             .trim_start_matches('/')
             .split_once(char::is_whitespace)
-            .map(|(_, rest)| rest.trim().to_string())
-            .unwrap_or_default();
+            .map_or(String::new(), |(_, rest)| rest.trim().to_string());
         let raw = if raw_text.is_empty() {
             None
         } else {
