@@ -246,7 +246,7 @@ tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 
 # Web scraping
-scraper = "0.27"
+scraper = "0.29"
 
 # Metrics
 metrics = "0.24"
