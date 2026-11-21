@@ -17,9 +17,6 @@ ignore = [
   # tokio-tar: dev-only dependency via testcontainers; not present in
   # production binaries. No fixed version available upstream.
   "RUSTSEC-2025-0111",
-  # lopdf < 0.42 via printpdf 0.7 (held at 0.7; 0.12 rewrites the PDF API).
-  # pdf-extract is now 0.12 / lopdf 0.42.
-  "RUSTSEC-2026-0187",
   # quick-xml < 0.41 via syntect -> plist; fixed only in quick-xml 0.41,
   # which needs upstream bumps.
   "RUSTSEC-2026-0194",
